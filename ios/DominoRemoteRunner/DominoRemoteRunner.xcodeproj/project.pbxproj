@@ -1,0 +1,418 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+	5A2E00012C0AB12300ABCD01 /* DominoAppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E01022C0AB12300ABCD01 /* DominoAppDelegate.mm */; };
+	5A2E00022C0AB12300ABCD01 /* RemoteRunnerService.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E01042C0AB12300ABCD01 /* RemoteRunnerService.mm */; };
+	5A2E00032C0AB12300ABCD01 /* NetworkInfo.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E01062C0AB12300ABCD01 /* NetworkInfo.mm */; };
+	5A2E00042C0AB12300ABCD01 /* RunnerCanvasViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E01082C0AB12300ABCD01 /* RunnerCanvasViewController.mm */; };
+	5A2E00052C0AB12300ABCD01 /* RunnerSettingsViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E010A2C0AB12300ABCD01 /* RunnerSettingsViewController.mm */; };
+	5A2E00062C0AB12300ABCD01 /* RunnerUIHost.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E010C2C0AB12300ABCD01 /* RunnerUIHost.mm */; };
+	5A2E00072C0AB12300ABCD01 /* RemoteRunnerBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E010E2C0AB12300ABCD01 /* RemoteRunnerBridge.mm */; };
+	5A2E00082C0AB12300ABCD01 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5A2E010F2C0AB12300ABCD01 /* main.mm */; };
+	5A1FD6342B6B4F8F009A5C55 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5A1FD6252B6B4F8F009A5C55 /* Assets.xcassets */; };
+	5A1FD6352B6B4F8F009A5C55 /* domino-vm.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5A1FD6262B6B4F8F009A5C55 /* domino-vm.xcframework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+	5A1FD6132B6B4F8E009A5C55 /* DominoRemoteRunner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DominoRemoteRunner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+	5A1FD6202B6B4F8F009A5C55 /* DominoRemoteRunnerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DominoRemoteRunnerApp.swift; sourceTree = "<group>"; };
+	5A1FD6212B6B4F8F009A5C55 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+	5A1FD6222B6B4F8F009A5C55 /* RemoteRunnerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRunnerService.swift; sourceTree = "<group>"; };
+	5A1FD6232B6B4F8F009A5C55 /* NetworkInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInfo.swift; sourceTree = "<group>"; };
+	5A1FD6242B6B4F8F009A5C55 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+	5A1FD6252B6B4F8F009A5C55 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+	5A1FD6262B6B4F8F009A5C55 /* domino-vm.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "domino-vm.xcframework"; path = "../../vm/build/xcframework/domino-vm.xcframework"; sourceTree = "<group>"; };
+	5A2E01012C0AB12300ABCD01 /* DominoAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DominoAppDelegate.h; sourceTree = "<group>"; };
+	5A2E01022C0AB12300ABCD01 /* DominoAppDelegate.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DominoAppDelegate.mm; sourceTree = "<group>"; };
+	5A2E01032C0AB12300ABCD01 /* RemoteRunnerService.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RemoteRunnerService.h; sourceTree = "<group>"; };
+	5A2E01042C0AB12300ABCD01 /* RemoteRunnerService.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RemoteRunnerService.mm; sourceTree = "<group>"; };
+	5A2E01052C0AB12300ABCD01 /* NetworkInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkInfo.h; sourceTree = "<group>"; };
+	5A2E01062C0AB12300ABCD01 /* NetworkInfo.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = NetworkInfo.mm; sourceTree = "<group>"; };
+	5A2E01072C0AB12300ABCD01 /* RunnerCanvasViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RunnerCanvasViewController.h; sourceTree = "<group>"; };
+	5A2E01082C0AB12300ABCD01 /* RunnerCanvasViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RunnerCanvasViewController.mm; sourceTree = "<group>"; };
+	5A2E01092C0AB12300ABCD01 /* RunnerSettingsViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RunnerSettingsViewController.h; sourceTree = "<group>"; };
+	5A2E010A2C0AB12300ABCD01 /* RunnerSettingsViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RunnerSettingsViewController.mm; sourceTree = "<group>"; };
+	5A2E010B2C0AB12300ABCD01 /* RunnerUIHost.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RunnerUIHost.h; sourceTree = "<group>"; };
+	5A2E010C2C0AB12300ABCD01 /* RunnerUIHost.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RunnerUIHost.mm; sourceTree = "<group>"; };
+	5A2E010D2C0AB12300ABCD01 /* RemoteRunnerBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RemoteRunnerBridge.h; sourceTree = "<group>"; };
+	5A2E010E2C0AB12300ABCD01 /* RemoteRunnerBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RemoteRunnerBridge.mm; sourceTree = "<group>"; };
+	5A2E010F2C0AB12300ABCD01 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+	5A1FD6112B6B4F8E009A5C55 /* Frameworks */ = {
+		isa = PBXFrameworksBuildPhase;
+		buildActionMask = 2147483647;
+		files = (
+			5A1FD6352B6B4F8F009A5C55 /* domino-vm.xcframework in Frameworks */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+	};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+	5A1FD6012B6B4F8E009A5C55 = {
+		isa = PBXGroup;
+		children = (
+			5A1FD6262B6B4F8F009A5C55 /* domino-vm.xcframework */,
+			5A1FD6032B6B4F8E009A5C55 /* DominoRemoteRunner */,
+			5A1FD6042B6B4F8E009A5C55 /* Products */,
+		);
+		sourceTree = "<group>";
+	};
+	5A1FD6032B6B4F8E009A5C55 /* DominoRemoteRunner */ = {
+		isa = PBXGroup;
+		children = (
+			5A2E01202C0AB12300ABCD01 /* Objective-C++ */,
+			5A1FD6202B6B4F8F009A5C55 /* DominoRemoteRunnerApp.swift */,
+			5A1FD6212B6B4F8F009A5C55 /* ContentView.swift */,
+			5A1FD6222B6B4F8F009A5C55 /* RemoteRunnerService.swift */,
+			5A1FD6232B6B4F8F009A5C55 /* NetworkInfo.swift */,
+			5A1FD6252B6B4F8F009A5C55 /* Assets.xcassets */,
+			5A1FD6242B6B4F8F009A5C55 /* Info.plist */,
+		);
+		path = DominoRemoteRunner;
+		sourceTree = "<group>";
+	};
+	5A2E01202C0AB12300ABCD01 /* Objective-C++ */ = {
+		isa = PBXGroup;
+		children = (
+			5A2E01012C0AB12300ABCD01 /* DominoAppDelegate.h */,
+			5A2E01022C0AB12300ABCD01 /* DominoAppDelegate.mm */,
+			5A2E01032C0AB12300ABCD01 /* RemoteRunnerService.h */,
+			5A2E01042C0AB12300ABCD01 /* RemoteRunnerService.mm */,
+			5A2E01052C0AB12300ABCD01 /* NetworkInfo.h */,
+			5A2E01062C0AB12300ABCD01 /* NetworkInfo.mm */,
+			5A2E01072C0AB12300ABCD01 /* RunnerCanvasViewController.h */,
+			5A2E01082C0AB12300ABCD01 /* RunnerCanvasViewController.mm */,
+			5A2E01092C0AB12300ABCD01 /* RunnerSettingsViewController.h */,
+			5A2E010A2C0AB12300ABCD01 /* RunnerSettingsViewController.mm */,
+			5A2E010B2C0AB12300ABCD01 /* RunnerUIHost.h */,
+			5A2E010C2C0AB12300ABCD01 /* RunnerUIHost.mm */,
+			5A2E010D2C0AB12300ABCD01 /* RemoteRunnerBridge.h */,
+			5A2E010E2C0AB12300ABCD01 /* RemoteRunnerBridge.mm */,
+			5A2E010F2C0AB12300ABCD01 /* main.mm */,
+		);
+		name = "Objective-C++";
+		sourceTree = "<group>";
+	};
+	5A1FD6042B6B4F8E009A5C55 /* Products */ = {
+		isa = PBXGroup;
+		children = (
+			5A1FD6132B6B4F8E009A5C55 /* DominoRemoteRunner.app */,
+		);
+		name = Products;
+		sourceTree = "<group>";
+	};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+	5A1FD6062B6B4F8E009A5C55 /* DominoRemoteRunner */ = {
+		isa = PBXNativeTarget;
+		buildConfigurationList = 5A1FD60A2B6B4F8E009A5C55 /* Build configuration list for PBXNativeTarget "DominoRemoteRunner" */;
+		buildPhases = (
+			5A1FD6102B6B4F8E009A5C55 /* Sources */,
+			5A1FD6112B6B4F8E009A5C55 /* Frameworks */,
+			5A1FD6122B6B4F8E009A5C55 /* Resources */,
+		);
+		buildRules = (
+		);
+		dependencies = (
+		);
+		name = DominoRemoteRunner;
+		productName = DominoRemoteRunner;
+		productReference = 5A1FD6132B6B4F8E009A5C55 /* DominoRemoteRunner.app */;
+		productType = "com.apple.product-type.application";
+	};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+	5A1FD6002B6B4F8E009A5C55 /* Project object */ = {
+		isa = PBXProject;
+		attributes = {
+			BuildIndependentTargetsInParallel = YES;
+			LastUpgradeCheck = 1500;
+			TargetAttributes = {
+				5A1FD6062B6B4F8E009A5C55 = {
+					CreatedOnToolsVersion = 15.0;
+				};
+			};
+		};
+		buildConfigurationList = 5A1FD6072B6B4F8E009A5C55 /* Build configuration list for PBXProject "DominoRemoteRunner" */;
+		compatibilityVersion = "Xcode 14.0";
+		developmentRegion = en;
+		hasScannedForEncodings = 0;
+		knownRegions = (
+			en,
+			Base,
+		);
+		mainGroup = 5A1FD6012B6B4F8E009A5C55;
+		productRefGroup = 5A1FD6042B6B4F8E009A5C55 /* Products */;
+		projectDirPath = "";
+		projectRoot = "";
+		targets = (
+			5A1FD6062B6B4F8E009A5C55 /* DominoRemoteRunner */,
+		);
+	};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+	5A1FD6122B6B4F8E009A5C55 /* Resources */ = {
+		isa = PBXResourcesBuildPhase;
+		buildActionMask = 2147483647;
+		files = (
+			5A1FD6342B6B4F8F009A5C55 /* Assets.xcassets in Resources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+	};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+	5A1FD6102B6B4F8E009A5C55 /* Sources */ = {
+		isa = PBXSourcesBuildPhase;
+		buildActionMask = 2147483647;
+		files = (
+			5A2E00012C0AB12300ABCD01 /* DominoAppDelegate.mm in Sources */,
+			5A2E00022C0AB12300ABCD01 /* RemoteRunnerService.mm in Sources */,
+			5A2E00032C0AB12300ABCD01 /* NetworkInfo.mm in Sources */,
+			5A2E00042C0AB12300ABCD01 /* RunnerCanvasViewController.mm in Sources */,
+			5A2E00052C0AB12300ABCD01 /* RunnerSettingsViewController.mm in Sources */,
+			5A2E00062C0AB12300ABCD01 /* RunnerUIHost.mm in Sources */,
+			5A2E00072C0AB12300ABCD01 /* RemoteRunnerBridge.mm in Sources */,
+			5A2E00082C0AB12300ABCD01 /* main.mm in Sources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+	};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+	5A1FD6082B6B4F8E009A5C55 /* Debug */ = {
+		isa = XCBuildConfiguration;
+		buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+			CLANG_ANALYZER_NONNULL = YES;
+			CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+			CLANG_ENABLE_MODULES = YES;
+			CLANG_ENABLE_OBJC_ARC = YES;
+			CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+			CLANG_WARN_BOOL_CONVERSION = YES;
+			CLANG_WARN_COMMA = YES;
+			CLANG_WARN_CONSTANT_CONVERSION = YES;
+			CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+			CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+			CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+			CLANG_WARN_EMPTY_BODY = YES;
+			CLANG_WARN_ENUM_CONVERSION = YES;
+			CLANG_WARN_INFINITE_RECURSION = YES;
+			CLANG_WARN_INT_CONVERSION = YES;
+			CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+			CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+			CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+			CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+			CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+			CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+			CLANG_WARN_STRICT_PROTOTYPES = YES;
+			CLANG_WARN_SUSPICIOUS_MOVE = YES;
+			CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+			CODE_SIGNING_ALLOWED = NO;
+			DEBUG_INFORMATION_FORMAT = dwarf;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			ENABLE_TESTABILITY = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu11;
+			GCC_DYNAMIC_NO_PIC = NO;
+			GCC_NO_COMMON_BLOCKS = YES;
+			GCC_OPTIMIZATION_LEVEL = 0;
+			GCC_PREPROCESSOR_DEFINITIONS = (
+				"DEBUG=1",
+				"$(inherited)",
+			);
+			GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+			GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+			GCC_WARN_UNDECLARED_SELECTOR = YES;
+			GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+			GCC_WARN_UNUSED_FUNCTION = YES;
+			GCC_WARN_UNUSED_VARIABLE = YES;
+			IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+			MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+			ONLY_ACTIVE_ARCH = YES;
+			SDKROOT = iphoneos;
+			SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+			SWIFT_VERSION = 5.0;
+		};
+		name = Debug;
+	};
+	5A1FD6092B6B4F8E009A5C55 /* Release */ = {
+		isa = XCBuildConfiguration;
+		buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+			CLANG_ANALYZER_NONNULL = YES;
+			CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+			CLANG_ENABLE_MODULES = YES;
+			CLANG_ENABLE_OBJC_ARC = YES;
+			CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+			CLANG_WARN_BOOL_CONVERSION = YES;
+			CLANG_WARN_COMMA = YES;
+			CLANG_WARN_CONSTANT_CONVERSION = YES;
+			CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+			CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+			CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+			CLANG_WARN_EMPTY_BODY = YES;
+			CLANG_WARN_ENUM_CONVERSION = YES;
+			CLANG_WARN_INFINITE_RECURSION = YES;
+			CLANG_WARN_INT_CONVERSION = YES;
+			CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+			CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+			CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+			CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+			CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+			CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+			CLANG_WARN_STRICT_PROTOTYPES = YES;
+			CLANG_WARN_SUSPICIOUS_MOVE = YES;
+			CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+			CODE_SIGNING_ALLOWED = NO;
+			DEBUG_INFORMATION_FORMAT = dwarf;
+			ENABLE_NS_ASSERTIONS = NO;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu11;
+			GCC_NO_COMMON_BLOCKS = YES;
+			GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+			GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+			GCC_WARN_UNDECLARED_SELECTOR = YES;
+			GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+			GCC_WARN_UNUSED_FUNCTION = YES;
+			GCC_WARN_UNUSED_VARIABLE = YES;
+			IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+			MTL_ENABLE_DEBUG_INFO = NO;
+			SDKROOT = iphoneos;
+			SWIFT_COMPILATION_MODE = wholemodule;
+			SWIFT_OPTIMIZATION_LEVEL = "-O";
+			SWIFT_VERSION = 5.0;
+		};
+		name = Release;
+	};
+	5A1FD60B2B6B4F8E009A5C55 /* Debug */ = {
+		isa = XCBuildConfiguration;
+		buildSettings = {
+			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+			CODE_SIGN_STYLE = Automatic;
+			CURRENT_PROJECT_VERSION = 1;
+			DEVELOPMENT_TEAM = "";
+			FRAMEWORK_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/build/xcframework",
+			);
+			GENERATE_INFOPLIST_FILE = NO;
+			HEADER_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/include",
+			);
+			INFOPLIST_FILE = DominoRemoteRunner/Info.plist;
+			INFOPLIST_KEY_CFBundleDisplayName = "Domino Remote Runner";
+			INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+			IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+			LD_RUNPATH_SEARCH_PATHS = (
+				"$(inherited)",
+				"@executable_path/Frameworks",
+			);
+			LIBRARY_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/build/xcframework/domino-vm.xcframework/ios-arm64",
+				"$(PROJECT_DIR)/../../vm/build/xcframework/domino-vm.xcframework/ios-arm64_x86_64-simulator",
+			);
+			MARKETING_VERSION = 1.0;
+			OTHER_LDFLAGS = (
+				"$(inherited)",
+				"-framework",
+				UIKit,
+				"-framework",
+				Foundation,
+			);
+			PRODUCT_BUNDLE_IDENTIFIER = com.domino.remote.runner;
+			PRODUCT_NAME = "$(TARGET_NAME)";
+			SUPPORTS_MACCATALYST = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			SWIFT_VERSION = 5.0;
+			TARGETED_DEVICE_FAMILY = "1,2";
+		};
+		name = Debug;
+	};
+	5A1FD60C2B6B4F8E009A5C55 /* Release */ = {
+		isa = XCBuildConfiguration;
+		buildSettings = {
+			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+			CODE_SIGN_STYLE = Automatic;
+			CURRENT_PROJECT_VERSION = 1;
+			DEVELOPMENT_TEAM = "";
+			FRAMEWORK_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/build/xcframework",
+			);
+			GENERATE_INFOPLIST_FILE = NO;
+			HEADER_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/include",
+			);
+			INFOPLIST_FILE = DominoRemoteRunner/Info.plist;
+			INFOPLIST_KEY_CFBundleDisplayName = "Domino Remote Runner";
+			INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+			IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+			LD_RUNPATH_SEARCH_PATHS = (
+				"$(inherited)",
+				"@executable_path/Frameworks",
+			);
+			LIBRARY_SEARCH_PATHS = (
+				"$(inherited)",
+				"$(PROJECT_DIR)/../../vm/build/xcframework/domino-vm.xcframework/ios-arm64",
+				"$(PROJECT_DIR)/../../vm/build/xcframework/domino-vm.xcframework/ios-arm64_x86_64-simulator",
+			);
+			MARKETING_VERSION = 1.0;
+			OTHER_LDFLAGS = (
+				"$(inherited)",
+				"-framework",
+				UIKit,
+				"-framework",
+				Foundation,
+			);
+			PRODUCT_BUNDLE_IDENTIFIER = com.domino.remote.runner;
+			PRODUCT_NAME = "$(TARGET_NAME)";
+			SUPPORTS_MACCATALYST = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			SWIFT_VERSION = 5.0;
+			TARGETED_DEVICE_FAMILY = "1,2";
+		};
+		name = Release;
+	};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+	5A1FD6072B6B4F8E009A5C55 /* Build configuration list for PBXProject "DominoRemoteRunner" */ = {
+		isa = XCConfigurationList;
+		buildConfigurations = (
+			5A1FD6082B6B4F8E009A5C55 /* Debug */,
+			5A1FD6092B6B4F8E009A5C55 /* Release */,
+		);
+		defaultConfigurationIsVisible = 0;
+		defaultConfigurationName = Release;
+	};
+	5A1FD60A2B6B4F8E009A5C55 /* Build configuration list for PBXNativeTarget "DominoRemoteRunner" */ = {
+		isa = XCConfigurationList;
+		buildConfigurations = (
+			5A1FD60B2B6B4F8E009A5C55 /* Debug */,
+			5A1FD60C2B6B4F8E009A5C55 /* Release */,
+		);
+		defaultConfigurationIsVisible = 0;
+		defaultConfigurationName = Release;
+	};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 5A1FD6002B6B4F8E009A5C55 /* Project object */;
+}

@@ -1,0 +1,393 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Doof",
+    "scopeName": "source.doof",
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#numbers"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#types"
+        },
+        {
+            "include": "#operators"
+        },
+        {
+            "include": "#functions"
+        },
+        {
+            "include": "#classes"
+        },
+        {
+            "include": "#variables"
+        },
+        {
+            "include": "#punctuation"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.doof",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.doof",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "template-substitution-element": {
+            "name": "meta.template.expression.doof",
+            "begin": "\\$\\{",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.begin.doof" }
+            },
+            "end": "\\}",
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.end.doof" }
+            },
+            "contentName": "meta.embedded.line.doof"
+        },
+        "expression": {
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#strings"
+                },
+                {
+                    "include": "#numbers"
+                },
+                {
+                    "include": "#keywords"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#operators"
+                },
+                {
+                    "include": "#functions"
+                },
+                {
+                    "include": "#variables"
+                },
+                {
+                    "include": "#punctuation"
+                },
+                {
+                    "name": "meta.group.doof",
+                    "begin": "\\(",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.group.begin.doof"
+                        }
+                    },
+                    "end": "\\)",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.group.end.doof"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#expression"
+                        }
+                    ]
+                }
+            ]
+        },
+        "string-character-escape": {
+            "name": "constant.character.escape.doof",
+            "match": "\\\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|u\\{[0-9A-Fa-f]+\\}|[0-2][0-7]{0,2}|3[0-6][0-7]?|37[0-7]?|[4-7][0-7]?|.|$)"
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.template.backtick.doof",
+                    "begin": "`",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.doof"
+                        }
+                    },
+                    "end": "`",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.doof"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-character-escape"
+                        },
+                        {
+                            "include": "#template-substitution-element"
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.double.doof",
+                    "begin": "\"",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.doof"
+                        }
+                    },
+                    "end": "\"",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.doof"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-character-escape"
+                        },
+                        {
+                            "include": "#template-substitution-element"
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.single.doof",
+                    "begin": "'",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.doof"
+                        }
+                    },
+                    "end": "'",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.doof"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-character-escape"
+                        }
+                    ]
+                }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.decimal.doof",
+                    "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+                },
+                {
+                    "name": "constant.numeric.hex.doof",
+                    "match": "\\b0[xX][0-9a-fA-F]+\\b"
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.doof",
+                    "match": "\\b(if|else|for|while|do|break|continue|return|switch|case|default)\\b"
+                },
+                {
+                    "name": "keyword.declaration.doof",
+                    "match": "\\b(let|const|readonly|function|extern|export|import|from|static|private|weak|type|interface|escaping)\\b"
+                },
+                {
+                    "name": "keyword.operator.new.doof",
+                    "match": "\\b(new)\\b"
+                },
+                {
+                    "name": "constant.language.boolean.doof",
+                    "match": "\\b(true|false)\\b"
+                },
+                {
+                    "name": "constant.language.null.doof",
+                    "match": "\\b(null)\\b"
+                },
+                {
+                    "name": "keyword.other.doof",
+                    "match": "\\b(this|of|in|is|extends)\\b"
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "name": "storage.type.primitive.doof",
+                    "match": "\\b(int|float|double|bool|char|string|void)\\b"
+                },
+                {
+                    "name": "storage.type.collection.doof",
+                    "match": "\\b(Array|Map|Set)\\b"
+                },
+                {
+                    "name": "storage.type.user.doof",
+                    "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.increment-decrement.doof",
+                    "match": "(\\+\\+|\\-\\-)"
+                },
+                {
+                    "name": "keyword.operator.comparison.doof",
+                    "match": "(==|!=|<=|>=|<|>)"
+                },
+                {
+                    "name": "keyword.operator.logical.doof",
+                    "match": "(&&|\\|\\||!)"
+                },
+                {
+                    "name": "keyword.operator.null-safety.doof",
+                    "match": "(\\?\\?|\\?\\.)"
+                },
+                {
+                    "name": "keyword.operator.assignment.doof",
+                    "match": "(\\+=|\\-=|\\*=|\\/=|%=|=)"
+                },
+                {
+                    "name": "keyword.operator.bitwise.doof",
+                    "match": "(<<|>>|&|\\||\\^|~)"
+                },
+                {
+                    "name": "keyword.operator.arithmetic.doof",
+                    "match": "(\\+|\\-|\\*|\\/|%)"
+                },
+                {
+                    "name": "keyword.operator.range.doof",
+                    "match": "(\\.\\.<|\\.\\.)"
+                },
+                {
+                    "name": "keyword.operator.lambda.doof",
+                    "match": "=>"
+                },
+                {
+                    "name": "keyword.operator.ternary.doof",
+                    "match": "\\?"
+                },
+                {
+                    "name": "keyword.operator.member.doof",
+                    "match": "\\."
+                },
+                {
+                    "name": "punctuation.separator.colon.doof",
+                    "match": ":"
+                }
+            ]
+        },
+        "functions": {
+            "patterns": [
+                {
+                    "name": "meta.function.doof",
+                    "begin": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "keyword.declaration.function.doof"
+                        },
+                        "2": {
+                            "name": "entity.name.function.doof"
+                        }
+                    },
+                    "end": "\\)",
+                    "patterns": [
+                        {
+                            "include": "#function-parameters"
+                        }
+                    ]
+                }            ]
+        },
+        "function-parameters": {
+            "patterns": [
+                {
+                    "name": "variable.parameter.doof",
+                    "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#punctuation"
+                }
+            ]
+        },
+        "classes": {
+            "patterns": [
+                {
+                    "name": "meta.class.doof",
+                    "begin": "\\b(extern\\s+)?(class|enum|interface)\\s+([A-Z][a-zA-Z0-9_]*)",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "keyword.declaration.extern.doof"
+                        },
+                        "2": {
+                            "name": "keyword.declaration.class.type.doof"
+                        },
+                        "3": {
+                            "name": "entity.name.type.class.doof"
+                        }
+                    },
+                    "end": "(?<=\\})|(?=;)",
+                    "patterns": [
+                        {
+                            "include": "$self"
+                        }
+                    ]
+                }
+            ]
+        },
+        "variables": {
+            "patterns": [
+                {
+                    "name": "variable.other.constant.doof",
+                    "match": "\\b[A-Z][A-Z0-9_]*\\b"
+                },
+                {
+                    "name": "variable.other.doof",
+                    "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "name": "punctuation.separator.comma.doof",
+                    "match": ","
+                },
+                {
+                    "name": "punctuation.terminator.statement.doof",
+                    "match": ";"
+                },
+                {
+                    "name": "punctuation.definition.block.doof",
+                    "match": "[{}]"
+                },
+                {
+                    "name": "punctuation.definition.array.doof",
+                    "match": "[\\[\\]]"
+                },
+                {
+                    "name": "punctuation.definition.parameters.doof",
+                    "match": "[()]"
+                }
+            ]
+        }
+    }
+}

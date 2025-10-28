@@ -1,0 +1,7 @@
+# Generated files
+generated/
+*.vmbc
+
+# Logs and temporary files
+*.log
+.DS_Store

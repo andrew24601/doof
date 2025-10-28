@@ -1,0 +1,5 @@
+{
+  "expectPanic": true,
+  "panicMessage": "panic: Division by zero error",
+  "expectedExitCode": 1
+}

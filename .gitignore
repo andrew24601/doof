@@ -1,0 +1,16 @@
+node_modules/
+# Compiled output
+dist/
+out/
+build/
+coverage/
+temp/
+*.dSym
+*.vsix
+.swiftpm
+json-runner
+build_ios
+*.xcuserstate
+.vscode-test
+xcuserdata
+.DS_Store

@@ -1,0 +1,158 @@
+{
+  "commands": [
+    {
+      "command": "doof.compile",
+      "title": "Compile to Bytecode",
+      "category": "Doof"
+    },
+    {
+      "command": "doof.debug",
+      "title": "Debug Doof File",
+      "category": "Doof"
+    },
+    {
+      "command": "doof.createLaunchConfig",
+      "title": "Create Launch Configuration",
+      "category": "Doof"
+    },
+    {
+      "command": "doof.buildVM",
+      "title": "Build VM",
+      "category": "Doof"
+    }
+  ],
+  "menus": {
+    "explorer/context": [
+      {
+        "when": "resourceExtname == .do",
+        "command": "doof.compile",
+        "group": "doof"
+      },
+      {
+        "when": "resourceExtname == .do",
+        "command": "doof.debug",
+        "group": "doof"
+      }
+    ],
+    "editor/context": [
+      {
+        "when": "resourceExtname == .do",
+        "command": "doof.compile",
+        "group": "doof"
+      },
+      {
+        "when": "resourceExtname == .do",
+        "command": "doof.debug",
+        "group": "doof"
+      }
+    ],
+    "commandPalette": [
+      {
+        "command": "doof.createLaunchConfig",
+        "when": "workspaceHasFiles:.do"
+      },
+      {
+        "command": "doof.buildVM"
+      }
+    ]
+  },
+  "debuggers": [
+    {
+      "type": "doof",
+      "label": "Doof Debugger",
+      "languages": ["doof"],
+      "configurationAttributes": {
+        "launch": {
+          "required": ["program"],
+          "properties": {
+            "program": {
+              "type": "string",
+              "description": "Path to the Doof (.do) file to debug",
+              "default": "${file}"
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory for the program",
+              "default": "${workspaceFolder}"
+            },
+            "vmPath": {
+              "type": "string",
+              "description": "Path to the VM executable (json-runner)",
+              "default": "${workspaceFolder}/vm/build/json-runner"
+            },
+            "transpilerPath": {
+              "type": "string",
+              "description": "Path to the Doof transpiler",
+              "default": "${workspaceFolder}/src/cli.ts"
+            },
+            "verbose": {
+              "type": "boolean",
+              "description": "Enable verbose debugging output",
+              "default": false
+            },
+            "stopOnEntry": {
+              "type": "boolean",
+              "description": "Automatically stop after launch",
+              "default": true
+            }
+          }
+        },
+        "attach": {
+          "required": [],
+          "properties": {
+            "port": {
+              "type": "number",
+              "description": "Port to attach to",
+              "default": 4711
+            },
+            "host": {
+              "type": "string",
+              "description": "Host to attach to",
+              "default": "localhost"
+            }
+          }
+        }
+      },
+      "initialConfigurations": [
+        {
+          "type": "doof",
+          "request": "launch",
+          "name": "Debug Doof File",
+          "program": "${file}",
+          "cwd": "${workspaceFolder}",
+          "stopOnEntry": true
+        }
+      ],
+      "configurationSnippets": [
+        {
+          "label": "Doof: Launch",
+          "description": "A new configuration for debugging a Doof file",
+          "body": {
+            "type": "doof",
+            "request": "launch",
+            "name": "Debug Doof File",
+            "program": "^\"\\${file}\"",
+            "cwd": "^\"\\${workspaceFolder}\"",
+            "stopOnEntry": true
+          }
+        }
+      ]
+    }
+  ],
+  "taskDefinitions": [
+    {
+      "type": "doof",
+      "required": ["task"],
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "The Doof task to execute"
+        },
+        "file": {
+          "type": "string",
+          "description": "Path to the Doof file"
+        }
+      }
+    }
+  ]
+}

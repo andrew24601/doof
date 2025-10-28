@@ -1,0 +1,231 @@
+{
+    "Class": {
+        "prefix": "class",
+        "body": [
+            "class ${1:ClassName} {",
+            "\t${2:field}: ${3:int};",
+            "\t",
+            "\tconstructor(${4:param}: ${5:int}) {",
+            "\t\tthis.${2:field} = ${4:param};",
+            "\t}",
+            "\t",
+            "\t${6:method}(${7:param}: ${8:int}): ${9:void} {",
+            "\t\t$0",
+            "\t}",
+            "}"
+        ],
+        "description": "Create a new class"
+    },
+    "Struct": {
+        "prefix": "struct",
+        "body": [
+            "struct ${1:StructName} {",
+            "\t${2:field}: ${3:int};",
+            "\t${4:field2}: ${5:string};",
+            "}"
+        ],
+        "description": "Create a new struct"
+    },
+    "Function": {
+        "prefix": "function",
+        "body": [
+            "function ${1:functionName}(${2:param}: ${3:int}): ${4:void} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Create a new function"
+    },
+    "Enum": {
+        "prefix": "enum",
+        "body": [
+            "enum ${1:EnumName} {",
+            "\t${2:VALUE1} = \"${3:value1}\",",
+            "\t${4:VALUE2} = \"${5:value2}\"",
+            "}"
+        ],
+        "description": "Create a new enum"
+    },
+    "Exception": {
+        "prefix": "exception",
+        "body": [
+            "exception ${1:ExceptionName} {",
+            "\t${2:errorCode}: int;",
+            "}"
+        ],
+        "description": "Create a new exception"
+    },
+    "Import": {
+        "prefix": "import",
+        "body": [
+            "import { ${1:symbol} } from \"${2:./module}\";"
+        ],
+        "description": "Import statement"
+    },
+    "Export Function": {
+        "prefix": "export function",
+        "body": [
+            "export function ${1:functionName}(${2:param}: ${3:int}): ${4:void} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Export a function"
+    },
+    "Export Class": {
+        "prefix": "export class",
+        "body": [
+            "export class ${1:ClassName} {",
+            "\t${2:field}: ${3:int};",
+            "\t",
+            "\tconstructor(${4:param}: ${5:int}) {",
+            "\t\tthis.${2:field} = ${4:param};",
+            "\t}",
+            "}"
+        ],
+        "description": "Export a class"
+    },
+    "For Loop": {
+        "prefix": "for",
+        "body": [
+            "for (let ${1:i} = 0; ${1:i} < ${2:length}; ${1:i}++) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "For loop"
+    },
+    "For-of Loop": {
+        "prefix": "forof",
+        "body": [
+            "for (const ${1:item} of ${2:collection}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "For-of loop"
+    },
+    "For-of Map Loop": {
+        "prefix": "forofmap",
+        "body": [
+            "for (const (${1:key}, ${2:value}) of ${3:map}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "For-of loop for maps"
+    },
+    "If Statement": {
+        "prefix": "if",
+        "body": [
+            "if (${1:condition}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "If statement"
+    },
+    "If-Else Statement": {
+        "prefix": "ifelse",
+        "body": [
+            "if (${1:condition}) {",
+            "\t${2:// true case}",
+            "} else {",
+            "\t${3:// false case}",
+            "}"
+        ],
+        "description": "If-else statement"
+    },
+    "Switch Statement": {
+        "prefix": "switch",
+        "body": [
+            "switch (${1:value}) {",
+            "\tcase ${2:1}:",
+            "\t\t${3:// case 1}",
+            "\tcase ${4:2}, ${5:3}:",
+            "\t\t${6:// case 2 or 3}",
+            "\tdefault:",
+            "\t\t${7:// default case}",
+            "}"
+        ],
+        "description": "Switch statement"
+    },
+    "Try-Catch": {
+        "prefix": "try",
+        "body": [
+            "try {",
+            "\t${1:// code that might throw}",
+            "} catch (${2:e}) {",
+            "\t${3:// handle exception}",
+            "}"
+        ],
+        "description": "Try-catch block"
+    },
+    "Lambda": {
+        "prefix": "lambda",
+        "body": [
+            "(${1:param}: ${2:int}): ${3:int} => ${4:param * 2}"
+        ],
+        "description": "Lambda expression"
+    },
+    "Array Declaration": {
+        "prefix": "array",
+        "body": [
+            "let ${1:arr}: ${2:int}[] = [${3:1, 2, 3}];"
+        ],
+        "description": "Array declaration"
+    },
+    "Fixed Array Declaration": {
+        "prefix": "fixedarray",
+        "body": [
+            "let ${1:arr}: ${2:int}[${3:3}] = [${4:1, 2, 3}];"
+        ],
+        "description": "Fixed-size array declaration"
+    },
+    "Map Declaration": {
+        "prefix": "map",
+        "body": [
+            "let ${1:map}: Map<${2:string}, ${3:int}> = { ${4:\"key\"}: ${5:value} };"
+        ],
+        "description": "Map declaration"
+    },
+    "Set Declaration": {
+        "prefix": "set",
+        "body": [
+            "let ${1:set}: Set<${2:string}> = { ${3:\"item1\", \"item2\"} };"
+        ],
+        "description": "Set declaration"
+    },
+    "Object Literal": {
+        "prefix": "obj",
+        "body": [
+            "${1:ClassName} { ${2:field}: ${3:value} }"
+        ],
+        "description": "Object literal construction"
+    },
+    "Positional Object": {
+        "prefix": "objpos",
+        "body": [
+            "${1:ClassName}(${2:arg1}, ${3:arg2})"
+        ],
+        "description": "Positional object construction"
+    },
+    "Named Arguments": {
+        "prefix": "callnamed",
+        "body": [
+            "${1:functionName} {",
+            "\t${2:param1}: ${3:value1},",
+            "\t${4:param2}: ${5:value2}",
+            "};"
+        ],
+        "description": "Function call with named arguments"
+    },
+    "Pipe Operation": {
+        "prefix": "pipe",
+        "body": [
+            "${1:value} |> ${2:transform1} |> ${3:transform2}"
+        ],
+        "description": "Pipe operation"
+    },
+    "Println": {
+        "prefix": "println",
+        "body": [
+            "println(${1:\"Hello, world!\"});"
+        ],
+        "description": "Print line"
+    }
+}

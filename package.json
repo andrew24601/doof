@@ -1,0 +1,28 @@
+{
+  "name": "doof",
+  "version": "1.0.0",
+  "description": "Doof language",
+  "main": "dist/cli.js",
+  "scripts": {
+  "build": "esbuild src/cli.ts --bundle --platform=node --target=node20 --outfile=build/doof --format=esm && chmod +x build/doof",
+  "build:bin": "esbuild src/cli.ts --bundle --platform=node --target=node20 --outfile=build/doof --format=esm && chmod +x build/doof",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "transpile": "node dist/cli.js"
+  },
+  "keywords": [
+    "typescript",
+    "cpp",
+    "transpiler"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "@vitest/coverage-v8": "^3.2.4",
+    "esbuild": "^0.25.8",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

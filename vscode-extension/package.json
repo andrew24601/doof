@@ -1,0 +1,375 @@
+{
+  "name": "doof-language-support",
+  "displayName": "Doof Language Support",
+  "description": "Language support for the Doof programming language (.do files)",
+  "version": "0.0.1",
+  "publisher": "doof-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "doof",
+    "transpiler",
+    "c++",
+    "typescript-like"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "doof",
+        "aliases": [
+          "Doof",
+          "doof"
+        ],
+        "extensions": [
+          ".do"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "doof",
+        "scopeName": "source.doof",
+        "path": "./syntaxes/doof.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "doof.createLaunchConfig",
+        "title": "Create Launch Configuration",
+        "category": "Doof"
+      },
+      {
+        "command": "doof.buildVM",
+        "title": "Build VM",
+        "category": "Doof"
+      },
+      {
+        "command": "doof.debug",
+        "title": "Debug Doof Program",
+        "category": "Doof"
+      },
+      {
+        "command": "doof.validateWorkspace",
+        "title": "Validate Doof Workspace",
+        "category": "Doof"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "when": "resourceExtname == .do",
+          "command": "doof.debug",
+          "group": "doof"
+        }
+      ],
+      "editor/context": [
+        {
+          "when": "resourceExtname == .do",
+          "command": "doof.debug",
+          "group": "doof"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "doof.validateWorkspace",
+          "when": "workspaceHasFiles:.do"
+        }
+      ]
+    },
+    "semanticTokenTypes": [
+      {
+        "id": "templateString",
+        "superType": "string",
+        "description": "Template string literal"
+      },
+      {
+        "id": "interpolationExpression",
+        "superType": "variable",
+        "description": "Expression inside template string interpolation"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "interpolated",
+        "description": "Token appears inside template string interpolation"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "templateString": [
+            "string.template.doof"
+          ],
+          "interpolationExpression": [
+            "meta.embedded.expression.doof"
+          ]
+        }
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "doof"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "doof",
+        "label": "Doof Debug",
+        "languages": [
+          "doof"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to Doof file to debug",
+                "default": "${file}"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory",
+                "default": "${workspaceFolder}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch",
+                "default": true
+              },
+              "verbose": {
+                "type": "boolean",
+                "description": "Enable verbose output",
+                "default": false
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "remote"
+                ],
+                "description": "Debug mode: 'local' spawns VM locally, 'remote' connects to a running VM",
+                "default": "local"
+              },
+              "host": {
+                "type": "string",
+                "description": "Remote host to connect to (when mode is 'remote')",
+                "default": "127.0.0.1"
+              },
+              "port": {
+                "type": "number",
+                "description": "Remote port to connect to (when mode is 'remote')",
+                "default": 7777
+              },
+              "vmPath": {
+                "type": "string",
+                "description": "Path to VM executable (for local mode). If not specified, uses the bundled json-runner."
+              },
+              "transpilerPath": {
+                "type": "string",
+                "description": "Path to transpiler (optional, uses in-process transpiler by default)"
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "host",
+              "port"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "description": "Host to attach to",
+                "default": "localhost"
+              },
+              "port": {
+                "type": "number",
+                "description": "Port to attach to",
+                "default": 4711
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "doof",
+            "request": "launch",
+            "name": "Debug Doof File",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Doof: Launch",
+            "description": "A new configuration for debugging a Doof file",
+            "body": {
+              "type": "doof",
+              "request": "launch",
+              "name": "Debug Doof File",
+              "program": "${file}",
+              "cwd": "${workspaceFolder}",
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "Doof: Attach",
+            "description": "Attach to a running Doof VM",
+            "body": {
+              "type": "doof",
+              "request": "attach",
+              "name": "Attach to VM",
+              "host": "localhost",
+              "port": 4711
+            }
+          }
+        ]
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "doof",
+        "required": [
+          "task"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The Doof task to execute"
+          }
+        }
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Doof Extension Settings",
+      "properties": {
+        "doof.format.indentSize": {
+          "type": "number",
+          "description": "Number of spaces to use for indentation when formatting Doof files. Defaults to the editor tab size when unset.",
+          "default": 4,
+          "minimum": 1,
+          "scope": "resource"
+        },
+        "doof.format.maxLineLength": {
+          "type": "number",
+          "description": "Maximum line length before the formatter wraps Doof source constructs.",
+          "default": 100,
+          "minimum": 40,
+          "scope": "resource"
+        },
+        "doof.format.breakLongArrays": {
+          "type": "boolean",
+          "description": "Break long array literals across multiple lines when they exceed the configured line length.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.breakLongObjects": {
+          "type": "boolean",
+          "description": "Break long object literals across multiple lines when they exceed the configured line length.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.breakLongFunctionParameters": {
+          "type": "boolean",
+          "description": "Break long function parameter lists across multiple lines when they exceed the configured line length.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.alignObjectProperties": {
+          "type": "boolean",
+          "description": "Align object literal properties by the colon for improved readability.",
+          "default": false,
+          "scope": "resource"
+        },
+        "doof.format.insertSpaceAfterKeywords": {
+          "type": "boolean",
+          "description": "Insert a space after Doof keywords such as 'if' or 'while'.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.insertSpaceBeforeBlockBrace": {
+          "type": "boolean",
+          "description": "Insert a space before the opening brace of blocks.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.insertSpaceAfterComma": {
+          "type": "boolean",
+          "description": "Insert a space after commas in lists and parameter declarations.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.insertSpaceAroundBinaryOperators": {
+          "type": "boolean",
+          "description": "Insert spaces around binary operators.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.insertFinalNewline": {
+          "type": "boolean",
+          "description": "Ensure formatted Doof files end with a trailing newline.",
+          "default": true,
+          "scope": "resource"
+        },
+        "doof.format.trimTrailingWhitespace": {
+          "type": "boolean",
+          "description": "Remove trailing whitespace from each line when formatting Doof files.",
+          "default": true,
+          "scope": "resource"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "node ./out/vscode-extension/src/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.102.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "eslint": "^9.25.1",
+    "esbuild": "^0.25.3",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.8.3",
+    "@vscode/test-electron": "^2.5.2",
+    "mocha": "^10.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/doof-plugin.git"
+  },
+  "files": [
+    "dist/**",
+    "runtime/**",
+    "syntaxes/**",
+    "snippets/**",
+    "icons/**",
+    "language-configuration.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

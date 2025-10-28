@@ -1,0 +1,398 @@
+import { describe, it, expect } from 'vitest';
+import { Lexer } from '../src/parser/lexer.js';
+import { Parser } from '../src/parser/parser.js';
+import { Validator } from '../src/validation/validator.js';
+import { CppGenerator } from '../src/codegen/codegen.js';
+
+describe('Extern Class Constructor', () => {
+  function parseAndValidate(input: string) {
+    const lexer = new Lexer(input);
+    const tokens = lexer.tokenize();
+    const parser = new Parser(tokens);
+    const ast = parser.parse();
+    const validator = new Validator();
+    const validationContext = validator.validate(ast);
+    
+    // Combine parse errors and validation errors
+    const allErrors = [...(ast.errors || []), ...validationContext.errors];
+    
+    return { ast, errors: allErrors, validationContext };
+  }
+
+  function transpile(input: string) {
+    const { ast, validationContext } = parseAndValidate(input);
+    const codegen = new CppGenerator();
+    const { header, source } = codegen.generate(ast, 'test', validationContext);
+    return { header, source, errors: validationContext.errors };
+  }
+
+  describe('Parser', () => {
+    it('should parse extern class with constructor', () => {
+      const source = `
+        extern class MyClass {
+          field: int;
+          constructor(value: int);
+          doSomething(): void;
+        }
+      `;
+      
+      const { ast, errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+      expect(ast.body).toHaveLength(1);
+      expect(ast.body[0].kind).toBe('externClass');
+      
+      const externClass = ast.body[0] as any;
+      expect(externClass.name.name).toBe('MyClass');
+      expect(externClass.constructor).toBeDefined();
+      expect(externClass.constructor.parameters).toHaveLength(1);
+      expect(externClass.constructor.parameters[0].name.name).toBe('value');
+      expect(externClass.constructor.parameters[0].type.kind).toBe('primitive');
+    });
+
+    it('should parse extern class with multi-parameter constructor', () => {
+      const source = `
+        extern class ComplexClass {
+          constructor(name: string, value: int, flag: bool);
+        }
+      `;
+      
+      const { ast, errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+      
+      const externClass = ast.body[0] as any;
+      expect(externClass.constructor.parameters).toHaveLength(3);
+      expect(externClass.constructor.parameters[0].name.name).toBe('name');
+      expect(externClass.constructor.parameters[1].name.name).toBe('value');
+      expect(externClass.constructor.parameters[2].name.name).toBe('flag');
+    });
+
+    it('should parse extern class without constructor (backward compatibility)', () => {
+      const source = `
+        extern class LegacyClass {
+          field: int;
+          static create(): LegacyClass;
+        }
+      `;
+      
+      const { ast, errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+      
+      const externClass = ast.body[0] as any;
+      expect(externClass.constructor).toBeUndefined();
+    });
+
+    it('should reject multiple constructors in extern class', () => {
+      const source = `
+        extern class BadClass {
+          constructor(a: int);
+          constructor(b: string);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('can only have one constructor');
+    });
+
+    it('should reject static constructors', () => {
+      const source = `
+        extern class BadClass {
+          static constructor(a: int);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Constructors cannot be static');
+    });
+
+    it('should reject private constructors', () => {
+      const source = `
+        extern class BadClass {
+          private constructor(a: int);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Extern class constructors must be public');
+    });
+
+    it('should reject constructor with body', () => {
+      const source = `
+        extern class BadClass {
+          constructor(a: int) {
+            // This should fail in validation
+          }
+        }
+      `;
+      
+      // Note: This should be caught in validation since the parser 
+      // enforces semicolon syntax for extern methods/constructors
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      // Either parse error for missing semicolon or validation error for body
+      const hasExpectedError = errors.some(error => 
+        error.message.includes("Expected ';'") || 
+        error.message.includes("cannot have a body")
+      );
+      expect(hasExpectedError).toBe(true);
+    });
+  });
+
+  describe('Validation', () => {
+    it('should allow object literal construction with constructor', () => {
+      const source = `
+        extern class MyClass {
+          field: int;
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass{ value: 42 };
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should allow positional construction with constructor', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass(42);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should allow new operator with extern class constructor', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return new MyClass(42);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should validate constructor parameter types', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass{ value: "wrong type" };
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('not compatible');
+    });
+
+    it('should require all non-optional constructor parameters', () => {
+      const source = `
+        extern class MyClass {
+          constructor(name: string, value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass{ name: "test" }; // missing value
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Missing required constructor parameter');
+    });
+
+    it('should reject unknown properties in object literal', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass{ value: 42, unknown: "bad" };
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Unknown property');
+    });
+
+    it('should validate positional argument count', () => {
+      const source = `
+        extern class MyClass {
+          constructor(a: int, b: string);
+        }
+
+        function test(): MyClass {
+          return MyClass(42); // missing second argument
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Expected 2 arguments');
+    });
+
+    it('should prevent construction of extern classes without constructors', () => {
+      const source = `
+        extern class LegacyClass {
+          field: int;
+          static create(): LegacyClass;
+        }
+
+        function test(): LegacyClass {
+          return LegacyClass{ field: 42 };
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Cannot construct extern class');
+      expect(errors[0].message).toContain('Use static factory methods');
+    });
+
+    it('should validate duplicate parameter names', () => {
+      const source = `
+        extern class BadClass {
+          constructor(value: int, value: string);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toContain('Duplicate parameter');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle empty constructor', () => {
+      const source = `
+        extern class EmptyClass {
+          constructor();
+        }
+
+        function test(): EmptyClass {
+          return EmptyClass{};
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should handle empty constructor with positional syntax', () => {
+      const source = `
+        extern class EmptyClass {
+          constructor();
+        }
+
+        function test(): EmptyClass {
+          return EmptyClass();
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should work with inheritance when base class has constructor', () => {
+      const source = `
+        extern class BaseClass {
+          constructor(value: int);
+        }
+
+        function useBase(): BaseClass {
+          return BaseClass(42);
+        }
+      `;
+      
+      const { errors } = parseAndValidate(source);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('Code Generation', () => {
+    it('should generate correct C++ for object literal construction', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass{ value: 42 };
+        }
+      `;
+      
+      const { header, source: cpp, errors } = transpile(source);
+      expect(errors).toHaveLength(0);
+      expect(header).toContain('#include "MyClass.h"');
+      expect(cpp).toContain('std::make_shared<MyClass>(42)');
+    });
+
+    it('should generate correct C++ for positional construction', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test(): MyClass {
+          return MyClass(42);
+        }
+      `;
+      
+      const { header, source: cpp, errors } = transpile(source);
+      expect(errors).toHaveLength(0);
+      expect(cpp).toContain('std::make_shared<MyClass>(42)');
+    });
+
+    it('should generate identical code for new and non-new construction', () => {
+      const source = `
+        extern class MyClass {
+          constructor(value: int);
+        }
+
+        function test1(): MyClass {
+          return MyClass(42);
+        }
+
+        function test2(): MyClass {
+          return new MyClass(42);
+        }
+      `;
+      
+      const { source: cpp, errors } = transpile(source);
+      expect(errors).toHaveLength(0);
+      
+      // Both should generate identical make_shared calls
+      const lines = cpp.split('\n');
+      const returnLines = lines.filter(line => line.includes('return') && line.includes('MyClass'));
+      
+      expect(returnLines).toHaveLength(2);
+      
+      // Both should contain make_shared
+      expect(returnLines[0]).toContain('std::make_shared<MyClass>');
+      expect(returnLines[1]).toContain('std::make_shared<MyClass>');
+      
+      // Both should be identical (new and non-new generate same code)
+      expect(returnLines[0]).toBe(returnLines[1]);
+    });
+  });
+});
