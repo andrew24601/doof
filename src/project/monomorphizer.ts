@@ -594,6 +594,19 @@ class Monomorphizer {
   }
 
   private transformObjectExpression(expr: ObjectExpression, mapping?: Map<string, Type>): ObjectExpression {
+    const debug = (msg: string, data?: any) => {
+      const flag = process.env.DOOF_DEBUG;
+      if (flag === '1' || flag === 'true' || flag === 'vm' || flag === 'vmgen' || flag === 'mono' || flag === 'monomorphizer') {
+        // eslint-disable-next-line no-console
+        console.error('[MONO][object]', msg, data ?? {});
+      }
+    };
+    debug('before', {
+      className: expr.className,
+      hasGenericInstantiation: !!expr.genericInstantiation,
+      typeArgs: expr.genericInstantiation?.typeArguments?.map(t => (t as any).name || (t as any).type),
+      inferredType: expr.inferredType && (expr.inferredType as any).name
+    });
     expr.properties = expr.properties.map(prop => {
       if (prop.value) {
         prop.value = this.transformValue(prop.value, mapping) as Expression;
@@ -619,6 +632,7 @@ class Monomorphizer {
         if ((expr as any).instantiationInfo) {
           (expr as any).instantiationInfo.targetClass = specialization.specializedName;
         }
+        debug('specialized via genericInstantiation', { to: expr.className });
       }
     }
 
@@ -633,10 +647,23 @@ class Monomorphizer {
       expr.inferredType = this.rewriteTypeNode(expr.inferredType, mapping);
     }
 
+    debug('after', {
+      className: expr.className,
+      inferredType: expr.inferredType && (expr.inferredType as any).name
+    });
+
     return expr;
   }
 
   private transformPositionalObjectExpression(expr: PositionalObjectExpression, mapping?: Map<string, Type>): PositionalObjectExpression {
+    const debug = (msg: string, data?: any) => {
+      const flag = process.env.DOOF_DEBUG;
+      if (flag === '1' || flag === 'true' || flag === 'vm' || flag === 'vmgen' || flag === 'mono' || flag === 'monomorphizer') {
+        // eslint-disable-next-line no-console
+        console.error('[MONO][positional]', msg, data ?? {});
+      }
+    };
+    debug('before', { className: expr.className, hasGenericInstantiation: !!expr.genericInstantiation });
     expr.arguments = expr.arguments.map(arg => this.transformValue(arg, mapping) as Expression);
     if (expr.genericInstantiation) {
       const typeArgs = expr.genericInstantiation.typeArguments?.map(arg => this.rewriteTypeNode(arg, mapping)) ?? [];
@@ -649,11 +676,13 @@ class Monomorphizer {
         if ((expr as any).instantiationInfo) {
           (expr as any).instantiationInfo.targetClass = specialization.specializedName;
         }
+        debug('specialized via genericInstantiation', { to: expr.className });
       }
     }
     if (expr.inferredType) {
       expr.inferredType = this.rewriteTypeNode(expr.inferredType, mapping);
     }
+    debug('after', { className: expr.className });
     return expr;
   }
 

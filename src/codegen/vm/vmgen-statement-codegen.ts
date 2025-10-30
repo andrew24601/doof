@@ -19,6 +19,17 @@ import { StructuredRegisterAllocator } from './register-allocator';
 import { generateIteratorBasedForOf as emitIteratorForOf } from './vmgen-iter';
 import { shouldWrapCapturedMutable, wrapCapturedMutableParameters, emitWrapRegisterWithCurrentValue } from './vmgen-capture-utils';
 
+function vmDebugEnabled(): boolean {
+  const flag = process.env.DOOF_DEBUG;
+  return flag === '1' || flag === 'true' || flag === 'vm' || flag === 'vmgen';
+}
+function dbg(...args: any[]) {
+  if (vmDebugEnabled()) {
+    // eslint-disable-next-line no-console
+    console.error('[VMGEN][stmt]', ...args);
+  }
+}
+
 /**
  * Format a type for debug information display
  */
@@ -353,6 +364,9 @@ export function generateVariableDeclaration(varDecl: VariableDeclaration, contex
   }
 
   const wrapInCaptured = shouldWrapCapturedMutable(varDecl, context);
+  if (vmDebugEnabled() && varDecl.initializer) {
+    dbg('Var init', { name: varDecl.identifier.name, kind: varDecl.initializer.kind, annotatedType: formatTypeForDebug(varType) });
+  }
   generateInitializerIntoRegister(varDecl, varType, reg, context);
 
   if (wrapInCaptured) {

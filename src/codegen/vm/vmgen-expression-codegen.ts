@@ -12,6 +12,17 @@ import { getExpressionType, isLambdaType, getTypeCategory } from "./vmgen-type-u
 import { isStringType as isStringTypeShared } from "../shared/type-coercion";
 import { isCapturedMutableIdentifier, CAPTURE_WRAPPER_FIELD_INDEX } from "./vmgen-capture-utils";
 
+function vmDebugEnabled(): boolean {
+    const flag = process.env.DOOF_DEBUG;
+    return flag === '1' || flag === 'true' || flag === 'vm' || flag === 'vmgen';
+}
+function dbg(...args: any[]) {
+    if (vmDebugEnabled()) {
+        // eslint-disable-next-line no-console
+        console.error('[VMGEN][expr]', ...args);
+    }
+}
+
 function freeRegisters(registers: number[], context: CompilationContext): void {
     for (const reg of registers) {
         context.registerAllocator.free(reg);
@@ -19,6 +30,10 @@ function freeRegisters(registers: number[], context: CompilationContext): void {
 }
 
 function resolveExpressionType(expr: Expression, context: CompilationContext): Type {
+    // Special-case 'this' to the current class type to avoid stale inferred generic names
+    if (expr.kind === 'identifier' && (expr as Identifier).name === 'this' && context.currentClass) {
+        return { kind: 'class', name: context.currentClass.name.name } as any;
+    }
     return expr.inferredType ?? getExpressionType(expr, context);
 }
 
@@ -224,9 +239,17 @@ export function generateExpression(expr: Expression, targetReg: number, context:
             generateTrailingLambdaExpression(expr as TrailingLambdaExpression, targetReg, context);
             break;
         case 'object':
+            {
+                const o = expr as ObjectExpression;
+                dbg('Encounter object expr', { className: o.className, hasInstantiationInfo: !!(o as any).instantiationInfo, location: o.location?.start });
+            }
             generateObjectExpression(expr as ObjectExpression, targetReg, context);
             break;
         case 'positionalObject':
+            {
+                const p = expr as PositionalObjectExpression;
+                dbg('Encounter positional object expr', { className: p.className, argCount: p.arguments.length, location: p.location?.start });
+            }
             generatePositionalObjectExpression(expr as PositionalObjectExpression, targetReg, context);
             break;
         case 'tuple':
@@ -458,7 +481,27 @@ export function generateCallExpression(call: CallExpression, targetReg: number, 
             case 'instanceMethod':
                 if (call.callInfo.methodType === 'class') {
                     const memberExpr = call.callee as MemberExpression;
-                    generateInstanceMethodCall(memberExpr.object, call.callInfo.className!, call.callInfo.targetName!, call.arguments, targetReg, context);
+                    // Prefer the class name resolved from the object's inferred type (specialized),
+                    // because validator metadata may retain the unspecialized generic name.
+                    const receiverType = resolveExpressionType(memberExpr.object, context);
+                    const resolvedClass = resolveClassName(receiverType);
+                    const className = resolvedClass || call.callInfo.className!;
+                    if (vmDebugEnabled()) {
+                        const mismatch = resolvedClass && resolvedClass !== call.callInfo.className!;
+                        if (mismatch) {
+                            dbg('Instance method call class mismatch; using resolved', {
+                                validatorClass: call.callInfo.className,
+                                resolvedClass,
+                                method: call.callInfo.targetName
+                            });
+                        } else {
+                            dbg('Instance method call', {
+                                className,
+                                method: call.callInfo.targetName
+                            });
+                        }
+                    }
+                    generateInstanceMethodCall(memberExpr.object, className, call.callInfo.targetName!, call.arguments, targetReg, context);
                     return;
                 }
                 break;

@@ -59,3 +59,35 @@ These are non-blocking cleanups after the Domino → Doof rename. Builds/tests a
 5) CI matrix
 - Context: Ensure CI builds Unity/iOS samples or at least validates header/API drift against Doof C API.
 - Action: Add lightweight headers-only builds or stub targets to catch regressions early.
+
+---
+
+# VM backend – generics object literal instantiation failure
+
+Context: Running VM codegen for `integration/test-data/generics.do` fails with:
+
+> Project transpilation failed: Unknown field value in class Box
+
+What should happen:
+- Monomorphization should produce `Box__primitive_int` and `Box__primitive_string`, and all object literal instantiations should target these names.
+- VM codegen should construct objects and set fields for the specialized classes.
+
+What likely happens:
+- `ObjectExpression.className` remains `Box` at VM codegen time for the object-literal path, leading to a lookup miss in `getInstanceFieldIndex`.
+- `instantiationInfo` and/or `inferredType` aren’t used reliably to recover the specialized class name in VM object creation.
+
+Attempts made:
+- VM object code now consults `validationContext.codeGenHints.objectInstantiations` and falls back to `inferredType.name` when class metadata is missing. Error persists, indicating hints may be absent and inferred type may not be specialized at this point.
+
+Next steps:
+- Verify that monomorphization rewrites `ObjectExpression.className` and `inferredType` for this program (add a focused unit test on the AST pre-VM-codegen).
+- If needed, plumb the expected target type into expression generation (so object creation can pick the specialized class name based on the variable’s annotated type).
+- Add a VM integration test mirroring the JS one to assert specialized classes and successful execution against `integration/expected/generics.expected`.
+
+Done when:
+- `npx tsx src/cli.ts -t vm -o temp/vm-out integration/test-data/generics.do` succeeds.
+- VM runner prints:
+  7\n
+  generic\n
+  7\n
+  generics\n

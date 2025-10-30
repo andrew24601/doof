@@ -15,6 +15,18 @@ const VALUE_TYPE_IDS: Partial<Record<PrimitiveTypeNode['type'], number>> = {
     string: 6,
 };
 
+// Debug helper
+function vmDebugEnabled(): boolean {
+    const flag = process.env.DOOF_DEBUG;
+    return flag === '1' || flag === 'true' || flag === 'vm' || flag === 'vmgen';
+}
+function dbg(...args: any[]) {
+    if (vmDebugEnabled()) {
+        // eslint-disable-next-line no-console
+        console.error('[VMGEN][object]', ...args);
+    }
+}
+
 function getPrimitiveValueTypeId(type: PrimitiveTypeNode['type']): number {
     const valueTypeId = VALUE_TYPE_IDS[type];
     if (valueTypeId === undefined) {
@@ -40,7 +52,30 @@ export function generateObjectExpression(objExpr: ObjectExpression, targetReg: n
         return;
     }
 
-    const className = objExpr.instantiationInfo?.targetClass ?? objExpr.className;
+    // Resolve target class for object literal construction.
+    // Prefer per-node instantiationInfo (possibly updated by monomorphization),
+    // otherwise consult validationContext.codeGenHints (like JS backend),
+    // finally fall back to the AST className.
+    const activeCtx = getActiveValidationContext(context);
+    let className: string | undefined = objExpr.instantiationInfo?.targetClass;
+
+    if (!className) {
+        const line = objExpr.location?.start?.line || 0;
+        const col = objExpr.location?.start?.column || 0;
+        const instantiationKey = `${objExpr.className}_${line}_${col}`;
+        const hinted = activeCtx?.codeGenHints?.objectInstantiations?.get(instantiationKey);
+        if (hinted && hinted.targetClass) {
+            className = hinted.targetClass;
+            dbg('Resolved class from codeGenHints', { instantiationKey, className });
+        } else {
+            dbg('No codeGenHints for object instantiation', { instantiationKey, originalClass: objExpr.className });
+        }
+    }
+
+    if (!className) {
+        className = objExpr.className;
+        dbg('Falling back to AST className', { className });
+    }
     if (!className) {
         throw new Error("Object literal must target a class or map/set type in VM backend");
     }
@@ -59,6 +94,20 @@ export function generateObjectExpression(objExpr: ObjectExpression, targetReg: n
 
     const validationContext = getActiveValidationContext(context);
     if (!validationContext?.classes.has(className)) {
+        // Fallback: if monomorphization updated the inferred type to a specialized class,
+        // prefer that name when available.
+        if (inferredType.kind === 'class') {
+            const inferredClass = inferredType as ClassTypeNode;
+            if (inferredClass.name && validationContext && validationContext.classes.has(inferredClass.name)) {
+                className = inferredClass.name;
+                dbg('Using inferred specialized class name', { className });
+            }
+        }
+    }
+
+    if (!validationContext?.classes.has(className)) {
+        const known = validationContext ? Array.from(validationContext.classes.keys()).slice(0, 20) : [];
+        dbg('Class not found in validationContext', { requested: className, knownSample: known });
         throw new Error(`Class metadata not found for ${className}`);
     }
 
@@ -285,6 +334,10 @@ function generateObjectWithFieldAssignments(
     targetReg: number,
     context: CompilationContext
 ): void {
+    dbg('Generate object literal', {
+      className,
+      properties: properties.map(p => ({ keyKind: p.key.kind, key: p.key.kind === 'identifier' ? (p.key as Identifier).name : p.key.kind === 'literal' ? String((p.key as Literal).value) : '?'}))
+    });
     // Create the object first
     const classConstantIndex = findClassInConstantPool(className, context);
     emit('NEW_OBJECT', targetReg, Math.floor(classConstantIndex / 256), classConstantIndex % 256, context);
@@ -323,6 +376,7 @@ function generateObjectWithFieldAssignments(
             throw new Error(`Object literal property '${fieldName}' for class ${className} is missing a value`);
         }
 
+        dbg('Set object field', { className, fieldName });
         const fieldIndex = getInstanceFieldIndex(className, fieldName, context);
 
         const valueReg = context.registerAllocator.allocate();
