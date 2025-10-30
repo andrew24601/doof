@@ -714,7 +714,8 @@ function parsePrimary(parser: Parser): Expression {
     }
 
     // Allow type keywords to be used as function names (int(), float(), double(), bool(), string(), char())
-    if (parser.match(TokenType.INT, TokenType.FLOAT, TokenType.DOUBLE, TokenType.BOOL, TokenType.STRING_TYPE, TokenType.CHAR)) {
+    // Also allow collection type constructors Map<...>() and Set<...>() in expression position
+    if (parser.match(TokenType.INT, TokenType.FLOAT, TokenType.DOUBLE, TokenType.BOOL, TokenType.STRING_TYPE, TokenType.CHAR, TokenType.MAP, TokenType.SET)) {
         const token = parser.previous();
         return createIdentifier(parser, token.value, token.location);
     }

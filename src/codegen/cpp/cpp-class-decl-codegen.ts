@@ -24,6 +24,8 @@ function computeJsonGenerationFlags(generator: CppGenerator, className: string):
         ((printSet?.size ?? 0) > 0) ||
         ((fromSet?.size ?? 0) > 0);
 
+    // If nothing has explicitly opted-in via hints, do not generate any JSON helpers.
+    // Generation is driven by actual usage (println or static fromJSON calls).
     if (!hasAnyJsonTypes) {
         return { needsToJSON: false, needsFromJSON: false };
     }

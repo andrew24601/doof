@@ -38,6 +38,7 @@ describe('JSON Map/Set support', () => {
   it('deserializes Map<string, V> from JSON objects', () => {
     const code = `
       class Cfg { values: Map<string, int>; }
+      function main() { let _ = Cfg.fromJSON("{}" ); }
     `;
     const r = transpile(code);
     // Force generation

@@ -63,6 +63,10 @@ export function validateArrayExpression(expr: ArrayExpression, validator: Valida
 
 export function validateSetExpression(expr: SetExpression, validator: Validator): Type {
   if (expr.elements.length === 0) {
+    // Allow callers to pre-infer an empty set's type (e.g., Set<T>())
+    if (expr.inferredType && expr.inferredType.kind === 'set') {
+      return expr.inferredType;
+    }
     validator.addError(`Cannot infer type of empty set literal`, expr.location);
     expr.inferredType = { kind: 'set', elementType: commonTypes.void } as SetTypeNode;
     return expr.inferredType;

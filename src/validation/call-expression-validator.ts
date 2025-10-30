@@ -8,7 +8,11 @@ import {
   Identifier,
   ObjectProperty,
   MemberExpression,
-  TypeParameter
+  TypeParameter,
+  MapTypeNode,
+  SetTypeNode,
+  ObjectExpression,
+  SetExpression
 } from "../types";
 import {
   typeToString,
@@ -25,7 +29,8 @@ import { getMemberPropertyName } from "./member-access-validator";
 import { Validator } from "./validator";
 import { validateExpression } from "./expression-validator";
 import { propagateTypeContext } from "./binary-expression-validator";
-import { validatePositionalObjectExpression } from "./object-literal-validator";
+import { validateObjectExpression, validatePositionalObjectExpression } from "./object-literal-validator";
+import { validateSetExpression } from "./collection-validator";
 import { cloneTypeNode, substituteTypeParametersInType } from "./type-substitution";
 
 /**
@@ -455,6 +460,83 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
 }
 
 export function validateCallExpression(expr: CallExpression, validator: Validator): Type {
+  // Handle generic collection constructors: Map<K, V>() and Set<T>()
+  // Convert these into empty literals so they share code paths with non-empty constructions
+  if (expr.callee.kind === 'identifier') {
+    const name = (expr.callee as Identifier).name;
+    if (name === 'Map' || name === 'Set') {
+      const typeArgs = expr.typeArguments ?? [];
+
+      if (name === 'Map') {
+        // Expect exactly two type arguments and zero positional args
+        if (typeArgs.length !== 2) {
+          validator.addError(`Map constructor requires 2 type arguments <K, V>`, expr.location);
+        }
+        if (expr.arguments.length > 0 || (expr.namedArguments && expr.namedArguments.length > 0)) {
+          validator.addError(`Map constructor does not accept runtime arguments; use an object literal to provide entries`, expr.location);
+        }
+
+        // Build an empty object literal and pre-infer it as a Map<K,V>
+        const mapType: MapTypeNode = {
+          kind: 'map',
+          keyType: typeArgs[0] ?? createUnknownType(),
+          valueType: typeArgs[1] ?? createUnknownType()
+        } as any;
+
+        const objExpr: ObjectExpression = {
+          kind: 'object',
+          properties: [],
+          location: expr.location
+        } as ObjectExpression;
+        // Pre-infer so validator treats this as a generic map literal
+        objExpr.inferredType = mapType;
+
+        // Mutate the current node into the object expression to keep downstream codegen simple
+        (expr as any).kind = 'object';
+        delete (expr as any).callee;
+        delete (expr as any).arguments;
+        delete (expr as any).namedArguments;
+        (expr as any).properties = objExpr.properties;
+        (expr as any).className = undefined;
+        (expr as any).inferredType = mapType;
+
+        return validateObjectExpression((expr as unknown) as ObjectExpression, validator);
+      }
+
+      if (name === 'Set') {
+        // Expect exactly one type argument and zero runtime args
+        if (typeArgs.length !== 1) {
+          validator.addError(`Set constructor requires 1 type argument <T>`, expr.location);
+        }
+        if (expr.arguments.length > 0 || (expr.namedArguments && expr.namedArguments.length > 0)) {
+          validator.addError(`Set constructor does not accept runtime arguments; use a set literal {a, b} to provide elements`, expr.location);
+        }
+
+        const setType: SetTypeNode = {
+          kind: 'set',
+          elementType: typeArgs[0] ?? createUnknownType()
+        } as any;
+
+        const setExpr: SetExpression = {
+          kind: 'set',
+          elements: [],
+          location: expr.location
+        } as SetExpression;
+        (setExpr as any).inferredType = setType;
+
+        // Mutate current node into a set literal
+        (expr as any).kind = 'set';
+        delete (expr as any).callee;
+        delete (expr as any).arguments;
+        delete (expr as any).namedArguments;
+        (expr as any).elements = setExpr.elements;
+        (expr as any).inferredType = setType;
+
+        return validateSetExpression((expr as unknown) as SetExpression, validator);
+      }
+    }
+  }
+
   // Check for type conversion function calls first (int(), string(), etc.)
   if (expr.callee.kind === 'identifier') {
     const funcName = (expr.callee as Identifier).name;
