@@ -13,18 +13,27 @@ import {
     DoofSemanticDiagnosticsProvider,
     DoofSemanticTokensProvider
 } from './language/languageFeatures';
+import { LANGUAGE_ID } from './constants';
 
 // Legacy in-file implementations replaced by modular language service and providers.
 
+const COMMANDS = {
+    validateWorkspace: 'doof.validateWorkspace',
+    debug: 'doof.debug',
+    createLaunchConfig: 'doof.createLaunchConfig',
+    buildVM: 'doof.buildVM',
+} as const;
+
+// Helpers
+function getWorkspaceFolderForUri(uri?: vscode.Uri): vscode.WorkspaceFolder | undefined {
+    if (uri) {
+        return vscode.workspace.getWorkspaceFolder(uri) ?? vscode.workspace.workspaceFolders?.[0];
+    }
+    return vscode.workspace.workspaceFolders?.[0];
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Doof Language Support extension is now active!');
-
-    // Get workspace root
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-        vscode.window.showErrorMessage('Doof extension requires a workspace folder');
-        return;
-    }
 
     // Initialize the language service
     const languageService = new DoofLanguageService();
@@ -39,22 +48,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register providers
     context.subscriptions.push(
-        vscode.languages.registerCompletionItemProvider('doof', completionProvider, '.', ':', '('),
-        vscode.languages.registerHoverProvider('doof', hoverProvider),
-        vscode.languages.registerDocumentSymbolProvider('doof', symbolProvider),
+        vscode.languages.registerCompletionItemProvider(LANGUAGE_ID, completionProvider, '.', ':', '('),
+        vscode.languages.registerHoverProvider(LANGUAGE_ID, hoverProvider),
+        vscode.languages.registerDocumentSymbolProvider(LANGUAGE_ID, symbolProvider),
         vscode.languages.registerDocumentSemanticTokensProvider(
-            'doof', 
+            LANGUAGE_ID,
             semanticTokensProvider, 
             DoofSemanticTokensProvider.legend
         ),
-        vscode.languages.registerCodeActionsProvider('doof', codeActionsProvider),
-        vscode.languages.registerDocumentFormattingEditProvider('doof', new DoofDocumentFormattingEditProvider()),
+        vscode.languages.registerCodeActionsProvider(LANGUAGE_ID, codeActionsProvider),
+        vscode.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, new DoofDocumentFormattingEditProvider()),
         diagnosticsProvider
     );
 
     // Immediately validate any already-open Doof documents so diagnostics appear
     (async () => {
-        const openDocs = vscode.workspace.textDocuments.filter(d => d.languageId === 'doof');
+        const openDocs = vscode.workspace.textDocuments.filter(d => d.languageId === LANGUAGE_ID);
         for (const doc of openDocs) {
             try {
                 await diagnosticsProvider.updateDiagnostics(doc);
@@ -65,12 +74,12 @@ export function activate(context: vscode.ExtensionContext) {
     })();
 
     // Register global validation command
-    const validateWorkspaceCommand = vscode.commands.registerCommand('doof.validateWorkspace', async () => {
+    const validateWorkspaceCommand = vscode.commands.registerCommand(COMMANDS.validateWorkspace, async () => {
         vscode.window.showInformationMessage('Running global validation...');
         try {
             await languageService.validateWorkspace();
             // Refresh diagnostics for open Doof documents after global validation
-            const openDocs = vscode.workspace.textDocuments.filter(d => d.languageId === 'doof');
+            const openDocs = vscode.workspace.textDocuments.filter(d => d.languageId === LANGUAGE_ID);
             for (const doc of openDocs) {
                 await diagnosticsProvider.updateDiagnostics(doc);
             }
@@ -89,7 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Register task provider
-    const taskProvider = new DoofTaskProvider(workspaceRoot);
+    const taskProvider = new DoofTaskProvider(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '');
     context.subscriptions.push(
         vscode.tasks.registerTaskProvider(DoofTaskProvider.DoofType, taskProvider)
     );
@@ -98,19 +107,27 @@ export function activate(context: vscode.ExtensionContext) {
     registerProblemMatchers();
 
     // Register debug command
-    const debugCommand = vscode.commands.registerCommand('doof.debug', async (uri: vscode.Uri) => {
+    const debugCommand = vscode.commands.registerCommand(COMMANDS.debug, async (uri: vscode.Uri) => {
         if (!uri && vscode.window.activeTextEditor) {
             uri = vscode.window.activeTextEditor.document.uri;
         }
         
         if (uri && uri.fsPath.endsWith('.do')) {
+            const folder = getWorkspaceFolderForUri(uri);
+            if (!folder) {
+                vscode.window.showErrorMessage('Please open a workspace folder to debug Doof files.');
+                return;
+            }
             // Start debugging session
+            // Compute program relative to the selected folder for stable multi-root behavior
+            const relativeProgram = path.relative(folder.uri.fsPath, uri.fsPath);
+
             const config: vscode.DebugConfiguration = {
-                type: 'doof',
+                type: LANGUAGE_ID,
                 request: 'launch',
                 name: 'Debug Doof File',
-                program: vscode.workspace.asRelativePath(uri.fsPath),
-                cwd: workspaceRoot,
+                program: relativeProgram,
+                cwd: folder.uri.fsPath,
                 stopOnEntry: true
             };
             
@@ -121,27 +138,22 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // Register create launch config command
-    const createLaunchConfigCommand = vscode.commands.registerCommand('doof.createLaunchConfig', async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const createLaunchConfigCommand = vscode.commands.registerCommand(COMMANDS.createLaunchConfig, async () => {
+        const workspaceFolder = getWorkspaceFolderForUri(vscode.window.activeTextEditor?.document.uri) ?? vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder found');
             return;
         }
 
-        const vscodeDir = path.join(workspaceFolder.uri.fsPath, '.vscode');
-        const launchJsonPath = path.join(vscodeDir, 'launch.json');
-
-        // Create .vscode directory if it doesn't exist
-        if (!require('fs').existsSync(vscodeDir)) {
-            require('fs').mkdirSync(vscodeDir, { recursive: true });
-        }
+        const vscodeDirUri = vscode.Uri.joinPath(workspaceFolder.uri, '.vscode');
+        const launchJsonUri = vscode.Uri.joinPath(vscodeDirUri, 'launch.json');
 
         const launchConfig = {
             version: "0.2.0",
             configurations: [
                 {
                     name: "Debug Current Doof File",
-                    type: "doof",
+                    type: LANGUAGE_ID,
                     request: "launch",
                     program: "${file}",
                     cwd: "${workspaceFolder}",
@@ -149,7 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
                 },
                 {
                     name: "Debug main.do",
-                    type: "doof",
+                    type: LANGUAGE_ID,
                     request: "launch",
                     program: "${workspaceFolder}/main.do",
                     cwd: "${workspaceFolder}",
@@ -159,11 +171,12 @@ export function activate(context: vscode.ExtensionContext) {
         };
 
         try {
-            require('fs').writeFileSync(launchJsonPath, JSON.stringify(launchConfig, null, 2));
-            vscode.window.showInformationMessage(`Created launch configuration at ${launchJsonPath}`);
+            await vscode.workspace.fs.createDirectory(vscodeDirUri);
+            await vscode.workspace.fs.writeFile(launchJsonUri, Buffer.from(JSON.stringify(launchConfig, null, 2), 'utf8'));
+            vscode.window.showInformationMessage(`Created launch configuration at ${launchJsonUri.fsPath}`);
             
             // Open the launch.json file
-            const doc = await vscode.workspace.openTextDocument(launchJsonPath);
+            const doc = await vscode.workspace.openTextDocument(launchJsonUri);
             await vscode.window.showTextDocument(doc);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to create launch configuration: ${error instanceof Error ? error.message : error}`);
@@ -171,10 +184,24 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // Register build VM command
-    const buildVMCommand = vscode.commands.registerCommand('doof.buildVM', async () => {
-        const vmBuildDir = path.join(workspaceRoot, 'vm', 'build');
-        
-        if (!require('fs').existsSync(vmBuildDir)) {
+    const buildVMCommand = vscode.commands.registerCommand(COMMANDS.buildVM, async () => {
+        const folder = getWorkspaceFolderForUri(vscode.window.activeTextEditor?.document.uri) ?? vscode.workspace.workspaceFolders?.[0];
+        if (!folder) {
+            vscode.window.showErrorMessage('No workspace folder found. Open a folder to build the VM.');
+            return;
+        }
+
+        const vmBuildDir = path.join(folder.uri.fsPath, 'vm', 'build');
+
+        // Check existence via VS Code FS API
+        let buildDirExists = true;
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(vmBuildDir));
+        } catch {
+            buildDirExists = false;
+        }
+
+        if (!buildDirExists) {
             vscode.window.showErrorMessage(`VM build directory not found: ${vmBuildDir}. Please create it first with 'mkdir -p vm/build && cd vm/build && cmake ..'`);
             return;
         }

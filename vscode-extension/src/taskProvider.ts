@@ -25,12 +25,22 @@ export class DoofTaskProvider implements vscode.TaskProvider {
 
   private getTasks(): vscode.Task[] {
     if (!this.cachedTasks) {
-      this.cachedTasks = [
-        this.createBuildVmTask(
+      const tasks: vscode.Task[] = [];
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      if (folders.length === 0) {
+        // No workspace folder; avoid creating a task with invalid CWD
+        this.cachedTasks = tasks;
+        return tasks;
+      }
+
+      for (const folder of folders) {
+        tasks.push(this.createBuildVmTask(
           { type: DoofTaskProvider.DoofType, task: 'build-vm' },
-          vscode.TaskScope.Workspace
-        )
-      ];
+          folder
+        ));
+      }
+
+      this.cachedTasks = tasks;
     }
     return this.cachedTasks;
   }
@@ -39,9 +49,13 @@ export class DoofTaskProvider implements vscode.TaskProvider {
     definition: DoofTaskDefinition,
     scope: vscode.WorkspaceFolder | vscode.TaskScope
   ): vscode.Task {
-    const execution = new vscode.ShellExecution('cmake', ['--build', '.'], {
-      cwd: path.join(this.workspaceRoot, 'vm', 'build')
-    });
+    const folder = (scope && typeof (scope as any).uri !== 'undefined')
+      ? (scope as vscode.WorkspaceFolder)
+      : (vscode.workspace.workspaceFolders?.[0]);
+
+    const cwd = folder ? path.join(folder.uri.fsPath, 'vm', 'build') : (this.workspaceRoot ? path.join(this.workspaceRoot, 'vm', 'build') : undefined);
+    const execOptions: vscode.ShellExecutionOptions = cwd ? { cwd } : {};
+    const execution = new vscode.ShellExecution('cmake', ['--build', '.'], execOptions);
 
     const task = new vscode.Task(
       definition,

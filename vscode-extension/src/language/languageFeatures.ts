@@ -16,6 +16,7 @@ import {
     SourceLocation
 } from '../../../src/types';
 import { DoofLanguageService } from './languageService';
+import { LANGUAGE_ID } from '../constants';
 import type { TranspilerError } from '../../../src/transpiler';
 
 const DOMINO_KEYWORDS = [
@@ -668,7 +669,7 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
     private readonly pendingUpdates = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(private readonly languageService: DoofLanguageService) {
-        this.diagnosticCollection = vscode.languages.createDiagnosticCollection('doof');
+        this.diagnosticCollection = vscode.languages.createDiagnosticCollection(LANGUAGE_ID);
 
         this.disposables.push(
             vscode.workspace.onDidOpenTextDocument(document => this.scheduleDiagnostics(document)),
@@ -682,7 +683,7 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
     }
 
     public async updateDiagnostics(document: vscode.TextDocument): Promise<void> {
-        if (document.languageId !== 'doof') {
+        if (document.languageId !== LANGUAGE_ID) {
             return;
         }
 
@@ -693,7 +694,7 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
             const range = this.locationToRange(error.location);
             const severity = this.getSeverity(error.message);
             const diagnostic = new vscode.Diagnostic(range, error.message, severity);
-            diagnostic.source = 'doof';
+            diagnostic.source = LANGUAGE_ID;
             diagnostics.push(diagnostic);
         }
 
@@ -753,12 +754,12 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
                     const column = colStr ? Math.max(0, parseInt(colStr, 10) - 1) : 0;
                     const range = new vscode.Range(line, column, line, column + 1);
                     const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
-                    diagnostic.source = 'doof';
+                    diagnostic.source = LANGUAGE_ID;
                     diagnostics.push(diagnostic);
                 } else {
                     const range = new vscode.Range(0, 0, 0, 1);
                     const diagnostic = new vscode.Diagnostic(range, err, vscode.DiagnosticSeverity.Error);
-                    diagnostic.source = 'doof';
+                    diagnostic.source = LANGUAGE_ID;
                     diagnostics.push(diagnostic);
                 }
             } else {
@@ -775,7 +776,7 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
                         ? vscode.DiagnosticSeverity.Information
                         : vscode.DiagnosticSeverity.Error;
                 const diagnostic = new vscode.Diagnostic(range, te.message, severity);
-                diagnostic.source = 'doof';
+                diagnostic.source = LANGUAGE_ID;
                 diagnostics.push(diagnostic);
             }
         }
@@ -789,7 +790,7 @@ export class DoofSemanticDiagnosticsProvider implements vscode.Disposable {
     }
 
     private scheduleDiagnostics(document: vscode.TextDocument): void {
-        if (document.languageId !== 'doof') {
+        if (document.languageId !== LANGUAGE_ID) {
             return;
         }
 
@@ -1037,7 +1038,7 @@ export class DoofCodeActionsProvider implements vscode.CodeActionProvider {
         const actions: vscode.CodeAction[] = [];
 
         for (const diagnostic of context.diagnostics) {
-            if (diagnostic.source === 'doof') {
+            if (diagnostic.source === LANGUAGE_ID) {
                 const action = this.createQuickFix(document, diagnostic);
                 if (action) {
                     actions.push(action);
