@@ -403,14 +403,20 @@ function generateJsIntrinsicFunctionCall(generator: JsGeneratorInterface, funcNa
         if (args.length === 1) {
             const arg = args[0];
             const argExpr = generator.generateExpression(arg);
-            
-            // Check if the argument is an array or object - we need to format it to match C++/VM output
             const argType = arg.inferredType;
-            if (argType && (argType.kind === 'array' || argType.kind === 'class')) {
-                return `console.log(JSON.stringify(${argExpr}))`;
-            } else {
+
+            // For primitives, print directly to match unit test expectations
+            if (argType && argType.kind === 'primitive') {
                 return `console.log(${argExpr})`;
             }
+
+            // For arrays, maps, sets, classes, or unknown objects, normalize to JSON
+            if (argType && (argType.kind === 'array' || argType.kind === 'map' || argType.kind === 'set' || argType.kind === 'class')) {
+                return `console.log(JSON.stringify(__doof_toJson(${argExpr})))`;
+            }
+
+            // Fallback: print as-is for other types
+            return `console.log(${argExpr})`;
         } else {
             const argExprs = args.map(arg => generator.generateExpression(arg)).join(', ');
             return `console.log(${argExprs})`;

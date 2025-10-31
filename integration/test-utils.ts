@@ -22,6 +22,8 @@ interface ExpectationOverrides {
 }
 
 interface TestExpectationFile extends ExpectationOverrides {
+  skipBackends?: Array<'vm' | 'cpp' | 'js'>;
+  onlyBackends?: Array<'vm' | 'cpp' | 'js'>;
   backends?: {
     vm?: ExpectationOverrides;
     cpp?: ExpectationOverrides;
@@ -31,6 +33,7 @@ interface TestExpectationFile extends ExpectationOverrides {
 
 interface EffectiveExpectation extends ExpectationOverrides {
   expectPanic: boolean;
+  skip?: boolean;
 }
 
 function normalizeOutput(output: string): string {
@@ -243,6 +246,19 @@ export class UnifiedTestRunner {
       await fs.mkdir(this.generatedDir, { recursive: true });
       
       const doFilePath = path.join(this.testDataDir, testFile);
+
+      // Load expectation early to allow backend-specific skipping
+      const expectation = await this.loadExpectation(testName);
+
+      // Optional skip support: if skipBackends/onlyBackends rules exclude this backend, mark as passed (skipped)
+      if (expectation.skip) {
+        return {
+          name: testName,
+          passed: true,
+          duration: Date.now() - startTime,
+          backend: this.backend.name
+        };
+      }
       
       // Step 1: Compile using the backend
       let artifactPath: string;
@@ -258,7 +274,6 @@ export class UnifiedTestRunner {
         };
       }
 
-      const expectation = await this.loadExpectation(testName);
 
       // Step 2: Execute using the backend
       let execution: ExecutionResult;
@@ -499,6 +514,19 @@ export class UnifiedTestRunner {
       let resolvedExpectPanic = parsed.expectPanic;
       let resolvedPanicMessage = parsed.panicMessage;
       let resolvedExitCode = parsed.expectedExitCode;
+      let skip = false;
+
+      // Evaluate skip/only rules
+      if (parsed.onlyBackends && parsed.onlyBackends.length > 0) {
+        if (!parsed.onlyBackends.includes(this.backend.name as any)) {
+          skip = true;
+        }
+      }
+      if (!skip && parsed.skipBackends && parsed.skipBackends.length > 0) {
+        if (parsed.skipBackends.includes(this.backend.name as any)) {
+          skip = true;
+        }
+      }
 
       if (parsed.backends) {
         let backendOverrides: ExpectationOverrides | undefined;
@@ -526,7 +554,8 @@ export class UnifiedTestRunner {
       return {
         expectPanic: resolvedExpectPanic === true,
         panicMessage: resolvedPanicMessage,
-        expectedExitCode: resolvedExitCode
+        expectedExitCode: resolvedExitCode,
+        skip
       };
     } catch {
       return { expectPanic: false };

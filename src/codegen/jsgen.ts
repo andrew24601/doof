@@ -125,6 +125,10 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
       output += '\n';
     }
 
+    // Inject JSON helpers for consistent Map/Set/class serialization across backends
+    output += this.generateJsonHelpers();
+    output += '\n';
+
     // Generate statements
     for (const stmt of program.body) {
       const generated = this.generateStatement(stmt);
@@ -310,5 +314,120 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
 
   indent(): string {
     return '  '.repeat(this.indentLevel);
+  }
+
+  // Runtime helpers for JSON serialization to mirror VM/C++ behavior
+  private generateJsonHelpers(): string {
+    return `// JSON helpers to normalize Map/Set/class to JSON-friendly structures and reconstruct them
+function __doof_toJson(value) {
+  if (value == null) return value;
+  // Preserve primitives as-is
+  const t = typeof value;
+  if (t !== 'object') return value;
+
+  // Arrays
+  if (Array.isArray(value)) {
+    return value.map(v => __doof_toJson(v));
+  }
+
+  // Map -> plain object with stringified keys
+  if (value instanceof Map) {
+    const obj = {};
+    for (const [k, v] of value.entries()) {
+      obj[String(k)] = __doof_toJson(v);
+    }
+    return obj;
+  }
+
+  // Set -> array
+  if (value instanceof Set) {
+    return Array.from(value, v => __doof_toJson(v));
+  }
+
+  // If the object defines toJSON, delegate to it first
+  if (typeof value.toJSON === 'function') {
+    try {
+      const r = value.toJSON();
+      // Ensure the result is also normalized (handles nested Maps/Sets)
+      return __doof_toJson(r);
+    } catch {
+      // fall through to plain object copy
+    }
+  }
+
+  // Plain object: shallow-copy enumerable own props with normalization
+  const out = {};
+  for (const key of Object.keys(value)) {
+    out[key] = __doof_toJson(value[key]);
+  }
+  return out;
+}
+
+// Parse object key back to typed key
+function __doof_parseKey(keyStr, keyType) {
+  if (!keyType || keyType.k !== 'primitive') return keyStr;
+  switch (keyType.t) {
+    case 'int': return parseInt(keyStr, 10);
+    case 'float':
+    case 'double': return Number(keyStr);
+    case 'bool': return keyStr === 'true';
+    case 'string':
+    default: return keyStr;
+  }
+}
+
+// Reconstruct JS structures from normalized JSON using a type descriptor
+function __doof_fromJson(value, typeDesc) {
+  if (value == null || !typeDesc) return value;
+
+  switch (typeDesc.k) {
+    case 'primitive':
+      // Assume JSON already has the primitive in correct shape
+      if (typeDesc.t === 'int') {
+        return typeof value === 'number' ? (value | 0) : parseInt(String(value), 10);
+      }
+      if (typeDesc.t === 'float' || typeDesc.t === 'double') {
+        return typeof value === 'number' ? value : Number(value);
+      }
+      if (typeDesc.t === 'bool') {
+        return typeof value === 'boolean' ? value : String(value) === 'true';
+      }
+      return String(value);
+
+    case 'array':
+      if (!Array.isArray(value)) return [];
+      return value.map(v => __doof_fromJson(v, typeDesc.el));
+
+    case 'set':
+      if (!Array.isArray(value)) return new Set();
+      return new Set(value.map(v => __doof_fromJson(v, typeDesc.el)));
+
+    case 'map': {
+      if (value == null || typeof value !== 'object' || Array.isArray(value)) return new Map();
+      const m = new Map();
+      const keys = Object.keys(value);
+      for (const k of keys) {
+        const typedKey = __doof_parseKey(k, typeDesc.key);
+        m.set(typedKey, __doof_fromJson(value[k], typeDesc.val));
+      }
+      return m;
+    }
+
+    case 'class': {
+      const ctor = typeDesc.ctor;
+      if (ctor && typeof ctor.fromJSON === 'function') {
+        return ctor.fromJSON(value);
+      }
+      // Fallback: shallow assign
+      const out = {};
+      for (const key of Object.keys(value)) out[key] = value[key];
+      return out;
+    }
+
+    default:
+      return value;
+  }
+}
+`;
   }
 }

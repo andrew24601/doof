@@ -1,0 +1,7 @@
+{
+  "skipBackends": ["vm"],
+  "backends": {
+    "cpp": {},
+    "js": {}
+  }
+}

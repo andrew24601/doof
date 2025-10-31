@@ -333,8 +333,8 @@ export function generateToJSONMethod(generator: JsStatementGeneratorInterface, c
     const field = nonStaticFields[i];
     const comma = i < nonStaticFields.length - 1 ? ',' : '';
     const jsFieldName = generator.getJsFieldName(field);
-    // Use original field name for JSON key, encoded field name for property access
-    output += generator.indent() + `"${field.name.name}": this.${jsFieldName}${comma}\n`;
+    // Use original field name for JSON key; normalize Maps/Sets/classes for consistency
+    output += generator.indent() + `"${field.name.name}": __doof_toJson(this.${jsFieldName})${comma}\n`;
   }
   
   generator.indentLevel--;
@@ -348,10 +348,42 @@ export function generateFromJSONMethod(generator: JsStatementGeneratorInterface,
   let output = generator.indent() + 'static fromJSON(json) {\n';
   generator.indentLevel++;
   output += generator.indent() + 'const obj = typeof json === "string" ? JSON.parse(json) : json;\n';
+  output += generator.indent() + `const instance = new ${classDecl.name.name}();\n`;
+  const nonStaticFields = classDecl.fields.filter(f => !f.isStatic);
+  for (const field of nonStaticFields) {
+    const jsFieldName = generator.getJsFieldName(field);
+    const desc = generateJsTypeDescriptor(field.type);
+    output += generator.indent() + `if (Object.prototype.hasOwnProperty.call(obj, "${field.name.name}")) instance.${jsFieldName} = __doof_fromJson(obj["${field.name.name}"], ${desc});\n`;
+  }
+  output += generator.indent() + 'return instance;\n';
       
   generator.indentLevel--;
   output += generator.indent() + '}';
   return output;
+}
+
+// Helper: emit a small type descriptor for JS runtime reconstruction
+function generateJsTypeDescriptor(type: any): string {
+  if (!type) return 'null';
+  switch (type.kind) {
+    case 'primitive': {
+      const t = (type as any).type;
+      const mapped = t === 'char' ? 'string' : t;
+      return `{ k: 'primitive', t: '${mapped}' }`;
+    }
+    case 'array':
+      return `{ k: 'array', el: ${generateJsTypeDescriptor((type as any).elementType)} }`;
+    case 'set':
+      return `{ k: 'set', el: ${generateJsTypeDescriptor((type as any).elementType)} }`;
+    case 'map':
+      return `{ k: 'map', key: ${generateJsTypeDescriptor((type as any).keyType)}, val: ${generateJsTypeDescriptor((type as any).valueType)} }`;
+    case 'class':
+      return `{ k: 'class', ctor: ${(type as any).name} }`;
+    case 'externClass':
+      return `{ k: 'class', ctor: ${(type as any).name} }`;
+    default:
+      return 'null';
+  }
 }
 
 export function generateIfStatement(generator: JsStatementGeneratorInterface, stmt: IfStatement): string {
