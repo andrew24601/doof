@@ -1,0 +1,7 @@
+{
+  "onlyBackends": ["cpp", "vm"],
+  "backends": {
+    "cpp": { "expectPanic": true },
+    "vm": { "expectPanic": false }
+  }
+}

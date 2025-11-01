@@ -91,3 +91,71 @@ Done when:
   generic\n
   7\n
   generics\n
+
+---
+
+# C++ vs VM expression codegen parity gaps
+
+These inconsistencies and smells were found when comparing expression compilation between the C++ and VM backends. They’re actionable and should be aligned for predictable semantics across targets.
+
+1) Non-null assertion semantics (!)
+- Current: C++ emits runtime assertion or .value() extraction; VM simply evaluates the operand (no check).
+- Risk: VM silently allows nulls where C++ would assert/fail; tests will diverge.
+- Fix: In VM, after evaluating operand, emit IS_NULL and either PANIC/ASSERT extern or branch to load operand; consider an intrinsic ASSERT to avoid wiring cost.
+
+2) Optional chaining with computed properties
+- Current: VM supports obj?.[key] (computed) via GET_ARRAY/GET_MAP path; C++ optional chain only supports identifier/string property names (no computed index).
+- Risk: Feature works on VM but fails on C++.
+- Fix: Extend C++ optional-chain codegen to handle computed index by delegating to index-expression path, mirroring VM.
+
+3) Array/String length vs size
+- Current: C++ supports both .length and .size for arrays and strings; VM only handles array.length and string.length; map/set expose .size.
+- Risk: Program using .size on arrays/strings works on C++ but fails on VM.
+- Fix: In VM emitPropertyAccess, add support for array.size and string.size to emit LENGTH_ARRAY/LENGTH_STRING.
+
+4) Map indexing semantics (read)
+- Current: C++ generateIndexExpression uses map[key] which inserts default on missing key; VM GET_MAP/GET_MAP_INT reads without insertion.
+- Risk: Side-effects diverge (C++ mutates map on read, VM does not).
+- Fix: In C++, use .at(key) for read-only index expressions, and reserve operator[] for assignments. This matches VM and avoids accidental mutation.
+
+5) Map.set return value
+- Current: VM map.set returns the map (for chaining). C++ emits (map[key] = value) which returns the assigned value.
+- Risk: Chaining behavior and types diverge between targets.
+- Fix: Change C++ map.set to return the map (e.g., wrap in a comma-expression or helper) or standardize spec to return void/map and update both.
+
+6) Unary plus operator (+x)
+- Current: C++ supports unary '+'; VM does not implement it.
+- Risk: Programs compiling on C++ fail on VM.
+- Fix: In VM unary codegen, implement '+' as a no-op numeric conversion (MOVE / or explicit INT/FLT/DBL identity as needed by inferred type).
+
+7) ++/-- on instance fields
+- Current: C++ supports pre/post inc/dec for instance fields; VM has TODO/error (only static fields implemented).
+- Risk: Behavior gap on common operators.
+- Fix: In VM, load field (GET_FIELD), add/sub 1 with proper type, then SET_FIELD; handle pre/post result semantics mirroring identifier path.
+
+8) String concatenation of non-primitives
+- Current: C++ converts non-string primitives and objects (via std::to_string or stream) before '+'; VM relies on ADD_STRING and partial coercions. coerceToType only converts primitives; interpolated strings contain a TODO to coerce to string.
+- Risk: Object + string may behave inconsistently or rely on runtime magic; interpolations may concatenate non-strings incorrectly.
+- Fix: In VM, before ADD_STRING ensure both operands are strings: extend coerceToType to convert class/externClass/union to string via extern calls (e.g., toString) or a generic stringify helper; complete the TODO in vmgen-object-codegen for interpolated parts.
+
+9) Optional chaining result typing (primitive vs pointer)
+- Current: C++ wraps primitive results in std::optional and pointer-like in shared_ptr/nullptr; VM returns null-or-value directly.
+- Risk: Semantics are compatible at language level (union with null), but ensure downstream codegen expects these shapes (e.g., non-null assertion and coalesce are consistent). Not a bug, but document the impedance.
+- Action: Add validator notes/tests ensuring both backends agree on observable behavior in common patterns (coalesce, truthiness, chaining).
+
+10) Union member/method access
+- Current: C++ supports union member access (narrowing/std::visit) and union method calls; VM throws for union method calls and doesn’t special-case union property access.
+- Risk: Programs using unions work on C++ but fail on VM.
+- Fix: In VM, add union dispatch for member/method via TYPE_OF/variant tag + branching, or a small visit-like pattern; alternatively, have validator desugar into explicit type guards/branches prior to VM codegen.
+
+11) String interpolation boolean formatting
+- Current: C++ prints booleans as true/false explicitly for println; VM relies on extern println – formatting depends on runtime.
+- Risk: Minor output drift.
+- Fix: Ensure VM println extern formats bool consistently; add integration tests for println across types.
+
+12) Division and numeric promotion consistency
+- Current: Both use shared coercion inference; validate int/int division behavior (int vs float) matches across targets for inferred result types.
+- Action: Add targeted tests for int/int → int, int/float → float, float/float → float in both backends.
+
+Done when:
+- The above deltas are addressed or explicitly documented, and parity tests in integration/vm-tests and C++ outputs agree on observable behavior.
