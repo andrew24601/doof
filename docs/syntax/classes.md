@@ -272,3 +272,30 @@ function main() {
 ```
 
 Generated C++ includes `#include "AudioEngine.h"` and calls the corresponding methods.
+
+## Destructuring patterns (MVP)
+
+Simple destructuring is supported in declarations and assignments and lowers to member access:
+
+```doof
+class Point { x: int; y: int; }
+
+function main(): int {
+    let p = Point(1, 2);
+    // Object pattern (by name)
+    let { x, y } = p;    // introduces variables x and y
+
+    // Tuple pattern (by public field order)
+    let (a, b) = p;      // maps to a = p.x; b = p.y;
+
+    // Assignments also supported
+    { x, y } = p;
+    (a, b) = p;
+    return x + y + a + b;
+}
+```
+
+Limitations in MVP:
+- Only identifiers in patterns (no aliasing or defaults).
+- Tuple pattern order uses the declared public field order of the RHS class.
+- No nested patterns yet.

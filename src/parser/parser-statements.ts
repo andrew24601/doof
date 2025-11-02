@@ -2,7 +2,7 @@ import {
   Statement, Expression, IfStatement, WhileStatement, ForStatement, ForOfStatement,
   SwitchStatement, SwitchCase, ReturnStatement, BreakStatement, ContinueStatement,
   BlockStatement, ExpressionStatement, VariableDeclaration, RangeExpression,
-  ParseError, Type, BlankStatement
+  ParseError, Type, BlankStatement, DestructuringAssignment
 } from '../types';
 import { TokenType } from './lexer';
 import { Parser } from './parser';
@@ -14,6 +14,7 @@ import {
 } from './parser-declarations';
 import { parseExportDeclaration, parseImportDeclaration } from './parser-imports';
 import { parseMarkdownHeader, parseMarkdownTable } from './parser-markdown';
+import { isObjectPatternStart, isTuplePatternStart, parseObjectPattern, parseTuplePattern } from './parser-patterns';
 
 export function parseStatement(parser: Parser): Statement | null {
   try {
@@ -99,6 +100,21 @@ export function parseStatement(parser: Parser): Statement | null {
     if (parser.check(TokenType.LEFT_BRACE)) {
       return parseBlockStatement(parser);
     }
+
+    // Destructuring assignment at statement start: {x, y} = expr; or (x, y) = expr;
+    if (isObjectPatternStart(parser) || isTuplePatternStart(parser)) {
+      const pattern = isObjectPatternStart(parser) ? parseObjectPattern(parser) : parseTuplePattern(parser);
+      parser.consume(TokenType.ASSIGN, "Expected '=' after destructuring pattern");
+      const rhs = parseExpression(parser);
+      parser.consume(TokenType.SEMICOLON, "Expected ';' after assignment");
+      const destr: DestructuringAssignment = {
+        kind: 'destructuringAssign',
+        pattern,
+        expression: rhs,
+        location: pattern.location
+      };
+      return destr;
+    }
     return parseExpressionStatement(parser);
   } catch (error) {
     parser.synchronize();
@@ -156,6 +172,7 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
   // Check for for-of loop
   if (parser.match(TokenType.CONST, TokenType.LET)) {
     const isConst = parser.previous().type === TokenType.CONST;
+    // Disallow destructuring in for-of MVP: we expect a single identifier here
     const variable = parser.consume(TokenType.IDENTIFIER, "Expected variable name");
     
     if (parser.match(TokenType.OF)) {
@@ -222,7 +239,12 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
     let init: VariableDeclaration | Expression | undefined;
     if (!parser.check(TokenType.SEMICOLON)) {
       if (parser.match(TokenType.LET, TokenType.CONST)) {
-        init = parseVariableDeclaration(parser);
+        const decl = parseVariableDeclaration(parser);
+        // MVP: Destructuring variable declarations are not supported in 'for' initializer
+        if ((decl as any).kind === 'destructuringVariable') {
+          throw new ParseError("Destructuring declarations are not supported in 'for' initializers (MVP)", parser.getLocation());
+        }
+        init = decl as VariableDeclaration;
       } else {
         init = parseExpression(parser);
       }

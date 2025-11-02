@@ -441,6 +441,8 @@ export interface NonNullAssertionExpression extends ASTNode {
 export type Statement =
   | BlockStatement
   | ExpressionStatement
+  | DestructuringVariableDeclaration
+  | DestructuringAssignment
   | VariableDeclaration
   | FunctionDeclaration
   | ClassDeclaration
@@ -483,6 +485,33 @@ export interface VariableDeclaration extends ASTNode {
   isConciseLambda?: boolean; // true when using concise name(params) => body syntax
   lambdaParameters?: Parameter[]; // parameters for concise lambda form
   isExport?: boolean;
+}
+
+// Destructuring patterns (MVP)
+export type Pattern = ObjectPattern | TuplePattern;
+
+export interface ObjectPattern extends ASTNode {
+  kind: 'objectPattern';
+  names: Identifier[]; // { x, y }
+}
+
+export interface TuplePattern extends ASTNode {
+  kind: 'tuplePattern';
+  names: Identifier[]; // (x, y)
+}
+
+export interface DestructuringVariableDeclaration extends ASTNode {
+  kind: 'destructuringVariable';
+  isConst: boolean;
+  pattern: Pattern;
+  type?: Type; // optional overall type (unused in MVP)
+  initializer: Expression;
+}
+
+export interface DestructuringAssignment extends ASTNode {
+  kind: 'destructuringAssign';
+  pattern: Pattern;
+  expression: Expression;
 }
 
 export interface FunctionDeclaration extends ASTNode {

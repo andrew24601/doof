@@ -4,13 +4,15 @@ import {
     FieldDeclaration, MethodDeclaration, Parameter, TypeParameter,
     ConstructorDeclaration,
     EnumMember, LambdaExpression, BlockStatement, Expression, Identifier, Literal,
-    FunctionTypeNode, ParseError
+    FunctionTypeNode, ParseError,
+    DestructuringVariableDeclaration
 } from '../types';
 import { Token, TokenType } from './lexer';
 import { Parser } from './parser';
 import { createPrimitiveType, parseType } from './parser-types';
 import { createIdentifier, createLiteral, parseExpression, parseInterpolatedString } from './parser-expression';
 import { parseParameterList } from './parser-parameters';
+import { isObjectPatternStart, isTuplePatternStart, parseObjectPattern, parseTuplePattern } from './parser-patterns';
 
 interface ModifierFlags {
     isPublic: boolean;
@@ -81,8 +83,30 @@ export function parseModifiers(parser: Parser, allowedModifiers?: Set<string>): 
     return flags;
 }
 
-export function parseVariableDeclaration(parser: Parser): VariableDeclaration {
+export function parseVariableDeclaration(parser: Parser): VariableDeclaration | DestructuringVariableDeclaration {
     const isConst = parser.previous().type === TokenType.CONST;
+
+    // Destructuring declaration form: const/let {x, y} = expr; or const/let (x, y) = expr;
+    if (isObjectPatternStart(parser) || isTuplePatternStart(parser)) {
+        const pattern = isObjectPatternStart(parser) ? parseObjectPattern(parser) : parseTuplePattern(parser);
+        // Optional overall type annotation after pattern is not supported in MVP.
+        if (parser.match(TokenType.COLON)) {
+            // Parse and discard the type to provide a helpful error now (MVP limitation)
+            parseType(parser);
+            throw new ParseError("Type annotation on destructuring pattern is not supported in MVP", pattern.location);
+        }
+        parser.consume(TokenType.ASSIGN, "Expected '=' after destructuring pattern");
+        const initializer = parseExpression(parser);
+        parser.consume(TokenType.SEMICOLON, "Expected ';' after declaration");
+        return {
+            kind: 'destructuringVariable',
+            isConst,
+            pattern,
+            initializer,
+            location: pattern.location
+        };
+    }
+
     const name = parser.consume(TokenType.IDENTIFIER, "Expected variable name");
 
     // Check for concise lambda form: const name(params) => body

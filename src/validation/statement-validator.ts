@@ -1,13 +1,83 @@
 import { validateClassDeclaration, validateExportDeclaration, validateExternClassDeclaration, validateFieldDeclaration, validateFunctionDeclaration, validateMethodDeclaration } from "./declaration-validator";
 import { analyzeTypeGuard, canInferObjectLiteralType, inferObjectLiteralType, propagateTypeContext, validateExpression } from "./expression-validator";
 import { addTypeCompatibilityError, isBooleanType, isNonNullableType, isTypeCompatible, resolveActualType, typeToString, validateType, createPrimitiveType, requiresExplicitInitialization } from "../type-utils";
-import { WhileStatement, BlockStatement, ReturnStatement, PrimitiveTypeNode, IfStatement, ForStatement, VariableDeclaration, Expression, SwitchStatement, RangeExpression, EnumDeclaration, TypeAliasDeclaration, ForOfStatement, Type, ArrayTypeNode, SetTypeNode, ExpressionStatement, ObjectExpression, ClassTypeNode, GlobalValidationContext, ImportDeclaration, Program, ExportedSymbol, Statement, LambdaExpression, FunctionTypeNode, TrailingLambdaExpression, MarkdownTable } from "../types";
+import { WhileStatement, BlockStatement, ReturnStatement, PrimitiveTypeNode, IfStatement, ForStatement, VariableDeclaration, Expression, SwitchStatement, RangeExpression, EnumDeclaration, TypeAliasDeclaration, ForOfStatement, Type, ArrayTypeNode, SetTypeNode, ExpressionStatement, ObjectExpression, ClassTypeNode, GlobalValidationContext, ImportDeclaration, Program, ExportedSymbol, Statement, LambdaExpression, FunctionTypeNode, TrailingLambdaExpression, MarkdownTable, DestructuringAssignment, DestructuringVariableDeclaration } from "../types";
 import { validateForOfStatement as validateIteratorForOf, IteratorTypeInfo } from "./validate-iter";
 import { getExpressionId } from "../type-utils";
 import { Validator } from "./validator";
 import { createScopeTrackerEntry, registerScopeTrackerEntry } from "./scope-tracker-helpers";
 import * as path from "path";
 import { validateAndDesugarMarkdownTable } from "./validate-markdown-table";
+// Inlined MVP lowering for destructuring to avoid module resolution issues
+function __makeTempName(counter: number): string { return `__destr_${counter}`; }
+function __createTempDeclaration(name: string, expr: Expression): VariableDeclaration {
+  return { kind: 'variable', isConst: true, identifier: { kind: 'identifier', name, location: expr.location }, initializer: expr, location: expr.location } as VariableDeclaration;
+}
+function __createMemberAccess(objectIdent: any, field: string, loc: any): any {
+  return { kind: 'member', object: objectIdent, property: { kind: 'identifier', name: field, location: loc }, computed: false, location: loc };
+}
+function __publicFieldNamesInOrder(classDecl: any): string[] {
+  return classDecl.fields.filter((f: any) => !f.isStatic && f.isPublic).map((f: any) => f.name.name);
+}
+function lowerDestructuringVariable(stmt: DestructuringVariableDeclaration, validator: Validator): BlockStatement {
+  const block: BlockStatement = { kind: 'block', body: [], location: stmt.location };
+  const tempName = __makeTempName(validator.context.codeGenHints.callDispatch.size + (validator.context.errors.length || 0));
+  const tempDecl = __createTempDeclaration(tempName, stmt.initializer);
+  block.body.push(tempDecl);
+  const tempIdent: any = { kind: 'identifier', name: tempName, location: stmt.initializer.location };
+
+  if (stmt.pattern.kind === 'objectPattern') {
+    for (const id of (stmt.pattern as any).names) {
+      const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, identifier: { kind: 'identifier', name: id.name, location: id.location }, initializer: __createMemberAccess(tempIdent, id.name, id.location), location: id.location } as VariableDeclaration;
+      block.body.push(varDecl);
+    }
+    return block;
+  }
+
+  let fieldOrder: string[] = [];
+  const inferred = (stmt.initializer as any).inferredType;
+  if (inferred && inferred.kind === 'class') {
+    const classDecl = validator.context.classes.get(inferred.name);
+    if (classDecl) fieldOrder = __publicFieldNamesInOrder(classDecl);
+  }
+  const tuple = stmt.pattern as any;
+  for (let i = 0; i < tuple.names.length; i++) {
+    const target = tuple.names[i];
+    const fieldName = fieldOrder[i] || `__field_${i}`;
+    const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, identifier: { kind: 'identifier', name: target.name, location: target.location }, initializer: __createMemberAccess(tempIdent, fieldName, target.location), location: target.location } as VariableDeclaration;
+    block.body.push(varDecl);
+  }
+  return block;
+}
+function lowerDestructuringAssignment(stmt: DestructuringAssignment, validator: Validator): BlockStatement {
+  const block: BlockStatement = { kind: 'block', body: [], location: stmt.location };
+  const tempName = __makeTempName(validator.context.codeGenHints.callDispatch.size + (validator.context.errors.length || 0));
+  const tempDecl = __createTempDeclaration(tempName, stmt.expression);
+  block.body.push(tempDecl);
+  const tempIdent: any = { kind: 'identifier', name: tempName, location: stmt.expression.location };
+
+  if (stmt.pattern.kind === 'objectPattern') {
+    for (const id of (stmt.pattern as any).names) {
+      const assign: ExpressionStatement = { kind: 'expression', expression: { kind: 'binary', operator: '=', left: { kind: 'identifier', name: id.name, location: id.location } as any, right: __createMemberAccess(tempIdent, id.name, id.location), location: id.location } as any, location: id.location } as any;
+      block.body.push(assign);
+    }
+    return block;
+  }
+  let fieldOrder: string[] = [];
+  const inferred = (stmt.expression as any).inferredType;
+  if (inferred && inferred.kind === 'class') {
+    const classDecl = validator.context.classes.get(inferred.name);
+    if (classDecl) fieldOrder = __publicFieldNamesInOrder(classDecl);
+  }
+  const tuple = stmt.pattern as any;
+  for (let i = 0; i < tuple.names.length; i++) {
+    const target = tuple.names[i];
+    const fieldName = fieldOrder[i] || `__field_${i}`;
+    const assign: ExpressionStatement = { kind: 'expression', expression: { kind: 'binary', operator: '=', left: { kind: 'identifier', name: target.name, location: target.location } as any, right: __createMemberAccess(tempIdent, fieldName, target.location), location: target.location } as any, location: target.location } as any;
+    block.body.push(assign);
+  }
+  return block;
+}
 
 export function validateProgram(validator: Validator, program: Program): void {
   for (const stmt of program.body) {
@@ -81,6 +151,35 @@ export function validateStatement(stmt: Statement, validator: Validator): void {
     case 'expression':
       validateExpressionStatement(stmt, validator);
       break;
+    case 'destructuringVariable': {
+      // Validate initializer first to populate inferredType context for lowering
+      const d = stmt as DestructuringVariableDeclaration;
+      if (d.initializer) {
+        validateExpression(d.initializer, validator);
+      }
+      const lowered = lowerDestructuringVariable(d, validator);
+      // Mutate node to block for downstream codegen, but validate statements in current scope
+      const asAny = stmt as any;
+      asAny.kind = 'block';
+      asAny.body = lowered.body;
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+      }
+      break;
+    }
+    case 'destructuringAssign': {
+      // Validate RHS first to populate inferredType context for lowering
+      const d = stmt as DestructuringAssignment;
+      validateExpression(d.expression, validator);
+      const lowered = lowerDestructuringAssignment(d, validator);
+      const asAny = stmt as any;
+      asAny.kind = 'block';
+      asAny.body = lowered.body;
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+      }
+      break;
+    }
     case 'import':
       // Skip import validation if we're in multi-file mode with global context
       // Imports have already been processed in resolveImports()
@@ -136,9 +235,40 @@ export function validateWhileStatement(stmt: WhileStatement, validator: Validato
 export function validateBlockStatement(stmt: BlockStatement, validator: Validator): void {
   const prevSymbols = new Map(validator.context.symbols);
 
+  // Build a new body with destructuring statements flattened into sibling statements
+  const newBody: any[] = [];
+
   for (const statement of stmt.body) {
+    if (statement.kind === 'destructuringVariable') {
+      const d = statement as DestructuringVariableDeclaration;
+      if (d.initializer) {
+        validateExpression(d.initializer, validator);
+      }
+      const lowered = lowerDestructuringVariable(d, validator);
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+        newBody.push(s);
+      }
+      continue;
+    }
+    if (statement.kind === 'destructuringAssign') {
+      const d = statement as DestructuringAssignment;
+      validateExpression(d.expression, validator);
+      const lowered = lowerDestructuringAssignment(d, validator);
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+        newBody.push(s);
+      }
+      continue;
+    }
+
+    // Default: validate and keep the statement
     validateStatement(statement, validator);
+    newBody.push(statement);
   }
+
+  // Replace body with flattened version for downstream phases (codegen, DA analysis)
+  (stmt as any).body = newBody;
 
   // Only check definite assignment if we're not already in function validation
   // (to avoid duplicate analysis - functions handle this via validateFunctionBody)
@@ -320,9 +450,35 @@ export function validateSwitchStatement(stmt: SwitchStatement, validator: Valida
       }
     }
 
+    // Flatten destructuring within case bodies to avoid introducing extra scopes
+    const newCaseBody: Statement[] = [] as any;
     for (const statement of switchCase.body) {
+      if (statement.kind === 'destructuringVariable') {
+        const d = statement as DestructuringVariableDeclaration;
+        if (d.initializer) {
+          validateExpression(d.initializer, validator);
+        }
+        const lowered = lowerDestructuringVariable(d, validator);
+        for (const s of lowered.body) {
+          validateStatement(s, validator);
+          newCaseBody.push(s);
+        }
+        continue;
+      }
+      if (statement.kind === 'destructuringAssign') {
+        const d = statement as DestructuringAssignment;
+        validateExpression(d.expression, validator);
+        const lowered = lowerDestructuringAssignment(d, validator);
+        for (const s of lowered.body) {
+          validateStatement(s, validator);
+          newCaseBody.push(s);
+        }
+        continue;
+      }
       validateStatement(statement, validator);
+      newCaseBody.push(statement);
     }
+    (switchCase as any).body = newCaseBody;
   }
 
   validator.context.inSwitch = wasInSwitch;
@@ -766,9 +922,36 @@ export function validateFunctionBody(stmt: BlockStatement, preAssignedVariables:
   const wasInFunctionValidation = validator.inFunctionValidation;
   validator.inFunctionValidation = true;
 
+  // Build a new body with destructuring flattened to sibling statements
+  const newBody: Statement[] = [] as any;
   for (const statement of stmt.body) {
+    if (statement.kind === 'destructuringVariable') {
+      const d = statement as DestructuringVariableDeclaration;
+      if (d.initializer) {
+        validateExpression(d.initializer, validator);
+      }
+      const lowered = lowerDestructuringVariable(d, validator);
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+        newBody.push(s);
+      }
+      continue;
+    }
+    if (statement.kind === 'destructuringAssign') {
+      const d = statement as DestructuringAssignment;
+      validateExpression(d.expression, validator);
+      const lowered = lowerDestructuringAssignment(d, validator);
+      for (const s of lowered.body) {
+        validateStatement(s, validator);
+        newBody.push(s);
+      }
+      continue;
+    }
     validateStatement(statement, validator);
+    newBody.push(statement);
   }
+
+  (stmt as any).body = newBody;
 
   // Run definite assignment analysis with pre-assigned variables
   checkDefiniteAssignmentInBlock(validator, stmt, preAssignedVariables);
