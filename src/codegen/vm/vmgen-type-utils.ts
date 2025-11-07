@@ -59,6 +59,10 @@ export function isNullLiteral(expr: Expression): boolean {
  * Follows standard type promotion rules.
  */
 export function getPromotedType(leftType: Type, rightType: Type): Type {
+    // Prefer enum typing if either operand is an enum to preserve backing comparison semantics
+    if (leftType.kind === 'enum') return leftType;
+    if (rightType.kind === 'enum') return rightType;
+
     // String concatenation takes precedence
     if (isStringTypeShared(leftType) || isStringTypeShared(rightType)) {
         return { kind: 'primitive', type: 'string' } as PrimitiveTypeNode;

@@ -949,6 +949,38 @@ export function generateStaticMethodCall(
   targetReg: number,
   context: CompilationContext
 ): void {
+  // Special lowering for auto-generated fromJSON static method: treat as extern call 'ClassName.fromJSON'
+  if (methodName === 'fromJSON') {
+    // Generate single string argument into a temp register
+    if (args.length > 1) {
+      throw new Error(`fromJSON static method expects at most 1 argument; got ${args.length}`);
+    }
+    const jsonReg = context.registerAllocator.allocate();
+    if (args.length === 1) {
+      generateExpression(args[0], jsonReg, context);
+    } else {
+      // If no argument provided, load null
+      emit('LOADK_NULL', jsonReg, 0, 0, context);
+    }
+    // Find class metadata constant index
+    const classConstIndex = findClassInConstantPool(className, context);
+    if (classConstIndex < 0) {
+      throw new Error(`Class metadata not found in constant pool for ${className}`);
+    }
+    // Emit CLASS_FROM_JSON jsonReg, classConstIndex (result overwrites jsonReg)
+    emit('CLASS_FROM_JSON', jsonReg, Math.floor(classConstIndex / 256), classConstIndex % 256, context);
+    // Move result to target register if needed
+    if (targetReg !== jsonReg) {
+      if (targetReg !== 0) {
+        emit('MOVE', targetReg, jsonReg, 0, context);
+      } else {
+        emit('MOVE', 0, jsonReg, 0, context);
+      }
+    }
+    // Free temp
+    context.registerAllocator.free(jsonReg);
+    return;
+  }
   if (isExternClass(className, context)) {
     generateExternStaticMethodCall(className, methodName, args, targetReg, context);
     return;
@@ -1110,9 +1142,93 @@ export function generateIntrinsicCall(funcName: string, args: Expression[], targ
   } else if (args.length === 1) {
     // Single argument: generate directly into a temporary register to avoid conflicts
     const argReg = context.registerAllocator.allocate();
-    generateExpression(args[0], argReg, context);
+    const argExpr = args[0];
+    generateExpression(argExpr, argReg, context);
 
-    generateExternCall(funcName, [], context, argReg);
+    // If printing an enum, convert backing value (int or string) to its label string using a small compare chain
+    const argType = argExpr.inferredType;
+    if (funcName === 'println' && argType && argType.kind === 'enum') {
+      const validationContext = getActiveValidationContext(context);
+      const enumDecl = validationContext?.enums.get(argType.name);
+      if (enumDecl) {
+  const outReg = context.registerAllocator.allocate();
+  const doneLabel = createLabel(context);
+  const defaultLabel = createLabel(context);
+
+        // We'll first emit all comparisons with jumps to per-member labels,
+        // then emit the labeled blocks that assign the label string.
+        const pendingLabelBlocks: { labelName: string; labelString: string }[] = [];
+
+        let currentOrdinal = 0;
+        for (const m of enumDecl.members) {
+          let value: any;
+          if (m.value && (m.value as any).literalType === 'number') {
+            value = (m.value as any).value;
+            currentOrdinal = Number(value);
+          } else if (!m.value) {
+            value = currentOrdinal;
+          } else {
+            value = m.value && (m.value as any).literalType === 'string' ? (m.value as any).value : m.name.name;
+          }
+
+          const cmpReg = context.registerAllocator.allocate();
+          if (typeof value === 'number') {
+            if (value >= -32768 && value <= 32767) {
+              const valReg = context.registerAllocator.allocate();
+              emit('LOADK_INT16', valReg, (value >> 8) & 0xFF, value & 0xFF, context);
+              emit('EQ_INT', cmpReg, argReg, valReg, context);
+              context.registerAllocator.free(valReg);
+            } else {
+              const constIndex = addConstant({ type: 'int', value }, context);
+              const valReg = context.registerAllocator.allocate();
+              emit('LOADK', valReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+              emit('EQ_INT', cmpReg, argReg, valReg, context);
+              context.registerAllocator.free(valReg);
+            }
+          } else {
+            const constIndex = addConstant({ type: 'string', value: value }, context);
+            const valReg = context.registerAllocator.allocate();
+            emit('LOADK', valReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+            emit('EQ_STRING', cmpReg, argReg, valReg, context);
+            context.registerAllocator.free(valReg);
+          }
+
+          const matchLabel = createLabel(context);
+          emitJump('JMP_IF_TRUE', cmpReg, matchLabel, context);
+          context.registerAllocator.free(cmpReg);
+          pendingLabelBlocks.push({ labelName: matchLabel, labelString: m.name.name });
+
+          if (typeof value === 'number') {
+            currentOrdinal = Number(value) + 1;
+          } else {
+            currentOrdinal = 0;
+          }
+        }
+
+        // After all comparisons jump to default label
+        emitJump('JMP', 0, defaultLabel, context);
+
+        // Emit label blocks (one per enum member)
+        for (const block of pendingLabelBlocks) {
+          setLabel(block.labelName, context);
+          const labelIdx = addConstant({ type: 'string', value: block.labelString }, context);
+          emit('LOADK', outReg, (labelIdx >> 8) & 0xFF, labelIdx & 0xFF, context);
+          emitJump('JMP', 0, doneLabel, context);
+        }
+
+        // Default path when no match: use backing value directly (should not occur if enum validated)
+        setLabel(defaultLabel, context);
+        emit('MOVE', outReg, argReg, 0, context);
+
+        setLabel(doneLabel, context);
+        generateExternCall(funcName, [], context, outReg);
+        context.registerAllocator.free(outReg);
+      } else {
+        generateExternCall(funcName, [], context, argReg);
+      }
+    } else {
+      generateExternCall(funcName, [], context, argReg);
+    }
 
     // Free the argument register
     context.registerAllocator.free(argReg);

@@ -101,13 +101,17 @@ enum class Opcode : uint8_t {
     CHAR_TO_INT = 0x69,       // CHAR_TO_INT r0, r1    ; r0 = int(r1) (char code)
     INT_TO_CHAR = 0x6A,       // INT_TO_CHAR r0, r1    ; r0 = char(r1) (panics if out of range)
     
-    // Enum conversions
+    // Enum conversions (ENUM_TO_STRING removed - enums represented as strings in current design)
     INT_TO_ENUM = 0x6B,       // INT_TO_ENUM r0, r1, kidx ; r0 = validate_enum<kidx>(r1), panics if invalid
     STRING_TO_ENUM = 0x6C,    // STRING_TO_ENUM r0, r1, kidx ; r0 = validate_enum<kidx>(r1), panics if invalid
-    ENUM_TO_STRING = 0x6D,    // ENUM_TO_STRING r0, r1, kidx ; r0 = enum_label<kidx>(r1)
+    // 0x6D reserved (ENUM_TO_STRING removed)
     
     // Class to JSON string conversion
     CLASS_TO_JSON = 0x6E,     // CLASS_TO_JSON r0, r1  ; r0 = json_string(r1)
+
+    // Class from JSON string conversion (metadata driven)
+    // CLASS_FROM_JSON rA, uimm16 ; parse JSON in rA (string) into new instance of class constant_pool[uimm16]; result replaces rA
+    CLASS_FROM_JSON = 0x6F,
 
     // String operations
     ADD_STRING = 0x70,        // ADD_STRING r0, r1, r2 ; r0 = r1 + r2 (concat)

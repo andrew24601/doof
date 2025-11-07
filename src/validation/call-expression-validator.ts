@@ -25,7 +25,7 @@ import {
 } from "../type-utils";
 import { tryResolveIntrinsic, getMapMethodType, getSetMethodType, getArrayMethodType, getStringMethodType, getMathMethodType } from "./intrinsics-validator";
 import { validateAnyTypeConversionCall } from "./type-conversion-validator";
-import { getMemberPropertyName } from "./member-access-validator";
+import { getMemberPropertyName, markTypeForJsonFromEntry } from "./member-access-validator";
 import { Validator } from "./validator";
 import { validateExpression } from "./expression-validator";
 import { propagateTypeContext } from "./binary-expression-validator";
@@ -454,6 +454,15 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
 
   populateCallDispatchInfo(expr, validator);
   ensureCallInfo(expr, validator);
+
+  // If this is a static call to Class.fromJSON(...), mark the class and its
+  // transitive field types for JSON deserialization generation.
+  if (expr.callInfo && expr.callInfo.kind === 'staticMethod' && expr.callInfo.targetName === 'fromJSON') {
+    const targetClass = (expr.callInfo as any).className as string | undefined;
+    if (targetClass) {
+      markTypeForJsonFromEntry(targetClass, validator);
+    }
+  }
 
   expr.inferredType = funcType.returnType;
   return funcType.returnType;

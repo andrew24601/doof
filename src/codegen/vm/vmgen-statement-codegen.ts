@@ -136,6 +136,10 @@ export function generateStatement(stmt: Statement, context: CompilationContext):
     case 'class':
       generateClass(stmt, context);
       break;
+    case 'enum':
+      // Enums currently require no runtime bytecode; they are compile-time constants
+      // Validation captures enum metadata for conversions; VM uses lowered ints
+      return;
     case 'externClass':
       // Extern classes are runtime-provided; no bytecode emitted.
       return;
@@ -818,7 +822,7 @@ function emitEqualityMatch(
   generateExpression(testExpr, testReg, context);
   const testType = getExpressionType(testExpr, context);
   const operandType = determineComparisonType(discriminantType, testType);
-  const opcode = selectEqualityOpcode(operandType);
+  const opcode = selectEqualityOpcode(operandType, context);
 
   const resultReg = context.registerAllocator.allocate();
   emit(opcode, resultReg, discriminantReg, testReg, context);
@@ -922,7 +926,7 @@ function mergeComparisonTypes(left: Type, right: Type): Type {
   return left;
 }
 
-function selectEqualityOpcode(type: Type): string {
+function selectEqualityOpcode(type: Type, context: CompilationContext): string {
   if (type.kind === 'primitive') {
     switch (type.type) {
       case 'string':
@@ -950,6 +954,13 @@ function selectEqualityOpcode(type: Type): string {
   }
 
   if (type.kind === 'enum') {
+    // Determine backing representation: if any member has a string literal value, use string equality
+    const validationContext = getActiveValidationContext(context);
+    const decl = validationContext?.enums.get(type.name);
+    if (decl) {
+      const hasString = decl.members.some(m => !!m.value && (m.value as any).literalType === 'string');
+      return hasString ? 'EQ_STRING' : 'EQ_INT';
+    }
     return 'EQ_INT';
   }
 

@@ -1,4 +1,4 @@
-import { Expression, Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression, MemberExpression, IndexExpression, LambdaExpression, TrailingLambdaExpression, ObjectExpression, PositionalObjectExpression, TupleExpression, SetExpression, TypeGuardExpression, ArrayExpression, InterpolatedString, NullCoalesceExpression, OptionalChainExpression, NonNullAssertionExpression, Type, FieldDeclaration } from "../../types";
+import { Expression, Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression, MemberExpression, IndexExpression, LambdaExpression, TrailingLambdaExpression, ObjectExpression, PositionalObjectExpression, TupleExpression, SetExpression, TypeGuardExpression, ArrayExpression, InterpolatedString, NullCoalesceExpression, OptionalChainExpression, NonNullAssertionExpression, Type, FieldDeclaration, EnumShorthandMemberExpression } from "../../types";
 import { CompilationContext, getActiveValidationContext } from "../vmgen";
 import { generateMapMethodCall, generateSetMethodCall, generateStringMethodCall, generateArrayMethodCall, generateInstanceMethodCall, generateInstanceMethodCallFromRegister, generateStaticMethodCall, generateIntrinsicCall, generateIntrinsicExternCall, generateUserFunctionCall } from "./vmgen-call-codegen";
 import { addConstant, emit, createLabel, setLabel, emitJump, setSourceLocationFromNode } from "./vmgen-emit";
@@ -269,6 +269,9 @@ export function generateExpression(expr: Expression, targetReg: number, context:
             break;
         case 'nonNullAssertion':
             generateNonNullAssertionExpression(expr as NonNullAssertionExpression, targetReg, context);
+            break;
+        case 'enumShorthand':
+            generateEnumShorthandExpression(expr as EnumShorthandMemberExpression, targetReg, context);
             break;
         default:
             throw new Error("Unsupported expression type");
@@ -585,21 +588,21 @@ function generateMemberExpression(member: MemberExpression, targetReg: number, c
 
     // Check if this is static member access (object is a class identifier)
     if (member.object.kind === 'identifier') {
-        const className = (member.object as Identifier).name;
+        const identName = (member.object as Identifier).name;
         const validationContext = getActiveValidationContext(context);
-        if (validationContext?.classes.has(className) && member.property.kind === 'identifier') {
+        if (validationContext?.classes.has(identName) && member.property.kind === 'identifier') {
             const propertyName = member.property.name;
-            const classDecl = validationContext.classes.get(className);
+            const classDecl = validationContext.classes.get(identName);
             if (!classDecl) {
-                throw new Error(`Class '${className}' is missing in validation metadata while resolving '${propertyName}'`);
+                throw new Error(`Class '${identName}' is missing in validation metadata while resolving '${propertyName}'`);
             }
 
             const staticField = classDecl.fields.find((field: FieldDeclaration) => field.name.name === propertyName && field.isStatic);
             if (!staticField) {
-                throw new Error(`Static member '${propertyName}' not found in class '${className}'`);
+                throw new Error(`Static member '${propertyName}' not found in class '${identName}'`);
             }
 
-            const globalFieldName = `${className}.${propertyName}`;
+            const globalFieldName = `${identName}.${propertyName}`;
             const globalSlot = context.globalSymbolTable.get(globalFieldName);
             if (globalSlot === undefined) {
                 throw new Error(`Static field ${globalFieldName} not found in global symbol table`);
@@ -607,6 +610,54 @@ function generateMemberExpression(member: MemberExpression, targetReg: number, c
             const globalHigh = Math.floor(globalSlot / 256);
             const globalLow = globalSlot % 256;
             emit('GET_GLOBAL', targetReg, globalHigh, globalLow, context);
+            return;
+        }
+
+        // Handle enum member access: EnumName.Member
+        if (validationContext?.enums.has(identName) && member.property.kind === 'identifier') {
+            const enumDecl = validationContext.enums.get(identName)!;
+            const memberName = member.property.name;
+            const exists = enumDecl.members.some(m => m.name.name === memberName);
+            if (!exists) {
+                throw new Error(`Enum '${identName}' has no member '${memberName}'`);
+            }
+            // Determine backing value: number literal chains or explicit number, else keep string literal.
+            // Determine backing value: explicit number/string or auto-increment numeric; else fallback to label
+            let backingValue: any = memberName; // default fallback
+            let currentOrdinal = 0;
+            for (const m of enumDecl.members) {
+                let value: any;
+                if (m.value && (m.value as any).literalType === 'number') {
+                    value = (m.value as any).value;
+                    currentOrdinal = Number(value);
+                } else if (!m.value) {
+                    value = currentOrdinal;
+                } else if ((m.value as any).literalType === 'string') {
+                    value = (m.value as any).value;
+                } else {
+                    value = m.name.name;
+                }
+                if (m.name.name === memberName) {
+                    backingValue = value;
+                    break;
+                }
+                if (typeof value === 'number') {
+                    currentOrdinal = Number(value) + 1;
+                } else {
+                    currentOrdinal = 0;
+                }
+            }
+            if (typeof backingValue === 'number') {
+                if (backingValue >= -32768 && backingValue <= 32767) {
+                    emit('LOADK_INT16', targetReg, (backingValue >> 8) & 0xFF, backingValue & 0xFF, context);
+                } else {
+                    const constIndex = addConstant({ type: 'int', value: backingValue }, context);
+                    emit('LOADK', targetReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+                }
+            } else {
+                const constIndex = addConstant({ type: 'string', value: backingValue }, context);
+                emit('LOADK', targetReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+            }
             return;
         }
     }
@@ -799,4 +850,53 @@ function generateTupleExpression(expr: TupleExpression, targetReg: number, conte
     
     // Delegate to the positional object generator
     generatePositionalObjectExpression(positionalExpr, targetReg, context);
+}
+
+function generateEnumShorthandExpression(expr: EnumShorthandMemberExpression, targetReg: number, context: CompilationContext): void {
+    const enumType: any = (expr as any)._expectedEnumType || expr.inferredType;
+    if (!enumType || enumType.kind !== 'enum') {
+        throw new Error(`Enum shorthand .${expr.memberName} missing enum context in VM codegen`);
+    }
+    const validationContext = getActiveValidationContext(context);
+    const enumDecl = validationContext?.enums.get(enumType.name);
+    if (!enumDecl) {
+        throw new Error(`Enum '${enumType.name}' not found for shorthand .${expr.memberName}`);
+    }
+    // Determine backing value same way as member access above.
+    // Compute backing value for shorthand
+    let backingValue: any = expr.memberName;
+    let currentOrdinal = 0;
+    for (const m of enumDecl.members) {
+        let value: any;
+        if (m.value && (m.value as any).literalType === 'number') {
+            value = (m.value as any).value;
+            currentOrdinal = Number(value);
+        } else if (!m.value) {
+            value = currentOrdinal;
+        } else if ((m.value as any).literalType === 'string') {
+            value = (m.value as any).value;
+        } else {
+            value = m.name.name;
+        }
+        if (m.name.name === expr.memberName) {
+            backingValue = value;
+            break;
+        }
+        if (typeof value === 'number') {
+            currentOrdinal = Number(value) + 1;
+        } else {
+            currentOrdinal = 0;
+        }
+    }
+    if (typeof backingValue === 'number') {
+        if (backingValue >= -32768 && backingValue <= 32767) {
+            emit('LOADK_INT16', targetReg, (backingValue >> 8) & 0xFF, backingValue & 0xFF, context);
+        } else {
+            const constIndex = addConstant({ type: 'int', value: backingValue }, context);
+            emit('LOADK', targetReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+        }
+    } else {
+        const constIndex = addConstant({ type: 'string', value: backingValue }, context);
+        emit('LOADK', targetReg, (constIndex >> 8) & 0xFF, constIndex & 0xFF, context);
+    }
 }

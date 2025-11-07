@@ -3,6 +3,7 @@
 // Add this method to the Instruction struct/class definition in vm.h:
 //     uint16_t uimm16() const { return (static_cast<uint16_t>(b) << 8) | c; }
 #include "vm.h"
+#include "json.h"
 #include "iterator.h"
 #include "dap.h"
 #include <stdexcept>
@@ -148,10 +149,11 @@ std::string opcode_to_string(Opcode op)
     case Opcode::BOOL_TO_DOUBLE: return "BOOL_TO_DOUBLE";
     case Opcode::CHAR_TO_INT: return "CHAR_TO_INT";
     case Opcode::INT_TO_CHAR: return "INT_TO_CHAR";
-    case Opcode::INT_TO_ENUM: return "INT_TO_ENUM";
-    case Opcode::STRING_TO_ENUM: return "STRING_TO_ENUM";
-    case Opcode::ENUM_TO_STRING: return "ENUM_TO_STRING";
+    case Opcode::INT_TO_ENUM: return "INT_TO_ENUM"; // TODO: currently unused with string-backed enums
+    case Opcode::STRING_TO_ENUM: return "STRING_TO_ENUM"; // TODO: currently unused with string-backed enums
+    // Removed ENUM_TO_STRING opcode: enums are represented directly as strings in current design.
     case Opcode::CLASS_TO_JSON: return "CLASS_TO_JSON";
+    case Opcode::CLASS_FROM_JSON: return "CLASS_FROM_JSON";
     case Opcode::ADD_STRING: return "ADD_STRING";
     case Opcode::LENGTH_STRING: return "LENGTH_STRING";
     case Opcode::NEW_ARRAY: return "NEW_ARRAY";
@@ -309,6 +311,7 @@ bool is_two_register_op(Opcode op)
     case Opcode::CHAR_TO_INT:
     case Opcode::INT_TO_CHAR:
     case Opcode::CLASS_TO_JSON:
+    case Opcode::CLASS_FROM_JSON:
     case Opcode::CAPTURE_VALUE:
     case Opcode::RETURN:
     case Opcode::JMP_IF_TRUE:
@@ -1472,15 +1475,18 @@ void DoofVM::run(const std::vector<Instruction> &code,
                 VM_VALIDATE_REGISTER(instr.b);
                 VM_VALIDATE_REGISTER(instr.c);
                 {
-                    int32_t left = registers[instr.b].as_int();
-                    int32_t right = registers[instr.c].as_int();
-                    bool result = left == right;
-                    registers[instr.a] = Value::make_bool(result);
-#ifndef DOMINO_VM_UNSAFE
-                    if (verbose_) {
-                        std::cout << "[VM] EQ_INT: " << left << " == " << right << " = " << (result ? "true" : "false") << std::endl;
-                    }
-#endif
+                        const Value &lv = registers[instr.b];
+                        const Value &rv = registers[instr.c];
+                        if (lv.type() != ValueType::Int || rv.type() != ValueType::Int) {
+                            throw std::runtime_error("EQ_INT used with non-int operands (codegen bug)");
+                        }
+                        bool result = lv.as_int() == rv.as_int();
+                        registers[instr.a] = Value::make_bool(result);
+    #ifndef DOMINO_VM_UNSAFE
+                        if (verbose_) {
+                            std::cout << "[VM] EQ_INT: " << lv.as_int() << " == " << rv.as_int() << " => " << (result ? "true" : "false") << std::endl;
+                        }
+    #endif
                 }
                 ++ip;
                 break;
@@ -1872,6 +1878,92 @@ void DoofVM::run(const std::vector<Instruction> &code,
 #endif
                 
                 set_global(global_index, frame.registers[instr.a]);
+                ++ip;
+                break;
+            }
+
+            case Opcode::CLASS_TO_JSON:
+            {
+                VM_VALIDATE_REGISTER(instr.a);
+                VM_VALIDATE_REGISTER(instr.b);
+                const Value &source = frame.registers[instr.b];
+                const std::vector<Value> &pool = constant_pool;
+                std::string json_str = value_to_json(source, pool);
+                frame.registers[instr.a] = Value::make_string(json_str);
+                ++ip;
+                break;
+            }
+
+            case Opcode::CLASS_FROM_JSON:
+            {
+                VM_VALIDATE_REGISTER(instr.a);
+                uint16_t class_index = instr.uimm16();
+                VM_VALIDATE_CONSTANT_INDEX(class_index, constant_pool);
+                if (frame.registers[instr.a].type() != ValueType::String) {
+                    throw std::runtime_error("CLASS_FROM_JSON expects JSON string in source register");
+                }
+                const std::string &json_input = frame.registers[instr.a].as_string();
+                json::JSONParser parser(json_input);
+                json::JSONValue root = parser.parse();
+                if (!root.is_object()) {
+                    throw std::runtime_error("CLASS_FROM_JSON root JSON value must be object");
+                }
+                const Value &class_val = constant_pool[class_index];
+                auto meta = std::dynamic_pointer_cast<ClassMetadata>(class_val.as_object());
+                if (!meta) {
+                    throw std::runtime_error("CLASS_FROM_JSON constant is not ClassMetadata");
+                }
+                auto obj = std::make_shared<Object>();
+                obj->class_idx = class_index;
+                int fieldCount = meta->fieldCount();
+                obj->fields.resize(fieldCount);
+                std::vector<std::string> field_names;
+                if (meta->fields.size() > 3 && meta->fields[3].type() == ValueType::Array) {
+                    const auto &arr = meta->fields[3].as_array();
+                    field_names.reserve(arr->size());
+                    for (const auto &v : *arr) {
+                        if (v.type() == ValueType::String) field_names.push_back(v.as_string());
+                    }
+                }
+                const auto &json_obj = root.as_object();
+                // local converter
+                std::function<Value(const json::JSONValue&)> convert = [&](const json::JSONValue &jv) -> Value {
+                    if (jv.is_null()) return Value::make_null();
+                    if (jv.is_bool()) return Value::make_bool(jv.as_bool());
+                    if (jv.is_number()) {
+                        double num = jv.as_number();
+                        if (std::floor(num) == num && num >= INT32_MIN && num <= INT32_MAX) {
+                            return Value::make_int(static_cast<int32_t>(num));
+                        }
+                        return Value::make_double(num);
+                    }
+                    if (jv.is_string()) return Value::make_string(jv.as_string());
+                    if (jv.is_array()) {
+                        auto arrPtr = std::make_shared<Array>();
+                        for (const auto &elem : jv.as_array()) arrPtr->push_back(convert(elem));
+                        return Value::make_array(arrPtr);
+                    }
+                    if (jv.is_object()) {
+                        auto mapPtr = std::make_shared<Map>();
+                        for (const auto &kv : jv.as_object()) {
+                            (*mapPtr)[kv.first] = convert(kv.second);
+                        }
+                        return Value::make_map(mapPtr);
+                    }
+                    return Value::make_null();
+                };
+                for (int i = 0; i < fieldCount; ++i) {
+                    Value fieldValue = Value::make_null();
+                    if (i < static_cast<int>(field_names.size())) {
+                        const std::string &fname = field_names[i];
+                        auto it = json_obj.find(fname);
+                        if (it != json_obj.end()) {
+                            fieldValue = convert(it->second);
+                        }
+                    }
+                    obj->fields[i] = fieldValue;
+                }
+                frame.registers[instr.a] = Value::make_object(obj);
                 ++ip;
                 break;
             }

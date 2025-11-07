@@ -1,5 +1,5 @@
 import { BinaryExpression, ConditionalExpression, Expression, Literal, UnaryExpression, Type } from "../../types";
-import { CompilationContext } from "../vmgen";
+import { CompilationContext, getActiveValidationContext } from "../vmgen";
 import { createLabel, emit, emitJump, setLabel } from "./vmgen-emit";
 import { generateExpression, generateExpressionOptimal } from "./vmgen-expression-codegen";
 import { getExpressionType, getPromotedType, isNullLiteral } from "./vmgen-type-utils";
@@ -149,7 +149,10 @@ function generateComparisonConditional(
     // Get type information for optimal instruction selection
     const leftType = getExpressionType(binary.left, context);
     const rightType = getExpressionType(binary.right, context);
-    const operandType = getPromotedType(leftType, rightType);
+    // Prefer enum typing if present to choose correct equality opcode
+    const operandType = (leftType.kind === 'enum') ? leftType
+        : (rightType.kind === 'enum') ? rightType
+        : getPromotedType(leftType, rightType);
 
     // Generate the comparison and conditional jump
     switch (binary.operator) {
@@ -201,6 +204,21 @@ function generateEqualityConditional(
         // IS_NULL only takes one operand - the register to check for null
         // For now, assume leftReg contains the variable (this works for "variable == null")
         emit('IS_NULL', tempReg, leftReg, 0, context);
+    } else if (operandType.kind === 'enum') {
+        // Enum equality: choose backing opcode (string or int) based on member literal types
+        const validationContext = getActiveValidationContext(context);
+        const decl = validationContext?.enums.get((operandType as any).name);
+        if (decl) {
+            const hasString = decl.members.some(m => !!m.value && (m.value as any).literalType === 'string');
+            if (hasString) {
+                emit('EQ_STRING', tempReg, leftReg, rightReg, context);
+            } else {
+                emit('EQ_INT', tempReg, leftReg, rightReg, context);
+            }
+        } else {
+            // Fallback: assume int-backed if metadata missing; fail fast choice kept explicit
+            emit('EQ_INT', tempReg, leftReg, rightReg, context);
+        }
     } else if (isStringTypeShared(operandType)) {
         emit('EQ_STRING', tempReg, leftReg, rightReg, context);
     } else if (isCharTypeShared(operandType)) {

@@ -102,10 +102,11 @@ const OPCODES = {
   // Enum conversions
   INT_TO_ENUM: 0x6B,
   STRING_TO_ENUM: 0x6C,
-  ENUM_TO_STRING: 0x6D,
+  // ENUM_TO_STRING removed: enums currently represented directly as strings in VM constant/register space
 
   // Class to JSON string conversion
   CLASS_TO_JSON: 0x6E,
+  CLASS_FROM_JSON: 0x6F,
 
   // String operations
   ADD_STRING: 0x70,

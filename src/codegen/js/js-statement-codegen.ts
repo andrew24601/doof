@@ -181,25 +181,52 @@ export function generateClassDeclaration(generator: JsStatementGeneratorInterfac
 }
 
 export function generateEnumDeclaration(generator: JsStatementGeneratorInterface, enumDecl: EnumDeclaration): string {
+  // Build enum object with backing values and a reverse label map for pretty printing
   let output = generator.indent() + `const ${enumDecl.name.name} = {\n`;
   generator.indentLevel++;
 
+  // Track numeric auto-increment for TS-like enums
+  let lastNumeric: number | null = null;
+  const reversePairs: { value: string; label: string }[] = [];
+
   for (let i = 0; i < enumDecl.members.length; i++) {
     const member = enumDecl.members[i];
-    const comma = i < enumDecl.members.length - 1 ? ',' : '';
-    output += generator.indent() + `${member.name.name}: `;
+    const label = member.name.name;
+    let valueExpr: string;
+
     if (member.value) {
-      output += generator.generateExpression(member.value);
+      if ((member.value as any).literalType === 'number') {
+        valueExpr = String((member.value as any).value);
+        lastNumeric = Number((member.value as any).value);
+      } else {
+        valueExpr = generator.generateExpression(member.value);
+        lastNumeric = null; // string-backed resets numeric chain
+      }
     } else {
-      output += i.toString();
+      if (lastNumeric !== null) {
+        lastNumeric = lastNumeric + 1;
+        valueExpr = String(lastNumeric);
+      } else {
+        // No explicit value and not in numeric chain: fallback to label string
+        valueExpr = JSON.stringify(label);
+      }
     }
-    output += comma + '\n';
+
+    // Emit member assignment
+    const comma = i < enumDecl.members.length - 1 ? ',' : '';
+    output += generator.indent() + `${label}: ${valueExpr}${comma}\n`;
+
+    // Record reverse mapping pair as string source for later __labels Map
+    reversePairs.push({ value: valueExpr, label: JSON.stringify(label) });
   }
 
   generator.indentLevel--;
   output += generator.indent() + '};\n\n';
 
-  // Freeze the enum object
+  // Attach reverse label map for println pretty printing of enum values
+  // Use Map to support non-string numeric keys reliably
+  const pairs = reversePairs.map(p => `[${p.value}, ${p.label}]`).join(', ');
+  output += `${enumDecl.name.name}.__labels = new Map([${pairs}]);\n`;
   output += `Object.freeze(${enumDecl.name.name});`;
 
   return output;

@@ -470,6 +470,13 @@ function maybeMarkTypeForJsonFrom(typeName: string, validator: Validator) {
   markTypeForJsonFrom(typeName, validator, visited);
 }
 
+// Public utility invoked when a static fromJSON method is referenced so that
+// code generation knows to emit fromJSON/_fromJSON implementations for the
+// declaring class and all of its transitive field member types.
+export function markTypeForJsonFromEntry(typeName: string, validator: Validator) {
+  maybeMarkTypeForJsonFrom(typeName, validator);
+}
+
 function markTypeForJsonFrom(typeName: string, validator: Validator, visited: Set<string>) {
   if (visited.has(typeName)) return; // Avoid infinite recursion
   visited.add(typeName);

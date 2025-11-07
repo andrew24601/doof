@@ -312,7 +312,18 @@ export function generateToJSONMethodSource(generator: CppGenerator, classDecl: C
         const isLast = i === allFields.length - 1;
         const cppFieldName = getCppFieldName(field);
 
-        if (field.type.kind === 'primitive') {
+        if (field.type.kind === 'enum') {
+            // For enums: if string-backed, print backing string; otherwise print underlying int value
+            const enumType = field.type as EnumTypeNode;
+            const enumDecl = generator.validationContext?.enums.get(enumType.name);
+                if (enumDecl && enumDecl.members.some(m => m.value && m.value.literalType === 'string')) {
+                    // string-backed enum: quote field name and JSON-encode backing string
+                    output += `    os << "\\"${field.name.name}\\":" << doof_runtime::json_encode(${enumDecl.name.name}_backing_string(${cppFieldName}));\n`;
+                } else {
+                    // numeric-backed enum: quote field name then output underlying int
+                    output += `    os << "\\"${field.name.name}\\":" << static_cast<int>(${cppFieldName});\n`;
+                }
+        } else if (field.type.kind === 'primitive') {
             const primitive = field.type as PrimitiveTypeNode;
             if (primitive.type === 'string') {
                 output += `    os << "\\"${field.name.name}\\":" << doof_runtime::json_encode(${cppFieldName});\n`;
@@ -716,9 +727,58 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
             }
 
             case 'enum':
-                const enumTypeName = type.name;
-                output += `    // TODO: Implement enum deserialization for ${enumTypeName}\n`;
-                output += `    ${enumTypeName} ${cppFieldName} = static_cast<${enumTypeName}>(0);\n`;
+                {
+                    const enumTypeName = (type as EnumTypeNode).name;
+                    const enumDecl = generator.validationContext?.enums.get(enumTypeName);
+                    if (!enumDecl) {
+                        output += `    throw std::runtime_error("Enum metadata for '${enumTypeName}' not found during deserialization");\n`;
+                        output += `    ${enumTypeName} ${cppFieldName} = static_cast<${enumTypeName}>(0);\n`;
+                        break;
+                    }
+                    const isStringBacked = enumDecl.members.some(m => m.value && m.value.literalType === 'string');
+                    if (isStringBacked) {
+                        // String-backed: JSON contains backing string values
+                        output += `    std::string ${cppFieldName}_raw = doof_runtime::json::get_string(${jsonObjName}, "${jsonFieldName}");\n`;
+                        output += `    ${enumTypeName} ${cppFieldName};\n`;
+                        // Generate if/else chain comparing backing strings
+                        for (let i = 0; i < enumDecl.members.length; i++) {
+                            const m = enumDecl.members[i];
+                            const raw = m.value && m.value.literalType === 'string'
+                                ? JSON.stringify(String(m.value.value))
+                                : JSON.stringify(m.name.name);
+                            const prefix = i === 0 ? 'if' : 'else if';
+                            output += `    ${prefix} (${cppFieldName}_raw == ${raw}) { ${cppFieldName} = ${enumTypeName}::${m.name.name}; }\n`;
+                        }
+                        output += `    else { throw std::runtime_error("Invalid backing value '" + ${cppFieldName}_raw + "' for enum ${enumTypeName}"); }\n`;
+                    } else {
+                        // Numeric-backed: JSON contains integral backing values
+                        output += `    int ${cppFieldName}_raw = doof_runtime::json::get_int(${jsonObjName}, "${jsonFieldName}");\n`;
+                        output += `    ${enumTypeName} ${cppFieldName};\n`;
+                        // Build mapping using same auto-increment rules as enum generation
+                        output += `    switch (${cppFieldName}_raw) {\n`;
+                        let currentOrdinal = 0;
+                        for (const m of enumDecl.members) {
+                            let backing: number;
+                            if (m.value && m.value.literalType === 'number') {
+                                backing = Number(m.value.value);
+                                currentOrdinal = backing;
+                            } else if (!m.value) {
+                                backing = currentOrdinal;
+                            } else {
+                                // Should not happen for numeric-backed (string value would have made isStringBacked true)
+                                backing = currentOrdinal;
+                            }
+                            output += `    case ${backing}: ${cppFieldName} = ${enumTypeName}::${m.name.name}; break;\n`;
+                            if (!m.value || (m.value && m.value.literalType === 'number')) {
+                                currentOrdinal = backing + 1;
+                            } else {
+                                currentOrdinal = 0; // reset if unexpected type
+                            }
+                        }
+                        output += `    default: throw std::runtime_error("Invalid backing value " + std::to_string(${cppFieldName}_raw) + " for enum ${enumTypeName}");\n`;
+                        output += `    }\n`;
+                    }
+                }
                 break;
 
             default:
@@ -863,6 +923,56 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
                     output += `            // TODO: Set element type '${elemType2.kind}' not yet supported\n`;
                 }
                 output += `        }\n`;
+                break;
+            }
+
+            case 'enum': {
+                const enumTypeName2 = (type as EnumTypeNode).name;
+                const enumDecl2 = generator.validationContext?.enums.get(enumTypeName2);
+                if (!enumDecl2) {
+                    output += `        throw std::runtime_error("Enum metadata for '${enumTypeName2}' not found during deserialization");\n`;
+                    break;
+                }
+                const isStringBacked2 = enumDecl2.members.some(m => m.value && m.value.literalType === 'string');
+                if (isStringBacked2) {
+                    output += `        {\n`;
+                    output += `            std::string ${cppFieldName}_raw = doof_runtime::json::get_string(${jsonObjName}, "${jsonFieldName}");\n`;
+                    for (let i = 0; i < enumDecl2.members.length; i++) {
+                        const m = enumDecl2.members[i];
+                        const raw = m.value && m.value.literalType === 'string'
+                            ? JSON.stringify(String(m.value.value))
+                            : JSON.stringify(m.name.name);
+                        const prefix = i === 0 ? 'if' : 'else if';
+                        output += `            ${prefix} (${cppFieldName}_raw == ${raw}) { ${cppFieldName} = ${enumTypeName2}::${m.name.name}; }\n`;
+                    }
+                    output += `            else { throw std::runtime_error("Invalid backing value '" + ${cppFieldName}_raw + "' for enum ${enumTypeName2}"); }\n`;
+                    output += `        }\n`;
+                } else {
+                    output += `        {\n`;
+                    output += `            int ${cppFieldName}_raw = doof_runtime::json::get_int(${jsonObjName}, "${jsonFieldName}");\n`;
+                    output += `            switch (${cppFieldName}_raw) {\n`;
+                    let currentOrdinal2 = 0;
+                    for (const m of enumDecl2.members) {
+                        let backing: number;
+                        if (m.value && m.value.literalType === 'number') {
+                            backing = Number(m.value.value);
+                            currentOrdinal2 = backing;
+                        } else if (!m.value) {
+                            backing = currentOrdinal2;
+                        } else {
+                            backing = currentOrdinal2;
+                        }
+                        output += `            case ${backing}: ${cppFieldName} = ${enumTypeName2}::${m.name.name}; break;\n`;
+                        if (!m.value || (m.value && m.value.literalType === 'number')) {
+                            currentOrdinal2 = backing + 1;
+                        } else {
+                            currentOrdinal2 = 0;
+                        }
+                    }
+                    output += `            default: throw std::runtime_error("Invalid backing value " + std::to_string(${cppFieldName}_raw) + " for enum ${enumTypeName2}");\n`;
+                    output += `            }\n`;
+                    output += `        }\n`;
+                }
                 break;
             }
 

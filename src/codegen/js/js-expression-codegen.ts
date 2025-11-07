@@ -71,8 +71,10 @@ export function generateExpression(generator: JsGeneratorInterface, expr: Expres
             return generateOptionalChainExpression(generator, expr as OptionalChainExpression);
         case 'nonNullAssertion':
             return generateNonNullAssertionExpression(generator, expr as NonNullAssertionExpression);
+        case 'enumShorthand':
+            return generateEnumShorthandExpression(expr as EnumShorthandMemberExpression);
         default:
-            throw new Error(`Unsupported expression kind: ${expr.kind}`);
+            throw new Error(`Unsupported expression kind: ${(expr as any).kind}`);
     }
 }
 
@@ -408,6 +410,14 @@ function generateJsIntrinsicFunctionCall(generator: JsGeneratorInterface, funcNa
             // For primitives, print directly to match unit test expectations
             if (argType && argType.kind === 'primitive') {
                 return `console.log(${argExpr})`;
+            }
+
+            // For enum values, print their member label (string) or map numeric to label if needed
+            if (argType && argType.kind === 'enum') {
+                // Convert backing value (number or string) to label using enum.__labels reverse map if numeric
+                // Detection: if backing value is a number at runtime, map it; else print directly
+                const enumName = argType.name;
+                return `console.log(${enumName}.__labels.get(${argExpr}) ?? ${argExpr})`;
             }
 
             // For arrays, maps, sets, classes, or unknown objects, normalize to JSON
@@ -771,6 +781,15 @@ export function generateNullCoalesceExpression(generator: JsGeneratorInterface, 
     const left = generator.generateExpression(expr.left);
     const right = generator.generateExpression(expr.right);
     return `(${left} ?? ${right})`;
+}
+
+// Enum shorthand (.Member) generation: relies on inferred or expected enum type injected by validator
+function generateEnumShorthandExpression(expr: EnumShorthandMemberExpression): string {
+    const enumType = (expr as any)._expectedEnumType || expr.inferredType;
+    if (!enumType || enumType.kind !== 'enum') {
+        throw new Error(`Enum shorthand .${expr.memberName} missing enum context`);
+    }
+    return `${enumType.name}.${expr.memberName}`;
 }
 
 export function generateOptionalChainExpression(generator: JsGeneratorInterface, expr: OptionalChainExpression): string {

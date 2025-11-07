@@ -289,13 +289,14 @@ export function validateTypeConversionCall(
       const enumType = argType as EnumTypeNode;
       
       // Store conversion info for codegen
+      // ENUM_TO_STRING removed from VM; enums represented directly as strings.
       expr.typeConversionInfo = {
         function: 'string',
         inputType: argType,
         returnType: { kind: 'primitive', type: 'string' },
-  cppMapping: `doof_runtime::enum_to_string`,
-        vmMapping: 'ENUM_TO_STRING',
-        description: `enum → string: returns the enum label`
+        cppMapping: `doof_runtime::enum_to_string`,
+        vmMapping: 'STRING_IDENTITY', // direct value already a string in VM
+        description: `enum → string: returns the enum label (direct string in VM)`
       };
       
       return { kind: 'primitive', type: 'string' };

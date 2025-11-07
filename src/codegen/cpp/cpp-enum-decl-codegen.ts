@@ -29,6 +29,24 @@ export function generateEnumDeclaration(generator: CppGenerator, enumDecl: EnumD
     // Generate to_string function for enum
     output += generateEnumToStringFunction(generator, enumDecl);
 
+    // Generate backing string function for string-backed enums
+    if (enumDecl.members.some(m => m.value && m.value.literalType === 'string')) {
+        const inlineKeyword = generator.isGeneratingHeader ? 'inline ' : '';
+        output += generator.indent() + `${inlineKeyword}std::string ${enumDecl.name.name}_backing_string(${enumDecl.name.name} value) {\n`;
+        generator.increaseIndent();
+        output += generator.indent() + 'switch (value) {\n';
+        generator.increaseIndent();
+        for (const member of enumDecl.members) {
+            const backing = member.value && member.value.literalType === 'string' ? JSON.stringify(String(member.value.value)) : JSON.stringify(member.name.name);
+            output += generator.indent() + `case ${enumDecl.name.name}::${member.name.name}: return ${backing};\n`;
+        }
+        output += generator.indent() + `default: return "";\n`;
+        generator.decreaseIndent();
+        output += generator.indent() + '}\n';
+        generator.decreaseIndent();
+        output += generator.indent() + '}\n\n';
+    }
+
     // Generate operator<< overload for enum
     output += generateEnumOperatorOverload(generator, enumDecl);
 
