@@ -82,6 +82,7 @@ export enum TokenType {
   LESS_EQUAL = '<=',
   GREATER_THAN = '>',
   GREATER_EQUAL = '>=',
+  SELF_CLOSE = 'SELF_CLOSE', // '/>' for XML self-closing tags
 
   // Logical
   AND = '&&',
@@ -619,6 +620,14 @@ export class Lexer {
 
       // Two-character operators
       const twoChar = this.current() + this.peek();
+      // Special XML self-closing token recognition BEFORE generic two-char switch
+      if (this.current() === '/' && this.peek() === '>') {
+        const startPos = start;
+        this.advance(); // '/'
+        this.advance(); // '>'
+        tokens.push({ type: TokenType.SELF_CLOSE, value: '/>', location: this.createLocation(startPos) });
+        continue;
+      }
       switch (twoChar) {
         case '++':
           this.advance();

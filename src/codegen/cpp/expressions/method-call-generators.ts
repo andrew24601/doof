@@ -406,16 +406,9 @@ export function generateIndexExpression(generator: CppGenerator, expr: IndexExpr
  * Generates arguments from named or positional call syntax
  */
 function generateArgumentsFromNamedOrPositional(generator: CppGenerator, expr: CallExpression): string[] {
-    // Handle named arguments
-    if (expr.namedArguments && expr.namedArguments.length > 0) {
-        // For named arguments, we need to map them to positional based on function signature
-        // This is complex and would require looking up the function signature
-        return expr.namedArguments.map(arg => {
-            if (arg.value) {
-                return generateExpression(generator, arg.value);
-            }
-            throw new Error('Named argument missing value');
-        });
+    // If validator lowered named arguments into positional expr.arguments, just use them.
+    if (expr.namedArguments && expr.namedArguments.length > 0 && expr.arguments && expr.arguments.length > 0) {
+        return expr.arguments.map(arg => generateExpression(generator, arg));
     }
 
     // Handle regular positional arguments

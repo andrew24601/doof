@@ -9,6 +9,7 @@ This sectioned guide replaces the monolithic `docs/syntax.md`. Use the links bel
 - Pointers and references: [pointers-and-references.md](pointers-and-references.md)
 - Interfaces (structural): [interfaces.md](interfaces.md)
 - Collections: [collections.md](collections.md)
+- XML-style calls: [xml-calls.md](xml-calls.md)
 - Functions: [functions.md](functions.md)
 - Markdown blocks in code: [markdown-blocks.md](markdown-blocks.md)
 - Expressions and control flow: [expressions-and-control-flow.md](expressions-and-control-flow.md)

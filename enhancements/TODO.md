@@ -1,3 +1,14 @@
+# VM backend – enums unimplemented (limitation)
+Context: While running the comprehensive end-to-end integration on the VM backend, a top-level `enum` declaration caused bundling to fail with:
+
+> Project transpilation failed: Unimplemented statement kind: enum
+## XML-style Calls Follow-ups
+
+- [ ] Attribute enum shorthand support (`priority=.LOW`) with proper enum type context.
+- [ ] Generic type arguments in XML tag heads (e.g., `<List<int> />`) with disambiguation from comparison operators.
+- [ ] Support non-array `children` types (single child, union element types) and richer validation.
+- [ ] Round-trip formatting support to regenerate XML form from AST/formatter.
+- [ ] Attribute spread / defaults and boolean attributes (value-less) semantics.
 # JSON handling – improvement backlog
 
 These items were identified during a review of the current JSON implementation (runtime + codegen). They’re not showstoppers but will improve robustness and coverage.
@@ -162,18 +173,15 @@ Done when:
 
 ---
 
-# VM backend – enums unimplemented (limitation)
+# C++ string concatenation ergonomics
 
-Context: While running the comprehensive end-to-end integration on the VM backend, a top-level `enum` declaration caused bundling to fail with:
-
-> Project transpilation failed: Unimplemented statement kind: enum
-
-Notes:
-- The comprehensive test didn't use the enum; we removed it to keep the test focused and unblocked across all backends.
-- VM generator currently lacks codegen for `enum` declarations; C++ and JS targets handle enums.
+Context: Authoring Doof code that concatenates string literals and non-string values with `+` sometimes depends on implicit conversions that are awkward in C++ (e.g., `"a" + "b"` is pointer arithmetic in C++ unless one side is `std::string`). Our codegen generally wraps operands correctly, but literal+literal corner cases may arise when simplifying expressions.
 
 Action items:
-- Implement VM enum support: allocate enum identifiers, expose to VM as integers/strings consistently with language semantics, and support member access and comparisons.
-- Add a minimal VM integration test for enums (declaration + usage) mirroring C++/JS expectations.
-- Update integration test to include enums once VM parity is in place.
+- Ensure both operands to `+` are coerced to `std::string` in generated C++ when the intended operation is string concatenation, including literal-only cases.
+- Audit interpolation and concatenation lowering to avoid emitting raw `const char* + const char*` expressions.
+- Add targeted tests mixing string literals, variables, numbers, and user types to guarantee consistent concatenation behavior across C++ and VM.
 
+Done when:
+- Concatenation of any combination of literals and expressions produces valid, readable C++17 without relying on unspecified pointer arithmetic.
+- VM and C++ outputs agree on observable results for concatenation scenarios.

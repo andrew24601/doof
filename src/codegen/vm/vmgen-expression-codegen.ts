@@ -273,6 +273,23 @@ export function generateExpression(expr: Expression, targetReg: number, context:
         case 'enumShorthand':
             generateEnumShorthandExpression(expr as EnumShorthandMemberExpression, targetReg, context);
             break;
+        case 'xmlCall':
+            // XML call should have been normalized during validation to a CallExpression stored in normalizedCall.
+            const xml: any = expr;
+            if (xml.normalizedCall) {
+                generateCallExpression(xml.normalizedCall as CallExpression, targetReg, context);
+            } else {
+                // Fallback: treat as no-op string literal of joined children for minimal resilience
+                const parts: string[] = [];
+                for (const attr of xml.attributes || []) {
+                    if (attr.value && attr.value.kind === 'literal' && (attr.value as any).literalType === 'string') {
+                        parts.push((attr.value as any).value);
+                    }
+                }
+                const tempLit: Literal = { kind: 'literal', value: parts.join(' '), literalType: 'string', location: xml.location } as any;
+                generateLiteral(tempLit, targetReg, context);
+            }
+            break;
         default:
             throw new Error("Unsupported expression type");
     }

@@ -426,31 +426,27 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
     }
   }
 
-  // Check that arguments are provided in the same order as declared
-  let lastIndex = -1;
-  for (const namedArg of namedArgs) {
-    if (namedArg.key.kind === 'identifier') {
-      const paramName = (namedArg.key as Identifier).name;
-      const paramInfo = paramMap.get(paramName);
-      if (paramInfo) {
-        if (paramInfo.index <= lastIndex) {
-          validator.addError(
-            `Named arguments must be provided in the same order as declared parameters. Parameter '${paramName}' should come before previously specified parameters.`,
-            namedArg.key.location
-          );
-        }
-        lastIndex = paramInfo.index;
-      }
-    }
-  }
+  // Named argument order is not enforced for ergonomics
 
-  // Check for missing required parameters
+  // Check for missing required parameters & build finalized positional argument list
   for (let i = 0; i < parameters.length; i++) {
     const param = parameters[i];
     if (!providedParams.has(param.name)) {
       validator.addError(`Missing required parameter '${param.name}'`, expr.location);
     }
   }
+
+  // Lower named arguments to positional order for downstream code generation / analysis
+  const normalizedArgs: Expression[] = [];
+  for (let i = 0; i < parameters.length; i++) {
+    const provided = argumentsByIndex[i];
+    if (provided) {
+      normalizedArgs.push(provided);
+    } else {
+      normalizedArgs.push({ kind: 'literal', value: null, literalType: 'null', location: expr.location } as any);
+    }
+  }
+  expr.arguments = normalizedArgs;
 
   populateCallDispatchInfo(expr, validator);
   ensureCallInfo(expr, validator);

@@ -202,8 +202,8 @@ class InstantiationCollector {
       case "markdownTable":
         break;
       default:
-        const neverStmt: never = stmt;
-        throw new Error(`Unhandled statement kind '${(neverStmt as any).kind}' in generic instantiation collector`);
+        // Gracefully ignore new statement kinds to avoid hard failure; collector focuses on expressions/types.
+        break;
     }
   }
 
@@ -295,6 +295,36 @@ class InstantiationCollector {
             if (named.value) {
               this.visitExpression(named.value);
             }
+          }
+        }
+        break;
+      case "xmlCall":
+        // XML calls are normalized during validation to CallExpression (xml.normalizedCall).
+        // Collect generics from the synthetic call if available and traverse attributes/children.
+        if ((expr as any).normalizedCall) {
+          const normalized = (expr as any).normalizedCall as CallExpression;
+          this.recordFunctionInstantiation(normalized);
+          this.visitExpression(normalized.callee);
+          for (const arg of normalized.arguments) {
+            this.visitExpression(arg);
+          }
+          if (normalized.namedArguments) {
+            for (const named of normalized.namedArguments) {
+              if (named.value) {
+                this.visitExpression(named.value);
+              }
+            }
+          }
+        }
+        // Also traverse raw attribute values and children (strings ignored).
+        for (const attr of (expr as any).attributes ?? []) {
+          if (attr.value) {
+            this.visitExpression(attr.value);
+          }
+        }
+        for (const child of (expr as any).children ?? []) {
+          if (typeof child !== 'string') {
+            this.visitExpression(child as Expression);
           }
         }
         break;
@@ -396,8 +426,8 @@ class InstantiationCollector {
         this.visitExpression(expr.end);
         break;
       default:
-        const neverExpr: never = expr;
-        throw new Error(`Unhandled expression kind '${(neverExpr as any).kind}' in generic instantiation collector`);
+        // Unknown/new expression kind: be conservative and do nothing
+        break;
     }
   }
 

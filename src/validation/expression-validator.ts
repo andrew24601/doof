@@ -21,6 +21,7 @@ import {
 } from "./null-safety-validator";
 import { createUnknownType } from "../type-utils";
 import { Expression, Type, InterpolatedString, RangeExpression } from "../types";
+import { validateXmlCallExpression } from './xml-call-validator';
 import { Validator } from "./validator";
 
 export function validateExpression(expr: Expression, validator: Validator): Type {
@@ -44,6 +45,9 @@ export function validateExpression(expr: Expression, validator: Validator): Type
       break;
     case 'call':
       type = validateCallExpression(expr, validator);
+      break;
+    case 'xmlCall':
+      type = validateXmlCallExpression(expr as any, validator);
       break;
     case 'member':
       type = validateMemberExpression(expr, validator);
@@ -115,3 +119,5 @@ export { propagateTypeContext } from "./binary-expression-validator";
 export { canInferObjectLiteralType, inferObjectLiteralType } from "./object-literal-validator";
 export { getLiteralType } from "./literals-validator";
 export { isEnumMemberExpression } from "./special-expressions-validator";
+
+// (moved) XML-call validation now lives in xml-call-validator.ts

@@ -155,6 +155,7 @@ export type Expression =
   | UnaryExpression
   | ConditionalExpression
   | CallExpression
+  | XmlCallExpression
   | MemberExpression
   | IndexExpression
   | ArrayExpression
@@ -311,6 +312,24 @@ export interface CallExpression extends ASTNode {
   callInfo?: CallDispatchInfo;
   // Snapshot of call dispatch info for resiliency when validators reset callInfo
   callInfoSnapshot?: CallDispatchInfo;
+}
+
+// XML-style call prior to normalization into a CallExpression
+export interface XmlAttribute extends ASTNode {
+  kind: 'xmlAttribute';
+  name: Identifier;
+  value?: Expression; // Absent only for future boolean shorthand (not supported yet)
+  isLambdaShorthand?: boolean; // True when parsed from name=> expr form
+}
+
+export interface XmlCallExpression extends ASTNode {
+  kind: 'xmlCall';
+  callee: Identifier | MemberExpression; // Tag name or member path (obj.method)
+  attributes: XmlAttribute[];
+  children?: Expression[]; // After parsing: string literals, nested xmlCall, or expressions
+  selfClosing: boolean;
+  // During validation we may attach the synthesized CallExpression for downstream consumers
+  normalizedCall?: CallExpression;
 }
 
 export interface MemberExpression extends ASTNode {

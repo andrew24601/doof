@@ -138,6 +138,14 @@ export function generateExpressionWithContext(generator: CppGenerator, expr: Exp
         case 'range':
             // Range expressions are handled in for-of statements
             throw new Error('Range expressions should not be generated directly');
+        case 'xmlCall':
+            // Delegate to normalized call synthesized by validator
+            const xml: any = expr;
+            if (xml.normalizedCall) {
+                result = generateCallExpression(generator, xml.normalizedCall as CallExpression, context?.targetType, context);
+                break;
+            }
+            throw new Error('XmlCall expression missing normalizedCall during C++ codegen');
         default:
             // Add type assertion to help TypeScript narrow the type
             const exhaustiveCheck: never = expr;

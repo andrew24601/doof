@@ -24,6 +24,7 @@ This guide has been split into focused topics under `docs/syntax/` to make it ea
 - Error handling: [syntax/error-handling.md](syntax/error-handling.md)
 - C++ mapping summary: [syntax/cpp-mapping.md](syntax/cpp-mapping.md)
 - Multi-file project structure: [syntax/project-structure.md](syntax/project-structure.md)
+ - XML element calls: [syntax/xml-elements.md](syntax/xml-elements.md)
 
 See also:
 - Lambdas: [lambdas.md](lambdas.md)

@@ -141,6 +141,9 @@ const sum = numbers.reduce(0, => acc + it);
 
 // You can still use explicit parameters if preferred
 const doubled = numbers.map((value) => value * 2);
+
+// Inside XML attributes expecting a function type, same shorthand applies:
+<Button onClick => println(it) />
 ```
 
 ## Trailing lambda syntax

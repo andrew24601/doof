@@ -143,7 +143,7 @@ describe('Named Arguments', () => {
       expect(result.source).toContain('obj->method(42, "hello")');
     });
 
-    it('should validate named arguments are in correct order', () => {
+    it('should accept named arguments in any order', () => {
       const code = `
         function testFunc(first: int, second: string): void {}
         
@@ -153,9 +153,10 @@ describe('Named Arguments', () => {
       `;
       
       const result = transpileCode(code);
+      // Order constraint relaxed; no error expected
       expect(result.errors.some(err => 
         err.message.includes('Named arguments must be provided in the same order')
-      )).toBe(true);
+      )).toBe(false);
     });
 
     it('should validate unknown parameter names', () => {

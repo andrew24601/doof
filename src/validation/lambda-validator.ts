@@ -49,15 +49,19 @@ export function validateLambdaExpression(expr: LambdaExpression, validator: Vali
   let parameters = expr.parameters;
   if (expr.isShortForm && expr._expectedFunctionType && expr._expectedFunctionType.kind === 'function') {
     const expectedFunc = expr._expectedFunctionType as FunctionTypeNode;
-    // Infer parameters from expected function type and update the expression
-    parameters = expectedFunc.parameters.map(p => ({
-      kind: 'parameter' as const,
-      name: { kind: 'identifier' as const, name: p.name, location: expr.location },
-      type: p.type,
-      location: expr.location
-    }));
-    // Update the expression with inferred parameters
-    expr.parameters = parameters;
+    if (parameters.length === 0) {
+      // If user omitted parameters entirely, infer from expected signature.
+      parameters = expectedFunc.parameters.map(p => ({
+        kind: 'parameter' as const,
+        name: { kind: 'identifier' as const, name: p.name, location: expr.location },
+        type: p.type,
+        location: expr.location
+      }));
+      expr.parameters = parameters;
+    } else if (parameters.length === 1 && parameters[0].name.name === 'it' && expectedFunc.parameters.length === 1) {
+      // Support implicit 'it' placeholder: keep name 'it' but assign expected type
+      parameters[0].type = expectedFunc.parameters[0].type;
+    }
   }
 
   // Add parameters to scope

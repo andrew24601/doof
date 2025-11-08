@@ -73,6 +73,13 @@ export function generateExpression(generator: JsGeneratorInterface, expr: Expres
             return generateNonNullAssertionExpression(generator, expr as NonNullAssertionExpression);
         case 'enumShorthand':
             return generateEnumShorthandExpression(expr as EnumShorthandMemberExpression);
+        case 'xmlCall': {
+            const xml: any = expr;
+            if (xml.normalizedCall) {
+                return generateCallExpression(generator, xml.normalizedCall as CallExpression);
+            }
+            throw new Error('XmlCall expression missing normalizedCall during JS codegen');
+        }
         default:
             throw new Error(`Unsupported expression kind: ${(expr as any).kind}`);
     }

@@ -3,6 +3,7 @@ import { TokenType } from "./lexer";
 import { Parser } from "./parser";
 import { parseParameterList } from "./parser-parameters";
 import { parseType, parseTypeArgumentList } from "./parser-types";
+import { parseXmlCall } from "./parser-xml";
 
 // Expression parsing methods (using precedence climbing)
 export function parseExpression(parser: Parser): Expression {
@@ -647,6 +648,17 @@ export function parseInterpolatedString(parser: Parser): Expression {
 }
 
 function parsePrimary(parser: Parser): Expression {
+    // XML-style call lookahead: '<' IDENTIFIER or '<' IDENTIFIER '.' IDENTIFIER
+    if (parser.check(TokenType.LESS_THAN) && (parser.peek(1).type === TokenType.IDENTIFIER)) {
+        // Attempt xml parse; if it throws, rethrow as ParseError
+        const snapshot = parser.saveState();
+        try {
+            return parseXmlCall(parser);
+        } catch (e) {
+            parser.restoreState(snapshot);
+            // Fall through to regular handling if not a valid xml tag
+        }
+    }
     const literal = parseLiteral(parser);
     if (literal) return literal;
 
