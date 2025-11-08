@@ -299,22 +299,11 @@ class InstantiationCollector {
         }
         break;
       case "xmlCall":
-        // XML calls are normalized during validation to CallExpression (xml.normalizedCall).
-        // Collect generics from the synthetic call if available and traverse attributes/children.
+        // XML calls are normalized during validation to either a CallExpression or ObjectExpression.
+        // Traverse the normalized expression generically.
         if ((expr as any).normalizedCall) {
-          const normalized = (expr as any).normalizedCall as CallExpression;
-          this.recordFunctionInstantiation(normalized);
-          this.visitExpression(normalized.callee);
-          for (const arg of normalized.arguments) {
-            this.visitExpression(arg);
-          }
-          if (normalized.namedArguments) {
-            for (const named of normalized.namedArguments) {
-              if (named.value) {
-                this.visitExpression(named.value);
-              }
-            }
-          }
+          const normalized = (expr as any).normalizedCall as Expression;
+          this.visitExpression(normalized);
         }
         // Also traverse raw attribute values and children (strings ignored).
         for (const attr of (expr as any).attributes ?? []) {

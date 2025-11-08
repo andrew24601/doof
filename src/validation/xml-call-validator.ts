@@ -72,7 +72,10 @@ export function validateXmlCallExpression(xml: XmlCallExpression, validator: Val
 
   // Validate synthetic call expression
   const returnType = validateCallExpression(call, validator);
-  xml.normalizedCall = call;
+  // If the validator reinterpreted the call as an object literal (named-arg class construction),
+  // prefer the normalized object expression for downstream code generation.
+  const normalizedObj = (call as any).normalizedObjectLiteral;
+  xml.normalizedCall = normalizedObj || call;
   xml.inferredType = returnType;
   return returnType;
 }

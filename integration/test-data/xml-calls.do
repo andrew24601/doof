@@ -21,9 +21,22 @@ function button(label: string, onClick: (value:int): void, children: string[]): 
     }
 }
 
+enum Colour {
+    Red,
+    Green,
+    Blue
+}
+
+class Sphere {
+    radius: int;
+    colour: Colour;
+}
+
 function main(): int {
     <container title="root"> Hello { "world" } </container>;
     <leaf id=2 text="beta" />;
-    <button onClick=> println(value) label="ok"> clicked </button>;
+    <button onClick=>println(value) label="ok"> clicked </button>;
+    const s = <Sphere radius=10 colour={Colour.Blue} ></Sphere>;
+    println(s);
     return 0;
 }

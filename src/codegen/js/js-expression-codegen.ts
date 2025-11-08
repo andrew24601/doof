@@ -76,7 +76,8 @@ export function generateExpression(generator: JsGeneratorInterface, expr: Expres
         case 'xmlCall': {
             const xml: any = expr;
             if (xml.normalizedCall) {
-                return generateCallExpression(generator, xml.normalizedCall as CallExpression);
+                // normalizedCall may be an object literal (class construction) or a call
+                return generateExpression(generator as any, xml.normalizedCall as Expression);
             }
             throw new Error('XmlCall expression missing normalizedCall during JS codegen');
         }

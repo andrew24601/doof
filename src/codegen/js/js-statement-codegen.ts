@@ -195,20 +195,26 @@ export function generateEnumDeclaration(generator: JsStatementGeneratorInterface
     let valueExpr: string;
 
     if (member.value) {
+      // Explicit initializer
       if ((member.value as any).literalType === 'number') {
+        // Numeric literal: adopt its value and continue numeric chain
         valueExpr = String((member.value as any).value);
         lastNumeric = Number((member.value as any).value);
       } else {
+        // Non-numeric explicit initializer (string/char/etc.) breaks numeric chain
         valueExpr = generator.generateExpression(member.value);
-        lastNumeric = null; // string-backed resets numeric chain
+        lastNumeric = null;
       }
     } else {
+      // Auto-assigned enumerator
       if (lastNumeric !== null) {
+        // Continue existing numeric chain
         lastNumeric = lastNumeric + 1;
         valueExpr = String(lastNumeric);
       } else {
-        // No explicit value and not in numeric chain: fallback to label string
-        valueExpr = JSON.stringify(label);
+        // Start a new numeric chain at 0 (TS-like semantics) instead of using label string
+        lastNumeric = 0;
+        valueExpr = '0';
       }
     }
 

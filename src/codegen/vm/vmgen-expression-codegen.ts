@@ -274,10 +274,12 @@ export function generateExpression(expr: Expression, targetReg: number, context:
             generateEnumShorthandExpression(expr as EnumShorthandMemberExpression, targetReg, context);
             break;
         case 'xmlCall':
-            // XML call should have been normalized during validation to a CallExpression stored in normalizedCall.
+            // XML calls are normalized during validation. The normalized node may be a CallExpression
+            // or, in the case of class construction with named args, an ObjectExpression. Generate generically.
             const xml: any = expr;
             if (xml.normalizedCall) {
-                generateCallExpression(xml.normalizedCall as CallExpression, targetReg, context);
+                const normalized = xml.normalizedCall as Expression;
+                generateExpression(normalized, targetReg, context);
             } else {
                 // Fallback: treat as no-op string literal of joined children for minimal resilience
                 const parts: string[] = [];

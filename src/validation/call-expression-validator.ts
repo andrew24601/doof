@@ -559,7 +559,31 @@ export function validateCallExpression(expr: CallExpression, validator: Validato
   if (calleeType.kind === 'class' || calleeType.kind === 'externClass') {
     const typeName = calleeType.name;
 
-    // Set call info for constructor
+    // If we have named arguments, treat this as an object literal (aggregate / constructor literal)
+    // rather than positional initialization. This enables XML and explicit named arg syntax
+    // to initialize classes by field names.
+    if (expr.namedArguments && expr.namedArguments.length > 0) {
+      // Reinterpret as object literal for class instantiation using named field initializers.
+      const objExpr: ObjectExpression = {
+        kind: 'object',
+        properties: expr.namedArguments as ObjectProperty[],
+        location: expr.location,
+        className: typeName,
+        typeArguments: expr.typeArguments
+      } as any;
+
+      const resultType = validateObjectExpression(objExpr, validator);
+
+      // Attach normalized representation for downstream generators WITHOUT mutating original node shape in-place
+      // (Generators for xmlCall and other wrappers rely on CallExpression shape; altering it earlier caused undefined.kind errors.)
+      (expr as any).normalizedObjectLiteral = objExpr; // custom attachment
+      expr.inferredType = resultType;
+      // Keep callInfo constructor for dispatch metadata
+      expr.callInfo = { kind: 'constructor', className: typeName, objectType: calleeType };
+      return resultType;
+    }
+
+    // Set call info for positional constructor
     expr.callInfo = { kind: 'constructor', className: typeName, objectType: calleeType };
 
     let resolvedTypeArguments: Type[] | undefined;

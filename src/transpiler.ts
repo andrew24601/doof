@@ -455,7 +455,12 @@ export class Transpiler {
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isErr = error instanceof Error;
+      const errorMessage = isErr ? error.message : String(error);
+      if (this.options.verbose && isErr) {
+        // Emit stack for debugging hard failures that bypass validation
+        console.error('Transpilation error stack:', (error as Error).stack);
+      }
       result.errors.push({ message: `Project transpilation failed: ${errorMessage}`, severity: 'error' });
     }
 

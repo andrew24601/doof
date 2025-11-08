@@ -5,3 +5,4 @@ LEAF 2:beta
 BTN ok
 42
 ~ clicked
+{"radius":10,"colour":2}

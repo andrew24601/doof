@@ -139,10 +139,10 @@ export function generateExpressionWithContext(generator: CppGenerator, expr: Exp
             // Range expressions are handled in for-of statements
             throw new Error('Range expressions should not be generated directly');
         case 'xmlCall':
-            // Delegate to normalized call synthesized by validator
+            // Delegate to normalized expression synthesized by validator (call or object literal)
             const xml: any = expr;
             if (xml.normalizedCall) {
-                result = generateCallExpression(generator, xml.normalizedCall as CallExpression, context?.targetType, context);
+                result = generateExpressionWithContext(generator, xml.normalizedCall as Expression, context);
                 break;
             }
             throw new Error('XmlCall expression missing normalizedCall during C++ codegen');
