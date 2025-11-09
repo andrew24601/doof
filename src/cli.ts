@@ -225,6 +225,13 @@ async function writeMultiFileOutput(
       const sourceFile = path.join(outputDir, `${basename}${extension}`);
       await fs.writeFile(sourceFile, output.source);
       console.error(`Generated ${sourceFile}`);
+      
+      // Write source map for JavaScript target if available
+      if (isJavaScript && output.sourceMap) {
+        const sourceMapFile = path.join(outputDir, `${basename}.js.map`);
+        await fs.writeFile(sourceMapFile, output.sourceMap);
+        console.error(`Generated ${sourceMapFile}`);
+      }
     }
   }
 

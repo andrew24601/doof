@@ -15,6 +15,7 @@ export interface GeneratorOptions {
 export interface GeneratorResult {
   header?: string;
   source: string;
+  sourceMap?: string; // Source Map V3 JSON for JavaScript backend
 }
 
 export interface ICodeGenerator {
