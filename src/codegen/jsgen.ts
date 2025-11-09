@@ -10,12 +10,13 @@ import {
   Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression,
   MemberExpression, IndexExpression, ArrayExpression, ObjectExpression, PositionalObjectExpression, SetExpression, ObjectProperty,
   LambdaExpression, RangeExpression, EnumShorthandMemberExpression, TrailingLambdaExpression, TypeGuardExpression, InterpolatedString, PrimitiveTypeNode,
-  ValidationContext, ImportInfo, GlobalValidationContext
+  ValidationContext, ImportInfo, GlobalValidationContext, ASTNode
 } from '../types';
 import { ICodeGenerator, GeneratorOptions, GeneratorResult } from '../codegen-interface';
 import { generateExpression, JsGeneratorInterface } from './js/js-expression-codegen';
 import { generateStatement, JsStatementGeneratorInterface } from './js/js-statement-codegen';
 import * as path from 'path';
+import { SourceMapGenerator } from 'source-map';
 
 export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStatementGeneratorInterface {
   private options: GeneratorOptions;
@@ -25,6 +26,9 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
   validationContext?: ValidationContext;
   globalContext?: GlobalValidationContext;
   private currentFilePath?: string;
+  private sourceMapGenerator?: SourceMapGenerator;
+  private currentGeneratedLine: number = 1;
+  private currentGeneratedColumn: number = 0;
 
   constructor(options: GeneratorOptions = {}) {
     this.options = {
@@ -66,9 +70,23 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
     this.globalContext = globalContext;
     this.currentFilePath = sourceFilePath;
 
+    // Initialize source map generator if enabled
+    if (this.options.emitLineDirectives && sourceFilePath) {
+      this.sourceMapGenerator = new SourceMapGenerator({
+        file: filename + '.js'
+      });
+    }
+
     const source = this.generateSource(program, filename);
+    
+    let sourceMap: string | undefined;
+    if (this.sourceMapGenerator) {
+      sourceMap = this.sourceMapGenerator.toString();
+    }
+    
     this.currentFilePath = undefined;
-    return { source };
+    this.sourceMapGenerator = undefined;
+    return { source, sourceMap };
   }
 
   private reset(): void {
@@ -78,10 +96,52 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
     this.validationContext = undefined;
     this.globalContext = undefined;
     this.currentFilePath = undefined;
+    this.sourceMapGenerator = undefined;
+    this.currentGeneratedLine = 1;
+    this.currentGeneratedColumn = 0;
+  }
+
+  // Helper to add a source mapping for a node
+  private addSourceMapping(node: ASTNode | { location?: any }): void {
+    if (!this.sourceMapGenerator || !this.currentFilePath) return;
+    
+    const loc = (node as any)?.location;
+    if (!loc || !loc.start || typeof loc.start.line !== 'number') return;
+    
+    const sourceFile = loc.filename || this.currentFilePath;
+    const sourceLine = loc.start.line;
+    const sourceColumn = loc.start.column || 0;
+    
+    this.sourceMapGenerator.addMapping({
+      generated: {
+        line: this.currentGeneratedLine,
+        column: this.currentGeneratedColumn
+      },
+      source: sourceFile,
+      original: {
+        line: sourceLine,
+        column: sourceColumn
+      }
+    });
+  }
+
+  // Helper to track generated text and update line/column counters
+  private trackGeneratedText(text: string): void {
+    if (!text) return;
+    
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '\n') {
+        this.currentGeneratedLine++;
+        this.currentGeneratedColumn = 0;
+      } else {
+        this.currentGeneratedColumn++;
+      }
+    }
   }
 
   private generateSource(program: Program, filename: string): string {
     let output = `// Generated JavaScript from doof source: ${filename}\n\n`;
+    this.trackGeneratedText(output);
 
     // Generate imports
     if (this.validationContext?.imports && this.validationContext.imports.size > 0) {
@@ -105,36 +165,55 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
         const specifierList = sortedSpecifiers
           .map(([local, imported]) => imported === local ? imported : `${imported} as ${local}`)
           .join(', ');
-        output += `import { ${specifierList} } from '${modulePath}';\n`;
+        const importLine = `import { ${specifierList} } from '${modulePath}';\n`;
+        output += importLine;
+        this.trackGeneratedText(importLine);
       }
-      output += '\n';
+      const blankLine = '\n';
+      output += blankLine;
+      this.trackGeneratedText(blankLine);
     }
 
     // Generate extern class imports using validator metadata (per-module usage).
     const externDeps = this.validationContext?.codeGenHints?.externDependencies;
     if (externDeps && externDeps.size > 0) {
       for (const externName of [...externDeps].sort()) {
-        output += `import { ${externName} } from '${externName}';\n`;
+        const externLine = `import { ${externName} } from '${externName}';\n`;
+        output += externLine;
+        this.trackGeneratedText(externLine);
       }
-      output += '\n';
+      const blankLine = '\n';
+      output += blankLine;
+      this.trackGeneratedText(blankLine);
     }
 
     // Check if StringBuilder is used and add its definition
     if (this.usesStringBuilder(program)) {
-      output += this.generateStringBuilderClass();
-      output += '\n';
+      const stringBuilderClass = this.generateStringBuilderClass();
+      output += stringBuilderClass;
+      this.trackGeneratedText(stringBuilderClass);
+      const blankLine = '\n';
+      output += blankLine;
+      this.trackGeneratedText(blankLine);
     }
 
     // Inject JSON helpers for consistent Map/Set/class serialization across backends
-    output += this.generateJsonHelpers();
-    output += '\n';
+    const jsonHelpers = this.generateJsonHelpers();
+    output += jsonHelpers;
+    this.trackGeneratedText(jsonHelpers);
+    const blankLine = '\n';
+    output += blankLine;
+    this.trackGeneratedText(blankLine);
 
     // Generate statements
     for (const stmt of program.body) {
       const generated = this.generateStatement(stmt);
       if (generated) {
         output += generated;
-        output += '\n';
+        this.trackGeneratedText(generated);
+        const newline = '\n';
+        output += newline;
+        this.trackGeneratedText(newline);
       }
     }
 
@@ -144,7 +223,16 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
     );
     
     if (hasMainFunction) {
-      output += '\n// Auto-call main function\nmain();\n';
+      const mainCall = '\n// Auto-call main function\nmain();\n';
+      output += mainCall;
+      this.trackGeneratedText(mainCall);
+    }
+
+    // Add source map URL comment if source map is being generated
+    if (this.sourceMapGenerator) {
+      const sourceMapComment = `//# sourceMappingURL=${filename}.js.map\n`;
+      output += sourceMapComment;
+      this.trackGeneratedText(sourceMapComment);
     }
 
     return output;
@@ -297,6 +385,8 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
   }
 
   generateStatement(stmt: Statement | Expression): string {
+    // Add source mapping before generating the statement
+    this.addSourceMapping(stmt);
     return generateStatement(this, stmt);
   }
 

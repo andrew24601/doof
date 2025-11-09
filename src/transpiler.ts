@@ -32,6 +32,7 @@ export interface TranspilerOptions {
 export interface TranspilerResult {
   header?: string;
   source?: string;
+  sourceMap?: string;
   errors: TranspilerError[];
   warnings: string[];
   ast?: Program;
@@ -40,7 +41,7 @@ export interface TranspilerResult {
 }
 
 export interface MultiFileTranspilerResult {
-  files: Map<string, { header?: string; source?: string; }>;
+  files: Map<string, { header?: string; source?: string; sourceMap?: string; }>;
   errors: TranspilerError[];
   warnings: string[];
   globalContext?: GlobalValidationContext;
@@ -190,6 +191,9 @@ export class Transpiler {
       }
       if (this.options.outputSource) {
         result.source = generated.source;
+      }
+      if (generated.sourceMap) {
+        result.sourceMap = generated.sourceMap;
       }
 
       result.externMetadata = collectExternClassMetadata(ast, result.validationContext);
@@ -440,7 +444,8 @@ export class Transpiler {
 
           result.files.set(filePath, {
             header: code.header,
-            source: code.source
+            source: code.source,
+            sourceMap: code.sourceMap
           });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
