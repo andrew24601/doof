@@ -21,6 +21,7 @@
 #include <cassert>
 #include <utility>
 #include <type_traits>
+#include <cstring>
 
 namespace doof_runtime {
 

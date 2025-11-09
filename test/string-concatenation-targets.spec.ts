@@ -31,7 +31,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string greeting = ("Hello, " + "World!")');
+    expect(result.cpp).toContain('std::string greeting = (std::string("Hello, ") + std::string("World!"))');
     expect(result.js).toContain('let greeting = ("Hello, " + "World!")');
   });
 
@@ -43,7 +43,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string msg = ("Count: " + std::to_string(42))');
+    expect(result.cpp).toContain('std::string msg = (std::string("Count: ") + std::to_string(42))');
     expect(result.js).toContain('let msg = ("Count: " + 42)');
   });
 
@@ -55,7 +55,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string result = (std::to_string(42) + " is the answer")');
+    expect(result.cpp).toContain('std::string result = (std::to_string(42) + std::string(" is the answer"))');
     expect(result.js).toContain('let result = (42 + " is the answer")');
   });
 
@@ -67,7 +67,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string msg = (std::to_string((1 + 2)) + " items")');
+    expect(result.cpp).toContain('std::string msg = (std::to_string((1 + 2)) + std::string(" items"))');
     expect(result.js).toContain('let msg = (String((1 + 2)) + " items")');
   });
 
@@ -96,7 +96,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string msg = ("Active: " + (true ? std::string("true") : std::string("false")))');
+    expect(result.cpp).toContain('std::string msg = (std::string("Active: ") + (true ? std::string("true") : std::string("false")))');
     expect(result.js).toContain('let msg = ("Active: " + true)');
   });
 
@@ -110,7 +110,7 @@ describe('String Concatenation - Multiple Targets', () => {
     `;
     const result = generateCodeForTargets(source);
     
-    expect(result.cpp).toContain('std::string msg = ((("Name: " + name) + ", Age: ") + std::to_string(age))');
+    expect(result.cpp).toContain('std::string msg = (((std::string("Name: ") + name) + std::string(", Age: ")) + std::to_string(age))');
     expect(result.js).toContain('let msg = ((("Name: " + name) + ", Age: ") + age)');
   });
 });
