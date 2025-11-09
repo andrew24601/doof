@@ -7,6 +7,9 @@ export interface GeneratorOptions {
   includeHeaders?: string[];
   outputHeader?: boolean;
   outputSource?: boolean;
+  // When true, emit C/C++ #line directives to map generated code back to the
+  // original .do source files for better diagnostics and debugging.
+  emitLineDirectives?: boolean;
 }
 
 export interface GeneratorResult {

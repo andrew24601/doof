@@ -25,6 +25,8 @@ export interface TranspilerOptions {
   validate?: boolean;
   sourceRoots?: string[];
   verbose?: boolean;
+  // Control #line directive emission in targets that support it (C++ only for now)
+  emitLineDirectives?: boolean;
 }
 
 export interface TranspilerResult {
@@ -65,6 +67,7 @@ export class Transpiler {
       outputHeader: true,
       outputSource: true,
       verbose: false,
+      emitLineDirectives: true,
       ...options
     };
   }
@@ -171,7 +174,8 @@ export class Transpiler {
           ? this.options.includeHeaders
           : ['<iostream>', '<fstream>', '<string>', '<vector>', '<unordered_map>', '<unordered_set>', '<memory>', '<cmath>'],
         outputHeader: this.options.outputHeader,
-        outputSource: this.options.outputSource
+        outputSource: this.options.outputSource,
+        emitLineDirectives: this.options.emitLineDirectives === true
       };
 
       const target = this.options.target || 'cpp';
@@ -416,7 +420,8 @@ export class Transpiler {
           const generatorOptions: GeneratorOptions = {
             namespace,
             outputHeader: this.options.outputHeader,
-            outputSource: this.options.outputSource
+            outputSource: this.options.outputSource,
+            emitLineDirectives: this.options.emitLineDirectives === true
           };
 
           if (target === 'cpp') {

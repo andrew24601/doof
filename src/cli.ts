@@ -30,6 +30,7 @@ interface CliOptions {
   formatOptions?: Partial<FormatterOptions>;
   vmGlue?: boolean;
   vmGlueDir?: string;
+  noLineDirectives?: boolean; // Invert flag so default emits when we later enable by default
 }
 
 export function parseArgs(args: string[]): CliOptions {
@@ -125,6 +126,10 @@ export function parseArgs(args: string[]): CliOptions {
           options.vmGlueDir = args[++i];
         }
         break;
+      case '--no-line-directives':
+      case '--no-lines':
+        options.noLineDirectives = true;
+        break;
       default:
         if (!arg.startsWith('-')) {
           options.inputs = options.inputs || [];
@@ -155,6 +160,7 @@ Options:
   --verbose               Print verbose error/debug output
   --vm-glue               Generate only VM glue files for extern classes (C++ output emits them automatically)
   --vm-glue-dir <dir>     Output directory for VM glue files (default: output directory or input folder)
+  --no-line-directives    Disable emission of C/C++ #line directives in generated output (for editor/debug mapping)
   -r, --run               Transpile, compile, and run the program (easy mode)
 
 Formatting Options:
@@ -299,7 +305,8 @@ async function main(): Promise<void> {
     outputHeader: !options.sourceOnly,
     outputSource: !options.headerOnly,
     sourceRoots: options.sourceRoots,
-    verbose: options.verbose || false
+    verbose: options.verbose || false,
+    emitLineDirectives: !options.noLineDirectives
   };
 
   try {

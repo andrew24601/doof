@@ -89,6 +89,8 @@ export class CppGenerator implements ICodeGenerator {
   public validationContext?: ValidationContext;
   private _globalContext?: GlobalValidationContext;
   public typeNarrowingContext: Map<string, Type> = new Map();
+  private _sourceFilePath?: string;
+  private _lastLinePragma?: { file?: string; line?: number };
 
   constructor(options: GeneratorOptions = {}) {
     this.options = {
@@ -237,6 +239,7 @@ export class CppGenerator implements ICodeGenerator {
     this.validationContext = undefined;
     this._globalContext = undefined;
     this.typeNarrowingContext.clear();
+    this._lastLinePragma = undefined;
     // Note: We don't clear runtimeNamespaces as they're static mappings
   }
 
@@ -448,6 +451,7 @@ export class CppGenerator implements ICodeGenerator {
   generate(program: Program, filename: string = 'output', validationContext?: ValidationContext, globalContext?: GlobalValidationContext, sourceFilePath?: string): GeneratorResult {
     this.reset();
     this.setValidationContext(validationContext, globalContext);
+    this._sourceFilePath = sourceFilePath;
 
     const codeOrgContext: CodeOrganizationContext = {
       forwardDeclarations: this.forwardDeclarations,
@@ -459,6 +463,23 @@ export class CppGenerator implements ICodeGenerator {
     const source = this.generateSource(program, filename);
 
     return { header, source };
+  }
+
+  // Emit a #line directive if enabled and the location differs from the last one
+  public maybeEmitLineDirective(node: ASTNode | { location?: any }): string {
+    if (!this.options.emitLineDirectives) return '';
+    if (this.isGeneratingHeader) return '';
+    const loc = (node as any)?.location;
+    if (!loc || !loc.start || typeof loc.start.line !== 'number') return '';
+    const file = loc.filename || this._sourceFilePath;
+    const line = loc.start.line;
+    if (!file || !line) return '';
+    if (this._lastLinePragma && this._lastLinePragma.file === file && this._lastLinePragma.line === line) {
+      return '';
+    }
+    this._lastLinePragma = { file, line };
+    // Preprocessor directives should start at column 0
+    return `#line ${line} \"${file}\"\n`;
   }
 
   private generateHeader(program: Program, filename: string, codeOrgContext: CodeOrganizationContext): string {
@@ -511,9 +532,10 @@ export class CppGenerator implements ICodeGenerator {
     // Generate implementations in namespace if specified
     let implementationsContent = '';
     for (const stmt of program.body) {
+      const pragma = this.maybeEmitLineDirective(stmt as any);
       const impl = this.generateStatementSource(stmt);
       if (impl) {
-        implementationsContent += impl;
+        implementationsContent += pragma + impl;
         implementationsContent += '\n';
       }
     }

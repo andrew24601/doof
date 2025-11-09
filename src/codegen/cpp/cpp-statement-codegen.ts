@@ -100,31 +100,33 @@ export function generateStatement(
   generator: CppGenerator,
   stmt: Statement
 ): string {
+  // Optionally prefix with a #line directive for better source mapping
+  const linePrefix = generator.maybeEmitLineDirective(stmt as any);
   switch (stmt.kind) {
     case 'blank':
-      return '\n';
+      return linePrefix + '\n';
     case 'variable':
-      return generator.indent() + generateVariableDeclaration(generator, stmt as VariableDeclaration);
+      return linePrefix + generator.indent() + generateVariableDeclaration(generator, stmt as VariableDeclaration);
     case 'typeAlias':
-      return ''; // Type aliases don't generate code in function bodies
+      return linePrefix + ''; // Type aliases don't generate code in function bodies
     case 'if':
-      return generateIfStatement(generator, stmt as IfStatement);
+      return linePrefix + generateIfStatement(generator, stmt as IfStatement);
     case 'while':
-      return generateWhileStatement(generator, stmt as WhileStatement);
+      return linePrefix + generateWhileStatement(generator, stmt as WhileStatement);
     case 'for':
-      return generateForStatement(generator, stmt as ForStatement);
+      return linePrefix + generateForStatement(generator, stmt as ForStatement);
     case 'forOf':
-      return generateForOfStatement(generator, stmt as ForOfStatement);
+      return linePrefix + generateForOfStatement(generator, stmt as ForOfStatement);
     case 'switch':
-      return generateSwitchStatement(generator, stmt as SwitchStatement);
+      return linePrefix + generateSwitchStatement(generator, stmt as SwitchStatement);
     case 'return':
-      return generateReturnStatement(generator, stmt as ReturnStatement);
+      return linePrefix + generateReturnStatement(generator, stmt as ReturnStatement);
     case 'break':
-      return generator.indent() + 'break;\n';
+      return linePrefix + generator.indent() + 'break;\n';
     case 'continue':
-      return generator.indent() + 'continue;\n';
+      return linePrefix + generator.indent() + 'continue;\n';
     case 'block':
-      return generator.indent() + generateBlockStatement(generator, stmt as BlockStatement);
+      return linePrefix + generator.indent() + generateBlockStatement(generator, stmt as BlockStatement);
     case 'expression':
       const exprStmt = stmt as ExpressionStatement;
 
@@ -150,14 +152,14 @@ export function generateStatement(
         }
       }
 
-      return generator.indent() + generator.generateExpression(exprStmt.expression) + ';\n';
+      return linePrefix + generator.indent() + generator.generateExpression(exprStmt.expression) + ';\n';
     case 'markdownHeader': {
         const header = stmt as MarkdownHeader;
         const level = Math.max(1, Math.min(header.level, 6));
         const prefix = '#'.repeat(level);
         const text = header.text.trim();
         const suffix = text.length > 0 ? ` ${text}` : '';
-        return generator.indent() + `// ${prefix}${suffix}\n`;
+        return linePrefix + generator.indent() + `// ${prefix}${suffix}\n`;
       }
     case 'markdownTable': {
         const table = stmt as MarkdownTable;
@@ -195,10 +197,10 @@ export function generateStatement(
           return '';
         }
 
-        return lines.join('\n') + '\n';
+        return linePrefix + lines.join('\n') + '\n';
       }
     default:
-      return generator.indent() + `// TODO: ${stmt.kind}\n`;
+      return linePrefix + generator.indent() + `// TODO: ${stmt.kind}\n`;
   }
 }
 

@@ -70,6 +70,12 @@ describe('CLI', () => {
       expect(parseArgs(['--vm-glue-dir', './glue'])).toEqual({ vmGlueDir: './glue' });
     });
 
+    it('should parse line directive disable flag', async () => {
+      const { parseArgs } = await import('../src/cli.js');
+      expect(parseArgs(['--no-line-directives'])).toEqual({ noLineDirectives: true });
+      expect(parseArgs(['--no-lines'])).toEqual({ noLineDirectives: true });
+    });
+
     it('should parse input file', async () => {
       const { parseArgs } = await import('../src/cli.js');
       
