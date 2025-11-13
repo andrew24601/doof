@@ -78,7 +78,7 @@ describe('String Concatenation and Interpolation Enhancement', () => {
       `;
       const result = generateCode(source);
       
-      expect(result.source).toContain('std::string greeting = (("Hello, " + name) + "!")');
+      expect(result.source).toContain('std::string greeting = ((std::string("Hello, ") + name) + std::string("!"))');
     });
 
     it('should allow string + number concatenation with left-to-right evaluation', () => {
@@ -87,7 +87,7 @@ describe('String Concatenation and Interpolation Enhancement', () => {
       `;
       const result = generateCode(source);
       
-      expect(result.source).toContain('std::string msg = ("Value: " + std::to_string(42))');
+      expect(result.source).toContain('std::string msg = (std::string("Value: ") + std::to_string(42))');
     });
 
     it('should allow number + string concatenation', () => {
@@ -96,7 +96,7 @@ describe('String Concatenation and Interpolation Enhancement', () => {
       `;
       const result = generateCode(source);
       
-      expect(result.source).toContain('std::string result = (std::to_string(42) + " is the answer")');
+      expect(result.source).toContain('std::string result = (std::to_string(42) + std::string(" is the answer"))');
     });
 
     it('should allow string + boolean concatenation', () => {
@@ -105,7 +105,7 @@ describe('String Concatenation and Interpolation Enhancement', () => {
       `;
       const result = generateCode(source);
       
-      expect(result.source).toContain('std::string result = ("Active: " + (true ? std::string("true") : std::string("false")))');
+      expect(result.source).toContain('std::string result = (std::string("Active: ") + (true ? std::string("true") : std::string("false")))');
     });
 
     it('should allow string + char concatenation', () => {
@@ -114,7 +114,7 @@ describe('String Concatenation and Interpolation Enhancement', () => {
       `;
       const result = generateCode(source);
       
-      expect(result.source).toContain('std::string result = ("Grade: " + std::string(1, \'A\'))');
+      expect(result.source).toContain('std::string result = (std::string("Grade: ") + std::string(1, \'A\'))');
     });
 
     it('should allow mixed type concatenation chain', () => {

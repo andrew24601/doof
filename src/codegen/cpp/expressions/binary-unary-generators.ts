@@ -93,7 +93,11 @@ export function generateStringConcatenation(generator: CppGenerator, expr: Binar
     if (operandType.kind === 'primitive') {
       const primType = operandType as PrimitiveTypeNode;
       if (primType.type === 'string') {
-        // String literals can be used directly in concatenation, no need to wrap
+        // For string literals, wrap in std::string() to avoid const char* pointer arithmetic
+        // For string variables/expressions, use directly
+        if (operand.kind === 'literal') {
+          return `std::string(${operandCode})`;
+        }
         return operandCode;
       } else if (primType.type === 'bool') {
         // Use conditional expression for boolean to string conversion

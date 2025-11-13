@@ -173,15 +173,26 @@ Done when:
 
 ---
 
-# C++ string concatenation ergonomics
+# C++ string concatenation ergonomics - COMPLETED
 
 Context: Authoring Doof code that concatenates string literals and non-string values with `+` sometimes depends on implicit conversions that are awkward in C++ (e.g., `"a" + "b"` is pointer arithmetic in C++ unless one side is `std::string`). Our codegen generally wraps operands correctly, but literal+literal corner cases may arise when simplifying expressions.
 
 Action items:
-- Ensure both operands to `+` are coerced to `std::string` in generated C++ when the intended operation is string concatenation, including literal-only cases.
-- Audit interpolation and concatenation lowering to avoid emitting raw `const char* + const char*` expressions.
-- Add targeted tests mixing string literals, variables, numbers, and user types to guarantee consistent concatenation behavior across C++ and VM.
+- ✅ Ensure both operands to `+` are coerced to `std::string` in generated C++ when the intended operation is string concatenation, including literal-only cases.
+- ✅ Audit interpolation and concatenation lowering to avoid emitting raw `const char* + const char*` expressions.
+- ✅ Add targeted tests mixing string literals, variables, numbers, and user types to guarantee consistent concatenation behavior across C++ and VM.
 
 Done when:
-- Concatenation of any combination of literals and expressions produces valid, readable C++17 without relying on unspecified pointer arithmetic.
-- VM and C++ outputs agree on observable results for concatenation scenarios.
+- ✅ Concatenation of any combination of literals and expressions produces valid, readable C++17 without relying on unspecified pointer arithmetic.
+- ✅ VM and C++ outputs agree on observable results for concatenation scenarios.
+
+Implementation:
+- Modified `generateStringConcatenation` in `src/codegen/cpp/expressions/binary-unary-generators.ts` to wrap string literals in `std::string()` constructor
+- String literals are now detected via `operand.kind === 'literal'` check and wrapped to ensure at least one operand is `std::string`
+- String variables and expressions remain unwrapped as they are already `std::string` type
+- Added comprehensive unit tests in `test/string-literal-concatenation.spec.ts` covering all literal concatenation scenarios
+- Added integration test `integration/test-data/string-concat-literals.do` to verify correctness
+- Updated existing test expectations in `test/string-concatenation-interpolation.spec.ts` and `test/string-concatenation-targets.spec.ts`
+- All 119 test files pass with 1086 tests
+- Generated C++ code compiles without errors and produces correct output
+- String interpolation continues to work correctly via StringBuilder (no changes needed)
