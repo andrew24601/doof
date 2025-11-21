@@ -105,6 +105,12 @@ export function isTypeCompatible(sourceType: Type, targetType: Type, validator: 
       case 'class':
         const sourceClass = resolvedSourceType as ClassTypeNode;
         const targetClass = resolvedTargetType as ClassTypeNode;
+        
+        // Readonly compatibility for classes
+        if (sourceClass.isReadonly && !targetClass.isReadonly) {
+            return false;
+        }
+
         // Classes with the same name are compatible
         if (sourceClass.name !== targetClass.name) {
           return false;
@@ -137,16 +143,34 @@ export function isTypeCompatible(sourceType: Type, targetType: Type, validator: 
       case 'array':
         const sourceArray = resolvedSourceType as ArrayTypeNode;
         const targetArray = resolvedTargetType as ArrayTypeNode;
+        
+        // Readonly compatibility: Readonly cannot be assigned to Mutable
+        if (sourceArray.isReadonly && !targetArray.isReadonly) {
+          return false;
+        }
+
         // Arrays only need matching element types
         return isTypeCompatible(sourceArray.elementType, targetArray.elementType, validator);
       case 'map':
         const sourceMap = resolvedSourceType as MapTypeNode;
         const targetMap = resolvedTargetType as MapTypeNode;
+
+        // Readonly compatibility: Readonly cannot be assigned to Mutable
+        if (sourceMap.isReadonly && !targetMap.isReadonly) {
+          return false;
+        }
+
         return isTypeCompatible(sourceMap.keyType, targetMap.keyType, validator) &&
           isTypeCompatible(sourceMap.valueType, targetMap.valueType, validator);
       case 'set':
         const sourceSet = resolvedSourceType as SetTypeNode;
         const targetSet = resolvedTargetType as SetTypeNode;
+
+        // Readonly compatibility: Readonly cannot be assigned to Mutable
+        if (sourceSet.isReadonly && !targetSet.isReadonly) {
+          return false;
+        }
+
         return isTypeCompatible(sourceSet.elementType, targetSet.elementType, validator);
       case 'function':
         const sourceFunc = resolvedSourceType as FunctionTypeNode;
@@ -438,6 +462,45 @@ export function isStrictLiteral(expr: Expression): boolean {
   const literal = expr as Literal;
   // Strict literals are number, string, boolean only (no null, no objects, no arrays)
   return literal.literalType === 'number' || literal.literalType === 'string' || literal.literalType === 'boolean';
+}
+
+export function isImmutableType(type: Type, validator: Validator): boolean {
+  resolveActualType(type, validator);
+
+  switch (type.kind) {
+    case 'primitive':
+      return true; // Primitives are immutable by value
+    case 'enum':
+      return true; // Enums are immutable
+    case 'array':
+      return !!(type as ArrayTypeNode).isReadonly;
+    case 'map':
+      return !!(type as MapTypeNode).isReadonly;
+    case 'set':
+      return !!(type as SetTypeNode).isReadonly;
+    case 'class':
+      const classType = type as ClassTypeNode;
+      if (classType.isReadonly) return true;
+      
+      const classDecl = validator.context.classes.get(classType.name);
+      if (!classDecl) return false; // Unknown class, assume mutable
+      
+      if (classDecl.isReadonly) return true;
+      
+      // Check if all fields are readonly and immutable
+      for (const field of classDecl.fields) {
+          if (field.isStatic) continue;
+          if (!field.isReadonly && !field.isConst) return false;
+          if (!isImmutableType(field.type, validator)) return false;
+      }
+      return true;
+    case 'externClass':
+       return false;
+    case 'union':
+       return (type as UnionTypeNode).types.every(t => isImmutableType(t, validator));
+    default:
+       return false;
+  }
 }
 
 export function isValidParameterDefault(expr: Expression, validator: Validator): boolean {

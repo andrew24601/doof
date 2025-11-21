@@ -46,7 +46,7 @@ A convenience for function-type parameters.
 ```doof
 function foo(onClick: (it: int): void): void { /* ... */ }
 
-const c = <foo onClick=>println(it) />
+readonly c = <foo onClick=>println(it) />
 ```
 
 Rules:

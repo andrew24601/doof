@@ -1,7 +1,7 @@
 import { isEnumMemberExpression, propagateTypeContext, validateExpression } from "./expression-validator";
 import { validateFunctionBody, validateStatement } from "./statement-validator";
-import { addTypeCompatibilityError, createClassType, createEnumType, createExternClassType, createFunctionType, createPrimitiveType, createUnknownType, createVoidType, isConstantLiteral, isStrictLiteral, isTypeCompatible, isValidParameterDefault, resolveActualType, typeToString, validateType, validateUniqueFieldNames } from "../type-utils";
-import { FunctionDeclaration, FunctionTypeNode, PrimitiveTypeNode, ClassDeclaration, ExternClassDeclaration, Parameter, ClassTypeNode, FieldDeclaration, MethodDeclaration, ExportDeclaration, Identifier, Type, BlockStatement, IfStatement, Program, Statement, GlobalValidationContext, ExportedSymbol, TypeSymbolTable, ConstructorDeclaration, ScopeTrackerEntry } from "../types";
+import { addTypeCompatibilityError, createClassType, createEnumType, createExternClassType, createFunctionType, createPrimitiveType, createUnknownType, createVoidType, isConstantLiteral, isStrictLiteral, isTypeCompatible, isValidParameterDefault, resolveActualType, typeToString, validateType, validateUniqueFieldNames, isImmutableType } from "../type-utils";
+import { FunctionDeclaration, FunctionTypeNode, PrimitiveTypeNode, ClassDeclaration, ExternClassDeclaration, Parameter, ClassTypeNode, FieldDeclaration, MethodDeclaration, ExportDeclaration, Identifier, Type, BlockStatement, IfStatement, Program, Statement, GlobalValidationContext, ExportedSymbol, TypeSymbolTable, ConstructorDeclaration, ScopeTrackerEntry, ArrayTypeNode, SetTypeNode, MapTypeNode } from "../types";
 import { Validator } from "./validator";
 import { createScopeTrackerEntry, registerScopeTrackerEntry } from "./scope-tracker-helpers";
 
@@ -140,7 +140,18 @@ export function validateClassDeclaration(stmt: ClassDeclaration, validator: Vali
     // Validate fields
     validateUniqueFieldNames(stmt.fields, 'class', stmt.name.name, validator);
     for (const field of stmt.fields) {
+      // If class is readonly, fields are implicitly readonly
+      if (stmt.isReadonly && !field.isStatic) {
+          field.isReadonly = true;
+      }
       validateFieldDeclaration(field, validator);
+
+      // If class is readonly, fields must be immutable
+      if (stmt.isReadonly && !field.isStatic) {
+          if (!isImmutableType(field.type, validator)) {
+              validator.addError(`Readonly class field '${field.name.name}' must have an immutable type`, field.location);
+          }
+      }
     }
 
     // Validate private field initialization rules
@@ -436,6 +447,30 @@ export function validateFieldDeclaration(field: FieldDeclaration, validator: Val
     return;
   }
 
+  // Deep readonly enforcement for fields
+  if (field.isReadonly) {
+      if (field.type.kind === 'array' || field.type.kind === 'map' || field.type.kind === 'set' || field.type.kind === 'class') {
+          (field.type as any).isReadonly = true;
+      }
+      
+      if (field.type.kind === 'array') {
+          const arrayType = field.type as ArrayTypeNode;
+          if (!isImmutableType(arrayType.elementType, validator)) {
+              validator.addError(`Readonly field array must contain immutable elements`, field.location);
+          }
+      } else if (field.type.kind === 'set') {
+          const setType = field.type as SetTypeNode;
+          if (!isImmutableType(setType.elementType, validator)) {
+              validator.addError(`Readonly field set must contain immutable elements`, field.location);
+          }
+      } else if (field.type.kind === 'map') {
+          const mapType = field.type as MapTypeNode;
+          if (!isImmutableType(mapType.valueType, validator)) {
+              validator.addError(`Readonly field map must contain immutable values`, field.location);
+          }
+      }
+  }
+
   // Const fields validation depends on context
   if (field.isConst && !field.defaultValue) {
     // In structs, const fields without defaults are allowed (aggregate initialization)
@@ -643,6 +678,7 @@ export function validateIdentifier(expr: Identifier, validator: Validator): Type
     expr.scopeInfo.scopeId = matchedEntry.scopeId;
     expr.scopeInfo.declarationScope = matchedEntry.declarationScope;
     expr.scopeInfo.scopeKind = matchedEntry.kind;
+    expr.scopeInfo.isConstant = matchedEntry.isConstant;
 
     if (type.kind === 'externClass') {
       const externName = (type as any).name || expr.name;

@@ -9,6 +9,7 @@ function createTempDeclaration(name: string, expr: Expression): VariableDeclarat
   return {
     kind: 'variable',
     isConst: true,
+    isReadonly: false,
     identifier: { kind: 'identifier', name, location: expr.location },
     initializer: expr,
     location: expr.location
@@ -45,6 +46,7 @@ export function lowerDestructuringVariable(stmt: DestructuringVariableDeclaratio
       const varDecl: VariableDeclaration = {
         kind: 'variable',
         isConst: stmt.isConst,
+        isReadonly: false,
         identifier: { kind: 'identifier', name: id.name, location: id.location },
         initializer: createMemberAccess(tempIdent, id.name, id.location),
         location: id.location
@@ -83,6 +85,7 @@ export function lowerDestructuringVariable(stmt: DestructuringVariableDeclaratio
     const varDecl: VariableDeclaration = {
       kind: 'variable',
       isConst: stmt.isConst,
+      isReadonly: false,
       identifier: { kind: 'identifier', name: target.name, location: target.location },
       initializer: createMemberAccess(tempIdent, fieldName, target.location),
       location: target.location

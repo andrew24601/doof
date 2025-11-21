@@ -4,6 +4,10 @@
 - [Null Safety Operators](null-safety-operators.md)
 
 doof is a TypeScript-inspired language designed for easy transpilation to idiomatic C++. It combines familiar TypeScript class and collection syntax with C++-style primitive types and memory management.
+# Immutability (update)
+- Use `readonly` for immutable variables and parameters. `const` for variables is deprecated and emits a warning.
+- Readonly collections are deeply immutable; element/value types must be immutable.
+- `readonly class` asserts all fields are immutable; validation enforces this.
 # doof Syntax Guide (split)
 
 This guide has been split into focused topics under `docs/syntax/` to make it easier to read and maintain. Start here:
@@ -100,7 +104,7 @@ function process(callback(value: int)): void {
 }
 
 // Concise lambda variables  
-const doIt(value: int) => println(value);
+readonly doIt(value: int) => println(value);
 
 // Concise callable class fields
 class Button {
@@ -109,7 +113,7 @@ class Button {
 }
 
 // Traditional lambda expressions
-const add: (a: int, b: int): int = (a, b) => a + b;
+readonly add: (a: int, b: int): int = (a, b) => a + b;
 
 // Short-form lambdas
 numbers.map(=> it * 2);

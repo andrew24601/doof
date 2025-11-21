@@ -6,9 +6,9 @@ Supported statements:
 - `break`, `continue`, `return`
 - `for` statements:
   - Classic: `for (let i = 0; i < n; i++) { ... }`
-  - For-of arrays/sets: `for (const x of collection) { ... }`
-  - For-of maps: `for (const (key, value) of collection) { ... }`
-  - For-of ranges: `for (const x of 1..10)` (inclusive), `for (const x of 0..<10)` (exclusive upper bound)
+    - For-of arrays/sets: `for (readonly x of collection) { ... }`
+    - For-of maps: `for (readonly (key, value) of collection) { ... }`
+    - For-of ranges: `for (readonly x of 1..10)` (inclusive), `for (readonly x of 0..<10)` (exclusive upper bound)
 
 Examples:
 
@@ -17,16 +17,16 @@ for (let i = 0; i < 10; i++) {
     println(i);
 }
 
-for (const name of names) {
+for (readonly name of names) {
     println(name);
 }
 
-for (const (key, value) of ages) {
+for (readonly (key, value) of ages) {
     println(key + ": " + value);
 }
 
-for (const x of 1..5) { println(x); }
-for (const x of 0..<5) { println(x); }
+for (readonly x of 1..5) { println(x); }
+for (readonly x of 0..<5) { println(x); }
 ```
 
 ## Ternary operator

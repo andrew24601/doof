@@ -54,6 +54,7 @@ describe('JavaScript Code Generation', () => {
         {
           kind: 'variable',
           isConst: false,
+          isReadonly: false,
           identifier: ident('x'),
           type: { kind: 'primitive', type: 'int' },
           initializer: lit(42, 'number'),
@@ -110,6 +111,7 @@ describe('JavaScript Code Generation', () => {
         {
           kind: 'variable',
           isConst: false,
+          isReadonly: false,
           identifier: ident('x'),
           type: { kind: 'primitive', type: 'int' },
           initializer: lit(1, 'number'),
@@ -238,7 +240,8 @@ describe('JavaScript Code Generation', () => {
           body: block([
             {
               kind: 'variable',
-              isConst: true,
+              isConst: false,
+              isReadonly: true,
               identifier: ident('array'),
               type: { kind: 'array', elementType: { kind: 'primitive', type: 'int' } },
               initializer: {
@@ -291,7 +294,8 @@ describe('JavaScript Code Generation', () => {
           body: block([
             {
               kind: 'variable',
-              isConst: true,
+              isConst: false,
+              isReadonly: true,
               identifier: ident('array'),
               type: { kind: 'array', elementType: { kind: 'primitive', type: 'int' } },
               initializer: {

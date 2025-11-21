@@ -58,17 +58,20 @@ export interface PrimitiveTypeNode {
 export interface ArrayTypeNode {
   kind: 'array';
   elementType: Type;
+  isReadonly?: boolean;
 }
 
 export interface MapTypeNode {
   kind: 'map';
   keyType: Type;
   valueType: Type;
+  isReadonly?: boolean;
 }
 
 export interface SetTypeNode {
   kind: 'set';
   elementType: Type;
+  isReadonly?: boolean;
 }
 
 export interface ClassTypeNode {
@@ -77,6 +80,7 @@ export interface ClassTypeNode {
   isWeak?: boolean;
   wasNullable?: boolean; // Track if this type was originally nullable (T | null -> std::shared_ptr<T>)
   typeArguments?: Type[];
+  isReadonly?: boolean;
 }
 
 export interface ExternClassTypeNode {
@@ -224,6 +228,7 @@ export interface Identifier extends ASTNode {
     kind: 'field' | 'method';
     className: string;
     memberName: string;
+    isReadonly?: boolean;
   };
   // Enhanced resolution metadata for code generation
   scopeInfo?: {
@@ -238,6 +243,7 @@ export interface Identifier extends ASTNode {
     scopeId?: string;
     declarationScope?: string;
     scopeKind?: ScopeTrackerEntry['kind'];
+    isConstant?: boolean;
   };
 }
 
@@ -498,6 +504,7 @@ export interface ExpressionStatement extends ASTNode {
 export interface VariableDeclaration extends ASTNode {
   kind: 'variable';
   isConst: boolean;
+  isReadonly: boolean;
   identifier: Identifier;
   type?: Type;
   initializer?: Expression;
@@ -554,6 +561,7 @@ export interface Parameter extends ASTNode {
 export interface ClassDeclaration extends ASTNode {
   kind: 'class';
   name: Identifier;
+  isReadonly: boolean;
   fields: FieldDeclaration[];
   methods: MethodDeclaration[];
   nestedClasses?: ClassDeclaration[];
@@ -891,6 +899,7 @@ export interface ImportInfo {
 export interface ValidationError {
   message: string;
   location?: SourceLocation;
+  severity?: 'error' | 'warning';
 }
 
 // Type symbol table for consolidated type declaration lookup

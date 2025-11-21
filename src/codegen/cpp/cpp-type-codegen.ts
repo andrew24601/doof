@@ -51,22 +51,28 @@ export class CppTypeCodegen {
 
     generateArrayType(type: ArrayTypeNode): string {
         const elementType = this.generateType(type.elementType);
-        return `std::shared_ptr<std::vector<${elementType}>>`;
+        const vectorType = `std::vector<${elementType}>`;
+        return type.isReadonly 
+            ? `std::shared_ptr<const ${vectorType}>`
+            : `std::shared_ptr<${vectorType}>`;
     }
 
     generateMapType(type: MapTypeNode): string {
-        return `std::map<${this.generateType(type.keyType)}, ${this.generateType(type.valueType)}>`;
+        const mapType = `std::map<${this.generateType(type.keyType)}, ${this.generateType(type.valueType)}>`;
+        return type.isReadonly ? `const ${mapType}` : mapType;
     }
 
     generateSetType(type: SetTypeNode): string {
-        return `std::unordered_set<${this.generateType(type.elementType)}>`;
+        const setType = `std::unordered_set<${this.generateType(type.elementType)}>`;
+        return type.isReadonly ? `const ${setType}` : setType;
     }
 
     private generateClassType(type: ClassTypeNode): string {
         const qualifiedName = this.getQualifiedClassName(type.name);
+        const targetType = type.isReadonly ? `const ${qualifiedName}` : qualifiedName;
         return type.isWeak
-            ? `std::weak_ptr<${qualifiedName}>`
-            : `std::shared_ptr<${qualifiedName}>`;
+            ? `std::weak_ptr<${targetType}>`
+            : `std::shared_ptr<${targetType}>`;
     }
 
     private generateExternClassType(type: ExternClassTypeNode): string {

@@ -45,7 +45,13 @@ export function parseStatement(parser: Parser): Statement | null {
     if (parser.match(TokenType.IMPORT)) {
       return parseImportDeclaration(parser);
     }
-    if (parser.match(TokenType.LET, TokenType.CONST)) {
+    // Handle readonly class
+    if (parser.check(TokenType.READONLY) && parser.peek(1).type === TokenType.CLASS) {
+      parser.advance(); // consume readonly
+      parser.advance(); // consume class
+      return parseClassDeclaration(parser, true);
+    }
+    if (parser.match(TokenType.LET, TokenType.CONST, TokenType.READONLY)) {
       return parseVariableDeclaration(parser);
     }
     if (parser.match(TokenType.FUNCTION)) {
@@ -170,8 +176,10 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
   parser.consume(TokenType.LEFT_PAREN, "Expected '(' after 'for'");
   
   // Check for for-of loop
-  if (parser.match(TokenType.CONST, TokenType.LET)) {
-    const isConst = parser.previous().type === TokenType.CONST;
+  if (parser.match(TokenType.CONST, TokenType.LET, TokenType.READONLY)) {
+    const previousType = parser.previous().type;
+    const isConst = previousType === TokenType.CONST;
+    const isReadonly = previousType === TokenType.READONLY;
     // Disallow destructuring in for-of MVP: we expect a single identifier here
     const variable = parser.consume(TokenType.IDENTIFIER, "Expected variable name");
     
@@ -185,7 +193,7 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
         variable: { kind: 'identifier', name: variable.value, location: parser.getLocation() },
         iterable,
         body,
-        isConst,
+        isConst: isConst || isReadonly, // Treat readonly as const for now in for-of
         location: parser.getLocation()
       };
     } else {
@@ -203,6 +211,7 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
       const init: VariableDeclaration = {
         kind: 'variable',
         isConst,
+        isReadonly,
         identifier: { kind: 'identifier', name: variable.value, location: parser.getLocation() },
         type,
         initializer,
@@ -238,7 +247,7 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
     // Regular for loop
     let init: VariableDeclaration | Expression | undefined;
     if (!parser.check(TokenType.SEMICOLON)) {
-      if (parser.match(TokenType.LET, TokenType.CONST)) {
+      if (parser.match(TokenType.LET, TokenType.CONST, TokenType.READONLY)) {
         const decl = parseVariableDeclaration(parser);
         // MVP: Destructuring variable declarations are not supported in 'for' initializer
         if ((decl as any).kind === 'destructuringVariable') {

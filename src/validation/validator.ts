@@ -169,7 +169,11 @@ export class Validator {
   }
 
   public addError(message: string, location: SourceLocation): void {
-    this.context.errors.push({ message, location });
+    this.context.errors.push({ message, location, severity: 'error' });
+  }
+
+  public addWarning(message: string, location: SourceLocation): void {
+    this.context.errors.push({ message, location, severity: 'warning' });
   }
 
   private resetContextState(): void {

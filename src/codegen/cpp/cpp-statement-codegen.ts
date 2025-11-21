@@ -52,7 +52,8 @@ export function generateVariableDeclaration(
       ? generator.renderCapturedType(varType)
       : generator.generateType(varType);
 
-    output += `${typeName} ${varDecl.identifier.name}`;
+    const constPrefix = (varDecl.isConst || varDecl.isReadonly) ? 'const ' : '';
+    output += `${constPrefix}${typeName} ${varDecl.identifier.name}`;
 
     if (varDecl.initializer) {
       // Pass the variable's type as target type for reverse type inference

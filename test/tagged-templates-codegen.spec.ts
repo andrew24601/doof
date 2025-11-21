@@ -51,8 +51,8 @@ describe('Tagged Templates Code Generation', () => {
   it('should generate C++ code for tagged template with only interpolation', () => {
     const source = `
       function tag(quasis: string[], values: string[]): string { return ""; }
-      const value = "test";
-      const result = tag\`\${value}\`;
+      readonly value = "test";
+      readonly result = tag\`\${value}\`;
     `;
     const result = generateCode(source);
     

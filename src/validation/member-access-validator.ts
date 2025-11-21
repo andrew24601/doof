@@ -234,19 +234,30 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
         }
       }
 
-      // Look for instance field (non-static)
+        // Look for instance field (non-static)
       const field = typeDecl.fields.find(f => f.name.name === memberName && !f.isStatic);
       if (field) {
         if (typeDecl.kind === 'class' && !validator.isPrivateMemberAccessible(field.isPublic, className)) {
           validator.addError(`Cannot access private field '${field.name.name}' outside class '${className}'`, expr.property.location);
         }
+        
+        // Mark property as readonly if field is readonly or const
+        if (expr.property.kind === 'identifier') {
+            if (!expr.property.resolvedMember) {
+                expr.property.resolvedMember = {
+                    kind: 'field',
+                    className: className,
+                    memberName: memberName
+                };
+            }
+            expr.property.resolvedMember.isReadonly = field.isReadonly || field.isConst;
+        }
+
         const resolvedFieldType = typeDecl.kind === 'class' && typeMapping
           ? substituteTypeParametersInType(field.type, typeMapping)
           : field.type;
         return finalizeMemberType(expr, resolvedFieldType, validator);
-      }
-
-      // Look for instance method (non-static)
+      }      // Look for instance method (non-static)
       if (typeDecl.kind === 'class' || typeDecl.kind === 'externClass') {
         const method = typeDecl.methods.find(m => m.name.name === memberName && !m.isStatic);
         if (method) {

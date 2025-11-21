@@ -66,26 +66,27 @@ C++ mapping: named arguments are syntactic sugar; generated calls are positional
 
 ## Local variables
 
-`let` for mutable and `const` for immutable variables.
+Use `let` for mutable and `readonly` for immutable variables. `const` for variables is deprecated and will emit a warning.
 
 ```doof
 let x = "text";
 let y: double = 5;
-const z = 42;
+readonly z = 42;
 ```
 
 Notes:
-- For arrays and collections, `const` makes the whole object immutable (no content mutation or rebinding)
-- For class instances (references), `const` prevents rebinding, but contents may still be mutated through the reference
+- For arrays and collections, `readonly` makes the whole object immutable (no content mutation or rebinding), with deep immutability enforced for element/value types.
+- For class instances (references), `readonly` prevents rebinding; mutating fields is only allowed if those fields are not readonly.
 
 ```doof
-const arr = [1, 2, 3];
-arr[0] = 99; // error: cannot modify contents of a const array
-arr = [4, 5, 6]; // error: cannot reassign a const variable
+readonly arr = [1, 2, 3];
+arr[0] = 99; // error: cannot modify contents of a readonly array
+// arr = [4, 5, 6]; // error: cannot reassign a readonly variable
 
-const user = User { id: 1, email: "a@b.com" };
-user.name = "Bob"; // ok: contents can change
-user = User { id: 2, email: "b@b.com" }; // error: cannot rebind const variable
+let user = User { id: 1, email: "a@b.com" };
+user.name = "Bob"; // ok if 'name' field is mutable
+readonly user2 = User { id: 2, email: "b@b.com" };
+// user2 = User { id: 3, email: "c@b.com" }; // error: cannot rebind readonly variable
 ```
 
 ## Lambda expressions

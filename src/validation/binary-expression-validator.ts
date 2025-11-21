@@ -125,24 +125,65 @@ export function propagateTypeContext(expr: Expression, expectedType: Type, valid
 export function validateBinaryExpression(expr: BinaryExpression, validator: Validator): Type {
     const leftType = validateExpression(expr.left, validator);
 
-            const assignmentOperators = ['=', '+=', '-=', '*=', '/=', '%='];
-            if (assignmentOperators.includes(expr.operator) && expr.left.kind === 'identifier') {
+    const assignmentOperators = ['=', '+=', '-=', '*=', '/=', '%='];
+    if (assignmentOperators.includes(expr.operator)) {
+        // Check for assignment to parameter
+        if (expr.left.kind === 'identifier') {
             const identifier = expr.left as Identifier;
             if (isIdentifierParameter(identifier.name, validator)) {
-                    if (expr.operator === '=') {
-                        propagateTypeContext(expr.right, leftType, validator);
-                    }
-
-                    validateExpression(expr.right, validator);
-
-                    validator.addError(
-                        `Cannot assign to parameter '${identifier.name}'. Parameters are immutable; assign to a local variable instead.`,
-                        identifier.location
-                    );
-                    expr.inferredType = leftType;
-                    return leftType;
+                if (expr.operator === '=') {
+                    propagateTypeContext(expr.right, leftType, validator);
+                }
+                validateExpression(expr.right, validator);
+                validator.addError(
+                    `Cannot assign to parameter '${identifier.name}'. Parameters are immutable; assign to a local variable instead.`,
+                    identifier.location
+                );
+                expr.inferredType = leftType;
+                return leftType;
+            }
+            
+            // Check for assignment to const/readonly variable
+            if (identifier.scopeInfo && identifier.scopeInfo.isConstant) {
+                 if (expr.operator === '=') {
+                    propagateTypeContext(expr.right, leftType, validator);
+                }
+                validateExpression(expr.right, validator);
+                validator.addError(
+                    `Cannot assign to constant variable '${identifier.name}'`,
+                    identifier.location
+                );
+                expr.inferredType = leftType;
+                return leftType;
             }
         }
+        
+        // Check for assignment to readonly field
+        if (expr.left.kind === 'member') {
+            const memberExpr = expr.left as any; // Cast to access property
+            if (memberExpr.property.kind === 'identifier' && memberExpr.property.resolvedMember?.isReadonly) {
+                 if (expr.operator === '=') {
+                    propagateTypeContext(expr.right, leftType, validator);
+                }
+                validateExpression(expr.right, validator);
+                
+                // Allow assignment in constructor
+                const isConstructor = validator.context.currentMethod?.name.name.endsWith('.constructor') || 
+                                      (validator.context.currentFunction?.name.name.endsWith('.constructor'));
+                const isSameClass = memberExpr.property.resolvedMember.className === validator.context.currentClass?.name.name;
+                
+                if (!isConstructor || !isSameClass) {
+                    validator.addError(
+                        `Cannot assign to readonly field '${memberExpr.property.name}'`,
+                        memberExpr.property.location
+                    );
+                }
+                
+                expr.inferredType = leftType;
+                return leftType;
+            }
+        }
+    }
 
     // For assignment operators, propagate expected type context to the right
     if (expr.operator === '=') {

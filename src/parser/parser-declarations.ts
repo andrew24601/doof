@@ -84,7 +84,9 @@ export function parseModifiers(parser: Parser, allowedModifiers?: Set<string>): 
 }
 
 export function parseVariableDeclaration(parser: Parser): VariableDeclaration | DestructuringVariableDeclaration {
-    const isConst = parser.previous().type === TokenType.CONST;
+    const previousType = parser.previous().type;
+    const isConst = previousType === TokenType.CONST;
+    const isReadonly = previousType === TokenType.READONLY;
 
     // Destructuring declaration form: const/let {x, y} = expr; or const/let (x, y) = expr;
     if (isObjectPatternStart(parser) || isTuplePatternStart(parser)) {
@@ -149,6 +151,7 @@ export function parseVariableDeclaration(parser: Parser): VariableDeclaration | 
         return {
             kind: 'variable',
             isConst,
+            isReadonly,
             identifier: { kind: 'identifier', name: name.value, location: name.location },
             type: undefined, // Type will be inferred from lambda
             initializer: lambdaExpr,
@@ -223,6 +226,7 @@ export function parseVariableDeclaration(parser: Parser): VariableDeclaration | 
         return {
             kind: 'variable',
             isConst,
+            isReadonly,
             identifier: { kind: 'identifier', name: name.value, location: name.location },
             type,
             initializer,
@@ -288,7 +292,7 @@ export function parseFunctionDeclaration(parser: Parser): Statement {
     return functionDecl;
 }
 
-export function parseClassDeclaration(parser: Parser): ClassDeclaration {
+export function parseClassDeclaration(parser: Parser, isReadonly: boolean = false): ClassDeclaration {
     // 'class' token already consumed by match() in parseStatement()
     const name = parser.consume(TokenType.IDENTIFIER, "Expected class name");
 
@@ -304,6 +308,7 @@ export function parseClassDeclaration(parser: Parser): ClassDeclaration {
     return {
         kind: 'class',
         name: { kind: 'identifier', name: name.value, location: parser.getLocation() },
+        isReadonly,
         fields,
         methods,
         nestedClasses: nestedClasses.length > 0 ? nestedClasses : undefined,

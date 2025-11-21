@@ -99,7 +99,7 @@ describe('Array Printing', () => {
     it('should include array header for constant arrays', () => {
       const code = `
         function printCoords(): void {
-          const coords: int[] = [1, 2, 3];
+          readonly coords: int[] = [1, 2, 3];
           println(coords);
         }
       `;

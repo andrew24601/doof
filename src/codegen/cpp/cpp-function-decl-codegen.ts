@@ -134,41 +134,18 @@ function generateParameterType(generator: CppGenerator, type: Type): string {
         default: return primType.type; // Pass primitives by value
       }
     case 'array':
-      const arrayType = type as ArrayTypeNode;
-      // Dynamic array - use shared_ptr semantics
-      return `std::shared_ptr<std::vector<${generator.typeGen.generateType(arrayType.elementType)}>>`;
-    case 'map':
-      const mapType = type as MapTypeNode;
-      return `std::map<${generator.typeGen.generateType(mapType.keyType)}, ${generator.typeGen.generateType(mapType.valueType)}>&`; // Pass maps by mutable reference
-    case 'set':
-      const setType = type as SetTypeNode;
-      return `std::unordered_set<${generator.typeGen.generateType(setType.elementType)}>&`; // Pass sets by mutable reference
     case 'class':
-      const classType = type as ClassTypeNode;
-      if (classType.isWeak) {
-        return `std::weak_ptr<${classType.name}>`;
-      } else {
-        return `std::shared_ptr<${classType.name}>`; // Classes are already references
-      }
     case 'externClass':
-      const typeName = type.namespace ? `${type.namespace}::${type.name}` : type.name;
-      if (type.isWeak) {
-        return `std::weak_ptr<${typeName}>`;
-      } else {
-        return `std::shared_ptr<${typeName}>`; // Extern classes are already references
-      }
+    case 'union':
+    case 'function':
+       return generator.typeGen.generateType(type);
+    case 'map':
+    case 'set':
+       // Maps and sets are passed by reference (const or mutable depending on type)
+       return generator.typeGen.generateType(type) + '&';
     case 'enum':
       const enumType = type as EnumTypeNode;
       return enumType.name; // Pass enums by value
-    case 'function':
-      const funcType = type;
-      const paramTypes = funcType.parameters.map(p => generator.typeGen.generateType(p.type)).join(', ');
-      // Both escaping and non-escaping functions use std::function, but semantics differ
-      // Escaping: may be stored, passed by value 
-      // Non-escaping: temporary use only, also passed by value for simplicity
-      return `std::function<${generator.typeGen.generateType(funcType.returnType)}(${paramTypes})>`;
-    case 'union':
-      return generator.typeGen.generateUnionType(type);
     default:
       throw new Error("Compiler error - unsupported parameter type");
   }

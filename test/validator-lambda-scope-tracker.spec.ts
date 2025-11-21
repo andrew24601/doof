@@ -15,7 +15,7 @@ describe('Validator lambda scope tracker integration', () => {
   it('marks lambda parameters as parameters with scope tracker entries', () => {
     const program = parse(`
       function outer(): void {
-        const cb = (value: int) => value + 1;
+        readonly cb = (value: int) => value + 1;
         cb(42);
       }
     `);
@@ -23,7 +23,7 @@ describe('Validator lambda scope tracker integration', () => {
     const validator = new Validator({ allowTopLevelStatements: true });
     const context = validator.validate(program);
 
-    expect(context.errors).toHaveLength(0);
+    expect(context.errors).toStrictEqual([]);
 
     const outerFn = program.body[0];
     if (outerFn.kind !== 'function') {

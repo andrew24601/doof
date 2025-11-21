@@ -19,7 +19,7 @@ Common mappings from doof constructs to idiomatic C++17.
 | `weak Node`                   | `std::weak_ptr<Node>`                            |                                               |
 | `panic("message")`          | `std::cerr << ...; std::exit(1);`                | Program termination                           |
 | `for (let i = 0; i < n; i++)` | `for (int i = 0; i < n; i++)`                    |                                               |
-| `for (const x of arr)`        | `for (const auto& x : arr)`                      |                                               |
+| `for (readonly x of arr)`     | `for (const auto& x : arr)`                      |                                               |
 | `enum Color { Red, Blue }`    | `enum Color { Red, Blue };`                      |                                               |
 | `let f = (a: int) => a + 1`   | `auto f = [](int a) { return a + 1; };`          |                                               |
 | `import { foo } from "./bar"`| `using bar::foo;` or qualified name              |                                               |

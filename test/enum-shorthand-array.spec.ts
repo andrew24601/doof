@@ -19,7 +19,7 @@ describe('Enum shorthand in array literals', () => {
     const code = `
       enum Color { RED, GREEN, BLUE }
 
-      const colors: Color[] = [.RED, .GREEN, .BLUE];
+      readonly colors: Color[] = [.RED, .GREEN, .BLUE];
 
       function main(): int {
         return 0;

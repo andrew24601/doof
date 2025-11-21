@@ -142,7 +142,13 @@ export class Transpiler {
           const file = error.location ? (error.location.filename || filename) : filename;
           const line = error.location && error.location.start ? error.location.start.line : undefined;
           const column = error.location && error.location.start ? error.location.start.column : undefined;
-          result.errors.push({ filename: file, line, column, message: error.message, severity: 'error' });
+          
+          if (error.severity === 'warning') {
+             const locStr = line !== undefined && column !== undefined ? `${line}:${column}: ` : '';
+             result.warnings.push(`${file}:${locStr}${error.message}`);
+          } else {
+             result.errors.push({ filename: file, line, column, message: error.message, severity: 'error' });
+          }
         }
 
         // If there are validation errors, don't generate code
@@ -349,7 +355,13 @@ export class Transpiler {
             const file = error.location ? (error.location.filename || filePath) : filePath;
             const line = error.location && error.location.start ? error.location.start.line : undefined;
             const column = error.location && error.location.start ? error.location.start.column : undefined;
-            result.errors.push({ filename: file, line, column, message: error.message, severity: 'error' });
+            
+            if (error.severity === 'warning') {
+               const locStr = line !== undefined && column !== undefined ? `${line}:${column}: ` : '';
+               result.warnings.push(`${file}:${locStr}${error.message}`);
+            } else {
+               result.errors.push({ filename: file, line, column, message: error.message, severity: 'error' });
+            }
           }
         }
 

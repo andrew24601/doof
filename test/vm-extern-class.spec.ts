@@ -20,7 +20,7 @@ function parseProgram(source: string): Program {
 function compileToBytecode(program: Program) {
   const validator = new Validator();
   const context = validator.validate(program);
-  expect(context.errors).toHaveLength(0);
+  expect(context.errors).toStrictEqual([]);
 
   const generator = new VMGenerator();
   const result = generator.generate(program, 'test', context);
@@ -47,17 +47,17 @@ describe('VM extern class integration', () => {
       }
 
       function main(): void {
-        const y: Foo = { x: 10, y: 12 };
-        const x = 12;
+        let y: Foo = { x: 10, y: 12 };
+        readonly x = 12;
 
-        const runner = RemoteRunner.shared();
+        readonly runner = RemoteRunner.shared();
         runner.show();
 
         println("Hello world!");
         println(y);
         println("How are you? " + y);
 
-        const label = runner.createLabel();
+        readonly label = runner.createLabel();
         label.setText("ready");
       }
     `);

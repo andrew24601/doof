@@ -126,8 +126,8 @@ describe('Tagged Templates', () => {
         function html(quasis: string[], values: string[]): string {
           return "";
         }
-        const name = "world";
-        const result = html\`<p>\${name}</p>\`;
+        readonly name = "world";
+        readonly result = html\`<p>\${name}</p>\`;
       `;
       const { context } = validateProgram(source);
       expect(context.errors).toHaveLength(0);
@@ -138,8 +138,8 @@ describe('Tagged Templates', () => {
         function tag(quasis: string[], values: int[]): string {
           return "";
         }
-        const x = 42;
-        const result = tag\`Value: \${x}\`;
+        readonly x = 42;
+        readonly result = tag\`Value: \${x}\`;
       `;
       const { context } = validateProgram(source);
       expect(context.errors).toHaveLength(0);
@@ -147,8 +147,8 @@ describe('Tagged Templates', () => {
 
     it('reports error when tag is not a function', () => {
       const source = `
-        const notAFunction = "hello";
-        const result = notAFunction\`template\`;
+        readonly notAFunction = "hello";
+        readonly result = notAFunction\`template\`;
       `;
       const { context } = validateProgram(source);
       expect(context.errors.length).toBeGreaterThan(0);
@@ -196,8 +196,8 @@ describe('Tagged Templates', () => {
         function strictTag(quasis: string[], values: int[]): string {
           return "";
         }
-        const name = "string";
-        const result = strictTag\`Value: \${name}\`;
+        readonly name = "string";
+        readonly result = strictTag\`Value: \${name}\`;
       `;
       const { context } = validateProgram(source);
       expect(context.errors.length).toBeGreaterThan(0);
@@ -209,8 +209,8 @@ describe('Tagged Templates', () => {
         function flexibleTag(quasis: string[], values: double[]): string {
           return "";
         }
-        const x = 42;
-        const result = flexibleTag\`Value: \${x}\`; // int should convert to double
+        readonly x = 42;
+        readonly result = flexibleTag\`Value: \${x}\`; // int should convert to double
       `;
       const { context } = validateProgram(source);
       expect(context.errors).toStrictEqual([]);

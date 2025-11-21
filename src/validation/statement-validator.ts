@@ -1,7 +1,7 @@
 import { validateClassDeclaration, validateExportDeclaration, validateExternClassDeclaration, validateFieldDeclaration, validateFunctionDeclaration, validateMethodDeclaration } from "./declaration-validator";
 import { analyzeTypeGuard, canInferObjectLiteralType, inferObjectLiteralType, propagateTypeContext, validateExpression } from "./expression-validator";
-import { addTypeCompatibilityError, isBooleanType, isNonNullableType, isTypeCompatible, resolveActualType, typeToString, validateType, createPrimitiveType, requiresExplicitInitialization } from "../type-utils";
-import { WhileStatement, BlockStatement, ReturnStatement, PrimitiveTypeNode, IfStatement, ForStatement, VariableDeclaration, Expression, SwitchStatement, RangeExpression, EnumDeclaration, TypeAliasDeclaration, ForOfStatement, Type, ArrayTypeNode, SetTypeNode, ExpressionStatement, ObjectExpression, ClassTypeNode, GlobalValidationContext, ImportDeclaration, Program, ExportedSymbol, Statement, LambdaExpression, FunctionTypeNode, TrailingLambdaExpression, MarkdownTable, DestructuringAssignment, DestructuringVariableDeclaration } from "../types";
+import { addTypeCompatibilityError, isBooleanType, isNonNullableType, isTypeCompatible, resolveActualType, typeToString, validateType, createPrimitiveType, requiresExplicitInitialization, isImmutableType } from "../type-utils";
+import { WhileStatement, BlockStatement, ReturnStatement, PrimitiveTypeNode, IfStatement, ForStatement, VariableDeclaration, Expression, SwitchStatement, RangeExpression, EnumDeclaration, TypeAliasDeclaration, ForOfStatement, Type, ArrayTypeNode, SetTypeNode, MapTypeNode, ExpressionStatement, ObjectExpression, ClassTypeNode, GlobalValidationContext, ImportDeclaration, Program, ExportedSymbol, Statement, LambdaExpression, FunctionTypeNode, TrailingLambdaExpression, MarkdownTable, DestructuringAssignment, DestructuringVariableDeclaration } from "../types";
 import { validateForOfStatement as validateIteratorForOf, IteratorTypeInfo } from "./validate-iter";
 import { getExpressionId } from "../type-utils";
 import { Validator } from "./validator";
@@ -11,7 +11,7 @@ import { validateAndDesugarMarkdownTable } from "./validate-markdown-table";
 // Inlined MVP lowering for destructuring to avoid module resolution issues
 function __makeTempName(counter: number): string { return `__destr_${counter}`; }
 function __createTempDeclaration(name: string, expr: Expression): VariableDeclaration {
-  return { kind: 'variable', isConst: true, identifier: { kind: 'identifier', name, location: expr.location }, initializer: expr, location: expr.location } as VariableDeclaration;
+  return { kind: 'variable', isConst: false, isReadonly: true, identifier: { kind: 'identifier', name, location: expr.location }, initializer: expr, location: expr.location } as VariableDeclaration;
 }
 function __createMemberAccess(objectIdent: any, field: string, loc: any): any {
   return { kind: 'member', object: objectIdent, property: { kind: 'identifier', name: field, location: loc }, computed: false, location: loc };
@@ -28,7 +28,7 @@ function lowerDestructuringVariable(stmt: DestructuringVariableDeclaration, vali
 
   if (stmt.pattern.kind === 'objectPattern') {
     for (const id of (stmt.pattern as any).names) {
-      const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, identifier: { kind: 'identifier', name: id.name, location: id.location }, initializer: __createMemberAccess(tempIdent, id.name, id.location), location: id.location } as VariableDeclaration;
+      const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, isReadonly: false, identifier: { kind: 'identifier', name: id.name, location: id.location }, initializer: __createMemberAccess(tempIdent, id.name, id.location), location: id.location } as VariableDeclaration;
       block.body.push(varDecl);
     }
     return block;
@@ -44,7 +44,7 @@ function lowerDestructuringVariable(stmt: DestructuringVariableDeclaration, vali
   for (let i = 0; i < tuple.names.length; i++) {
     const target = tuple.names[i];
     const fieldName = fieldOrder[i] || `__field_${i}`;
-    const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, identifier: { kind: 'identifier', name: target.name, location: target.location }, initializer: __createMemberAccess(tempIdent, fieldName, target.location), location: target.location } as VariableDeclaration;
+    const varDecl: VariableDeclaration = { kind: 'variable', isConst: stmt.isConst, isReadonly: false, identifier: { kind: 'identifier', name: target.name, location: target.location }, initializer: __createMemberAccess(tempIdent, fieldName, target.location), location: target.location } as VariableDeclaration;
     block.body.push(varDecl);
   }
   return block;
@@ -728,10 +728,40 @@ export function validateVariableDeclaration(stmt: VariableDeclaration, validator
 
   validateType(type, stmt.location, validator);
 
+  // Apply readonly modifier to the type if variable is readonly
+  if (stmt.isReadonly) {
+    if (type.kind === 'array' || type.kind === 'map' || type.kind === 'set' || type.kind === 'class') {
+      (type as any).isReadonly = true;
+    }
+    
+    // Deep readonly enforcement
+    if (type.kind === 'array') {
+      const arrayType = type as ArrayTypeNode;
+      if (!isImmutableType(arrayType.elementType, validator)) {
+        validator.addError(`Readonly array must contain immutable elements`, stmt.location);
+      }
+    } else if (type.kind === 'set') {
+      const setType = type as SetTypeNode;
+      if (!isImmutableType(setType.elementType, validator)) {
+        validator.addError(`Readonly set must contain immutable elements`, stmt.location);
+      }
+    } else if (type.kind === 'map') {
+      const mapType = type as MapTypeNode;
+      if (!isImmutableType(mapType.valueType, validator)) {
+        validator.addError(`Readonly map must contain immutable values`, stmt.location);
+      }
+    }
+  }
+
   // Const variables must have initializers
   if (stmt.isConst && !stmt.initializer) {
     validator.addError(`Const variable '${stmt.identifier.name}' must have an initializer`, stmt.location);
     return;
+  }
+
+  // Deprecation warning for const
+  if (stmt.isConst) {
+    validator.addWarning(`'const' is deprecated for variables. Use 'readonly' instead.`, stmt.location);
   }
 
   // Global variables of non-nullable types should be initialized to prevent null pointer issues
@@ -758,7 +788,7 @@ export function validateVariableDeclaration(stmt: VariableDeclaration, validator
     scopeName,
     location: stmt.location,
     type,
-    isConstant: stmt.isConst,
+    isConstant: stmt.isConst || stmt.isReadonly,
     declaringClass: validator.context.currentClass?.name.name
   });
   registerScopeTrackerEntry(validator.context.codeGenHints.scopeTracker, entry);

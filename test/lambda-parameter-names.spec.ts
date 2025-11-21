@@ -39,7 +39,7 @@ describe('Lambda parameter names', () => {
   it('accepts lambdas with arbitrary parameter names for array.map/forEach', () => {
     const code = `
       function main(): void {
-        const arr = [1, 2, 3];
+        readonly arr = [1, 2, 3];
         // intrinsic methods expect (it, index) or similar arity; use arbitrary names
         arr.forEach((x: int, idx: int) => println(x));
         arr.map((value: int, i: int) => value + 1);
@@ -48,6 +48,6 @@ describe('Lambda parameter names', () => {
 
     const { errors } = parseAndValidate(code);
     if (errors.length) console.log('Validation errors:', JSON.stringify(errors, null, 2));
-    expect(errors).toHaveLength(0);
+    expect(errors).toStrictEqual([]);
   });
 });

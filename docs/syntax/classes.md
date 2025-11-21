@@ -126,7 +126,7 @@ let p2 = Point { x: 3, y: 4, label: "foo" };
 Object instances are always created using the object-literal form `{ ... }`. The `new` operator is not supported.
 
 ```doof
-const p1 = Point { x: 1, y: 2 };
+readonly p1 = Point { x: 1, y: 2 };
 let p2: Point = { x: 3, y: 4 };
 let p3 = Task { name: "Important", status: .ACTIVE };
 
@@ -237,6 +237,20 @@ class Point {
     }
 }
 ```
+
+### Immutabile classes
+
+Classes can be marked as `readonly` to indicate that all instances are immutable after construction.
+
+```doof
+readonly class ImmutablePoint {
+    x: int;
+    y: int;
+}
+```
+
+Additionally, if all fields of a class are `const` or `readonly`, the class is also considered immutable.
+
 
 ### Extern classes
 
