@@ -516,8 +516,14 @@ export function validateTypeAliasDeclaration(stmt: TypeAliasDeclaration, validat
 
   // Check for duplicate type alias names
   if (validator.context.typeAliases.has(aliasName)) {
-    validator.addError(`Duplicate type alias '${aliasName}'`, stmt.location);
-    return;
+    const existing = validator.context.typeAliases.get(aliasName);
+    if (existing !== stmt) {
+      validator.addError(`Duplicate type alias '${aliasName}'`, stmt.location);
+      return;
+    }
+  } else {
+    // Register the type alias if not already registered (e.g. if not top-level)
+    validator.context.typeAliases.set(aliasName, stmt);
   }
 
   // Check for name conflicts with other declarations
@@ -529,9 +535,6 @@ export function validateTypeAliasDeclaration(stmt: TypeAliasDeclaration, validat
 
   // Validate the type expression
   validateType(stmt.type, stmt.location, validator);
-
-  // Register the type alias first
-  validator.context.typeAliases.set(aliasName, stmt);
 
   // Then check for circular references
   if (hasCircularTypeAlias(validator, stmt.type, aliasName, new Set())) {

@@ -1055,6 +1055,10 @@ export function collectDeclaration(validator: Validator, stmt: Statement): void 
       validator.context.interfaces.set(stmt.name.name, stmt);
       validator.context.symbols.set(stmt.name.name, { kind: 'typeAlias', name: stmt.name.name });
       break;
+    case 'typeAlias':
+      validator.context.typeAliases.set(stmt.name.name, stmt);
+      validator.context.symbols.set(stmt.name.name, { kind: 'typeAlias', name: stmt.name.name });
+      break;
   }
 }
 

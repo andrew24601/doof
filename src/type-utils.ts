@@ -828,7 +828,9 @@ function deduplicateUnionTypes(types: Type[]): Type[] {
 function cloneType(type: Type, validator: Validator): Type {
   switch (type.kind) {
     case 'primitive':
+      return { ...type };
     case 'enum':
+      return { ...type };
     case 'externClass':
       const ext = type as ExternClassTypeNode;
       return {

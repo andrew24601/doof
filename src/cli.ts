@@ -9,6 +9,7 @@ import path from 'path';
 import { exec as execCb } from 'child_process';
 import { promisify } from 'util';
 import { writeVmGlueFiles } from './vm-glue-writer';
+import { logger, LogLevel } from './logger';
 
 const exec = promisify(execCb);
 
@@ -42,6 +43,7 @@ export function parseArgs(args: string[]): CliOptions {
     switch (arg) {
       case '--verbose':
         options.verbose = true;
+        logger.setLevel(LogLevel.DEBUG);
         break;
       case '-h':
       case '--help':

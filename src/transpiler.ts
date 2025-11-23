@@ -15,6 +15,7 @@ import { resolveDependencyGraph } from './project/dependency-resolver';
 import { collectExternClassMetadata, ExternClassMetadata } from './project/extern-metadata';
 import { desugarInterfaces } from './validation/desugar';
 import { monomorphizePrograms } from './project/monomorphizer';
+import { logger } from './logger';
 
 export interface TranspilerOptions {
   target?: 'cpp' | 'js' | 'vm';
@@ -207,7 +208,7 @@ export class Transpiler {
     } catch (error) {
       if (error instanceof Error) {
         if (this.options.verbose) {
-          console.error('Transpilation error:', error.stack || error.message);
+          logger.error('Transpilation error:', error.stack || error.message);
         }
         // Enhanced error formatting with location
         if ('location' in error && error.location) {
@@ -481,7 +482,7 @@ export class Transpiler {
       const errorMessage = isErr ? error.message : String(error);
       if (this.options.verbose && isErr) {
         // Emit stack for debugging hard failures that bypass validation
-        console.error('Transpilation error stack:', (error as Error).stack);
+        logger.error('Transpilation error stack:', (error as Error).stack);
       }
       result.errors.push({ message: `Project transpilation failed: ${errorMessage}`, severity: 'error' });
     }

@@ -1,6 +1,6 @@
 import { validateExpression } from "./expression-validator";
 import { canInferObjectLiteralType, inferObjectLiteralType } from "./object-literal-validator";
-import { isTypeCompatible, commonTypes, validateSetElementType } from "../type-utils";
+import { isTypeCompatible, commonTypes, validateSetElementType, resolveActualType } from "../type-utils";
 import { Type, ArrayExpression, SetExpression, ObjectExpression, ArrayTypeNode, SetTypeNode, PrimitiveTypeNode, EnumTypeNode, MemberExpression, Expression, EnumShorthandMemberExpression } from "../types";
 import { Validator } from "./validator";
 
@@ -31,6 +31,13 @@ export function validateArrayExpression(expr: ArrayExpression, validator: Valida
         const objExpr = element as ObjectExpression;
         if (!objExpr.className && canInferObjectLiteralType(objExpr, expectedElementType)) {
           inferObjectLiteralType(objExpr, expectedElementType, validator);
+        }
+      } else if (element.kind === 'array') {
+        // Check if expectedElementType is effectively an array
+        const typeCopy = { ...expectedElementType };
+        resolveActualType(typeCopy, validator);
+        if (typeCopy.kind === 'array') {
+          element._expectedElementType = (typeCopy as ArrayTypeNode).elementType;
         }
       }
     }

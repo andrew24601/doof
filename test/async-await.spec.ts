@@ -23,7 +23,7 @@ describe('Async/Await Support', () => {
         expect(result.source).toContain('doof_runtime::Task<int>');
         expect(result.source).toContain('doof_runtime::ThreadPool::instance().submit(task)');
         expect(result.source).toContain('doof_runtime::Future<int>');
-        expect(result.source).toContain('.get()');
+        expect(result.source).toContain('->get()');
     });
 
     it('should validate isolation rules', () => {
