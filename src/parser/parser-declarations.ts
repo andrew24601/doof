@@ -19,6 +19,7 @@ interface ModifierFlags {
     isStatic: boolean;
     isConst: boolean;
     isReadonly: boolean;
+    isAsync: boolean;
 }
 
 type FieldOrMethodParseResult = {
@@ -36,11 +37,12 @@ export function parseModifiers(parser: Parser, allowedModifiers?: Set<string>): 
         isPublic: true, // Default to public in doof
         isStatic: false,
         isConst: false,
-        isReadonly: false
+        isReadonly: false,
+        isAsync: false
     };
 
     while (parser.check(TokenType.PRIVATE) || parser.check(TokenType.STATIC) ||
-        parser.check(TokenType.CONST) || parser.check(TokenType.READONLY)) {
+        parser.check(TokenType.CONST) || parser.check(TokenType.READONLY) || parser.check(TokenType.ASYNC)) {
 
         if (parser.match(TokenType.PRIVATE)) {
             if (allowedModifiers && !allowedModifiers.has('private')) {
@@ -77,6 +79,14 @@ export function parseModifiers(parser: Parser, allowedModifiers?: Set<string>): 
                 throw new ParseError("'readonly' modifier already specified", parser.getLocation());
             }
             flags.isReadonly = true;
+        } else if (parser.match(TokenType.ASYNC)) {
+            if (allowedModifiers && !allowedModifiers.has('async')) {
+                throw new ParseError("'async' modifier not allowed in this context", parser.getLocation());
+            }
+            if (flags.isAsync) {
+                throw new ParseError("'async' modifier already specified", parser.getLocation());
+            }
+            flags.isAsync = true;
         }
     }
 
@@ -250,7 +260,7 @@ function parseTypeParameterList(parser: Parser): TypeParameter[] {
     return parameters;
 }
 
-export function parseFunctionDeclaration(parser: Parser): Statement {
+export function parseFunctionDeclaration(parser: Parser, isAsync: boolean = false): Statement {
     // 'function' token already consumed by match() in parseStatement()
     const name = parser.consume(TokenType.IDENTIFIER, "Expected function name");
 
@@ -282,7 +292,8 @@ export function parseFunctionDeclaration(parser: Parser): Statement {
         returnType,
         body,
         location: name.location,
-        typeParameters
+        typeParameters,
+        isAsync
     };
 
     if (isNestedFunction) {
@@ -564,11 +575,11 @@ export function parseClassLikeBody(parser: Parser): {
             break;
         }
         // Parse modifiers - classes allow all modifiers
-        const allowedModifiers = new Set(['private', 'static', 'const', 'readonly']);
+        const allowedModifiers = new Set(['private', 'static', 'const', 'readonly', 'async']);
         const modifiers = parseModifiers(parser, allowedModifiers);
 
         if (parser.match(TokenType.CLASS)) {
-            if (!modifiers.isPublic || modifiers.isStatic || modifiers.isConst || modifiers.isReadonly) {
+            if (!modifiers.isPublic || modifiers.isStatic || modifiers.isConst || modifiers.isReadonly || modifiers.isAsync) {
                 throw new ParseError("Modifiers are not supported on nested class declarations", parser.getLocation());
             }
 
@@ -795,6 +806,7 @@ export function parseFieldOrMethod(parser: Parser, modifiers: ModifierFlags): Fi
             body,
             isPublic: modifiers.isPublic,
             isStatic: modifiers.isStatic,
+            isAsync: modifiers.isAsync,
             location: nameIdentifier.location
         };
         const result = Object.create(null) as FieldOrMethodParseResult;

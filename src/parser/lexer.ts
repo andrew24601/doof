@@ -48,6 +48,8 @@ export enum TokenType {
   RETURN = 'return',
   IS = 'is',
   TYPE = 'type',
+  ASYNC = 'async',
+  AWAIT = 'await',
 
   // Types
   INT = 'int',
@@ -175,6 +177,8 @@ const KEYWORDS: Map<string, TokenType> = new Map([
   ['return', TokenType.RETURN],
   ['is', TokenType.IS],
   ['type', TokenType.TYPE],
+  ['async', TokenType.ASYNC],
+  ['await', TokenType.AWAIT],
   ['true', TokenType.BOOLEAN],
   ['false', TokenType.BOOLEAN],
   ['null', TokenType.NULL],

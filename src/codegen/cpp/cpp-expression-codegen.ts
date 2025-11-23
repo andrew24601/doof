@@ -8,7 +8,7 @@ import {
     ArrayTypeNode, SetTypeNode, ExternClassDeclaration, ClassDeclaration, ObjectProperty,
     BlockStatement, VariableDeclaration, ExternClassTypeNode, FunctionTypeNode, Parameter,
     Statement, FieldDeclaration, MethodDeclaration, ValidationContext, FunctionDeclaration,
-    RangeExpression
+    RangeExpression, AsyncExpression, AwaitExpression
 } from "../../types";
 import { getExpressionId } from "../../type-utils";
 import { CppGenerator } from "../cppgen";
@@ -138,6 +138,12 @@ export function generateExpressionWithContext(generator: CppGenerator, expr: Exp
         case 'range':
             // Range expressions are handled in for-of statements
             throw new Error('Range expressions should not be generated directly');
+        case 'async':
+            result = generateAsyncExpression(generator, expr as AsyncExpression);
+            break;
+        case 'await':
+            result = generateAwaitExpression(generator, expr as AwaitExpression);
+            break;
         case 'xmlCall':
             // Delegate to normalized expression synthesized by validator (call or object literal)
             const xml: any = expr;
@@ -233,4 +239,20 @@ function generateTupleExpression(generator: any, expr: TupleExpression): string 
     
     // Generate the same code as positional object construction
     return `${typeName}(${args})`;
+}
+
+function generateAsyncExpression(generator: CppGenerator, expr: AsyncExpression): string {
+    const callExpr = expr.expression;
+    const returnType = callExpr.inferredType;
+    if (!returnType) throw new Error("Async call missing inferred return type");
+    
+    const returnTypeStr = generator.generateType(returnType);
+    const callStr = generator.generateExpression(callExpr);
+    
+    return `[&]() { auto task = std::make_shared<doof_runtime::Task<${returnTypeStr}>>([=]() { return ${callStr}; }); doof_runtime::ThreadPool::instance().submit(task); return std::make_shared<doof_runtime::Future<${returnTypeStr}>>(task); }()`;
+}
+
+function generateAwaitExpression(generator: CppGenerator, expr: AwaitExpression): string {
+    const exprStr = generator.generateExpression(expr.expression);
+    return `${exprStr}->get()`;
 }

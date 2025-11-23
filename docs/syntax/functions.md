@@ -89,6 +89,22 @@ readonly user2 = User { id: 2, email: "b@b.com" };
 // user2 = User { id: 3, email: "c@b.com" }; // error: cannot rebind readonly variable
 ```
 
+## Async Functions
+
+Functions can be marked as `async` to indicate they are intended for asynchronous operations.
+
+```doof
+async function fetchData(): string {
+    // ...
+    return "data";
+}
+
+// Invoke asynchronously to get a Future
+let future = async fetchData();
+```
+
+For more details, see the [Async/Await Guide](async-await.md).
+
 ## Lambda expressions
 
 See the dedicated guide: ../lambdas.md

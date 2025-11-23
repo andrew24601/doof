@@ -98,6 +98,51 @@ export function initializeBuiltins(validator: Validator): void {
   );
   validator.context.symbols.set('panic', panicType);
 
+  // Add Future type
+  const futureClass: ExternClassDeclaration = {
+    kind: 'externClass',
+    name: { kind: 'identifier', name: 'Future', location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } },
+    typeParameters: [{ name: 'T', location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } }],
+    fields: [],
+    methods: [
+      {
+        kind: 'method',
+        name: { kind: 'identifier', name: 'get', location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } },
+        parameters: [],
+        returnType: { kind: 'typeParameter', name: 'T' } as any,
+        body: emptyBody,
+        isPublic: true,
+        isStatic: false,
+        location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
+      },
+      {
+        kind: 'method',
+        name: { kind: 'identifier', name: 'wait', location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } },
+        parameters: [],
+        returnType: commonTypes.void,
+        body: emptyBody,
+        isPublic: true,
+        isStatic: false,
+        location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
+      },
+      {
+        kind: 'method',
+        name: { kind: 'identifier', name: 'isReady', location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } } },
+        parameters: [],
+        returnType: commonTypes.bool,
+        body: emptyBody,
+        isPublic: true,
+        isStatic: false,
+        location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
+      }
+    ],
+    header: 'doof_runtime.h',
+    namespace: 'doof_runtime',
+    location: { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
+  };
+  validator.context.externClasses.set('Future', futureClass);
+  validator.context.symbols.set('Future', createExternClassType('Future', 'doof_runtime'));
+
   // No time/date runtime types are registered here; any runtime-backed types
   // should be provided by explicit extern-class declarations in source or via
   // the intrinsics registry. We intentionally do not register

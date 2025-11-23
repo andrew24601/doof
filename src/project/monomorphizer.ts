@@ -237,6 +237,12 @@ class Monomorphizer {
 
     const owner = this.classOwners.get(name);
     if (!owner) {
+      // Check if it is an extern class in any context
+      const isExtern = this.contexts.some(ctx => ctx.externClasses.has(name));
+      if (isExtern) {
+        return undefined;
+      }
+
       this.diagnostics.push({
         message: `Generic class '${name}' has no declaration available for instantiation`,
         location
@@ -722,6 +728,17 @@ class Monomorphizer {
           name: type.name,
           isWeak: type.isWeak,
           wasNullable: type.wasNullable,
+          typeArguments: processedArgs.length > 0 ? processedArgs : undefined
+        } as Type;
+      }
+      case "externClass": {
+        const processedArgs = type.typeArguments?.map(arg => this.rewriteTypeNode(arg, mapping)) ?? [];
+        return {
+          kind: "externClass",
+          name: type.name,
+          isWeak: type.isWeak,
+          wasNullable: type.wasNullable,
+          namespace: type.namespace,
           typeArguments: processedArgs.length > 0 ? processedArgs : undefined
         } as Type;
       }

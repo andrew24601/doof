@@ -22,8 +22,118 @@
 #include <utility>
 #include <type_traits>
 #include <cstring>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
+#include <queue>
+#include <atomic>
+#include <future>
+#include <optional>
 
 namespace doof_runtime {
+
+// ==================== Async Runtime ====================
+
+enum class TaskState { PENDING, RUNNING, COMPLETED };
+
+struct TaskBase {
+    std::atomic<TaskState> state{TaskState::PENDING};
+    std::mutex mutex;
+    std::condition_variable cv;
+    
+    virtual void execute() = 0;
+    virtual ~TaskBase() = default;
+
+    void run();
+    void wait();
+};
+
+template<typename T>
+struct Task : TaskBase {
+    std::function<T()> func;
+    std::optional<T> result;
+
+    Task(std::function<T()> f) : func(std::move(f)) {}
+
+    void execute() override {
+        result = func();
+    }
+};
+
+// Specialization for void
+template<>
+struct Task<void> : TaskBase {
+    std::function<void()> func;
+
+    Task(std::function<void()> f) : func(std::move(f)) {}
+
+    void execute() override {
+        func();
+    }
+};
+
+class ThreadPool {
+    std::vector<std::thread> workers;
+    std::deque<std::shared_ptr<TaskBase>> queue;
+    std::mutex queue_mutex;
+    std::condition_variable queue_cv;
+    bool stop = false;
+
+    void worker_loop();
+
+public:
+    static ThreadPool& instance();
+
+    ThreadPool(size_t threads);
+    ~ThreadPool();
+
+    void submit(std::shared_ptr<TaskBase> task);
+};
+
+template<typename T>
+class Future {
+    std::shared_ptr<Task<T>> task;
+
+public:
+    Future(std::shared_ptr<Task<T>> t) : task(t) {}
+
+    T get() {
+        task->run(); // Try to inline
+        task->wait();
+        return *task->result;
+    }
+    
+    bool isReady() {
+        return task->state == TaskState::COMPLETED;
+    }
+    
+    void wait() {
+        task->wait();
+    }
+};
+
+// Specialization for void
+template<>
+class Future<void> {
+    std::shared_ptr<Task<void>> task;
+
+public:
+    Future(std::shared_ptr<Task<void>> t) : task(t) {}
+
+    void get() {
+        task->run();
+        task->wait();
+    }
+    
+    bool isReady() {
+        return task->state == TaskState::COMPLETED;
+    }
+    
+    void wait() {
+        task->wait();
+    }
+};
 
 template <typename T>
 class Captured {

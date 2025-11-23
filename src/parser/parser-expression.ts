@@ -1,4 +1,4 @@
-import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, SetExpression, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation } from "../types";
+import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, SetExpression, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation, AsyncExpression, AwaitExpression } from "../types";
 import { TokenType } from "./lexer";
 import { Parser } from "./parser";
 import { parseParameterList } from "./parser-parameters";
@@ -182,6 +182,31 @@ function parseBinaryExpression(
 }
 
 function parseUnary(parser: Parser): Expression {
+    if (parser.match(TokenType.AWAIT)) {
+        const awaitToken = parser.previous();
+        const expression = parseUnary(parser);
+        return {
+            kind: 'await',
+            expression,
+            location: { start: awaitToken.location.start, end: expression.location.end, filename: parser.filename }
+        } as AwaitExpression;
+    }
+
+    if (parser.match(TokenType.ASYNC)) {
+        const asyncToken = parser.previous();
+        const expression = parseCall(parser);
+        
+        if (expression.kind !== 'call') {
+             throw new ParseError("Expected function call after 'async'", parser.getLocation());
+        }
+
+        return {
+            kind: 'async',
+            expression: expression as CallExpression,
+            location: { start: asyncToken.location.start, end: expression.location.end, filename: parser.filename }
+        } as AsyncExpression;
+    }
+
     if (parser.match(TokenType.MINUS, TokenType.PLUS, TokenType.BITWISE_NOT)) {
         const operator = parser.previous().value;
 

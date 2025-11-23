@@ -68,7 +68,13 @@ export class CppTypeCodegen {
     }
 
     private generateClassType(type: ClassTypeNode): string {
-        const qualifiedName = this.getQualifiedClassName(type.name);
+        let qualifiedName = this.getQualifiedClassName(type.name);
+        
+        if (type.typeArguments && type.typeArguments.length > 0) {
+            const args = type.typeArguments.map(arg => this.generateType(arg)).join(', ');
+            qualifiedName += `<${args}>`;
+        }
+
         const targetType = type.isReadonly ? `const ${qualifiedName}` : qualifiedName;
         return type.isWeak
             ? `std::weak_ptr<${targetType}>`
@@ -80,6 +86,11 @@ export class CppTypeCodegen {
         let qualifiedName = type.name;
         if (type.namespace) {
             qualifiedName = `${type.namespace}::${type.name}`;
+        }
+
+        if (type.typeArguments && type.typeArguments.length > 0) {
+            const args = type.typeArguments.map(arg => this.generateType(arg)).join(', ');
+            qualifiedName += `<${args}>`;
         }
 
         return type.isWeak

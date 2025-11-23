@@ -19,8 +19,9 @@ import {
   validateOptionalChainExpression, 
   validateNonNullAssertionExpression 
 } from "./null-safety-validator";
+import { isImmutable, isIsolated } from "./async-validator";
 import { createUnknownType } from "../type-utils";
-import { Expression, Type, InterpolatedString, RangeExpression } from "../types";
+import { Expression, Type, InterpolatedString, RangeExpression, AsyncExpression, AwaitExpression, ClassTypeNode } from "../types";
 import { validateXmlCallExpression } from './xml-call-validator';
 import { Validator } from "./validator";
 
@@ -97,6 +98,12 @@ export function validateExpression(expr: Expression, validator: Validator): Type
     case 'range':
       type = validateRangeExpression(expr as RangeExpression, validator, validateExpression);
       break;
+    case 'async':
+      type = validateAsyncExpression(expr, validator);
+      break;
+    case 'await':
+      type = validateAwaitExpression(expr, validator);
+      break;
     default:
       // TypeScript exhaustiveness check: this should never be reached
       validator.addError(`Unknown expression kind: ${(expr as any).kind}`, (expr as any).location);
@@ -111,6 +118,57 @@ export function validateExpression(expr: Expression, validator: Validator): Type
   }
   
   return type;
+}
+
+function validateAsyncExpression(expr: AsyncExpression, validator: Validator): Type {
+    // 1. Validate the call expression
+    const returnType = validateCallExpression(expr.expression, validator);
+    
+    // 2. Check isolation rules
+    if (expr.expression.callInfo && expr.expression.callInfo.kind === 'function') {
+        const funcName = expr.expression.callInfo.targetName;
+        if (funcName) {
+            const funcDecl = validator.context.functions.get(funcName);
+            if (funcDecl) {
+                if (!isIsolated(funcDecl, validator.context)) {
+                    validator.addError(`Async function '${funcName}' must be isolated`, expr.location);
+                }
+            }
+        }
+    }
+    
+    // Check args immutability
+    for (const arg of expr.expression.arguments) {
+        if (arg.inferredType && !isImmutable(arg.inferredType, validator.context)) {
+             validator.addError(`Async argument must be immutable`, arg.location);
+        }
+    }
+    
+    // Check return type immutability
+    if (!isImmutable(returnType, validator.context)) {
+        validator.addError(`Async return type must be immutable`, expr.location);
+    }
+    
+    // 3. Return Future<T>
+    return {
+        kind: 'class',
+        name: 'Future',
+        typeArguments: [returnType]
+    } as ClassTypeNode;
+}
+
+function validateAwaitExpression(expr: AwaitExpression, validator: Validator): Type {
+    const operandType = validateExpression(expr.expression, validator);
+    
+    // Operand must be Future<T>
+    if (operandType.kind === 'class' && operandType.name === 'Future') {
+        if (operandType.typeArguments && operandType.typeArguments.length > 0) {
+            return operandType.typeArguments[0];
+        }
+    }
+    
+    validator.addError(`Await operand must be a Future<T>`, expr.location);
+    return createUnknownType();
 }
 
 // Re-export important functions that other modules might need

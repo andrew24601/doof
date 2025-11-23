@@ -57,6 +57,11 @@ export function parseStatement(parser: Parser): Statement | null {
     if (parser.match(TokenType.FUNCTION)) {
       return parseFunctionDeclaration(parser);
     }
+    if (parser.check(TokenType.ASYNC) && parser.peek(1).type === TokenType.FUNCTION) {
+      parser.advance(); // consume async
+      parser.advance(); // consume function
+      return parseFunctionDeclaration(parser, true);
+    }
     if (parser.match(TokenType.CLASS)) {
       return parseClassDeclaration(parser);
     }

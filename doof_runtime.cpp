@@ -2,6 +2,68 @@
 
 namespace doof_runtime {
 
+// ==================== Async Runtime Implementation ====================
+
+void TaskBase::run() {
+    TaskState expected = TaskState::PENDING;
+    if (state.compare_exchange_strong(expected, TaskState::RUNNING)) {
+        execute();
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            state = TaskState::COMPLETED;
+        }
+        cv.notify_all();
+    }
+}
+
+void TaskBase::wait() {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait(lock, [this]{ return state == TaskState::COMPLETED; });
+}
+
+ThreadPool& ThreadPool::instance() {
+    static ThreadPool pool(std::thread::hardware_concurrency());
+    return pool;
+}
+
+ThreadPool::ThreadPool(size_t threads) {
+    for(size_t i = 0; i < threads; ++i)
+        workers.emplace_back([this] { worker_loop(); });
+}
+
+ThreadPool::~ThreadPool() {
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        stop = true;
+    }
+    queue_cv.notify_all();
+    for(std::thread &worker: workers)
+        worker.join();
+}
+
+void ThreadPool::submit(std::shared_ptr<TaskBase> task) {
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        queue.push_back(task);
+    }
+    queue_cv.notify_one();
+}
+
+void ThreadPool::worker_loop() {
+    while(true) {
+        std::shared_ptr<TaskBase> task;
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            queue_cv.wait(lock, [this]{ return stop || !queue.empty(); });
+            if(stop && queue.empty()) return;
+            if (queue.empty()) continue; // Spurious wake
+            task = queue.front();
+            queue.pop_front();
+        }
+        task->run();
+    }
+}
+
 // ==================== String Helper Functions ====================
 
 std::string string_to_lower(const std::string& str) {

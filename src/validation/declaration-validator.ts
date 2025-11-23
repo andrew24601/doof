@@ -93,6 +93,12 @@ export function validateFunctionDeclaration(stmt: FunctionDeclaration, validator
       validateParameter(param, validator);
       validator.context.symbols.set(param.name.name, param.type);
 
+      if (stmt.isAsync) {
+        if (!isImmutableType(param.type, validator)) {
+          validator.addError(`Async function arguments must be immutable`, param.location);
+        }
+      }
+
       // Track parameters in scope tracker for lambda capture analysis
       const parameterEntry = createScopeTrackerEntry({
         name: param.name.name,
@@ -567,6 +573,9 @@ export function validateIdentifier(expr: Identifier, validator: Validator): Type
     const captureScopeName = validator.getCurrentLambdaScopeName();
 
     const searchScopes: string[] = [currentScopeName];
+    if (currentScopeName !== 'global') {
+      searchScopes.push('global');
+    }
 
     if (lambdaName && !searchScopes.includes(lambdaName)) {
       searchScopes.push(lambdaName);
@@ -679,6 +688,12 @@ export function validateIdentifier(expr: Identifier, validator: Validator): Type
     expr.scopeInfo.declarationScope = matchedEntry.declarationScope;
     expr.scopeInfo.scopeKind = matchedEntry.kind;
     expr.scopeInfo.isConstant = matchedEntry.isConstant;
+
+    if (validator.context.currentFunction?.isAsync) {
+      if (matchedEntry.kind === 'local' && matchedEntry.declarationScope === 'global' && !matchedEntry.isConstant) {
+        validator.addError(`Async functions cannot access global variables`, expr.location);
+      }
+    }
 
     if (type.kind === 'externClass') {
       const externName = (type as any).name || expr.name;

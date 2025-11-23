@@ -39,7 +39,11 @@ export function cloneTypeNode(type: Type): Type {
         name: type.name,
         isWeak: type.isWeak,
         wasNullable: type.wasNullable,
-        namespace: type.namespace
+        namespace: type.namespace,
+        typeArguments: type.typeArguments?.map(arg => {
+          assertValidType(arg, "extern class type argument", type);
+          return cloneTypeNode(arg);
+        })
       };
     case "array":
       assertValidType(type.elementType, "array element type", type);
@@ -127,7 +131,8 @@ export function substituteTypeParametersInType(type: Type, mapping: Map<string, 
         name: type.name,
         isWeak: type.isWeak,
         wasNullable: type.wasNullable,
-        namespace: type.namespace
+        namespace: type.namespace,
+        typeArguments: type.typeArguments?.map(arg => substituteTypeParametersInType(arg, mapping))
       };
     case "array":
       return { kind: "array", elementType: substituteTypeParametersInType(type.elementType, mapping) };

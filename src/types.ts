@@ -89,6 +89,7 @@ export interface ExternClassTypeNode {
   isWeak?: boolean;
   wasNullable?: boolean; // Track if this type was originally nullable (T | null -> std::shared_ptr<T>)
   namespace?: string; // Namespace for qualified type generation
+  typeArguments?: Type[];
 }
 
 
@@ -174,7 +175,19 @@ export type Expression =
   | RangeExpression
   | NullCoalesceExpression
   | OptionalChainExpression
-  | NonNullAssertionExpression;
+  | NonNullAssertionExpression
+  | AsyncExpression
+  | AwaitExpression;
+
+export interface AsyncExpression extends ASTNode {
+  kind: 'async';
+  expression: CallExpression;
+}
+
+export interface AwaitExpression extends ASTNode {
+  kind: 'await';
+  expression: Expression;
+}
 
 export interface CapturedBinding {
   name: string;
@@ -548,6 +561,7 @@ export interface FunctionDeclaration extends ASTNode {
   body: BlockStatement;
   isExport?: boolean;
   typeParameters?: TypeParameter[];
+  isAsync?: boolean;
 }
 
 export interface Parameter extends ASTNode {
@@ -617,6 +631,7 @@ export interface ExternClassDeclaration extends ASTNode {
   header?: string; // Optional, defaults to "${name}.h"
   namespace?: string; // C++ namespace for the class
   isExport?: boolean;
+  typeParameters?: TypeParameter[];
 }
 
 export interface FieldDeclaration extends ASTNode {
@@ -641,6 +656,7 @@ export interface MethodDeclaration extends ASTNode {
   isStatic: boolean;
   isExtern?: boolean;
   usesFunctionKeyword?: boolean;
+  isAsync?: boolean;
 }
 
 

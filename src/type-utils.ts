@@ -56,8 +56,8 @@ export function createClassType(name: string, typeArguments?: Type[]): ClassType
   };
 }
 
-export function createExternClassType(name: string, namespace?: string): ExternClassTypeNode {
-  return { kind: 'externClass', name, namespace };
+export function createExternClassType(name: string, namespace?: string, typeArguments?: Type[]): ExternClassTypeNode {
+  return { kind: 'externClass', name, namespace, typeArguments };
 }
 
 // Helper function to resolve type aliases to their actual types
@@ -135,7 +135,20 @@ export function isTypeCompatible(sourceType: Type, targetType: Type, validator: 
       case 'externClass':
         const sourceExternClass = resolvedSourceType as ExternClassTypeNode;
         const targetExternClass = resolvedTargetType as ExternClassTypeNode;
-        return sourceExternClass.name === targetExternClass.name;
+        if (sourceExternClass.name !== targetExternClass.name) {
+            return false;
+        }
+        const sourceExternArgs = sourceExternClass.typeArguments ?? [];
+        const targetExternArgs = targetExternClass.typeArguments ?? [];
+        if (sourceExternArgs.length !== targetExternArgs.length) {
+          return false;
+        }
+        for (let i = 0; i < sourceExternArgs.length; i++) {
+          if (!isTypeCompatible(sourceExternArgs[i], targetExternArgs[i], validator)) {
+            return false;
+          }
+        }
+        return true;
       case 'enum':
         const sourceEnum = resolvedSourceType as EnumTypeNode;
         const targetEnum = resolvedTargetType as EnumTypeNode;
@@ -404,7 +417,12 @@ export function typeToString(type: Type): string {
       return className;
     case 'externClass':
       const externClassType = type as ExternClassTypeNode;
-      return externClassType.isWeak ? `weak ${externClassType.name}` : externClassType.name;
+      const externName = externClassType.isWeak ? `weak ${externClassType.name}` : externClassType.name;
+      if (externClassType.typeArguments && externClassType.typeArguments.length > 0) {
+        const args = externClassType.typeArguments.map(arg => typeToString(arg)).join(', ');
+        return `${externName}<${args}>`;
+      }
+      return externName;
     case 'enum':
       const enumType = type as EnumTypeNode;
       return enumType.name;
@@ -628,25 +646,31 @@ export function validateType(type: Type, location: SourceLocation, validator: Va
         !validator.context.externClasses.has(classType.name)) {
         validator.addError(`Unknown type '${classType.name}'`, location);
       }
+      
+      // Check if it's actually an extern class (if resolveActualType didn't catch it yet)
+      if (validator.context.externClasses.has(classType.name)) {
+          const externDecl = validator.context.externClasses.get(classType.name);
+          const expectedParams = externDecl?.typeParameters ?? [];
+          const providedArgs = classType.typeArguments ?? [];
+          validateTypeArgs(expectedParams, providedArgs, classType.name, location, validator);
+          break;
+      }
+
       const classDecl = validator.context.classes.get(classType.name);
       const expectedParams = classDecl?.typeParameters ?? [];
       const providedArgs = classType.typeArguments ?? [];
 
-      if (expectedParams.length === 0) {
-        if (providedArgs.length > 0) {
-          validator.addError(`Class '${classType.name}' does not accept type arguments`, location);
-        }
-      } else {
-        if (providedArgs.length === 0) {
-          validator.addError(`Class '${classType.name}' requires ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'}`, location);
-        } else if (providedArgs.length !== expectedParams.length) {
-          validator.addError(`Class '${classType.name}' expects ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'} but got ${providedArgs.length}`, location);
-        }
-
-        for (const arg of providedArgs) {
-          validateType(arg, location, validator);
-        }
+      validateTypeArgs(expectedParams, providedArgs, classType.name, location, validator);
+      break;
+    case 'externClass':
+      const externClassType = type as ExternClassTypeNode;
+      if (!validator.context.externClasses.has(externClassType.name)) {
+        validator.addError(`Unknown extern class '${externClassType.name}'`, location);
       }
+      const externDecl = validator.context.externClasses.get(externClassType.name);
+      const expectedExternParams = externDecl?.typeParameters ?? [];
+      const providedExternArgs = externClassType.typeArguments ?? [];
+      validateTypeArgs(expectedExternParams, providedExternArgs, externClassType.name, location, validator);
       break;
     case 'function':
       const funcType = type as FunctionTypeNode;
@@ -806,6 +830,15 @@ function cloneType(type: Type, validator: Validator): Type {
     case 'primitive':
     case 'enum':
     case 'externClass':
+      const ext = type as ExternClassTypeNode;
+      return {
+        kind: 'externClass',
+        name: ext.name,
+        isWeak: ext.isWeak,
+        wasNullable: ext.wasNullable,
+        namespace: ext.namespace,
+        typeArguments: ext.typeArguments ? ext.typeArguments.map(arg => cloneType(arg, validator)) : undefined
+      };
     case 'unknown':
     case 'typeParameter':
       return { ...type };
@@ -849,7 +882,12 @@ export function getTypeKey(type: Type): string {
       }
       return `class:${classType.name}`;
     case 'externClass':
-      return `externClass:${(type as ExternClassTypeNode).name}`;
+      const externClassType = type as ExternClassTypeNode;
+      if (externClassType.typeArguments && externClassType.typeArguments.length > 0) {
+        const argsKey = externClassType.typeArguments.map(arg => getTypeKey(arg)).join(',');
+        return `externClass:${externClassType.name}<${argsKey}>`;
+      }
+      return `externClass:${externClassType.name}`;
     case 'enum':
       return `enum:${(type as EnumTypeNode).name}`;
     case 'array':
@@ -899,6 +937,25 @@ export function isTypeEqual(type1: Type, type2: Type): boolean {
   if (type1.kind === 'class' && type2.kind === 'class') {
     const class1 = type1 as ClassTypeNode;
     const class2 = type2 as ClassTypeNode;
+    if (class1.name !== class2.name) {
+      return false;
+    }
+    const args1 = class1.typeArguments ?? [];
+    const args2 = class2.typeArguments ?? [];
+    if (args1.length !== args2.length) {
+      return false;
+    }
+    for (let i = 0; i < args1.length; i++) {
+      if (!isTypeEqual(args1[i], args2[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (type1.kind === 'externClass' && type2.kind === 'externClass') {
+    const class1 = type1 as ExternClassTypeNode;
+    const class2 = type2 as ExternClassTypeNode;
     if (class1.name !== class2.name) {
       return false;
     }
@@ -1118,4 +1175,22 @@ export function getCoercionForType(fromType: Type, toType: Type): { from: Type; 
     return undefined;
   }
   return { from: fromType, to: toType };
+}
+
+export function validateTypeArgs(expectedParams: TypeParameter[], providedArgs: Type[], typeName: string, location: SourceLocation, validator: Validator): void {
+      if (expectedParams.length === 0) {
+        if (providedArgs.length > 0) {
+          validator.addError(`Class '${typeName}' does not accept type arguments`, location);
+        }
+      } else {
+        if (providedArgs.length === 0) {
+          validator.addError(`Class '${typeName}' requires ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'}`, location);
+        } else if (providedArgs.length !== expectedParams.length) {
+          validator.addError(`Class '${typeName}' expects ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'} but got ${providedArgs.length}`, location);
+        }
+
+        for (const arg of providedArgs) {
+          validateType(arg, location, validator);
+        }
+      }
 }
