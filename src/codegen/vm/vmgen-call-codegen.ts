@@ -1131,6 +1131,51 @@ export function generateUserFunctionCall(funcMetadata: VMFunctionMetadata, args:
     emit('MOVE', targetReg, 0, 0, context);
 }
 
+export function generateAsyncCall(funcMetadata: VMFunctionMetadata, args: Expression[], targetReg: number, context: CompilationContext): void {
+  if (args.length === 0) {
+    // No arguments
+    const funcConstantValue: VMValue = {
+      type: 'function',
+      value: funcMetadata
+    };
+    const funcIndex = addConstant(funcConstantValue, context);
+
+    // ASYNC_CALL targetReg, funcIndex
+    // targetReg will receive the Future
+    emit('ASYNC_CALL', targetReg, Math.floor(funcIndex / 256), funcIndex % 256, context);
+  } else {
+    // Allocate contiguous registers for parameters
+    const paramStartReg = context.registerAllocator.allocateContiguous(args.length);
+
+    // Generate arguments directly into parameter registers
+    for (let i = 0; i < args.length; i++) {
+      const paramReg = paramStartReg + i;
+      generateExpression(args[i], paramReg, context);
+    }
+
+    // Add function metadata to constant pool
+    const funcConstantValue: VMValue = {
+      type: 'function',
+      value: funcMetadata
+    };
+    const funcIndex = addConstant(funcConstantValue, context);
+
+    // ASYNC_CALL paramStartReg, funcIndex
+    // The Future will be stored in paramStartReg (overwriting the first argument)
+    emit('ASYNC_CALL', paramStartReg, Math.floor(funcIndex / 256), funcIndex % 256, context);
+
+    // Move Future to target register if needed
+    if (targetReg !== paramStartReg) {
+      emit('MOVE', targetReg, paramStartReg, 0, context);
+    }
+
+    // Free parameter registers
+    for (let i = 0; i < args.length; i++) {
+      context.registerAllocator.free(paramStartReg + i);
+    }
+  }
+}
+
 export function isIntrinsicFunction(funcName: string): boolean {
   return ['println', 'panic'].includes(funcName);
 }

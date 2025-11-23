@@ -12,11 +12,87 @@
 #include <type_traits>
 #include <utility>
 #include <stdexcept>
+#include <mutex>
 
 // Forward declaration
 class DAPHandler;
+class DoofVM;
+
+class VMThread {
+public:
+    VMThread(DoofVM& vm);
+    
+    void run(const std::vector<Instruction>& code, 
+             const std::vector<Value>& constant_pool,
+             int entry_point);
+             
+    Value get_result() const { return return_value_; }
+    
+    // Debug support
+    DebugState& getDebugState() { return debugState_; }
+    const DebugState& getDebugState() const { return debugState_; }
+    bool isDebugMode() const { return debugMode_; }
+    void setDebugMode(bool enabled) { debugMode_ = enabled; }
+    
+    void pause() { paused_ = true; }
+    void resume() { paused_ = false; }
+    bool isPaused() const { return paused_; }
+    
+    int getCurrentInstruction() const { return currentInstruction_; }
+    int getCallDepth() const { return static_cast<int>(call_stack.size()); }
+    
+    const StackFrame& getCurrentFrame() const { return call_stack.empty() ? call_stack[0] : call_stack.back(); }
+    const std::vector<StackFrame>& getCallStack() const { return call_stack; }
+    
+    void set_initial_registers(const std::vector<Value>& args);
+    void push_frame(int function_index, int num_registers = 256);
+    
+    void dump_state(std::ostream& out) const;
+
+private:
+    DoofVM& vm_;
+    std::vector<StackFrame> call_stack;
+    Value return_value_;
+    
+    // Debug state
+    DebugState debugState_;
+    bool debugMode_ = false;
+    bool paused_ = false;
+    int currentInstruction_ = 0;
+    
+    // Helper methods
+    inline StackFrame& current_frame() {
+#ifdef DOMINO_VM_UNSAFE
+        return call_stack.back();
+#else
+        if (call_stack.empty()) {
+            throw std::runtime_error("Call stack is empty");
+        }
+        return call_stack.back();
+#endif
+    }
+    
+    void pop_frame();
+    
+#ifndef DOMINO_VM_UNSAFE
+    void validate_register(uint8_t reg) const;
+    void validate_constant_index(int index, const std::vector<Value>& constant_pool) const;
+#endif
+
+    void handle_arithmetic(const Instruction& instr, Opcode op);
+    void handle_comparison(const Instruction& instr, Opcode op);
+    void handle_type_conversion(const Instruction& instr, Opcode op);
+    void handle_string_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_array_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_object_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_lambda_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_map_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_set_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+    void handle_iterator_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
+};
 
 class DoofVM {
+    friend class VMThread;
 public:
     struct ExternClassInfo {
         std::string name;
@@ -45,6 +121,8 @@ public:
     // Register external functions
     void register_extern_function(const std::string& name, 
                                   std::function<Value(Value*)> func);
+
+    void set_initial_registers(const std::vector<Value>& args);
 
     ExternClassHandle ensure_extern_class(const std::string& class_name);
 
@@ -85,32 +163,37 @@ public:
     }
     
     // Global variable management
-    void set_globals_size(size_t size) { globals_.resize(size); }
+    void set_globals_size(size_t size) { 
+        std::lock_guard<std::mutex> lock(globals_mutex_);
+        globals_.resize(size); 
+    }
     void set_global(size_t index, const Value& value);
     Value get_global(size_t index) const;
     
     // Debug support
-    DebugState& getDebugState() { return debugState_; }
-    const DebugState& getDebugState() const { return debugState_; }
-    bool isDebugMode() const { return debugMode_; }
-    void setDebugMode(bool enabled) { debugMode_ = enabled; }
+    // Note: Debug state is now per-thread, but we keep these for compatibility
+    // They will operate on the main thread (created during run)
+    DebugState& getDebugState();
+    const DebugState& getDebugState() const;
+    bool isDebugMode() const;
+    void setDebugMode(bool enabled);
     
     // DAP support
     void setDAPHandler(class DAPHandler* handler) { dapHandler_ = handler; }
     class DAPHandler* getDAPHandler() const { return dapHandler_; }
     
     // Execution control for debugging
-    void pause() { paused_ = true; }
-    void resume() { paused_ = false; }
-    bool isPaused() const { return paused_; }
+    void pause();
+    void resume();
+    bool isPaused() const;
     
     // Current execution state
-    int getCurrentInstruction() const { return currentInstruction_; }
-    int getCallDepth() const { return static_cast<int>(call_stack.size()); }
+    int getCurrentInstruction() const;
+    int getCallDepth() const;
     
     // Access current frame for debugging
-    const StackFrame& getCurrentFrame() const { return call_stack.empty() ? call_stack[0] : call_stack.back(); }
-    const std::vector<StackFrame>& getCallStack() const { return call_stack; }
+    const StackFrame& getCurrentFrame() const;
+    const std::vector<StackFrame>& getCallStack() const;
     
 #ifndef DOMINO_VM_UNSAFE
     // Enable/disable verbose output for debugging
@@ -122,22 +205,21 @@ public:
     bool is_verbose() const { return false; }
 #endif
 
+    // Clear the call stack (used for async task initialization)
+    void clear_call_stack();
+
     void dump_state(std::ostream& out) const;
     
 private:
-    std::vector<StackFrame> call_stack;
     std::unordered_map<std::string, std::function<Value(Value*)>> extern_functions;
     std::unordered_map<std::string, ExternClassHandle> extern_classes_;
     int next_negative_class_idx_ = -2;
     Value main_return_value_;  // Store return value from main function
-    std::vector<Value> globals_;  // Global variable storage for static fields
-    const std::vector<Value>* constant_pool_ = nullptr;  // Pointer to constant pool for JSON serialization
     
-    // Debug support
-    DebugState debugState_;
-    bool debugMode_ = false;
-    bool paused_ = false;
-    int currentInstruction_ = 0;
+    std::vector<Value> globals_;  // Global variable storage for static fields
+    mutable std::mutex globals_mutex_; // Protect globals
+    
+    const std::vector<Value>* constant_pool_ = nullptr;  // Pointer to constant pool for JSON serialization
     
     // DAP support
     class DAPHandler* dapHandler_ = nullptr;
@@ -145,38 +227,9 @@ private:
 #ifndef DOMINO_VM_UNSAFE
     bool verbose_ = false;
 #endif
-    
-    // Helper methods for opcodes (non-critical operations)
-    void handle_arithmetic(const Instruction& instr, Opcode op);
-    void handle_comparison(const Instruction& instr, Opcode op);
-    void handle_type_conversion(const Instruction& instr, Opcode op);
-    void handle_string_ops(const Instruction& instr, Opcode op);
-    void handle_array_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    void handle_object_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    void handle_lambda_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    void handle_map_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    void handle_set_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    void handle_iterator_ops(const Instruction& instr, Opcode op, const std::vector<Value>& constant_pool);
-    
-    // Utility methods
-    inline StackFrame& current_frame() {
-#ifdef DOMINO_VM_UNSAFE
-        return call_stack.back();
-#else
-        if (call_stack.empty()) {
-            throw std::runtime_error("Call stack is empty");
-        }
-        return call_stack.back();
-#endif
-    }
-    
-    void push_frame(int function_index, int num_registers = 256);
-    void pop_frame();
-    
-#ifndef DOMINO_VM_UNSAFE
-    void validate_register(uint8_t reg) const;
-    void validate_constant_index(int index, const std::vector<Value>& constant_pool) const;
-#endif
+
+    // Main thread instance (created during run)
+    std::shared_ptr<VMThread> main_thread_;
 
     ExternClassHandle register_extern_class(const std::string& class_name);
     int find_constant_pool_class_idx(const std::string& class_name) const;

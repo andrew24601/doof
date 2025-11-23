@@ -152,6 +152,7 @@ export interface VMFunctionMetadata {
   registerCount: number;
   codeIndex: number;
   returnType?: Type; // Add return type for proper type tracking
+  isAsync?: boolean;
 }
 
 // Class metadata for constant pool
@@ -399,7 +400,8 @@ export class VMGenerator implements ICodeGenerator {
         parameterCount: funcDecl.parameters.length,
         registerCount: 256,
         codeIndex: -1,
-        returnType: funcDecl.returnType
+        returnType: funcDecl.returnType,
+        isAsync: funcDecl.isAsync
       };
 
       context.functionMetadataByDecl.set(funcDecl, metadata);
@@ -444,7 +446,8 @@ export class VMGenerator implements ICodeGenerator {
           parameterCount: method.parameters.length,
           registerCount: 256,
           codeIndex: -1,
-          returnType: method.returnType
+          returnType: method.returnType,
+          isAsync: method.isAsync
         };
 
         if (!context.functionTable.has(staticMethodKey)) {

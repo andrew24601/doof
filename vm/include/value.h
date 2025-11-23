@@ -21,6 +21,7 @@ using ArrayPtr = std::shared_ptr<Array>;
 // Forward declarations for map and set types
 #include <map>
 #include <unordered_set>
+#include "doof_runtime.h"
 
 // Forward declare Value class for hash and equality
 class Value;
@@ -46,6 +47,9 @@ using IntMapPtr = std::shared_ptr<IntMap>;
 using IntSet = std::unordered_set<int32_t>;
 using IntSetPtr = std::shared_ptr<IntSet>;
 
+// Future type
+using FuturePtr = std::shared_ptr<doof_runtime::Future<Value>>;
+
 enum class ValueType {
     Null,
     Bool,
@@ -61,7 +65,8 @@ enum class ValueType {
     Set,
     IntMap,
     IntSet,
-    Iterator
+    Iterator,
+    Future
 };
 
 class Value {
@@ -81,7 +86,8 @@ public:
         SetPtr,
         IntMapPtr,
         IntSetPtr,
-        IteratorPtr
+        IteratorPtr,
+        FuturePtr
     >;
 
     // Constructors
@@ -103,6 +109,7 @@ public:
     Value(const IntMapPtr& im) : value_(im) {}
     Value(const IntSetPtr& is) : value_(is) {}
     Value(const IteratorPtr& it) : value_(it) {}
+    Value(const FuturePtr& f) : value_(f) {}
 
     // Copy/move
     Value(const Value&) = default;
@@ -128,6 +135,7 @@ public:
             case 12: return ValueType::IntMap;
             case 13: return ValueType::IntSet;
             case 14: return ValueType::Iterator;
+            case 15: return ValueType::Future;
             default: throw std::logic_error("Invalid Value variant index");
         }
     }
@@ -147,6 +155,7 @@ public:
     const IntMapPtr& as_int_map() const { return std::get<IntMapPtr>(value_); }
     const IntSetPtr& as_int_set() const { return std::get<IntSetPtr>(value_); }
     const IteratorPtr& as_iterator() const { return std::get<IteratorPtr>(value_); }
+    const FuturePtr& as_future() const { return std::get<FuturePtr>(value_); }
 
     // Null check
     bool is_null() const { return std::holds_alternative<std::monostate>(value_); }
@@ -167,6 +176,7 @@ public:
     static Value make_int_map(const IntMapPtr& im) { return Value(im); }
     static Value make_int_set(const IntSetPtr& is) { return Value(is); }
     static Value make_iterator(const IteratorPtr& it) { return Value(it); }
+    static Value make_future(const FuturePtr& f) { return Value(f); }
 
     // Equality
     bool operator==(const Value& other) const { return value_ == other.value_; }
@@ -247,6 +257,7 @@ inline std::size_t ValueHash::operator()(const Value& v) const {
         case ValueType::Set: return std::hash<const void*>{}(v.as_set().get());
         case ValueType::IntMap: return std::hash<const void*>{}(v.as_int_map().get());
         case ValueType::IntSet: return std::hash<const void*>{}(v.as_int_set().get());
+        case ValueType::Future: return std::hash<const void*>{}(v.as_future().get());
         default: return 0;
     }
 }

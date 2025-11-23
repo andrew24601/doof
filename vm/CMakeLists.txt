@@ -24,8 +24,9 @@ add_library(doof-vm STATIC
     src/json_bytecode_loader.cpp
     src/dap.cpp
     src/dap_channel.cpp
+    ../doof_runtime.cpp
 )
-target_include_directories(doof-vm PUBLIC include)
+target_include_directories(doof-vm PUBLIC include ../)
 set_target_properties(doof-vm PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     PUBLIC_HEADER "include/doof_vm_c.h"

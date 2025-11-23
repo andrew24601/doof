@@ -179,7 +179,11 @@ const OPCODES = {
 
   // Global variable operations
   GET_GLOBAL: 0xD0,
-  SET_GLOBAL: 0xD1
+  SET_GLOBAL: 0xD1,
+
+  // Async operations
+  ASYNC_CALL: 0xE0,
+  AWAIT: 0xE1,
 } as const;
 
 
@@ -485,6 +489,15 @@ export function findClassConstantIndex(className: string, context: CompilationCo
         const externName = externConstant?.value || 'unknown';
         return `extern_call ${externName}(r${instr.a})`;
       
+      case 'ASYNC_CALL':
+        const asyncFuncConstIndex = (instr.b << 8) | instr.c;
+        const asyncFuncConstant = context.constantPool[asyncFuncConstIndex];
+        const asyncFuncName = asyncFuncConstant?.value?.name || 'unknown';
+        return `async_call ${asyncFuncName}, params@r${instr.a}`;
+
+      case 'AWAIT':
+        return `r${instr.a} = await r${instr.b}`;
+
       case 'RETURN':
         return `return r${instr.a}`;
       
@@ -582,4 +595,3 @@ export function findClassConstantIndex(className: string, context: CompilationCo
         value: constant.value
       }));
     }
-  

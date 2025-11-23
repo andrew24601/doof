@@ -1,6 +1,6 @@
-import { Expression, Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression, MemberExpression, IndexExpression, LambdaExpression, TrailingLambdaExpression, ObjectExpression, PositionalObjectExpression, TupleExpression, SetExpression, TypeGuardExpression, ArrayExpression, InterpolatedString, NullCoalesceExpression, OptionalChainExpression, NonNullAssertionExpression, Type, FieldDeclaration, EnumShorthandMemberExpression } from "../../types";
+import { Expression, Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression, MemberExpression, IndexExpression, LambdaExpression, TrailingLambdaExpression, ObjectExpression, PositionalObjectExpression, TupleExpression, SetExpression, TypeGuardExpression, ArrayExpression, InterpolatedString, NullCoalesceExpression, OptionalChainExpression, NonNullAssertionExpression, Type, FieldDeclaration, EnumShorthandMemberExpression, AwaitExpression, AsyncExpression } from "../../types";
 import { CompilationContext, getActiveValidationContext } from "../vmgen";
-import { generateMapMethodCall, generateSetMethodCall, generateStringMethodCall, generateArrayMethodCall, generateInstanceMethodCall, generateInstanceMethodCallFromRegister, generateStaticMethodCall, generateIntrinsicCall, generateIntrinsicExternCall, generateUserFunctionCall } from "./vmgen-call-codegen";
+import { generateMapMethodCall, generateSetMethodCall, generateStringMethodCall, generateArrayMethodCall, generateInstanceMethodCall, generateInstanceMethodCallFromRegister, generateStaticMethodCall, generateIntrinsicCall, generateIntrinsicExternCall, generateUserFunctionCall, generateAsyncCall } from "./vmgen-call-codegen";
 import { addConstant, emit, createLabel, setLabel, emitJump, setSourceLocationFromNode } from "./vmgen-emit";
 import { generateLiteral } from "./vmgen-literal-codegen";
 import { generateBinaryExpression, generateUnaryExpression } from "./vmgen-binary-codegen";
@@ -273,6 +273,12 @@ export function generateExpression(expr: Expression, targetReg: number, context:
         case 'enumShorthand':
             generateEnumShorthandExpression(expr as EnumShorthandMemberExpression, targetReg, context);
             break;
+        case 'await':
+            generateAwaitExpression(expr as AwaitExpression, targetReg, context);
+            break;
+        case 'async':
+            generateAsyncExpression(expr as AsyncExpression, targetReg, context);
+            break;
         case 'xmlCall':
             // XML calls are normalized during validation. The normalized node may be a CallExpression
             // or, in the case of class construction with named args, an ObjectExpression. Generate generically.
@@ -295,6 +301,35 @@ export function generateExpression(expr: Expression, targetReg: number, context:
         default:
             throw new Error("Unsupported expression type");
     }
+}
+
+function generateAwaitExpression(expr: AwaitExpression, targetReg: number, context: CompilationContext): void {
+    const allocatedRegs: number[] = [];
+    const futureReg = generateExpressionOptimal(expr.expression, allocatedRegs, context);
+    
+    emit('AWAIT', targetReg, futureReg, 0, context);
+    
+    freeRegisters(allocatedRegs, context);
+}
+
+function generateAsyncExpression(expr: AsyncExpression, targetReg: number, context: CompilationContext): void {
+    const call = expr.expression;
+    
+    // We only support async calls to user functions for now
+    // Check if it's a simple identifier call
+    if (call.callee.kind === 'identifier') {
+        const funcName = (call.callee as Identifier).name;
+        const funcMetadata = context.functionTable.get(funcName);
+        
+        if (funcMetadata) {
+            generateAsyncCall(funcMetadata, call.arguments, targetReg, context);
+            return;
+        }
+        
+        throw new Error(`Async call target '${funcName}' not found or not a user function`);
+    }
+    
+    throw new Error(`Async calls are only supported for direct function calls (e.g. async func())`);
 }
 
 export function generateIdentifier(identifier: Identifier, targetReg: number, context: CompilationContext): void {

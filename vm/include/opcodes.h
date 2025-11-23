@@ -187,6 +187,9 @@ enum class Opcode : uint8_t {
     GET_GLOBAL = 0xD0,        // GET_GLOBAL r0, uimm16  ; r0 = globals[uimm16]  
     SET_GLOBAL = 0xD1,        // SET_GLOBAL uimm16, r0  ; globals[uimm16] = r0
     
+    // Async operations
+    ASYNC_CALL = 0xE0,        // ASYNC_CALL r0, uimm16 ; call function at constant_pool[uimm16] asynchronously, r0 = Future<T>
+    AWAIT = 0xE1,             // AWAIT r0, r1          ; r0 = await r1 (where r1 is Future<T>)
     // Reserved for future expansion
 };
 
