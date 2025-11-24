@@ -23,6 +23,7 @@ export interface ExternClassMetadata {
   name: string;
   header: string;
   namespace?: string;
+  jsModule?: string;
   sourceFile?: string;
   fields: ExternFieldMetadata[];
   methods: ExternMethodMetadata[];
@@ -54,6 +55,7 @@ function convertExternClass(decl: ExternClassDeclaration, sourceFile?: string): 
     name: decl.name.name,
     header: headerName,
     namespace: decl.namespace,
+    jsModule: decl.jsModule,
     sourceFile,
     fields: decl.fields.map(convertField),
     methods: decl.methods.map(convertMethod)

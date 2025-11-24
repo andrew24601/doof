@@ -439,6 +439,17 @@ export function parseExternDeclaration(parser: Parser): ExternClassDeclaration {
     // 'extern' token already consumed by match() in parseStatement()
     parser.consume(TokenType.CLASS, "Expected 'class' after 'extern'");
     const name = parser.consume(TokenType.IDENTIFIER, "Expected class name");
+
+    let jsModule: string | undefined;
+    if (parser.match(TokenType.FROM)) {
+        const moduleToken = parser.advance();
+        if (moduleToken.type === TokenType.STRING || moduleToken.type === TokenType.TEMPLATE_STRING) {
+             jsModule = moduleToken.value;
+        } else {
+             throw new ParseError("Expected string literal for module path", parser.getLocation());
+        }
+    }
+
     parser.consume(TokenType.LEFT_BRACE, "Expected '{' after class name");
 
     const { fields, methods } = parseExternClassBody(parser);
@@ -449,6 +460,7 @@ export function parseExternDeclaration(parser: Parser): ExternClassDeclaration {
         name: { kind: 'identifier', name: name.value, location: name.location },
         fields,
         methods,
+        jsModule,
         location: name.location
     };
 }

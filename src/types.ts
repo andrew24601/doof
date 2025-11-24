@@ -89,6 +89,7 @@ export interface ExternClassTypeNode {
   isWeak?: boolean;
   wasNullable?: boolean; // Track if this type was originally nullable (T | null -> std::shared_ptr<T>)
   namespace?: string; // Namespace for qualified type generation
+  jsModule?: string; // JS module path for import generation
   typeArguments?: Type[];
 }
 
@@ -630,6 +631,7 @@ export interface ExternClassDeclaration extends ASTNode {
   methods: MethodDeclaration[];
   header?: string; // Optional, defaults to "${name}.h"
   namespace?: string; // C++ namespace for the class
+  jsModule?: string; // JS module path for import generation
   isExport?: boolean;
   typeParameters?: TypeParameter[];
 }

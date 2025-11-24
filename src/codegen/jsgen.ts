@@ -178,7 +178,11 @@ export class JsGenerator implements ICodeGenerator, JsGeneratorInterface, JsStat
     const externDeps = this.validationContext?.codeGenHints?.externDependencies;
     if (externDeps && externDeps.size > 0) {
       for (const externName of [...externDeps].sort()) {
-        const externLine = `import { ${externName} } from '${externName}';\n`;
+        // Check if we have a jsModule mapping for this extern class
+        const externDecl = this.validationContext?.externClasses.get(externName);
+        const modulePath = externDecl?.jsModule || externName;
+        
+        const externLine = `import { ${externName} } from '${modulePath}';\n`;
         output += externLine;
         this.trackGeneratedText(externLine);
       }

@@ -55,4 +55,24 @@ describe('JS Extern Class Codegen', () => {
     const idxB = source.indexOf("import { B } from 'B';");
     expect(idxA).toBeLessThan(idxB);
   });
+
+  it('emits import with custom module path when specified', () => {
+    const code = `extern class Custom from "./custom-module.js" { static make(): Custom; }\nlet c = Custom.make();`;
+    const { source, errors } = transpileJs(code);
+    expect(errors).toHaveLength(0);
+    expect(source).toMatch(/import \{ Custom \} from '\.\/custom-module\.js';/);
+  });
+
+  it('emits import with custom module path for multiple externs', () => {
+    const code = `
+      extern class A from "lib-a" { static a(): void; }
+      extern class B from "lib-b" { static b(): void; }
+      A.a();
+      B.b();
+    `;
+    const { source, errors } = transpileJs(code);
+    expect(errors).toHaveLength(0);
+    expect(source).toMatch(/import \{ A \} from 'lib-a';/);
+    expect(source).toMatch(/import \{ B \} from 'lib-b';/);
+  });
 });

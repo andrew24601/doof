@@ -199,6 +199,13 @@ export function validateExternClassDeclaration(stmt: ExternClassDeclaration, val
   // Register extern class in context
   validator.context.externClasses.set(stmt.name.name, stmt);
 
+  // Validate jsModule if present
+  if (stmt.jsModule !== undefined) {
+    if (stmt.jsModule.trim() === '') {
+      validator.addError(`Extern class '${stmt.name.name}' has empty jsModule path`, stmt.location);
+    }
+  }
+
   // Validate fields - only public fields allowed in extern classes
   validateUniqueFieldNames(stmt.fields, 'extern class', stmt.name.name, validator);
   for (const field of stmt.fields) {
