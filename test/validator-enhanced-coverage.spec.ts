@@ -245,7 +245,7 @@ describe('Validator - Enhanced Coverage', () => {
           "Charlie": 92
         };
         
-        let uniqueNumbers: Set<int> = {1, 2, 3, 4, 5};
+        let uniqueNumbers: Set<int> = [1, 2, 3, 4, 5];
         
         let aliceScore = scores["Alice"];
         let hasThree = uniqueNumbers.has(3);

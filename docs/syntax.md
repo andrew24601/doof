@@ -83,7 +83,7 @@ std::unordered_map<Status, std::string> mixedMap = {
 ```
 
 The shorthand syntax is supported in:
-- Set literals: `{ .MEMBER1, .MEMBER2 }`
+- Set literals: `[.MEMBER1, .MEMBER2]`
 - Map literals: `{ .KEY1: value1, .KEY2: value2 }`
 - Object field initialization: `StructName { field: .MEMBER }`
 - Function/method arguments: `func(.MEMBER)`

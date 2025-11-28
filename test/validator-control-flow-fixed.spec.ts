@@ -184,7 +184,7 @@ describe('Validator - Control Flow and Exception Coverage', () => {
     it('should validate for-of with set iteration', () => {
       const code = `
         function test(): void {
-          let items: Set<int> = {1, 2, 3};
+          let items: Set<int> = [1, 2, 3];
           for (const item of items) {
             let x: int = item;
           }

@@ -19,7 +19,7 @@
 
 function main(): int {
     let result = "";
-    let set: Set<string> = {};
+    let set: Set<string> = [];
     set.add("apple");
     set.add("banana");
     set.add("cherry");
@@ -35,7 +35,7 @@ function main(): int {
         totalLength = totalLength + item.length;
     }
     result = result + totalLength + "|";
-    let numberSet: Set<int> = {};
+    let numberSet: Set<int> = [];
     numberSet.add(1);
     numberSet.add(2);
     numberSet.add(3);

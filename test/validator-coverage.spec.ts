@@ -66,7 +66,7 @@ describe('Validator - Additional Coverage', () => {
         enum Color { RED, GREEN, BLUE }
         enum Size { SMALL, MEDIUM, LARGE }
         let colorMap: Map<Color, string> = { .RED: "red", .GREEN: "green" };
-        let sizeSet: Set<Size> = { .SMALL, .LARGE };
+        let sizeSet: Set<Size> = [.SMALL, .LARGE];
       `;
       const { errors } = parseAndValidate(code);
       expect(errors.filter(e => e.message.includes('Invalid'))).toHaveLength(0);

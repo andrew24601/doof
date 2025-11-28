@@ -186,7 +186,7 @@
     "Set Declaration": {
         "prefix": "set",
         "body": [
-            "let ${1:set}: Set<${2:string}> = { ${3:\"item1\", \"item2\"} };"
+            "let ${1:set}: Set<${2:string}> = [${3:\"item1\", \"item2\"}];"
         ],
         "description": "Set declaration"
     },

@@ -123,7 +123,7 @@ describe('Validator', () => {
     it('validates enum shorthand in set elements', () => {
       const code = `
         enum Status { ACTIVE, INACTIVE, PENDING }
-        let statusSet: Set<Status> = { .ACTIVE, .INACTIVE };
+        let statusSet: Set<Status> = [.ACTIVE, .INACTIVE];
       `;
       const { errors } = parseAndValidate(code);
       // Should not have validation errors for enum shorthand

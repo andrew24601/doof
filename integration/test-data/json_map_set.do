@@ -9,7 +9,7 @@ function main(): void {
   tags["a"] = "1";
   tags["b"] = "2";
 
-  let ids: Set<int> = {};
+  let ids: Set<int> = [];
   ids.add(7);
 
   let bag: Bag = { tags: tags, ids: ids };

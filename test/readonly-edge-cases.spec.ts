@@ -397,7 +397,7 @@ describe('Readonly edge cases', () => {
           return s.has(1);
         }
         function main(): int {
-          let result = useSet({1, 2, 3});
+          let result = useSet([1, 2, 3]);
           return result ? 1 : 0;
         }
       `;

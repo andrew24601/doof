@@ -33,7 +33,7 @@ function main(): int {
     let result = "";
     let emptyArray: int[] = [];
     let emptyMap: Map<string, int> = {};
-    let emptySet: Set<string> = {};
+    let emptySet: Set<string> = [];
     result = result + emptyArray.length + "|";
     result = result + emptyMap.size + "|";
     result = result + emptySet.size + "|";

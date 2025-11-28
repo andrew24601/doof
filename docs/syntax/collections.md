@@ -24,8 +24,8 @@ Examples:
 Map<string, int> ages = { "Alice": 30, "Bob": 25 };
 Map<int, string> codes = { 1: "one", 2: "two" };
 Map<bool, string> flags = { true: "enabled", false: "disabled" };
-Set<int> numbers = { 1, 2, 3 };
-Set<string> names = { "Alice", "Bob" };
+Set<int> numbers = [1, 2, 3];
+Set<string> names = ["Alice", "Bob"];
 ```
 
 Parameter passing:

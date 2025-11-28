@@ -1,4 +1,4 @@
-import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, SetExpression, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation, AsyncExpression, AwaitExpression } from "../types";
+import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation, AsyncExpression, AwaitExpression } from "../types";
 import { TokenType } from "./lexer";
 import { Parser } from "./parser";
 import { parseParameterList } from "./parser-parameters";
@@ -982,7 +982,7 @@ function parseShortLambda(parser: Parser): LambdaExpression {
     };
 }
 
-function parseObjectLiteral(parser: Parser, braceAlreadyConsumed: boolean = false): ObjectExpression | SetExpression {
+function parseObjectLiteral(parser: Parser, braceAlreadyConsumed: boolean = false): ObjectExpression {
     let className: string | undefined;
 
     // Check if this is class construction syntax
@@ -1004,32 +1004,7 @@ function parseObjectLiteral(parser: Parser, braceAlreadyConsumed: boolean = fals
         } as ObjectExpression;
     }
 
-    // Check the first element to determine if this is a set or object literal
-    if (isFirstElementSetPattern(parser)) {
-        return parseSetLiteral(parser);
-    } else {
-        return parseObjectProperties(parser, className);
-    }
-}
-
-function parseSetLiteral(parser: Parser): SetExpression {
-    const elements: Expression[] = [];
-
-    do {
-        if (parser.check(TokenType.DOT)) {
-            elements.push(parseEnumShorthand(parser));
-        } else {
-            elements.push(parseExpression(parser));
-        }
-    } while (parser.match(TokenType.COMMA));
-
-    parser.consume(TokenType.RIGHT_BRACE, "Expected '}' after set elements");
-
-    return {
-        kind: 'set',
-        elements,
-        location: parser.getLocation()
-    };
+    return parseObjectProperties(parser, className);
 }
 
 function parseObjectProperties(parser: Parser, className?: string, typeArguments?: Type[]): ObjectExpression {
@@ -1170,52 +1145,6 @@ function parseEnumShorthand(parser: Parser): EnumShorthandMemberExpression {
         memberName: memberName.value,
         location: memberName.location
     };
-}
-
-function isFirstElementSetPattern(parser: Parser): boolean {
-    const snapshot = parser.saveState();
-
-    try {
-        // Try to parse the first element and see what follows
-        if (parser.check(TokenType.IDENTIFIER)) {
-            parser.advance();
-            // Check for enum member access (e.g., Color.Red)
-            if (parser.check(TokenType.DOT)) {
-                parser.advance(); // consume '.'
-                if (parser.check(TokenType.IDENTIFIER)) {
-                    parser.advance(); // consume member name
-                }
-                // Enum member - check what follows
-                return parser.check(TokenType.COMMA) || parser.check(TokenType.RIGHT_BRACE);
-            } else {
-                // Regular identifier - check what follows
-                if (parser.check(TokenType.COLON)) {
-                    // identifier: ... - this is object syntax
-                    return false;
-                }
-                // identifier, ... or identifier} - could be set or object shorthand
-                // For now, prefer object interpretation to support shorthand syntax
-                return false;
-            }
-        } else if (parser.check(TokenType.DOT)) {
-            // Enum shorthand: .MEMBER
-            parser.advance(); // consume '.'
-            if (parser.check(TokenType.IDENTIFIER)) {
-                parser.advance(); // consume member name
-            }
-            // If followed by comma or brace, it's a set; if followed by colon, it's an object
-            return parser.check(TokenType.COMMA) || parser.check(TokenType.RIGHT_BRACE);
-        } else if (parser.check(TokenType.STRING) || parser.check(TokenType.TEMPLATE_STRING) || parser.check(TokenType.NUMBER) || parser.check(TokenType.BOOLEAN)) {
-            parser.advance();
-            // Literals - if followed by comma or brace, it's a set; if followed by colon, it's an object
-            return parser.check(TokenType.COMMA) || parser.check(TokenType.RIGHT_BRACE);
-        } else {
-            return false; // Unknown pattern, default to object
-        }
-    } finally {
-        // Restore position
-        parser.restoreState(snapshot);
-    }
 }
 
 function createBinaryExpression(parser: Parser, operator: string, left: Expression, right: Expression, location: SourceLocation): BinaryExpression {

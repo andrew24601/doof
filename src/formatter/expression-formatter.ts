@@ -571,7 +571,8 @@ export class ExpressionFormatter {
   }
 
   private formatSetExpression(expr: SetExpression): void {
-    this.printer.write('{');
+    // Set literals use [] syntax (same as arrays)
+    this.printer.write('[');
     if (expr.elements.length > 0) {
       if (this.options.breakLongArrays && this.shouldBreakArguments(expr.elements)) {
         this.printer.writeLine();
@@ -587,21 +588,15 @@ export class ExpressionFormatter {
         this.printer.decreaseIndent();
         this.printer.writeIndent();
       } else {
-        if (this.options.insertSpaceAfterComma) {
-          this.printer.write(' ');
-        }
         for (let i = 0; i < expr.elements.length; i++) {
           if (i > 0) {
             this.printer.write(', ');
           }
           this.formatExpression(expr.elements[i]);
         }
-        if (this.options.insertSpaceAfterComma) {
-          this.printer.write(' ');
-        }
       }
     }
-    this.printer.write('}');
+    this.printer.write(']');
   }
 
   private formatObjectProperty(prop: ObjectProperty): void {

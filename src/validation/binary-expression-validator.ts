@@ -6,7 +6,9 @@ import {
     Identifier,
     IndexExpression,
     ArrayTypeNode,
-    MapTypeNode
+    ArrayExpression,
+    MapTypeNode,
+    SetTypeNode
 } from "../types";
 import {
     isNumericType,
@@ -80,10 +82,18 @@ export function propagateTypeContext(expr: Expression, expectedType: Type, valid
             inferObjectLiteralType(expr, expectedType, validator);
         }
     }
-    // Propagate Set type context to object literals (e.g., return {1, 2, 3} from function returning Set<int>)
-    if (expectedType.kind === 'set' && expr.kind === 'object') {
-        if (!expr.className && canInferObjectLiteralType(expr, expectedType)) {
-            inferObjectLiteralType(expr, expectedType, validator);
+    // Convert array literals to set expressions when expected type is Set<T>
+    // Set literals use [] syntax (same as arrays) and are converted based on type context
+    if (expectedType.kind === 'set' && expr.kind === 'array') {
+        // Convert ArrayExpression to SetExpression in place
+        const arrayExpr = expr as ArrayExpression;
+        (expr as any).kind = 'set';
+        // Pre-set the inferred type so empty sets are properly typed
+        const setType = expectedType as SetTypeNode;
+        (expr as any).inferredType = setType;
+        // Propagate expected enum type to set elements if applicable
+        if (setType.elementType.kind === 'enum') {
+            (expr as any)._expectedEnumType = setType.elementType;
         }
     }
     // Propagate union type context to object literals for disambiguation

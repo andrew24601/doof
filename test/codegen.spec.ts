@@ -403,7 +403,7 @@ describe('CppGenerator', () => {
         }
 
         function buildSet(): Set<Status> {
-          let statuses: Set<Status> = { .ACTIVE, .INACTIVE };
+          let statuses: Set<Status> = [.ACTIVE, .INACTIVE];
           return statuses;
         }
       `);

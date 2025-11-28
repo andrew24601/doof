@@ -108,7 +108,7 @@ When the enum type is known from context, use `.LABEL`:
 ```doof
 enum Status { ACTIVE, INACTIVE, PENDING }
 
-let statusSet: Set<Status> = { .ACTIVE, .INACTIVE };
+let statusSet: Set<Status> = [.ACTIVE, .INACTIVE];
 let statusMap: Map<Status, string> = { .ACTIVE: "Running", .INACTIVE: "Stopped" };
 
 struct Task { name: string; status: Status; }

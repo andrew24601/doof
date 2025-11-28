@@ -280,8 +280,10 @@ describe('Parser', () => {
     });
 
     it('parses set literals', () => {
-      const expr = parseExpression('{ 1, 2, 3 }');
-      expect(expr.kind).toBe('set');
+      // Set literals use [] syntax - parser produces ArrayExpression which is
+      // converted to SetExpression during validation when expected type is Set<T>
+      const expr = parseExpression('[1, 2, 3]');
+      expect(expr.kind).toBe('array');
       expect((expr as any).elements).toHaveLength(3);
       expect((expr as any).elements[0].kind).toBe('literal');
       expect((expr as any).elements[0].value).toBe(1);
@@ -308,8 +310,10 @@ describe('Parser', () => {
     });
 
     it('parses enum shorthand in set literals', () => {
-      const expr = parseExpression('{ .ACTIVE, .INACTIVE }');
-      expect(expr.kind).toBe('set');
+      // Set literals use [] syntax with enum shorthand elements
+      // Parser produces ArrayExpression which is converted to SetExpression during validation
+      const expr = parseExpression('[.ACTIVE, .INACTIVE]');
+      expect(expr.kind).toBe('array');
       expect((expr as any).elements).toHaveLength(2);
       expect((expr as any).elements[0].kind).toBe('enumShorthand');
       expect((expr as any).elements[0].memberName).toBe('ACTIVE');
@@ -318,8 +322,10 @@ describe('Parser', () => {
     });
 
     it('parses mixed enum syntax in sets', () => {
-      const expr = parseExpression('{ .ACTIVE, Status.INACTIVE, .PENDING }');
-      expect(expr.kind).toBe('set');
+      // Set literals use [] syntax with mixed enum/shorthand elements
+      // Parser produces ArrayExpression which is converted to SetExpression during validation
+      const expr = parseExpression('[.ACTIVE, Status.INACTIVE, .PENDING]');
+      expect(expr.kind).toBe('array');
       expect((expr as any).elements).toHaveLength(3);
       expect((expr as any).elements[0].kind).toBe('enumShorthand');
       expect((expr as any).elements[0].memberName).toBe('ACTIVE');
