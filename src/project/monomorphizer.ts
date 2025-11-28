@@ -745,18 +745,21 @@ class Monomorphizer {
       case "array":
         return {
           kind: "array",
-          elementType: this.rewriteTypeNode(type.elementType, mapping)
+          elementType: this.rewriteTypeNode(type.elementType, mapping),
+          isReadonly: type.isReadonly
         };
       case "map":
         return {
           kind: "map",
           keyType: this.rewriteTypeNode(type.keyType, mapping),
-          valueType: this.rewriteTypeNode(type.valueType, mapping)
+          valueType: this.rewriteTypeNode(type.valueType, mapping),
+          isReadonly: type.isReadonly
         };
       case "set":
         return {
           kind: "set",
-          elementType: this.rewriteTypeNode(type.elementType, mapping)
+          elementType: this.rewriteTypeNode(type.elementType, mapping),
+          isReadonly: type.isReadonly
         };
       case "union":
         return {

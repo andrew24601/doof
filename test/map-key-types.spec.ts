@@ -25,7 +25,9 @@ describe('Map and Set Key Type Support', () => {
       `;
       const { source, errors } = transpileCode(code);
       expect(errors.filter(e => e.message.includes('Invalid map key type'))).toHaveLength(0);
-      expect(source).toContain('std::map<std::string, int> stringMap = {{"Alice", 30}, {"Bob", 25}};');
+      expect(source).toContain('std::shared_ptr<std::map<std::string, int>> stringMap = std::make_shared<std::map<std::string, int>>');
+      expect(source).toContain('{"Alice", 30}');
+      expect(source).toContain('{"Bob", 25}');
     });
 
     it('generates correct C++ code for integer key maps', () => {
@@ -36,7 +38,9 @@ describe('Map and Set Key Type Support', () => {
       `;
       const { source, errors } = transpileCode(code);
       expect(errors.filter(e => e.message.includes('Invalid map key type'))).toHaveLength(0);
-      expect(source).toContain('std::map<int, std::string> intMap = {{1, "one"}, {2, "two"}};');
+      expect(source).toContain('std::shared_ptr<std::map<int, std::string>> intMap = std::make_shared<std::map<int, std::string>>');
+      expect(source).toContain('{1, "one"}');
+      expect(source).toContain('{2, "two"}');
     });
 
     it('generates correct C++ code for boolean key maps', () => {
@@ -47,7 +51,9 @@ describe('Map and Set Key Type Support', () => {
       `;
       const { source, errors } = transpileCode(code);
       expect(errors.filter(e => e.message.includes('Invalid map key type'))).toHaveLength(0);
-      expect(source).toContain('std::map<bool, std::string> boolMap = {{true, "enabled"}, {false, "disabled"}};');
+      expect(source).toContain('std::shared_ptr<std::map<bool, std::string>> boolMap = std::make_shared<std::map<bool, std::string>>');
+      expect(source).toContain('{true, "enabled"}');
+      expect(source).toContain('{false, "disabled"}');
     });
   });
 
@@ -94,10 +100,10 @@ describe('Map and Set Key Type Support', () => {
       expect(errors.filter(e => e.message.includes('Invalid'))).toHaveLength(0);
       expect(errors.filter(e => e.message.includes('Object literal without class type'))).toHaveLength(0);
       
-      // Should generate correct C++ code
-      expect(source).toContain('std::map<std::string, int> ages = {{"Alice", 30}, {"Bob", 25}, {"Charlie", 35}};');
-      expect(source).toContain('std::map<int, std::string> codes = {{1, "one"}, {2, "two"}, {3, "three"}};');
-      expect(source).toContain('std::map<bool, std::string> flags = {{true, "enabled"}, {false, "disabled"}};');
+      // Should generate correct C++ code with shared_ptr maps
+      expect(source).toContain('std::shared_ptr<std::map<std::string, int>> ages = std::make_shared<std::map<std::string, int>>');
+      expect(source).toContain('std::shared_ptr<std::map<int, std::string>> codes = std::make_shared<std::map<int, std::string>>');
+      expect(source).toContain('std::shared_ptr<std::map<bool, std::string>> flags = std::make_shared<std::map<bool, std::string>>');
     });
   });
 });

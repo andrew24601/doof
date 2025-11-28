@@ -29,8 +29,8 @@ describe('JSON Map/Set support', () => {
     `;
     const r = transpile(code);
     expect(r.errors).toHaveLength(0);
-    // Expect object formatting path
-    expect(r.source).toMatch(/for \(const auto& kv : tags\)/);
+    // Expect object formatting path - maps are now shared_ptr, so iteration dereferences
+    expect(r.source).toMatch(/for \(const auto& kv : \*tags\)/);
     expect(r.source).toMatch(/os << doof_runtime::json_encode\(kv.first\) << ":"/);
     expect(r.source).toMatch(/os << doof_runtime::json_encode\(kv.second\)/);
   });
@@ -38,14 +38,14 @@ describe('JSON Map/Set support', () => {
   it('deserializes Map<string, V> from JSON objects', () => {
     const code = `
       class Cfg { values: Map<string, int>; }
-      function main() { let _ = Cfg.fromJSON("{}" ); }
+      function main() { let _ = Cfg.fromJSON("{}"); }
     `;
     const r = transpile(code);
     // Force generation
     expect(r.header).toContain('class Cfg');
-    // _fromJSON should iterate object and use as_int
+    // _fromJSON should iterate object and use as_int - values is now shared_ptr, so (*values) required
     expect(r.source).toMatch(/const auto& values_obj = doof_runtime::json::get_object\(json_obj, "values"\)/);
-    expect(r.source).toMatch(/values\[kv.first\] = kv.second.as_int\(\);/);
+    expect(r.source).toMatch(/\(\*values\)\[kv.first\] = kv.second.as_int\(\);/);
   });
 
   it('serializes Set<T> fields as JSON arrays', () => {
@@ -55,6 +55,7 @@ describe('JSON Map/Set support', () => {
     `;
     const r = transpile(code);
     expect(r.errors).toHaveLength(0);
-    expect(r.source).toMatch(/for \(const auto& element : items\)/);
+    // Sets are now shared_ptr, so iteration dereferences
+    expect(r.source).toMatch(/for \(const auto& element : \*items\)/);
   });
 });

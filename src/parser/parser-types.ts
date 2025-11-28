@@ -33,6 +33,11 @@ function parseBaseType(parser: Parser): Type {
         return parseWeakType(parser);
     }
 
+    // Check for readonly type modifier (for collections: readonly int[], readonly Map<K, V>, readonly Set<T>)
+    if (parser.match(TokenType.READONLY)) {
+        return parseReadonlyType(parser);
+    }
+
     let baseType: Type;
 
     if (parser.match(TokenType.INT, TokenType.FLOAT, TokenType.DOUBLE, TokenType.BOOL, TokenType.CHAR, TokenType.STRING_TYPE, TokenType.VOID)) {
@@ -78,6 +83,35 @@ function parseWeakType(parser: Parser): Type {
         }
     }
     throw new ParseError("'weak' can only be applied to class types", parser.getLocation());
+}
+
+function parseReadonlyType(parser: Parser): Type {
+    const type = parseBaseType(parser);
+    // Readonly can be applied to arrays, maps, and sets
+    if (type.kind === 'array') {
+        const arrayType = type as ArrayTypeNode;
+        return {
+            kind: 'array',
+            elementType: arrayType.elementType,
+            isReadonly: true
+        } as ArrayTypeNode;
+    } else if (type.kind === 'map') {
+        const mapType = type as MapTypeNode;
+        return {
+            kind: 'map',
+            keyType: mapType.keyType,
+            valueType: mapType.valueType,
+            isReadonly: true
+        } as MapTypeNode;
+    } else if (type.kind === 'set') {
+        const setType = type as SetTypeNode;
+        return {
+            kind: 'set',
+            elementType: setType.elementType,
+            isReadonly: true
+        } as SetTypeNode;
+    }
+    throw new ParseError("'readonly' type modifier can only be applied to array, Map, or Set types", parser.getLocation());
 }
 
 function parsePrimitiveType(parser: Parser): PrimitiveTypeNode {

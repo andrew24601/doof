@@ -34,14 +34,29 @@ export function generateArrayExpression(generator: CppGenerator, expr: ArrayExpr
 }
 
 /**
- * Generates C++ code for object expressions (both class instances and maps)
+ * Generates C++ code for object expressions (both class instances, maps, and sets)
  */
 export function generateObjectExpression(generator: CppGenerator, expr: ObjectExpression, targetType?: Type): string {
     if (expr.className) {
         return generateClassObjectExpression(generator, expr, targetType);
+    } else if (expr.inferredType?.kind === 'set') {
+        // Handle empty set literals written as {} with Set type annotation
+        return generateSetObjectExpression(generator, expr);
     } else {
         return generateMapObjectExpression(generator, expr);
     }
+}
+
+/**
+ * Generates C++ code for set object expressions (empty set literals)
+ */
+function generateSetObjectExpression(generator: CppGenerator, expr: ObjectExpression): string {
+    // Get the element type from the set's inferred type
+    const setType = expr.inferredType as SetTypeNode;
+    const elementTypeStr = generator.generateType(setType.elementType);
+    
+    // Empty set - properties should be empty for a set literal
+    return `std::make_shared<std::unordered_set<${elementTypeStr}>>()`;
 }
 
 /**
@@ -61,9 +76,11 @@ export function generatePositionalObjectExpression(generator: CppGenerator, expr
 export function generateSetExpression(generator: CppGenerator, expr: SetExpression): string {
     // Get the element type from the set's inferred type
     let elementType: Type | undefined;
+    let elementTypeStr = 'auto';
     if (expr.inferredType && expr.inferredType.kind === 'set') {
         const setType = expr.inferredType as SetTypeNode;
         elementType = setType.elementType;
+        elementTypeStr = generator.generateType(elementType);
     }
 
     // Generate elements with enum context if applicable
@@ -76,8 +93,9 @@ export function generateSetExpression(generator: CppGenerator, expr: SetExpressi
         return generateExpression(generator, elem);
     });
 
-    // Generate compact initializer format
-    return `{${elements.join(', ')}}`;
+    // Generate make_shared with initializer list
+    const elementsStr = elements.join(', ');
+    return `std::make_shared<std::unordered_set<${elementTypeStr}>>(std::initializer_list<${elementTypeStr}>{${elementsStr}})`;
 }
 
 /**
@@ -91,11 +109,22 @@ function generateClassObjectExpression(generator: CppGenerator, expr: ObjectExpr
  * Generates C++ code for map object expressions (anonymous object expressions)
  */
 function generateMapObjectExpression(generator: CppGenerator, expr: ObjectExpression): string {
-    // Get the key type from the map's inferred type for enum resolution
+    // Get the key and value types from the map's inferred type
     let keyType: Type | undefined;
+    let valueType: Type | undefined;
+    let keyTypeStr = 'auto';
+    let valueTypeStr = 'auto';
     if (expr.inferredType && expr.inferredType.kind === 'map') {
         const mapType = expr.inferredType as MapTypeNode;
         keyType = mapType.keyType;
+        valueType = mapType.valueType;
+        keyTypeStr = generator.generateType(keyType);
+        valueTypeStr = generator.generateType(valueType);
+    }
+
+    // For empty maps, use default constructor
+    if (expr.properties.length === 0) {
+        return `std::make_shared<std::map<${keyTypeStr}, ${valueTypeStr}>>()`;
     }
 
     // Generate as compact initializer list format for map literals
@@ -112,7 +141,15 @@ function generateMapObjectExpression(generator: CppGenerator, expr: ObjectExpres
         return `{${key}, ${value}}`;
     });
 
-    return `{${entries.join(', ')}}`;
+    // Generate make_shared with initializer list
+    // For single element, use explicit initializer_list to avoid ambiguity
+    // For multiple elements, use simpler form: {{k1, v1}, {k2, v2}}
+    const entriesStr = entries.join(', ');
+    if (entries.length === 1) {
+        // Single element needs explicit initializer_list to disambiguate
+        return `std::make_shared<std::map<${keyTypeStr}, ${valueTypeStr}>>(std::initializer_list<std::pair<const ${keyTypeStr}, ${valueTypeStr}>>{${entriesStr}})`;
+    }
+    return `std::make_shared<std::map<${keyTypeStr}, ${valueTypeStr}>>({${entriesStr}})`;
 }
 
 /**

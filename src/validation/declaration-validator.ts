@@ -5,6 +5,23 @@ import { FunctionDeclaration, FunctionTypeNode, PrimitiveTypeNode, ClassDeclarat
 import { Validator } from "./validator";
 import { createScopeTrackerEntry, registerScopeTrackerEntry } from "./scope-tracker-helpers";
 
+/**
+ * Recursively propagate readonly to nested collection types.
+ * This ensures `readonly int[][]` marks both the outer and inner arrays as readonly.
+ */
+function propagateReadonlyToNestedCollections(type: Type): void {
+  if (type.kind === 'array') {
+    (type as ArrayTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as ArrayTypeNode).elementType);
+  } else if (type.kind === 'map') {
+    (type as MapTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as MapTypeNode).valueType);
+  } else if (type.kind === 'set') {
+    (type as SetTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as SetTypeNode).elementType);
+  }
+}
+
 // Inline fluent interface detection to avoid async import issues
 function classUsesThisAsValue(classDecl: any): boolean {
   if (!classDecl) return false;
@@ -465,6 +482,9 @@ export function validateFieldDeclaration(field: FieldDeclaration, validator: Val
       if (field.type.kind === 'array' || field.type.kind === 'map' || field.type.kind === 'set' || field.type.kind === 'class') {
           (field.type as any).isReadonly = true;
       }
+      
+      // Propagate readonly to nested collections for deep immutability
+      propagateReadonlyToNestedCollections(field.type);
       
       if (field.type.kind === 'array') {
           const arrayType = field.type as ArrayTypeNode;

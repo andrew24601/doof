@@ -291,7 +291,7 @@ describe('CppGenerator', () => {
         }
       `);
 
-      expect(source).toContain('std::map<std::string, int> mapping = {{"Alice", 30}, {"Bob", 25}};');
+      expect(source).toContain('std::shared_ptr<std::map<std::string, int>> mapping = std::make_shared<std::map<std::string, int>>({{"Alice", 30}, {"Bob", 25}});');
       expect(source).toContain('return mapping;');
     });
 
@@ -303,7 +303,7 @@ describe('CppGenerator', () => {
         }
       `);
 
-      expect(source).toContain('std::map<int, std::string> mapping = {{1, "one"}, {2, "two"}};');
+      expect(source).toContain('std::shared_ptr<std::map<int, std::string>> mapping = std::make_shared<std::map<int, std::string>>({{1, "one"}, {2, "two"}});');
       expect(source).toContain('return mapping;');
     });
 
@@ -315,7 +315,7 @@ describe('CppGenerator', () => {
         }
       `);
 
-      expect(source).toContain('std::map<bool, std::string> mapping = {{true, "enabled"}, {false, "disabled"}};');
+      expect(source).toContain('std::shared_ptr<std::map<bool, std::string>> mapping = std::make_shared<std::map<bool, std::string>>({{');
       expect(source).toContain('return mapping;');
     });
   });
@@ -359,8 +359,8 @@ describe('CppGenerator', () => {
       `);
 
       expect(source).toContain('std::shared_ptr<std::vector<int>> arr;');
-      expect(source).toContain('std::map<std::string, int> mapping;');
-      expect(source).toContain('std::unordered_set<std::string> names;');
+      expect(source).toContain('std::shared_ptr<std::map<std::string, int>> mapping;');
+      expect(source).toContain('std::shared_ptr<std::unordered_set<std::string>> names;');
     });
 
     it('generates shared and weak pointer types', () => {
@@ -408,7 +408,7 @@ describe('CppGenerator', () => {
         }
       `);
 
-      expect(source).toContain('std::unordered_set<Status> statuses = {Status::ACTIVE, Status::INACTIVE};');
+      expect(source).toContain('std::shared_ptr<std::unordered_set<Status>> statuses = std::make_shared<std::unordered_set<Status>>(std::initializer_list<Status>{Status::ACTIVE, Status::INACTIVE});');
       expect(source).toContain('return statuses;');
     });
 
@@ -426,7 +426,7 @@ describe('CppGenerator', () => {
         }
       `);
 
-      expect(source).toContain('std::map<Status, std::string> mapping = {{Status::ACTIVE, "Running"}, {Status::PENDING, "Waiting"}};');
+      expect(source).toContain('std::shared_ptr<std::map<Status, std::string>> mapping = std::make_shared<std::map<Status, std::string>>({{Status::ACTIVE, "Running"}, {Status::PENDING, "Waiting"}});');
       expect(source).toContain('return mapping;');
     });
   });

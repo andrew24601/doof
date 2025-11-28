@@ -107,7 +107,7 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('std::shared_ptr<std::vector<std::string>> keys = doof_runtime::map_keys(myMap)');
+      expect(result.source).toContain('std::shared_ptr<std::vector<std::string>> keys = doof_runtime::map_keys(*myMap)');
       expect(result.header).toContain('#include "doof_runtime.h"');
       // Should NOT contain lambda
       expect(result.source).not.toContain('([&]() {');
@@ -120,7 +120,7 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('std::shared_ptr<std::vector<int>> values = doof_runtime::map_values(myMap)');
+      expect(result.source).toContain('std::shared_ptr<std::vector<int>> values = doof_runtime::map_values(*myMap)');
       expect(result.header).toContain('#include "doof_runtime.h"');
       // Should NOT contain lambda  
       expect(result.source).not.toContain('([&]() {');
@@ -175,8 +175,8 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      // The template functions are now in the runtime library
-      expect(result.source).toContain('doof_runtime::map_keys(myMap)');
+      // The template functions are now in the runtime library, myMap is shared_ptr so dereference
+      expect(result.source).toContain('doof_runtime::map_keys(*myMap)');
       expect(result.header).toContain('#include "doof_runtime.h"');
     });
   });
@@ -189,8 +189,8 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      // The efficient implementations are now in the runtime library
-      expect(result.source).toContain('doof_runtime::map_keys(myMap)');
+      // The efficient implementations are now in the runtime library, myMap is shared_ptr so dereference
+      expect(result.source).toContain('doof_runtime::map_keys(*myMap)');
       expect(result.header).toContain('#include "doof_runtime.h"');
     });
 
@@ -201,8 +201,8 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      // The const correctness is handled in the runtime library
-      expect(result.source).toContain('doof_runtime::map_values(myMap)');
+      // The const correctness is handled in the runtime library, myMap is shared_ptr so dereference
+      expect(result.source).toContain('doof_runtime::map_values(*myMap)');
       expect(result.header).toContain('#include "doof_runtime.h"');
     });
 
@@ -244,9 +244,10 @@ describe('Improved Intrinsic Methods with Helper Functions', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('myMap["key"] = 42');
-      expect(result.source).toContain('int size = myMap.size()');
-      expect(result.source).toContain('doof_runtime::map_keys(myMap)');
+      // myMap is now shared_ptr, so use -> for index operator
+      expect(result.source).toContain('(*myMap)["key"] = 42');
+      expect(result.source).toContain('int size = myMap->size()');
+      expect(result.source).toContain('doof_runtime::map_keys(*myMap)');
     });
   });
 });

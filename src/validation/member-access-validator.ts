@@ -155,8 +155,15 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
 
   // First, handle map/array/string intrinsic methods
   if (objectType.kind === 'map') {
-    const mapMethodType = getMapMethodType(memberName, objectType as MapTypeNode);
+    const mapType = objectType as MapTypeNode;
+    const mapMethodType = getMapMethodType(memberName, mapType);
     if (mapMethodType) {
+      // Check for mutating methods on readonly maps
+      const mutatingMapMethods = ['set', 'delete', 'clear'];
+      if (mapType.isReadonly && mutatingMapMethods.includes(memberName)) {
+        validator.addError(`Cannot call mutating method '${memberName}' on readonly map`, expr.property.location);
+        // Still return the method type so call validation can continue without duplicate errors
+      }
       expr.inferredType = mapMethodType;
       return mapMethodType;
     }
@@ -166,8 +173,15 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
   }
 
   if (objectType.kind === 'array') {
-    const arrayMethodType = getArrayMethodType(memberName, objectType as ArrayTypeNode);
+    const arrayType = objectType as ArrayTypeNode;
+    const arrayMethodType = getArrayMethodType(memberName, arrayType);
     if (arrayMethodType) {
+      // Check for mutating methods on readonly arrays
+      const mutatingArrayMethods = ['push', 'pop'];
+      if (arrayType.isReadonly && mutatingArrayMethods.includes(memberName)) {
+        validator.addError(`Cannot call mutating method '${memberName}' on readonly array`, expr.property.location);
+        // Still return the method type so call validation can continue without duplicate errors
+      }
       expr.inferredType = arrayMethodType;
       return arrayMethodType;
     }
@@ -177,8 +191,15 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
   }
 
   if (objectType.kind === 'set') {
-    const setMethodType = getSetMethodType(memberName, objectType as SetTypeNode);
+    const setType = objectType as SetTypeNode;
+    const setMethodType = getSetMethodType(memberName, setType);
     if (setMethodType) {
+      // Check for mutating methods on readonly sets
+      const mutatingSetMethods = ['add', 'delete', 'clear'];
+      if (setType.isReadonly && mutatingSetMethods.includes(memberName)) {
+        validator.addError(`Cannot call mutating method '${memberName}' on readonly set`, expr.property.location);
+        // Still return the method type so call validation can continue without duplicate errors
+      }
       expr.inferredType = setMethodType;
       return setMethodType;
     }

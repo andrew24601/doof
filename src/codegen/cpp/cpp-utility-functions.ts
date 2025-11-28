@@ -88,11 +88,9 @@ export function generateParameterType(type: Type, context: CppGeneratorContext):
       // Dynamic array - use shared_ptr semantics
       return `std::shared_ptr<std::vector<${context.generateType(arrayType.elementType)}>>`;
     case 'map':
-      const mapType = type as MapTypeNode;
-      return `std::map<${context.generateType(mapType.keyType)}, ${context.generateType(mapType.valueType)}>&`; // Pass maps by mutable reference
     case 'set':
-      const setType = type as SetTypeNode;
-      return `std::unordered_set<${context.generateType(setType.elementType)}>&`; // Pass sets by mutable reference
+      // Maps and Sets use shared_ptr like arrays - just use the type
+      return context.generateType(type);
     case 'class':
       const classType = type as ClassTypeNode;
       if (classType.isWeak) {

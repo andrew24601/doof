@@ -3,7 +3,10 @@ import {
     Type,
     Expression,
     UnionTypeNode,
-    Identifier
+    Identifier,
+    IndexExpression,
+    ArrayTypeNode,
+    MapTypeNode
 } from "../types";
 import {
     isNumericType,
@@ -67,6 +70,18 @@ export function propagateTypeContext(expr: Expression, expectedType: Type, valid
     }
     // Propagate class type context to object literals
     if (expectedType.kind === 'class' && expr.kind === 'object') {
+        if (!expr.className && canInferObjectLiteralType(expr, expectedType)) {
+            inferObjectLiteralType(expr, expectedType, validator);
+        }
+    }
+    // Propagate Map type context to object literals (e.g., return { "a": 1 } from function returning Map<string, int>)
+    if (expectedType.kind === 'map' && expr.kind === 'object') {
+        if (!expr.className && canInferObjectLiteralType(expr, expectedType)) {
+            inferObjectLiteralType(expr, expectedType, validator);
+        }
+    }
+    // Propagate Set type context to object literals (e.g., return {1, 2, 3} from function returning Set<int>)
+    if (expectedType.kind === 'set' && expr.kind === 'object') {
         if (!expr.className && canInferObjectLiteralType(expr, expectedType)) {
             inferObjectLiteralType(expr, expectedType, validator);
         }
@@ -181,6 +196,40 @@ export function validateBinaryExpression(expr: BinaryExpression, validator: Vali
                 
                 expr.inferredType = leftType;
                 return leftType;
+            }
+        }
+        
+        // Check for assignment to element of readonly array/map
+        if (expr.left.kind === 'index') {
+            const indexExpr = expr.left as IndexExpression;
+            const objectType = indexExpr.object.inferredType;
+            
+            if (objectType) {
+                let isReadonlyContainer = false;
+                let containerKind = '';
+                
+                if (objectType.kind === 'array') {
+                    const arrayType = objectType as ArrayTypeNode;
+                    isReadonlyContainer = !!arrayType.isReadonly;
+                    containerKind = 'array';
+                } else if (objectType.kind === 'map') {
+                    const mapType = objectType as MapTypeNode;
+                    isReadonlyContainer = !!mapType.isReadonly;
+                    containerKind = 'map';
+                }
+                
+                if (isReadonlyContainer) {
+                    if (expr.operator === '=') {
+                        propagateTypeContext(expr.right, leftType, validator);
+                    }
+                    validateExpression(expr.right, validator);
+                    validator.addError(
+                        `Cannot modify element of readonly ${containerKind}`,
+                        indexExpr.location
+                    );
+                    expr.inferredType = leftType;
+                    return leftType;
+                }
             }
         }
     }

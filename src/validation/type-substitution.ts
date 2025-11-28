@@ -47,18 +47,19 @@ export function cloneTypeNode(type: Type): Type {
       };
     case "array":
       assertValidType(type.elementType, "array element type", type);
-      return { kind: "array", elementType: cloneTypeNode(type.elementType) };
+      return { kind: "array", elementType: cloneTypeNode(type.elementType), isReadonly: type.isReadonly };
     case "map":
       assertValidType(type.keyType, "map key type", type);
       assertValidType(type.valueType, "map value type", type);
       return {
         kind: "map",
         keyType: cloneTypeNode(type.keyType),
-        valueType: cloneTypeNode(type.valueType)
+        valueType: cloneTypeNode(type.valueType),
+        isReadonly: type.isReadonly
       };
     case "set":
       assertValidType(type.elementType, "set element type", type);
-      return { kind: "set", elementType: cloneTypeNode(type.elementType) };
+      return { kind: "set", elementType: cloneTypeNode(type.elementType), isReadonly: type.isReadonly };
     case "union":
       return {
         kind: "union",
@@ -135,15 +136,16 @@ export function substituteTypeParametersInType(type: Type, mapping: Map<string, 
         typeArguments: type.typeArguments?.map(arg => substituteTypeParametersInType(arg, mapping))
       };
     case "array":
-      return { kind: "array", elementType: substituteTypeParametersInType(type.elementType, mapping) };
+      return { kind: "array", elementType: substituteTypeParametersInType(type.elementType, mapping), isReadonly: type.isReadonly };
     case "map":
       return {
         kind: "map",
         keyType: substituteTypeParametersInType(type.keyType, mapping),
-        valueType: substituteTypeParametersInType(type.valueType, mapping)
+        valueType: substituteTypeParametersInType(type.valueType, mapping),
+        isReadonly: type.isReadonly
       };
     case "set":
-      return { kind: "set", elementType: substituteTypeParametersInType(type.elementType, mapping) };
+      return { kind: "set", elementType: substituteTypeParametersInType(type.elementType, mapping), isReadonly: type.isReadonly };
     case "union":
       return { kind: "union", types: type.types.map(t => substituteTypeParametersInType(t, mapping)) };
     case "function":

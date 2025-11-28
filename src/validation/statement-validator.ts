@@ -8,6 +8,24 @@ import { Validator } from "./validator";
 import { createScopeTrackerEntry, registerScopeTrackerEntry } from "./scope-tracker-helpers";
 import * as path from "path";
 import { validateAndDesugarMarkdownTable } from "./validate-markdown-table";
+
+/**
+ * Recursively propagate readonly to nested collection types.
+ * This ensures `readonly int[][]` marks both the outer and inner arrays as readonly.
+ */
+function propagateReadonlyToNestedCollections(type: Type): void {
+  if (type.kind === 'array') {
+    (type as ArrayTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as ArrayTypeNode).elementType);
+  } else if (type.kind === 'map') {
+    (type as MapTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as MapTypeNode).valueType);
+  } else if (type.kind === 'set') {
+    (type as SetTypeNode).isReadonly = true;
+    propagateReadonlyToNestedCollections((type as SetTypeNode).elementType);
+  }
+}
+
 // Inlined MVP lowering for destructuring to avoid module resolution issues
 function __makeTempName(counter: number): string { return `__destr_${counter}`; }
 function __createTempDeclaration(name: string, expr: Expression): VariableDeclaration {
@@ -737,19 +755,23 @@ export function validateVariableDeclaration(stmt: VariableDeclaration, validator
       (type as any).isReadonly = true;
     }
     
-    // Deep readonly enforcement
+    // Deep readonly enforcement - propagate readonly to nested collections
     if (type.kind === 'array') {
       const arrayType = type as ArrayTypeNode;
+      // Propagate readonly to nested arrays/maps/sets
+      propagateReadonlyToNestedCollections(arrayType.elementType);
       if (!isImmutableType(arrayType.elementType, validator)) {
         validator.addError(`Readonly array must contain immutable elements`, stmt.location);
       }
     } else if (type.kind === 'set') {
       const setType = type as SetTypeNode;
+      propagateReadonlyToNestedCollections(setType.elementType);
       if (!isImmutableType(setType.elementType, validator)) {
         validator.addError(`Readonly set must contain immutable elements`, stmt.location);
       }
     } else if (type.kind === 'map') {
       const mapType = type as MapTypeNode;
+      propagateReadonlyToNestedCollections(mapType.valueType);
       if (!isImmutableType(mapType.valueType, validator)) {
         validator.addError(`Readonly map must contain immutable values`, stmt.location);
       }

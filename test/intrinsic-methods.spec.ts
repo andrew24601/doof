@@ -17,8 +17,8 @@ describe('Intrinsic Methods', () => {
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
       expect(result.header).toContain('#include <unordered_map>');
-      expect(result.source).toContain('std::map<std::string, int> myMap = {}');
-      expect(result.source).toContain('myMap["key"] = 42');
+      expect(result.source).toContain('std::shared_ptr<std::map<std::string, int>> myMap');
+      expect(result.source).toContain('(*myMap)["key"] = 42');
     });
 
     it('should transpile map.get() method', () => {
@@ -28,7 +28,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('int value = myMap.at("key")');
+      expect(result.source).toContain('int value = myMap->at("key")');
     });
 
     it('should transpile map.has() method', () => {
@@ -38,7 +38,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('bool exists = (myMap.find("key") != myMap.end())');
+      expect(result.source).toContain('bool exists = (myMap->find("key") != myMap->end())');
     });
 
     it('should transpile map.delete() method', () => {
@@ -48,7 +48,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('bool removed = myMap.erase("key")');
+      expect(result.source).toContain('bool removed = myMap->erase("key")');
     });
 
     it('should transpile map.clear() method', () => {
@@ -61,7 +61,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('myMap.clear()');
+      expect(result.source).toContain('myMap->clear()');
     });
 
     it('should transpile map.keys() method', () => {
@@ -73,7 +73,7 @@ describe('Intrinsic Methods', () => {
       expect(result.errors).toHaveLength(0);
       expect(result.header).toContain('#include "doof_runtime.h"');
       expect(result.source).toContain('std::shared_ptr<std::vector<std::string>> keys =');
-      expect(result.source).toContain('doof_runtime::map_keys(myMap)');
+      expect(result.source).toContain('doof_runtime::map_keys(*myMap)');
     });
 
     it('should transpile map.values() method', () => {
@@ -84,7 +84,7 @@ describe('Intrinsic Methods', () => {
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
       expect(result.source).toContain('std::shared_ptr<std::vector<int>> values =');
-      expect(result.source).toContain('doof_runtime::map_values(myMap)');
+      expect(result.source).toContain('doof_runtime::map_values(*myMap)');
     });
 
     it('should transpile map.size property', () => {
@@ -94,7 +94,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('int size = myMap.size()');
+      expect(result.source).toContain('int size = myMap->size()');
     });
   });
 
@@ -234,7 +234,7 @@ describe('Intrinsic Methods', () => {
       `;
       const result = transpile(input);
       expect(result.errors).toHaveLength(0);
-      expect(result.source).toContain('std::map<std::string, std::shared_ptr<std::vector<int>>> complexMap');
+      expect(result.source).toContain('std::shared_ptr<std::map<std::string, std::shared_ptr<std::vector<int>>>> complexMap');
     });
   });
 

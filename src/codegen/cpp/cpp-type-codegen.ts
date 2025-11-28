@@ -59,12 +59,16 @@ export class CppTypeCodegen {
 
     generateMapType(type: MapTypeNode): string {
         const mapType = `std::map<${this.generateType(type.keyType)}, ${this.generateType(type.valueType)}>`;
-        return type.isReadonly ? `const ${mapType}` : mapType;
+        return type.isReadonly 
+            ? `std::shared_ptr<const ${mapType}>`
+            : `std::shared_ptr<${mapType}>`;
     }
 
     generateSetType(type: SetTypeNode): string {
         const setType = `std::unordered_set<${this.generateType(type.elementType)}>`;
-        return type.isReadonly ? `const ${setType}` : setType;
+        return type.isReadonly 
+            ? `std::shared_ptr<const ${setType}>`
+            : `std::shared_ptr<${setType}>`;
     }
 
     private generateClassType(type: ClassTypeNode): string {

@@ -682,17 +682,9 @@ export function validateCallExpression(expr: CallExpression, validator: Validato
       // Propagate expected type context to arguments
       propagateTypeContext(arg, paramType, validator);
 
-      // Check for struct/collection literals as direct arguments (enhancement rule 1)
-      // This must be after type propagation so object literals can be properly classified
-      // Only apply to user-defined functions (intrinsic functions were handled above)
-      // Also allow struct/collection literals for intrinsic instance methods
-      if (isStructOrCollectionLiteral(arg, validator) && !isIntrinsicInstanceMethodCall(expr, validator)) {
-        validator.addError(
-          `You must assign this value to a variable before passing it to a function.`,
-          arg.location
-        );
-        continue;
-      }
+      // Collection literals (array, map, set) can now be passed directly to any parameter
+      // since they are all shared_ptr types in the C++ backend.
+      // Class object literals are also allowed as they use make_shared.
 
       const argType = validateExpression(arg, validator);
 

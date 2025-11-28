@@ -141,8 +141,8 @@ function generateParameterType(generator: CppGenerator, type: Type): string {
        return generator.typeGen.generateType(type);
     case 'map':
     case 'set':
-       // Maps and sets are passed by reference (const or mutable depending on type)
-       return generator.typeGen.generateType(type) + '&';
+       // Maps and Sets are now shared_ptr like arrays - pass by value (copies the pointer)
+       return generator.typeGen.generateType(type);
     case 'enum':
       const enumType = type as EnumTypeNode;
       return enumType.name; // Pass enums by value

@@ -360,11 +360,11 @@ export function generateMemberExpression(generator: CppGenerator, expr: MemberEx
                     // Array length becomes ->size() method call
                     return `${object}->size()`;
                 } else if (objectType.kind === 'map') {
-                    // Map size becomes .size() method call
-                    return `${object}.size()`;
+                    // Map size becomes ->size() method call (shared_ptr)
+                    return `${object}->size()`;
                 } else if (objectType.kind === 'set') {
-                    // Set size becomes .size() method call
-                    return `${object}.size()`;
+                    // Set size becomes ->size() method call (shared_ptr)
+                    return `${object}->size()`;
                 } else if (objectType.kind === 'primitive' && (objectType as PrimitiveTypeNode).type === 'string') {
                     // String length becomes .size() method call
                     return `${object}.size()`;
@@ -393,9 +393,9 @@ export function generateIndexExpression(generator: CppGenerator, expr: IndexExpr
         return `${object}->at(${index})`;
     }
 
-    // For maps, use [] operator instead of at() to allow assignment to new keys
+    // For maps (shared_ptr<map>), use (*map)[key] to allow assignment to new keys
     if (objectType?.kind === 'map') {
-        return `${object}[${index}]`;
+        return `(*${object})[${index}]`;
     }
 
     // Use std::vector::at() for bounds-checked access instead of unsafe operator[]
@@ -505,15 +505,15 @@ function generateStringMethodCall(object: string, methodName: string, args: stri
 function generateSetMethodCall(object: string, methodName: string, args: string[], setType: SetTypeNode): string {
     switch (methodName) {
         case 'add':
-            return validateArgsAndGenerate(args, 1, `${object}.insert(${args[0]})`);
+            return validateArgsAndGenerate(args, 1, `${object}->insert(${args[0]})`);
         case 'has':
-            return validateArgsAndGenerate(args, 1, `(${object}.find(${args[0]}) != ${object}.end())`);
+            return validateArgsAndGenerate(args, 1, `(${object}->find(${args[0]}) != ${object}->end())`);
         case 'delete':
-            return validateArgsAndGenerate(args, 1, `${object}.erase(${args[0]})`);
+            return validateArgsAndGenerate(args, 1, `${object}->erase(${args[0]})`);
         case 'clear':
-            return validateArgsAndGenerate(args, 0, `${object}.clear()`);
+            return validateArgsAndGenerate(args, 0, `${object}->clear()`);
         case 'size':
-            return validateArgsAndGenerate(args, 0, `${object}.size()`);
+            return validateArgsAndGenerate(args, 0, `${object}->size()`);
         default:
             throw new Error(`Unsupported set method: ${methodName}`);
     }
@@ -523,21 +523,21 @@ function generateSetMethodCall(object: string, methodName: string, args: string[
 function generateMapMethodCall(object: string, methodName: string, args: string[], mapType: MapTypeNode): string {
     switch (methodName) {
         case 'set':
-            return validateArgsAndGenerate(args, 2, `(${object}[${args[0]}] = ${args[1]})`);
+            return validateArgsAndGenerate(args, 2, `((*${object})[${args[0]}] = ${args[1]})`);
         case 'get':
-            return validateArgsAndGenerate(args, 1, `${object}.at(${args[0]})`);
+            return validateArgsAndGenerate(args, 1, `${object}->at(${args[0]})`);
         case 'has':
-            return validateArgsAndGenerate(args, 1, `(${object}.find(${args[0]}) != ${object}.end())`);
+            return validateArgsAndGenerate(args, 1, `(${object}->find(${args[0]}) != ${object}->end())`);
         case 'delete':
-            return validateArgsAndGenerate(args, 1, `${object}.erase(${args[0]})`);
+            return validateArgsAndGenerate(args, 1, `${object}->erase(${args[0]})`);
         case 'clear':
-            return validateArgsAndGenerate(args, 0, `${object}.clear()`);
+            return validateArgsAndGenerate(args, 0, `${object}->clear()`);
         case 'size':
-            return validateArgsAndGenerate(args, 0, `${object}.size()`);
+            return validateArgsAndGenerate(args, 0, `${object}->size()`);
         case 'keys':
-            return `doof_runtime::map_keys(${object})`;
+            return `doof_runtime::map_keys(*${object})`;
         case 'values':
-            return `doof_runtime::map_values(${object})`;
+            return `doof_runtime::map_values(*${object})`;
         default:
             throw new Error(`Unsupported map method: ${methodName}`);
     }

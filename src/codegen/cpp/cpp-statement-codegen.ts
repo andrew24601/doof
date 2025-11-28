@@ -355,8 +355,9 @@ export function generateForOfStatement(
     // Standard range-based for loop for collections
     let iterableExpr = context.generateExpression(forOfStmt.iterable);
     
-    // Handle shared_ptr<vector<T>> types
-    if (forOfStmt.iterable.inferredType?.kind === 'array') {
+    // Handle shared_ptr<vector<T>> and shared_ptr<unordered_set<T>> types
+    const iterableType = forOfStmt.iterable.inferredType;
+    if (iterableType?.kind === 'array' || iterableType?.kind === 'set') {
       if (forOfStmt.iterable.kind === 'call') {
         // For method calls that return shared_ptr, we need to store the shared_ptr first to avoid dangling references
         // This is particularly important for method calls like map.keys() and map.values()
@@ -366,7 +367,7 @@ export function generateForOfStatement(
         output += wrapInBlock(context, forOfStmt.body);
         return output;
       } else {
-        // For simple identifiers that are shared_ptr<vector<T>>, dereference directly
+        // For simple identifiers that are shared_ptr<vector<T>> or shared_ptr<unordered_set<T>>, dereference directly
         let output = context.indent() + `for (const auto& ${forOfStmt.variable.name} : *${iterableExpr}) `;
         output += wrapInBlock(context, forOfStmt.body);
         return output;

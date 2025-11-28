@@ -400,13 +400,16 @@ export function typeToString(type: Type): string {
       return (type as PrimitiveTypeNode).type;
     case 'array':
       const arrayType = type as ArrayTypeNode;
-      return `${typeToString(arrayType.elementType)}[]`;
+      const arrayStr = `${typeToString(arrayType.elementType)}[]`;
+      return arrayType.isReadonly ? `readonly ${arrayStr}` : arrayStr;
     case 'map':
       const mapType = type as MapTypeNode;
-      return `Map<${typeToString(mapType.keyType)}, ${typeToString(mapType.valueType)}>`;
+      const mapStr = `Map<${typeToString(mapType.keyType)}, ${typeToString(mapType.valueType)}>`;
+      return mapType.isReadonly ? `readonly ${mapStr}` : mapStr;
     case 'set':
       const setType = type as SetTypeNode;
-      return `Set<${typeToString(setType.elementType)}>`;
+      const setStr = `Set<${typeToString(setType.elementType)}>`;
+      return setType.isReadonly ? `readonly ${setStr}` : setStr;
     case 'class':
       const classType = type as ClassTypeNode;
       const className = classType.isWeak ? `weak ${classType.name}` : classType.name;
@@ -598,11 +601,16 @@ export function validateRequiredFields(
 }
 
 export function addTypeCompatibilityError(sourceType: Type, targetType: Type, location: any, context: string | undefined, validator: Validator): void {
-  const contextStr = context ? ` ${context}` : '';
-  validator.addError(
-    `Cannot${contextStr} convert type '${typeToString(sourceType)}' to '${typeToString(targetType)}'`,
-    location
-  );
+  // Build a user-friendly error message based on context
+  let message: string;
+  if (context === 'assign') {
+    message = `Cannot assign type '${typeToString(sourceType)}' to '${typeToString(targetType)}'`;
+  } else if (context) {
+    message = `Cannot ${context}: type '${typeToString(sourceType)}' is not compatible with '${typeToString(targetType)}'`;
+  } else {
+    message = `Cannot convert type '${typeToString(sourceType)}' to '${typeToString(targetType)}'`;
+  }
+  validator.addError(message, location);
 }
 
 export function isValidMapKeyType(type: Type): boolean {

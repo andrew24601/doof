@@ -374,11 +374,11 @@ export function generateToJSONMethodSource(generator: CppGenerator, classDecl: C
             const mapType = field.type as MapTypeNode;
             const isStringKey = mapType.keyType.kind === 'primitive' && (mapType.keyType as PrimitiveTypeNode).type === 'string';
             output += `    os << "\\\"${field.name.name}\\\":";\n`;
+            output += `    if (${cppFieldName}) {\n`;
             if (isStringKey) {
-                output += `    {\n`;
                 output += '        os << "{";\n';
                 output += `        bool first = true;\n`;
-                output += `        for (const auto& kv : ${cppFieldName}) {\n`;
+                output += `        for (const auto& kv : *${cppFieldName}) {\n`;
                 output += `            if (!first) os << ",";\n`;
                 output += `            first = false;\n`;
                 // key
@@ -400,71 +400,77 @@ export function generateToJSONMethodSource(generator: CppGenerator, classDecl: C
                 }
                 output += '        }\n';
                 output += '        os << "}";\n';
-                output += '    }\n';
             } else {
                 // Non-string keys: emit as array of {"key": ..., "value": ...}
-                output += '    os << "[";\n';
-                output += `    bool first = true;\n`;
-                output += `    for (const auto& kv : ${cppFieldName}) {\n`;
-                output += `        if (!first) os << ",";\n`;
-                output += `        first = false;\n`;
-                output += `        os << "{\"key\":";\n`;
+                output += '        os << "[";\n';
+                output += `        bool first = true;\n`;
+                output += `        for (const auto& kv : *${cppFieldName}) {\n`;
+                output += `            if (!first) os << ",";\n`;
+                output += `            first = false;\n`;
+                output += `            os << "{\"key\":";\n`;
                 // key value
                 if (mapType.keyType.kind === 'primitive') {
                     const keyPrim = mapType.keyType as PrimitiveTypeNode;
                     if (keyPrim.type === 'string') {
-                        output += '        os << doof_runtime::json_encode(kv.first);\n';
+                        output += '            os << doof_runtime::json_encode(kv.first);\n';
                     } else if (keyPrim.type === 'bool') {
-                        output += '        os << (kv.first ? "true" : "false");\n';
+                        output += '            os << (kv.first ? "true" : "false");\n';
                     } else {
-                        output += '        os << kv.first;\n';
+                        output += '            os << kv.first;\n';
                     }
                 } else {
-                    output += '        os << kv.first;\n';
+                    output += '            os << kv.first;\n';
                 }
-                output += `        os << ",\"value\":";\n`;
+                output += `            os << ",\"value\":";\n`;
                 if (mapType.valueType.kind === 'class' || mapType.valueType.kind === 'externClass') {
-                    output += '        if (kv.second) { kv.second->_toJSON(os); } else { os << "null"; }\n';
+                    output += '            if (kv.second) { kv.second->_toJSON(os); } else { os << "null"; }\n';
                 } else if (mapType.valueType.kind === 'primitive') {
                     const valPrim2 = mapType.valueType as PrimitiveTypeNode;
                     if (valPrim2.type === 'string') {
-                        output += '        os << doof_runtime::json_encode(kv.second);\n';
+                        output += '            os << doof_runtime::json_encode(kv.second);\n';
                     } else if (valPrim2.type === 'bool') {
-                        output += '        os << (kv.second ? "true" : "false");\n';
+                        output += '            os << (kv.second ? "true" : "false");\n';
                     } else {
-                        output += '        os << kv.second;\n';
+                        output += '            os << kv.second;\n';
                     }
                 } else {
-                    output += '        os << kv.second;\n';
+                    output += '            os << kv.second;\n';
                 }
-                output += `        os << "}";\n`;
-                output += `    }\n`;
-                output += '    os << "]";\n';
+                output += `            os << "}";\n`;
+                output += `        }\n`;
+                output += '        os << "]";\n';
             }
+            output += '    } else {\n';
+            output += '        os << "null";\n';
+            output += '    }\n';
         } else if (field.type.kind === 'set') {
             const setType = field.type as SetTypeNode;
             output += `    os << "\\\"${field.name.name}\\\":";\n`;
-            output += '    os << "[";\n';
-            output += `    bool first = true;\n`;
-            output += `    for (const auto& element : ${cppFieldName}) {\n`;
-            output += `        if (!first) os << ",";\n`;
-            output += `        first = false;\n`;
+            output += `    if (${cppFieldName}) {\n`;
+            output += '        os << "[";\n';
+            output += `        bool first = true;\n`;
+            output += `        for (const auto& element : *${cppFieldName}) {\n`;
+            output += `            if (!first) os << ",";\n`;
+            output += `            first = false;\n`;
             if (setType.elementType.kind === 'class' || setType.elementType.kind === 'externClass') {
-                output += '        if (element) { element->_toJSON(os); } else { os << "null"; }\n';
+                output += '            if (element) { element->_toJSON(os); } else { os << "null"; }\n';
             } else if (setType.elementType.kind === 'primitive') {
                 const elemPrim = setType.elementType as PrimitiveTypeNode;
                 if (elemPrim.type === 'string') {
-                    output += '        os << doof_runtime::json_encode(element);\n';
+                    output += '            os << doof_runtime::json_encode(element);\n';
                 } else if (elemPrim.type === 'bool') {
-                    output += '        os << (element ? "true" : "false");\n';
+                    output += '            os << (element ? "true" : "false");\n';
                 } else {
-                    output += '        os << element;\n';
+                    output += '            os << element;\n';
                 }
             } else {
-                output += '        os << element;\n';
+                output += '            os << element;\n';
             }
-            output += `    }\n`;
-            output += '    os << "]";\n';
+            output += `        }\n`;
+            output += '        os << "]";\n';
+            output += '    } else {\n';
+            output += '        os << "null";\n';
+            output += '    }\n';
         } else {
             output += `    os << "\\"${field.name.name}\\":" << ${cppFieldName};\n`;
         }
@@ -665,28 +671,29 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
             case 'map': {
                 const mapType = type as MapTypeNode;
                 const keyIsString = mapType.keyType.kind === 'primitive' && (mapType.keyType as PrimitiveTypeNode).type === 'string';
+                const rawMapType = `std::map<${generator.typeGen.generateType(mapType.keyType)}, ${generator.typeGen.generateType(mapType.valueType)}>`;
                 output += `    const auto& ${cppFieldName}_obj = doof_runtime::json::get_object(${jsonObjName}, "${jsonFieldName}");\n`;
-                output += `    ${generator.typeGen.generateType(type)} ${cppFieldName};\n`;
+                output += `    auto ${cppFieldName} = std::make_shared<${rawMapType}>();\n`;
                 if (keyIsString) {
                     output += `    for (const auto& kv : ${cppFieldName}_obj) {\n`;
                     // deserialize value by kind
                     if (mapType.valueType.kind === 'primitive') {
                         const vp = mapType.valueType as PrimitiveTypeNode;
                         if (vp.type === 'int') {
-                            output += `        ${cppFieldName}[kv.first] = kv.second.as_int();\n`;
+                            output += `        (*${cppFieldName})[kv.first] = kv.second.as_int();\n`;
                         } else if (vp.type === 'float' || vp.type === 'double') {
-                            output += `        ${cppFieldName}[kv.first] = kv.second.as_number();\n`;
+                            output += `        (*${cppFieldName})[kv.first] = kv.second.as_number();\n`;
                         } else if (vp.type === 'bool') {
-                            output += `        ${cppFieldName}[kv.first] = kv.second.as_bool();\n`;
+                            output += `        (*${cppFieldName})[kv.first] = kv.second.as_bool();\n`;
                         } else if (vp.type === 'string') {
-                            output += `        ${cppFieldName}[kv.first] = kv.second.as_string();\n`;
+                            output += `        (*${cppFieldName})[kv.first] = kv.second.as_string();\n`;
                         } else {
-                            output += `        ${cppFieldName}[kv.first] = kv.second.as_number();\n`;
+                            output += `        (*${cppFieldName})[kv.first] = kv.second.as_number();\n`;
                         }
                     } else if (mapType.valueType.kind === 'class' || mapType.valueType.kind === 'externClass') {
                         const vtName = (mapType.valueType as any).name;
                         output += `        if (!kv.second.is_object()) { throw std::runtime_error("Expected object as map value for key '" + kv.first + "'"); }\n`;
-                        output += `        ${cppFieldName}[kv.first] = ${vtName}::_fromJSON(kv.second.as_object());\n`;
+                        output += `        (*${cppFieldName})[kv.first] = ${vtName}::_fromJSON(kv.second.as_object());\n`;
                     } else {
                         output += `        // TODO: Map value type '${mapType.valueType.kind}' not yet supported\n`;
                     }
@@ -700,25 +707,26 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
             case 'set': {
                 const setType = type as SetTypeNode;
                 const elemType = setType.elementType;
+                const rawSetType = `std::unordered_set<${generator.typeGen.generateType(elemType)}>`;
                 output += `    const auto& ${cppFieldName}_arr = doof_runtime::json::get_array(${jsonObjName}, "${jsonFieldName}");\n`;
-                output += `    ${generator.typeGen.generateType(type)} ${cppFieldName};\n`;
+                output += `    auto ${cppFieldName} = std::make_shared<${rawSetType}>();\n`;
                 output += `    for (const auto& item : ${cppFieldName}_arr) {\n`;
                 if (elemType.kind === 'primitive') {
                     const ep = elemType as PrimitiveTypeNode;
                     if (ep.type === 'int') {
-                        output += `        ${cppFieldName}.insert(item.as_int());\n`;
+                        output += `        ${cppFieldName}->insert(item.as_int());\n`;
                     } else if (ep.type === 'float' || ep.type === 'double') {
-                        output += `        ${cppFieldName}.insert(item.as_number());\n`;
+                        output += `        ${cppFieldName}->insert(item.as_number());\n`;
                     } else if (ep.type === 'bool') {
-                        output += `        ${cppFieldName}.insert(item.as_bool());\n`;
+                        output += `        ${cppFieldName}->insert(item.as_bool());\n`;
                     } else if (ep.type === 'string') {
-                        output += `        ${cppFieldName}.insert(item.as_string());\n`;
+                        output += `        ${cppFieldName}->insert(item.as_string());\n`;
                     } else {
-                        output += `        ${cppFieldName}.insert(item.as_number());\n`;
+                        output += `        ${cppFieldName}->insert(item.as_number());\n`;
                     }
                 } else if (elemType.kind === 'class' || elemType.kind === 'externClass') {
                     const etName = (elemType as any).name;
-                    output += `        if (item.is_object()) { ${cppFieldName}.insert(${etName}::_fromJSON(item.as_object())); } else { ${cppFieldName}.insert(nullptr); }\n`;
+                    output += `        if (item.is_object()) { ${cppFieldName}->insert(${etName}::_fromJSON(item.as_object())); } else { ${cppFieldName}->insert(nullptr); }\n`;
                 } else {
                     output += `        // TODO: Set element type '${elemType.kind}' not yet supported\n`;
                 }
@@ -868,26 +876,28 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
             case 'map': {
                 const mapType2 = type as MapTypeNode;
                 const keyIsString2 = mapType2.keyType.kind === 'primitive' && (mapType2.keyType as PrimitiveTypeNode).type === 'string';
+                const rawMapType2 = `std::map<${generator.typeGen.generateType(mapType2.keyType)}, ${generator.typeGen.generateType(mapType2.valueType)}>`;
                 output += `        const auto& ${cppFieldName}_obj = doof_runtime::json::get_object(${jsonObjName}, "${jsonFieldName}");\n`;
+                output += `        ${cppFieldName} = std::make_shared<${rawMapType2}>();\n`;
                 if (keyIsString2) {
                     output += `        for (const auto& kv : ${cppFieldName}_obj) {\n`;
                     if (mapType2.valueType.kind === 'primitive') {
                         const vp2 = mapType2.valueType as PrimitiveTypeNode;
                         if (vp2.type === 'int') {
-                            output += `            ${cppFieldName}[kv.first] = kv.second.as_int();\n`;
+                            output += `            (*${cppFieldName})[kv.first] = kv.second.as_int();\n`;
                         } else if (vp2.type === 'float' || vp2.type === 'double') {
-                            output += `            ${cppFieldName}[kv.first] = kv.second.as_number();\n`;
+                            output += `            (*${cppFieldName})[kv.first] = kv.second.as_number();\n`;
                         } else if (vp2.type === 'bool') {
-                            output += `            ${cppFieldName}[kv.first] = kv.second.as_bool();\n`;
+                            output += `            (*${cppFieldName})[kv.first] = kv.second.as_bool();\n`;
                         } else if (vp2.type === 'string') {
-                            output += `            ${cppFieldName}[kv.first] = kv.second.as_string();\n`;
+                            output += `            (*${cppFieldName})[kv.first] = kv.second.as_string();\n`;
                         } else {
-                            output += `            ${cppFieldName}[kv.first] = kv.second.as_number();\n`;
+                            output += `            (*${cppFieldName})[kv.first] = kv.second.as_number();\n`;
                         }
                     } else if (mapType2.valueType.kind === 'class' || mapType2.valueType.kind === 'externClass') {
                         const vtName2 = (mapType2.valueType as any).name;
                         output += `            if (!kv.second.is_object()) { throw std::runtime_error("Expected object as map value for key '" + kv.first + "'"); }\n`;
-                        output += `            ${cppFieldName}[kv.first] = ${vtName2}::_fromJSON(kv.second.as_object());\n`;
+                        output += `            (*${cppFieldName})[kv.first] = ${vtName2}::_fromJSON(kv.second.as_object());\n`;
                     } else {
                         output += `            // TODO: Map value type '${mapType2.valueType.kind}' not yet supported\n`;
                     }
@@ -901,24 +911,26 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
             case 'set': {
                 const setType2 = type as SetTypeNode;
                 const elemType2 = setType2.elementType;
+                const rawSetType2 = `std::unordered_set<${generator.typeGen.generateType(elemType2)}>`;
                 output += `        const auto& ${cppFieldName}_arr = doof_runtime::json::get_array(${jsonObjName}, "${jsonFieldName}");\n`;
+                output += `        ${cppFieldName} = std::make_shared<${rawSetType2}>();\n`;
                 output += `        for (const auto& item : ${cppFieldName}_arr) {\n`;
                 if (elemType2.kind === 'primitive') {
                     const ep2 = elemType2 as PrimitiveTypeNode;
                     if (ep2.type === 'int') {
-                        output += `            ${cppFieldName}.insert(item.as_int());\n`;
+                        output += `            ${cppFieldName}->insert(item.as_int());\n`;
                     } else if (ep2.type === 'float' || ep2.type === 'double') {
-                        output += `            ${cppFieldName}.insert(item.as_number());\n`;
+                        output += `            ${cppFieldName}->insert(item.as_number());\n`;
                     } else if (ep2.type === 'bool') {
-                        output += `            ${cppFieldName}.insert(item.as_bool());\n`;
+                        output += `            ${cppFieldName}->insert(item.as_bool());\n`;
                     } else if (ep2.type === 'string') {
-                        output += `            ${cppFieldName}.insert(item.as_string());\n`;
+                        output += `            ${cppFieldName}->insert(item.as_string());\n`;
                     } else {
-                        output += `            ${cppFieldName}.insert(item.as_number());\n`;
+                        output += `            ${cppFieldName}->insert(item.as_number());\n`;
                     }
                 } else if (elemType2.kind === 'class' || elemType2.kind === 'externClass') {
                     const etName2 = (elemType2 as any).name;
-                    output += `            if (item.is_object()) { ${cppFieldName}.insert(${etName2}::_fromJSON(item.as_object())); } else { ${cppFieldName}.insert(nullptr); }\n`;
+                    output += `            if (item.is_object()) { ${cppFieldName}->insert(${etName2}::_fromJSON(item.as_object())); } else { ${cppFieldName}->insert(nullptr); }\n`;
                 } else {
                     output += `            // TODO: Set element type '${elemType2.kind}' not yet supported\n`;
                 }
@@ -1059,11 +1071,10 @@ function generateParameterType(generator: CppGenerator, type: Type): string {
         case 'externClass':
         case 'union':
         case 'function':
-            return generator.typeGen.generateType(type);
         case 'map':
         case 'set':
-            // Maps and sets are passed by reference (const or mutable depending on type)
-            return generator.typeGen.generateType(type) + '&';
+            // Maps and Sets are now shared_ptr like arrays
+            return generator.typeGen.generateType(type);
         case 'enum':
             const enumType = type as EnumTypeNode;
             return enumType.name; // Pass enums by value

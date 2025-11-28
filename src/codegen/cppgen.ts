@@ -177,10 +177,10 @@ export class CppGenerator implements ICodeGenerator {
           default: return 'nullptr';
         }
       case 'array':
-        return 'nullptr';
       case 'map':
       case 'set':
-        return '{}';
+        // These are all shared_ptr types now
+        return 'nullptr';
       case 'class':
         const classType = type as ClassTypeNode;
         if (classType.isWeak) {
