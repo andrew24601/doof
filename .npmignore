@@ -1,0 +1,33 @@
+# Source files (dist is included via files in package.json)
+src/
+test/
+temp/
+integration/
+docs/
+enhancements/
+build/
+
+# IDE and editor files
+.vscode/
+.github/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts not needed for package
+*.tsbuildinfo
+coverage/
+
+# Sub-projects
+vm/
+vscode-extension/
+ios/
+unity/
+
+# Config files not needed at runtime
+tsconfig.json
+vitest.config.ts
+.gitignore
+
+# Lock files
+package-lock.json

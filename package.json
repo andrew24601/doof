@@ -1,11 +1,22 @@
 {
   "name": "doof",
-  "version": "1.0.0",
-  "description": "Doof language",
-  "main": "dist/cli.js",
+  "version": "0.0.1",
+  "description": "TypeScript-like language transpiler targeting C++, JavaScript, and VM bytecode",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "doof": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "doof_runtime.cpp",
+    "doof_runtime.h"
+  ],
   "scripts": {
-    "build": "esbuild src/cli.ts --bundle --platform=node --target=node20 --outfile=build/doof --format=esm --external:source-map && chmod +x build/doof",
+    "build": "tsc",
+    "clean": "rm -rf dist build && echo 'Cleaned build artifacts'",
     "build:bin": "esbuild src/cli.ts --bundle --platform=node --target=node20 --outfile=build/doof --format=esm --external:source-map && chmod +x build/doof",
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "transpile": "node dist/cli.js"
@@ -13,10 +24,23 @@
   "keywords": [
     "typescript",
     "cpp",
-    "transpiler"
+    "transpiler",
+    "compiler",
+    "codegen"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrew24601/doof.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andrew24601/doof/issues"
+  },
+  "homepage": "https://github.com/andrew24601/doof#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.0.15",
     "@types/source-map": "^0.5.2",

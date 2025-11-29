@@ -4,7 +4,7 @@
 
 import { Transpiler } from './transpiler';
 import { formatDoofCode, FormatterOptions } from './formatter';
-import { promises as fs } from 'fs';
+import { promises as fs, readFileSync } from 'fs';
 import path from 'path';
 import { exec as execCb } from 'child_process';
 import { promisify } from 'util';
@@ -12,6 +12,28 @@ import { writeVmGlueFiles } from './vm-glue-writer';
 import { logger, LogLevel } from './logger';
 
 const exec = promisify(execCb);
+
+// Get version from package.json
+function getVersion(): string {
+  try {
+    const currentDir = __dirname;
+    // Walk up to find package.json (handles both src/ and dist/)
+    let dir = currentDir;
+    for (let i = 0; i < 5; i++) {
+      const pkgPath = path.join(dir, 'package.json');
+      try {
+        const content = readFileSync(pkgPath, 'utf-8');
+        const pkg = JSON.parse(content);
+        return pkg.version || '0.0.0';
+      } catch {
+        dir = path.dirname(dir);
+      }
+    }
+    return '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 interface CliOptions {
   inputs?: string[];
@@ -133,10 +155,11 @@ export function parseArgs(args: string[]): CliOptions {
         options.noLineDirectives = true;
         break;
       default:
-        if (!arg.startsWith('-')) {
-          options.inputs = options.inputs || [];
-          options.inputs.push(arg);
+        if (arg.startsWith('-')) {
+          throw new Error(`Unknown option: ${arg}`);
         }
+        options.inputs = options.inputs || [];
+        options.inputs.push(arg);
         break;
     }
   }
@@ -187,7 +210,7 @@ Examples:
 }
 
 export function showVersion(): void {
-  console.log('doof 1.0.0');
+  console.log(`doof ${getVersion()}`);
 }
 
 // Helper function to write multi-file output
@@ -525,6 +548,6 @@ async function runCppProgram(sourceFile: string, outputDir: string, basename: st
 
 
   main().catch(error => {
-    console.error('Unexpected error:', error);
+    console.error(`Error: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   });

@@ -86,10 +86,10 @@ describe('CLI', () => {
       });
     });
 
-    it('should ignore unknown flags', async () => {
+    it('should throw on unknown flags', async () => {
       const { parseArgs } = await import('../src/cli.js');
       
-      expect(parseArgs(['--unknown-flag', 'input.do'])).toEqual({ inputs: ['input.do'] });
+      expect(() => parseArgs(['--unknown-flag', 'input.do'])).toThrow('Unknown option: --unknown-flag');
     });
   });
 
@@ -112,7 +112,8 @@ describe('CLI', () => {
       
       showVersion();
       
-      expect(mockConsoleLog).toHaveBeenCalledWith('doof 1.0.0');
+      // Version string should start with 'doof ' followed by a semver-like pattern
+      expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringMatching(/^doof \d+\.\d+\.\d+/));
     });
   });
 });
