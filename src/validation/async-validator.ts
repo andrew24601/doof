@@ -25,10 +25,27 @@ export function isImmutable(type: Type, context: ValidationContext): boolean {
             return true;
         case 'union':
             return type.types.every(t => isImmutable(t, context));
-        case 'typeAlias':
+        case 'typeAlias': {
+             // First check if it's a type alias
              const alias = context.typeAliases.get(type.name);
-             if (!alias) return false;
-             return isImmutable(alias.type, context);
+             if (alias) {
+                 return isImmutable(alias.type, context);
+             }
+             // Check if it's actually a class (typeAlias nodes may refer to classes before resolution)
+             const classDecl = context.classes.get(type.name);
+             if (classDecl) {
+                 return isClassImmutable(classDecl, context);
+             }
+             // Check if it's an enum (enums are immutable)
+             if (context.enums.has(type.name)) {
+                 return true;
+             }
+             // Check if it's an extern class (extern classes are mutable by default)
+             if (context.externClasses.has(type.name)) {
+                 return false;
+             }
+             return false;
+        }
         case 'function':
             return true; // Functions are immutable (code)
         case 'unknown':
@@ -43,6 +60,12 @@ const immutableClassCache = new Map<string, boolean>();
 function isClassImmutable(classDecl: ClassDeclaration, context: ValidationContext): boolean {
     if (immutableClassCache.has(classDecl.name.name)) {
         return immutableClassCache.get(classDecl.name.name)!;
+    }
+    
+    // Classes declared with 'readonly class' are immutable
+    if (classDecl.isReadonly) {
+        immutableClassCache.set(classDecl.name.name, true);
+        return true;
     }
     
     // Break recursion by assuming true initially
