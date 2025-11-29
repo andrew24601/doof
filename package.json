@@ -1,6 +1,6 @@
 {
   "name": "doof",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TypeScript-like language transpiler targeting C++, JavaScript, and VM bytecode",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

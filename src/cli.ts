@@ -183,7 +183,7 @@ Options:
   --no-validation         Skip semantic validation
   --source-root <dir>     Source root directory for namespace mapping (can be used multiple times)
   --verbose               Print verbose error/debug output
-  --vm-glue               Generate only VM glue files for extern classes (C++ output emits them automatically)
+  --vm-glue               Generate VM glue files for extern classes
   --vm-glue-dir <dir>     Output directory for VM glue files (default: output directory or input folder)
   --no-line-directives    Disable emission of C/C++ #line directives in generated output (for editor/debug mapping)
   -r, --run               Transpile, compile, and run the program (easy mode)
@@ -368,23 +368,6 @@ async function main(): Promise<void> {
     }
 
   await writeMultiFileOutput(result, outputDir, transpilerOptions, inputFiles);
-
-    if (transpilerOptions.target === 'cpp') {
-      const glueOutputDir = options.vmGlueDir ? path.resolve(options.vmGlueDir) : path.resolve(outputDir);
-      try {
-        const glueResult = await writeVmGlueFiles(result.globalContext, { outputDir: glueOutputDir });
-        if (glueResult.externClassCount === 0) {
-          console.error('No extern classes found; no VM glue generated.');
-        } else {
-          for (const filePath of glueResult.generatedFiles) {
-            console.error(`Generated ${filePath}`);
-          }
-        }
-      } catch (error) {
-        console.error(`Error generating VM glue: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        process.exit(1);
-      }
-    }
 
     if (options.run && inputFiles.length === 1 && transpilerOptions.target === 'cpp' && transpilerOptions.outputSource) {
       const inputFile = inputFiles[0];
