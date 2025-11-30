@@ -21,10 +21,10 @@ import type { TranspilerError } from '../../../src/transpiler';
 
 const DOMINO_KEYWORDS = [
     'if', 'else', 'for', 'while', 'do', 'break', 'continue', 'return',
-    'switch', 'case', 'default', 'try', 'catch', 'throw', 'finally',
-    'let', 'const', 'readonly', 'function', 'class', 'struct', 'enum', 'exception',
-    'extern', 'export', 'import', 'from', 'static', 'private', 'weak', 'type', 'escaping',
-    'this', 'constructor', 'of', 'in', 'is', 'true', 'false', 'null', 'nullptr'
+    'switch', 'case', 'default', 'async', 'await',
+    'let', 'const', 'readonly', 'function', 'class', 'enum', 'interface',
+    'extern', 'export', 'import', 'from', 'static', 'private', 'weak', 'type',
+    'extends', 'this', 'of', 'in', 'is', 'new', 'true', 'false', 'null'
 ];
 
 const DOMINO_TYPES = [

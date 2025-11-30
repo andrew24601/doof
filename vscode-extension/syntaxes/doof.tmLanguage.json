@@ -201,11 +201,11 @@
             "patterns": [
                 {
                     "name": "keyword.control.doof",
-                    "match": "\\b(if|else|for|while|do|break|continue|return|switch|case|default)\\b"
+                    "match": "\\b(if|else|for|while|do|break|continue|return|switch|case|default|async|await)\\b"
                 },
                 {
                     "name": "keyword.declaration.doof",
-                    "match": "\\b(let|const|readonly|function|extern|export|import|from|static|private|weak|type|interface|escaping)\\b"
+                    "match": "\\b(let|const|readonly|function|extern|export|import|from|static|private|weak|type|interface)\\b"
                 },
                 {
                     "name": "keyword.operator.new.doof",
