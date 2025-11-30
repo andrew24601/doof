@@ -16,10 +16,49 @@ The code of the transpiler should use TypeScript that is conceptully similar to 
 - avoid using TypeScript features that do not have a direct equivalent in the TypeScript-like language such as regex.
 
 # Layout
-* src - source files
-* test - unit tests *.spec.ts
-* dist - built artefacts from npm run build end up here - e.g. dist/cli.js
-* temp - folder for any temporary files for testing features
+
+See `docs/architecture.md` for detailed source code breakdown.
+
+## Top-Level Directories
+
+| Directory | Description |
+|-----------|-------------|
+| `src/` | Transpiler source code (TypeScript) |
+| `test/` | Unit tests (`*.spec.ts`) using vitest |
+| `integration/` | End-to-end tests that compile and execute generated code |
+| `dist/` | Built artifacts from `npm run build` (e.g., `dist/cli.js`) |
+| `docs/` | Documentation (syntax.md, architecture.md, etc.) |
+| `vm/` | VM runtime implementation (C++) |
+| `temp/` | Temporary files for development/testing |
+| `enhancements/` | TODO.md and feature planning |
+| `build/` | C++ build artifacts from compiled `.do` files |
+| `vscode-extension/` | VS Code extension for doof syntax highlighting |
+
+## Source Code Structure (`src/`)
+
+| Module | Key Files | Description |
+|--------|-----------|-------------|
+| **Entry Points** | `cli.ts`, `transpiler.ts`, `index.ts` | CLI, main transpiler class, library API |
+| **Parser** | `parser/*.ts` | Lexer, AST construction, split by concern (expressions, statements, declarations, types) |
+| **Validation** | `validation/*.ts` | Type checking, semantic analysis, intrinsics. Split by expression/statement type |
+| **Code Generation** | `codegen/*.ts` | Target-specific generators implementing `ICodeGenerator` interface |
+| **Project** | `project/*.ts` | Multi-file compilation, dependency resolution, monomorphization |
+| **Formatter** | `formatter/*.ts` | Source code formatter for `.do` files |
+
+## Code Generation Targets (`src/codegen/`)
+
+| Target | Entry | Subdirectory | Output |
+|--------|-------|--------------|--------|
+| C++ | `cppgen.ts` | `cpp/` | `.h` and `.cpp` files |
+| JavaScript | `jsgen.ts` | `js/` | `.js` with source maps |
+| VM Bytecode | `vmgen.ts` | `vm/` | `.vmbc` JSON format |
+
+## Runtime Files
+
+| File | Description |
+|------|-------------|
+| `doof_runtime.h` | C++ runtime header (shared_ptr helpers, etc.) |
+| `doof_runtime.cpp` | C++ runtime implementation |
 
 # Style
 
