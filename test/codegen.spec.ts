@@ -376,6 +376,59 @@ describe('CppGenerator', () => {
       expect(source).toContain('std::shared_ptr<MyClass> obj;');
       expect(source).toContain('std::weak_ptr<MyClass> weakRef;');
     });
+
+    it('keeps template arguments on weak parameters', () => {
+      const { header } = generateCode(`
+        class Box<T> {
+          value: T;
+        }
+
+        function consume(box: weak Box<string>): void {}
+      `);
+
+      expect(header).toContain('void consume(std::weak_ptr<Box__primitive_string> box);');
+    });
+
+    it('supports weak entries inside maps', () => {
+      const { header } = generateCode(`
+        class Node {}
+
+        function attach(parents: Map<string, weak Node>): void {}
+      `);
+
+      expect(header).toContain('void attach(std::shared_ptr<std::map<std::string, std::weak_ptr<Node>>> parents);');
+    });
+
+    it('applies weak through type aliases', () => {
+      const { header } = generateCode(`
+        class Service {}
+        type ServiceHandle = Service;
+
+        function hold(ref: weak ServiceHandle): void {}
+      `);
+
+      expect(header).toContain('void hold(std::weak_ptr<Service> ref);');
+    });
+
+    it('preserves weak after interface desugaring', () => {
+      const { header } = generateCode(`
+        interface Drivable {
+          drive(): void;
+        }
+
+        class Car {
+          drive(): void {}
+        }
+
+        class Boat {
+          drive(): void {}
+        }
+
+        function dispatch(driver: weak Drivable): void {}
+      `);
+
+      expect(header).toContain('void dispatch(std::variant<std::weak_ptr<Car>, std::weak_ptr<Boat>> driver);');
+    });
   });
 
   describe('enums', () => {

@@ -71,6 +71,32 @@ function resolveType(type: Type, validator: Validator): Type {
   return type;
 }
 
+function applyWeakModifier(type: Type, validator: Validator, location?: SourceLocation): Type {
+  const errorLocation = location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
+
+  switch (type.kind) {
+    case 'class':
+      (type as ClassTypeNode).isWeak = true;
+      return type;
+    case 'externClass':
+      (type as ExternClassTypeNode).isWeak = true;
+      return type;
+    case 'union': {
+      const unionType = type as UnionTypeNode;
+      unionType.types = unionType.types.map(member => {
+        if (member.kind === 'primitive' && (member as PrimitiveTypeNode).type === 'null') {
+          return member;
+        }
+        return applyWeakModifier(member, validator, location);
+      });
+      return unionType;
+    }
+    default:
+      validator.addError("'weak' can only be applied to class types", errorLocation);
+      return type;
+  }
+}
+
 export function isTypeCompatible(sourceType: Type, targetType: Type, validator: Validator): boolean {
   // Resolve type aliases first
   const resolvedSourceType = resolveType(sourceType, validator);
@@ -725,7 +751,10 @@ export function resolveActualType(type: Type, validator: Validator, location?: S
       const aliasDecl = validator.context.typeAliases.get(aliasType.name);
       if (aliasDecl) {
         // Replace the type alias with its resolved type
-        const resolvedType = resolveTypeAlias(aliasType, validator, location);
+        let resolvedType = resolveTypeAlias(aliasType, validator, location);
+        if (aliasType.isWeak) {
+          resolvedType = applyWeakModifier(resolvedType, validator, location);
+        }
         Object.assign(type, resolvedType);
         resolveActualType(type, validator, location);
       } else {

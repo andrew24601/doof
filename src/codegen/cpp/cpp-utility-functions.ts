@@ -2,8 +2,7 @@
 
 import {
   Type, Parameter, Identifier, Literal, ValidationContext, ExternClassDeclaration,
-  PrimitiveTypeNode, ArrayTypeNode, MapTypeNode, SetTypeNode, ClassTypeNode, EnumTypeNode,
-  GlobalValidationContext
+  PrimitiveTypeNode, EnumTypeNode, GlobalValidationContext
 } from '../../types';
 
 export interface CppGeneratorContext {
@@ -84,27 +83,13 @@ export function generateParameterType(type: Type, context: CppGeneratorContext):
         default: return primType.type; // Pass primitives by value
       }
     case 'array':
-      const arrayType = type as ArrayTypeNode;
-      // Dynamic array - use shared_ptr semantics
-      return `std::shared_ptr<std::vector<${context.generateType(arrayType.elementType)}>>`;
     case 'map':
     case 'set':
-      // Maps and Sets use shared_ptr like arrays - just use the type
-      return context.generateType(type);
     case 'class':
-      const classType = type as ClassTypeNode;
-      if (classType.isWeak) {
-        return `std::weak_ptr<${classType.name}>`;
-      } else {
-        return `std::shared_ptr<${classType.name}>`; // Classes are already references
-      }
     case 'externClass':
-      const typeName = type.namespace ? `${type.namespace}::${type.name}` : type.name;
-      if (type.isWeak) {
-        return `std::weak_ptr<${typeName}>`;
-      } else {
-        return `std::shared_ptr<${typeName}>`; // Extern classes are already references
-      }
+    case 'union':
+    case 'typeAlias':
+      return context.generateType(type);
     case 'enum':
       const enumType = type as EnumTypeNode;
       return enumType.name; // Pass enums by value
@@ -115,8 +100,6 @@ export function generateParameterType(type: Type, context: CppGeneratorContext):
       // Escaping: may be stored, passed by value 
       // Non-escaping: temporary use only, also passed by value for simplicity
       return `std::function<${context.generateType(funcType.returnType)}(${paramTypes})>`;
-    case 'union':
-      return context.generateType(type); // Delegate to context's union type generation
     default:
       throw new Error("Compiler error - unsupported parameter type");
   }
