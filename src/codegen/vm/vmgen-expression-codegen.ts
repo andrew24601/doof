@@ -1,6 +1,6 @@
 import { Expression, Literal, Identifier, BinaryExpression, UnaryExpression, ConditionalExpression, CallExpression, MemberExpression, IndexExpression, LambdaExpression, TrailingLambdaExpression, ObjectExpression, PositionalObjectExpression, TupleExpression, SetExpression, TypeGuardExpression, ArrayExpression, InterpolatedString, NullCoalesceExpression, OptionalChainExpression, NonNullAssertionExpression, Type, FieldDeclaration, EnumShorthandMemberExpression, AwaitExpression, AsyncExpression } from "../../types";
 import { CompilationContext, getActiveValidationContext } from "../vmgen";
-import { generateMapMethodCall, generateSetMethodCall, generateStringMethodCall, generateArrayMethodCall, generateInstanceMethodCall, generateInstanceMethodCallFromRegister, generateStaticMethodCall, generateIntrinsicCall, generateIntrinsicExternCall, generateUserFunctionCall, generateAsyncCall } from "./vmgen-call-codegen";
+import { generateMapMethodCall, generateSetMethodCall, generateStringMethodCall, generateArrayMethodCall, generateInstanceMethodCall, generateInstanceMethodCallFromRegister, generateStaticMethodCall, generateIntrinsicCall, generateIntrinsicExternCall, generateUserFunctionCall, generateUserFunctionCallWithEvalOrder, generateAsyncCall } from "./vmgen-call-codegen";
 import { addConstant, emit, createLabel, setLabel, emitJump, setSourceLocationFromNode } from "./vmgen-emit";
 import { generateLiteral } from "./vmgen-literal-codegen";
 import { generateBinaryExpression, generateUnaryExpression } from "./vmgen-binary-codegen";
@@ -619,7 +619,12 @@ export function generateCallExpression(call: CallExpression, targetReg: number, 
                     
                     const funcMetadata = context.functionTable.get(funcName);
                     if (funcMetadata) {
-                        generateUserFunctionCall(funcMetadata, call.arguments, targetReg, context);
+                        // Use evaluation order-preserving call if we have reordering metadata
+                        if (call.namedArgumentsLexicalOrder && call.namedArgumentsLexicalOrder.length > 0) {
+                            generateUserFunctionCallWithEvalOrder(funcMetadata, call, targetReg, context);
+                        } else {
+                            generateUserFunctionCall(funcMetadata, call.arguments, targetReg, context);
+                        }
                         return;
                     }
                 }

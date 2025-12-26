@@ -46,6 +46,13 @@ export function validateObjectExpression(expr: ObjectExpression, validator: Vali
       if (callExpr.enumConversionInfo) {
         (expr as any).enumConversionInfo = callExpr.enumConversionInfo;
       }
+      // Copy named argument evaluation order metadata
+      if (callExpr.namedArgumentsLexicalOrder) {
+        (expr as any).namedArgumentsLexicalOrder = callExpr.namedArgumentsLexicalOrder;
+      }
+      if (callExpr.argumentEvaluationOrder) {
+        (expr as any).argumentEvaluationOrder = callExpr.argumentEvaluationOrder;
+      }
 
       expr.inferredType = returnType;
       return returnType;

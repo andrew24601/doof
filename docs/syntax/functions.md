@@ -44,7 +44,7 @@ Positional with ():
 configure(true, true, false, false);
 ```
 
-Named with {} (arguments must appear in declared order):
+Named with {} (arguments can appear in any order):
 ```doof
 configure {
   enableFeatureA: true,
@@ -55,12 +55,29 @@ configure {
 
 // Field shorthand supported if variables are in scope
 configure { enableFeatureA, enableFeatureB, useCache, verbose };
+
+// Arguments can be specified in any order
+configure { verbose: false, useCache: true, enableFeatureA: false, enableFeatureB: true };
 ```
 
 Rules:
 - Use either () or {}; mixing is not allowed
 - All required parameters must be provided
-- Named calls use parameter names and must preserve declared order; misspelled/extra names are errors
+- Named arguments use parameter names; misspelled/extra names are errors
+- Arguments can be specified in any order; the compiler reorders them for the target language
+
+### Evaluation order
+
+When named arguments are reordered, the compiler ensures that expressions with side effects are still evaluated in lexical (source) order. For efficiency, side-effect-free expressions (literals, identifiers, simple arithmetic) are not wrapped in temporaries.
+
+```doof
+// This evaluates getValue() before getDefault(), even though
+// 'value' comes after 'default' in the function signature
+function process(default: int, value: int): void { /* ... */ }
+
+process { value: getValue(), default: getDefault() };
+// Generates: (let _t0 = getValue(); let _t1 = getDefault(); process(_t1, _t0))
+```
 
 C++ mapping: named arguments are syntactic sugar; generated calls are positional.
 

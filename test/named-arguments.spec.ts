@@ -234,5 +234,100 @@ describe('Named Arguments', () => {
       expect(result.errors.length).toBe(0);
       expect(result.source).toContain('testFunc(param1, "hello")');
     });
+
+    it('should generate temporaries for reordered side-effecting arguments', () => {
+      const code = `
+        class State {
+          value: int;
+        }
+        
+        function increment(state: State): int {
+          state.value = state.value + 1;
+          return state.value;
+        }
+        
+        function testFunc(first: int, second: int): int {
+          return first + second;
+        }
+        
+        function test(): int {
+          let state = State { value: 0 };
+          // Arguments provided in reverse order with side effects
+          // second should be evaluated FIRST (lexical order)
+          // but passed SECOND (positional order)
+          return testFunc { second: increment(state), first: increment(state) };
+        }
+      `;
+      
+      const result = transpileCode(code);
+      expect(result.errors.length).toBe(0);
+      // Should generate IIFE with temporaries to preserve evaluation order
+      expect(result.source).toContain('[&]()');
+      expect(result.source).toContain('_arg0');
+      expect(result.source).toContain('_arg1');
+    });
+
+    it('should not generate temporaries for literal reordered arguments', () => {
+      const code = `
+        function testFunc(first: int, second: int): int {
+          return first + second;
+        }
+        
+        function test(): int {
+          // Arguments reordered but all literals (truly constant)
+          return testFunc { second: 2, first: 1 };
+        }
+      `;
+      
+      const result = transpileCode(code);
+      expect(result.errors.length).toBe(0);
+      // Should NOT generate IIFE since all args are literals
+      expect(result.source).not.toContain('[&]()');
+      expect(result.source).toContain('testFunc(1, 2)');
+    });
+
+    it('should generate temporaries for identifier arguments (conservative)', () => {
+      const code = `
+        function testFunc(first: int, second: int): int {
+          return first + second;
+        }
+        
+        function test(): int {
+          let a = 1;
+          let b = 2;
+          // Arguments reordered with identifiers - conservative: use temps
+          // (identifiers could be mutated by other calls in nested expressions)
+          return testFunc { second: b, first: a };
+        }
+      `;
+      
+      const result = transpileCode(code);
+      expect(result.errors.length).toBe(0);
+      // Should generate IIFE since identifiers are not considered constant
+      expect(result.source).toContain('[&]()');
+    });
+
+    it('should generate temporaries only for side-effecting arguments in mixed cases', () => {
+      const code = `
+        function sideEffect(): int {
+          return 42;
+        }
+        
+        function testFunc(first: int, second: int, third: int): int {
+          return first + second + third;
+        }
+        
+        function test(): int {
+          let x = 10;
+          // second is side-effecting, first and third are not
+          return testFunc { third: x, second: sideEffect(), first: 5 };
+        }
+      `;
+      
+      const result = transpileCode(code);
+      expect(result.errors.length).toBe(0);
+      // Should generate IIFE because of the side-effecting call
+      expect(result.source).toContain('[&]()');
+    });
   });
 });

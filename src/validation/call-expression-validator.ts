@@ -21,7 +21,8 @@ import {
   createUnknownType,
   getExpressionId,
   validateType,
-  resolveActualType
+  resolveActualType,
+  isSideEffectFreeExpression
 } from "../type-utils";
 import { tryResolveIntrinsic, getMapMethodType, getSetMethodType, getArrayMethodType, getStringMethodType, getMathMethodType } from "./intrinsics-validator";
 import { validateAnyTypeConversionCall } from "./type-conversion-validator";
@@ -387,6 +388,9 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
   // Track which parameters we've seen
   const providedParams = new Set<string>();
   const argumentsByIndex: (Expression | undefined)[] = new Array(parameters.length);
+  
+  // Track lexical order of arguments for evaluation order tracking
+  const lexicalOrderArgs: Array<{ paramIndex: number; expression: Expression }> = [];
 
   // Validate each named argument
   for (const namedArg of namedArgs) {
@@ -423,6 +427,7 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
       }
 
       argumentsByIndex[paramInfo.index] = namedArg.value;
+      lexicalOrderArgs.push({ paramIndex: paramInfo.index, expression: namedArg.value });
     }
   }
 
@@ -447,6 +452,55 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
     }
   }
   expr.arguments = normalizedArgs;
+  
+  // Check if arguments are out of order and need temporaries for evaluation order
+  // Arguments need reordering if they're not in ascending parameter index order
+  let needsReordering = false;
+  let prevParamIndex = -1;
+  for (const arg of lexicalOrderArgs) {
+    if (arg.paramIndex < prevParamIndex) {
+      needsReordering = true;
+      break;
+    }
+    prevParamIndex = arg.paramIndex;
+  }
+  
+  if (needsReordering) {
+    // Build the evaluation order metadata
+    // For each lexical argument, determine if it needs a temporary
+    // An argument needs a temporary if:
+    // 1. It's not side-effect-free, AND
+    // 2. There's a later lexical argument that has a smaller param index (would be evaluated before it positionally)
+    
+    const lexicalOrderWithTemps: Array<{ paramIndex: number; expression: Expression; needsTemp: boolean }> = [];
+    
+    for (let lexIdx = 0; lexIdx < lexicalOrderArgs.length; lexIdx++) {
+      const arg = lexicalOrderArgs[lexIdx];
+      const isSideEffectFree = isSideEffectFreeExpression(arg.expression);
+      
+      // Check if any later argument has a smaller param index
+      let hasLaterSmallerIndex = false;
+      for (let j = lexIdx + 1; j < lexicalOrderArgs.length; j++) {
+        if (lexicalOrderArgs[j].paramIndex < arg.paramIndex) {
+          hasLaterSmallerIndex = true;
+          break;
+        }
+      }
+      
+      // Need temp if not side-effect-free AND there's reordering that could affect it
+      const needsTemp = !isSideEffectFree && hasLaterSmallerIndex;
+      
+      lexicalOrderWithTemps.push({
+        paramIndex: arg.paramIndex,
+        expression: arg.expression,
+        needsTemp
+      });
+    }
+    
+    // Store the evaluation order metadata
+    expr.namedArgumentsLexicalOrder = lexicalOrderWithTemps;
+    expr.argumentEvaluationOrder = lexicalOrderArgs.map(a => a.paramIndex);
+  }
 
   populateCallDispatchInfo(expr, validator);
   ensureCallInfo(expr, validator);

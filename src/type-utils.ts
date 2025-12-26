@@ -1233,3 +1233,34 @@ export function validateTypeArgs(expectedParams: TypeParameter[], providedArgs: 
         }
       }
 }
+
+/**
+ * Determines if an expression is guaranteed to be side-effect-free and its value
+ * cannot change between evaluations (i.e., truly constant).
+ * 
+ * This is intentionally very conservative - we only allow:
+ * - Literals (numbers, strings, booleans, null)
+ * - Enum shorthand expressions (.EnumValue)
+ * 
+ * We explicitly DO NOT include identifiers because:
+ * - Global variables could be modified by function calls
+ * - Local variables could be captured and mutated by lambdas
+ * 
+ * This conservative approach ensures correctness at the cost of generating
+ * a few more temporaries than strictly necessary.
+ */
+export function isSideEffectFreeExpression(expr: Expression): boolean {
+  switch (expr.kind) {
+    case 'literal':
+      // All literals are constant and side-effect-free
+      return true;
+    
+    case 'enumShorthand':
+      // Enum shorthand (.Value) is constant and side-effect-free
+      return true;
+    
+    // Everything else could potentially have side effects or change value
+    default:
+      return false;
+  }
+}

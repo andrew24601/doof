@@ -11,6 +11,90 @@ import { getExpressionType, isIntType } from "./vmgen-type-utils";
 import { ensureArrayIntrinsicSupport } from "./vmgen-array-intrinsics";
 
 /**
+ * Generates arguments into contiguous parameter registers with proper evaluation order.
+ * If the call has reordering metadata (from named arguments in different order),
+ * arguments are evaluated in lexical order but placed in positional parameter slots.
+ * Returns the starting register for the parameter block.
+ */
+export function generateArgumentsWithEvaluationOrder(
+    call: CallExpression,
+    args: Expression[],
+    context: CompilationContext
+): { paramStartReg: number; argCount: number } {
+    if (args.length === 0) {
+        return { paramStartReg: 0, argCount: 0 };
+    }
+
+    // Check if we have reordering metadata from named arguments
+    const lexicalOrder = call.namedArgumentsLexicalOrder;
+    
+    if (!lexicalOrder || lexicalOrder.length === 0) {
+        // No reordering needed - standard argument generation
+        const paramStartReg = context.registerAllocator.allocateContiguous(args.length);
+        for (let i = 0; i < args.length; i++) {
+            const paramReg = paramStartReg + i;
+            generateExpression(args[i], paramReg, context);
+        }
+        return { paramStartReg, argCount: args.length };
+    }
+
+    // Check if any arguments actually need temporaries
+    const anyNeedsTemp = lexicalOrder.some(arg => arg.needsTemp);
+    
+    if (!anyNeedsTemp) {
+        // All arguments are side-effect-free, standard generation is fine
+        const paramStartReg = context.registerAllocator.allocateContiguous(args.length);
+        for (let i = 0; i < args.length; i++) {
+            const paramReg = paramStartReg + i;
+            generateExpression(args[i], paramReg, context);
+        }
+        return { paramStartReg, argCount: args.length };
+    }
+
+    // Need to preserve evaluation order:
+    // 1. Allocate temp registers for lexical order evaluation
+    // 2. Evaluate in lexical order into temps
+    // 3. Allocate final parameter registers
+    // 4. Move from temps to final positions
+
+    // Allocate temp registers (one for each argument)
+    const tempRegs: number[] = [];
+    for (let i = 0; i < lexicalOrder.length; i++) {
+        tempRegs.push(context.registerAllocator.allocate());
+    }
+
+    // Evaluate in lexical order into temps
+    for (let i = 0; i < lexicalOrder.length; i++) {
+        generateExpression(lexicalOrder[i].expression, tempRegs[i], context);
+    }
+
+    // Allocate final parameter registers
+    const paramStartReg = context.registerAllocator.allocateContiguous(args.length);
+
+    // Move temps to final parameter positions
+    for (let i = 0; i < lexicalOrder.length; i++) {
+        const targetParamReg = paramStartReg + lexicalOrder[i].paramIndex;
+        emit('MOVE', targetParamReg, tempRegs[i], 0, context);
+    }
+
+    // Free temp registers
+    for (const reg of tempRegs) {
+        context.registerAllocator.free(reg);
+    }
+
+    return { paramStartReg, argCount: args.length };
+}
+
+/**
+ * Frees the contiguous parameter registers allocated for a call.
+ */
+export function freeArgumentRegisters(paramStartReg: number, argCount: number, context: CompilationContext): void {
+    for (let i = 0; i < argCount; i++) {
+        context.registerAllocator.free(paramStartReg + i);
+    }
+}
+
+/**
  * Helper function to determine the type category for maps and sets.
  * Returns 'int' if the type is an integer, otherwise 'string'.
  */
@@ -1129,6 +1213,50 @@ export function generateUserFunctionCall(funcMetadata: VMFunctionMetadata, args:
   // Return value is in r0, move to target register
   if (targetReg != 0)
     emit('MOVE', targetReg, 0, 0, context);
+}
+
+/**
+ * Generate user function call with proper evaluation order for named arguments.
+ * This variant takes the full CallExpression to access reordering metadata.
+ */
+export function generateUserFunctionCallWithEvalOrder(
+    funcMetadata: VMFunctionMetadata,
+    call: CallExpression,
+    targetReg: number,
+    context: CompilationContext
+): void {
+    const args = call.arguments;
+    
+    if (args.length === 0) {
+        // No arguments
+        const funcConstantValue: VMValue = {
+            type: 'function',
+            value: funcMetadata
+        };
+        const funcIndex = addConstant(funcConstantValue, context);
+        emit('CALL', 1, Math.floor(funcIndex / 256), funcIndex % 256, context);
+    } else {
+        // Generate arguments with proper evaluation order
+        const { paramStartReg, argCount } = generateArgumentsWithEvaluationOrder(call, args, context);
+
+        // Add function metadata to constant pool
+        const funcConstantValue: VMValue = {
+            type: 'function',
+            value: funcMetadata
+        };
+        const funcIndex = addConstant(funcConstantValue, context);
+
+        // CALL paramStartReg, funcIndex - parameters are in paramStartReg..paramStartReg+N-1
+        emit('CALL', paramStartReg, Math.floor(funcIndex / 256), funcIndex % 256, context);
+
+        // Free parameter registers
+        freeArgumentRegisters(paramStartReg, argCount, context);
+    }
+
+    // Return value is in r0, move to target register
+    if (targetReg !== 0) {
+        emit('MOVE', targetReg, 0, 0, context);
+    }
 }
 
 export function generateAsyncCall(funcMetadata: VMFunctionMetadata, args: Expression[], targetReg: number, context: CompilationContext): void {

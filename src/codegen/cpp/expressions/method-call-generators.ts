@@ -57,11 +57,11 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                 } else if (expr.callee.kind === 'member' && expr.intrinsicInfo) {
                     // Handle intrinsic method calls like StringBuilder.append()
                     const memberExpr = expr.callee as MemberExpression;
-                    const args = generateArgumentsFromNamedOrPositional(generator, expr);
                     
                     // Special handling for Math intrinsics - use the cppMapping directly
                     if (expr.intrinsicInfo.namespace === 'Math') {
-                        return `${expr.intrinsicInfo.cppMapping}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${expr.intrinsicInfo!.cppMapping}(${args.join(', ')})`);
                     }
                     
                     const objectExpr = generateExpression(generator, memberExpr.object);
@@ -72,9 +72,11 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                     // StringBuilder methods need the object to be dereferenced if it's a shared_ptr
                     const objectType = inferTypeFromExpression(generator, memberExpr.object);
                     if (objectType.kind === 'externClass' && objectType.name === 'StringBuilder') {
-                        return `${objectExpr}->${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${objectExpr}->${methodName}(${args.join(', ')})`);
                     } else {
-                        return `${objectExpr}.${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${objectExpr}.${methodName}(${args.join(', ')})`);
                     }
                 }
                 break;
@@ -84,14 +86,15 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                     // Static method call: Counter.getCount()
                     const className = dispatchInfo.className!;
                     const methodName = dispatchInfo.targetName!;
-                    const args = generateArgumentsFromNamedOrPositional(generator, expr);
                     
                     // Special handling for Math static methods
                     if (className === 'Math') {
-                        return `std::${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `std::${methodName}(${args.join(', ')})`);
                     }
                     
-                    return `${className}::${methodName}(${args.join(', ')})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${className}::${methodName}(${args.join(', ')})`);
                 }
 
             case 'instanceMethod':
@@ -103,19 +106,20 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                 const className = dispatchInfo.className!;
                     if (className === 'Math') {
                     const methodName = dispatchInfo.targetName!;
-                        const args = generateArgumentsFromNamedOrPositional(generator, expr);
-                        return `std::${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `std::${methodName}(${args.join(', ')})`);
                     }
                     
                     const object = generateExpression(generator, memberExpr.object);
                 const methodName = dispatchInfo.targetName!;
-                    const args = generateArgumentsFromNamedOrPositional(generator, expr);
 
                     // Handle shared_ptr access
                     if (isSharedPtrType(memberExpr.object)) {
-                        return `${object}->${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${object}->${methodName}(${args.join(', ')})`);
                     } else {
-                        return `${object}.${methodName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${object}.${methodName}(${args.join(', ')})`);
                     }
                 }
                 break;
@@ -125,14 +129,14 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                     const memberExpr = expr.callee as MemberExpression;
                     const object = generateExpression(generator, memberExpr.object);
                     const methodName = dispatchInfo.targetName!;
-                    const args = generateArgumentsFromNamedOrPositional(generator, expr);
                     const unionType = (dispatchInfo.unionType || dispatchInfo.objectType) as UnionTypeNode | undefined;
 
                     if (!unionType || unionType.kind !== 'union') {
                         throw new Error('Union method call is missing union type metadata');
                     }
 
-                    return generateUnionMethodCall(object, methodName, args, unionType);
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => generateUnionMethodCall(object, methodName, args, unionType));
                 }
 
             case 'collectionMethod':
@@ -163,20 +167,22 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                     if (expr.callee.kind === 'identifier') {
                         const identifier = expr.callee as Identifier;
                         const funcName = dispatchInfo.targetName!;
-                        const args = generateArgumentsFromNamedOrPositional(generator, expr);
                         
                         // Check if this is actually a member method call (implicit this)
                         if (identifier.resolvedMember && identifier.resolvedMember.kind === 'method') {
-                            return `this->${funcName}(${args.join(', ')})`;
+                            return generateCallWithEvaluationOrder(generator, expr, 
+                                (args) => `this->${funcName}(${args.join(', ')})`);
                         }
                         
                         // Check if this is an imported function - use qualified name
                         if (generator.validationContext?.imports.has(identifier.name)) {
                             const importInfo = generator.validationContext.imports.get(identifier.name)!;
-                            return `${importInfo.sourceModule}::${importInfo.importedName}(${args.join(', ')})`;
+                            return generateCallWithEvaluationOrder(generator, expr,
+                                (args) => `${importInfo.sourceModule}::${importInfo.importedName}(${args.join(', ')})`);
                         }
                         
-                        return `${funcName}(${args.join(', ')})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${funcName}(${args.join(', ')})`);
                     }
                     break;
                 }
@@ -189,8 +195,8 @@ export function generateCallExpression(generator: CppGenerator, expr: CallExpres
                 {
                     // Lambda invocation - generate the callee expression and call it
                     const calleeExpr = generateExpression(generator, expr.callee);
-                    const args = generateArgumentsFromNamedOrPositional(generator, expr);
-                    return `${calleeExpr}(${args.join(', ')})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${calleeExpr}(${args.join(', ')})`);
                 }
     }
 
@@ -403,9 +409,17 @@ export function generateIndexExpression(generator: CppGenerator, expr: IndexExpr
 }
 
 /**
- * Generates arguments from named or positional call syntax
+ * Generates arguments from named or positional call syntax.
+ * Handles argument reordering for named arguments to preserve lexical evaluation order.
  */
 function generateArgumentsFromNamedOrPositional(generator: CppGenerator, expr: CallExpression): string[] {
+    // Check if we have reordering metadata from named arguments
+    if (expr.namedArgumentsLexicalOrder && expr.namedArgumentsLexicalOrder.length > 0) {
+        // Arguments are out of order and may need temporaries
+        // Generate with evaluation order preservation handled by caller
+        return expr.arguments.map(arg => generateExpression(generator, arg));
+    }
+
     // If validator lowered named arguments into positional expr.arguments, just use them.
     if (expr.namedArguments && expr.namedArguments.length > 0 && expr.arguments && expr.arguments.length > 0) {
         return expr.arguments.map(arg => generateExpression(generator, arg));
@@ -427,6 +441,64 @@ function generateArgumentsFromNamedOrPositional(generator: CppGenerator, expr: C
 
     // No signature information available, generate normally
     return expr.arguments.map(arg => generateExpression(generator, arg));
+}
+
+// Global counter for unique temporary names to avoid shadowing in nested IIFEs
+let evalOrderTempCounter = 0;
+
+/**
+ * Generates a call expression with proper evaluation order for reordered named arguments.
+ * When arguments need temporaries for correct evaluation order, wraps the call in an IIFE.
+ */
+function generateCallWithEvaluationOrder(
+    generator: CppGenerator,
+    expr: CallExpression,
+    generateCallCode: (args: string[]) => string
+): string {
+    const lexicalOrder = expr.namedArgumentsLexicalOrder;
+    
+    if (!lexicalOrder || lexicalOrder.length === 0) {
+        // No reordering needed, generate normally
+        const args = generateArgumentsFromNamedOrPositional(generator, expr);
+        return generateCallCode(args);
+    }
+    
+    // Check if any arguments actually need temporaries
+    const anyNeedsTemp = lexicalOrder.some(arg => arg.needsTemp);
+    
+    if (!anyNeedsTemp) {
+        // All arguments are side-effect-free, no need for IIFE
+        const args = expr.arguments.map(arg => generateExpression(generator, arg));
+        return generateCallCode(args);
+    }
+    
+    // Generate an IIFE to ensure correct evaluation order
+    // Pattern: ([&]() { auto _t0 = expr0; auto _t1 = expr1; return func(_t1, _t0); })()
+    
+    const tempDecls: string[] = [];
+    const tempNames: string[] = new Array(expr.arguments.length).fill('');
+    
+    // Process arguments in lexical order (as they appear in source)
+    for (const arg of lexicalOrder) {
+        const tempName = `_arg${evalOrderTempCounter++}`;
+        const exprCode = generateExpression(generator, arg.expression);
+        
+        // Infer the type for the auto declaration
+        const argType = arg.expression.inferredType;
+        if (argType) {
+            const cppType = generator.generateType(argType);
+            tempDecls.push(`${cppType} ${tempName} = ${exprCode}`);
+        } else {
+            tempDecls.push(`auto ${tempName} = ${exprCode}`);
+        }
+        
+        tempNames[arg.paramIndex] = tempName;
+    }
+    
+    // Generate the call with temporaries in positional order
+    const callCode = generateCallCode(tempNames);
+    
+    return `([&]() { ${tempDecls.join('; ')}; return ${callCode}; })()`;
 }
 
 // Array method call generators

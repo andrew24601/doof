@@ -332,6 +332,16 @@ export interface CallExpression extends ASTNode {
   callInfo?: CallDispatchInfo;
   // Snapshot of call dispatch info for resiliency when validators reset callInfo
   callInfoSnapshot?: CallDispatchInfo;
+
+  // Named argument reordering metadata for correct evaluation order.
+  // When arguments are provided in a different order than positional parameters,
+  // code generators may need to emit temporaries to preserve lexical evaluation order.
+  // This array maps lexical order (index) to positional parameter index.
+  // E.g., if user writes func { b: expr1, a: expr2 } for func(a, b), 
+  // argumentEvaluationOrder = [1, 0] means lexical arg 0 maps to param 1, lexical arg 1 maps to param 0.
+  argumentEvaluationOrder?: number[];
+  // Original named arguments in lexical order with their positional indices
+  namedArgumentsLexicalOrder?: Array<{ paramIndex: number; expression: Expression; needsTemp: boolean }>;
 }
 
 // XML-style call prior to normalization into a CallExpression

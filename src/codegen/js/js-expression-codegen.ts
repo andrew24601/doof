@@ -12,6 +12,56 @@ import {
 } from '../../types';
 import { generateJsTypeConversionCall } from './expressions/js-type-conversion-generators';
 
+// Global counter for unique temporary names to avoid shadowing in nested IIFEs
+let evalOrderTempCounter = 0;
+
+/**
+ * Generates a call expression with proper evaluation order for reordered named arguments.
+ * When arguments need temporaries for correct evaluation order, wraps the call in an IIFE.
+ */
+function generateCallWithEvaluationOrder(
+    generator: JsGeneratorInterface,
+    expr: CallExpression,
+    generateCallCode: (args: string[]) => string
+): string {
+    const lexicalOrder = expr.namedArgumentsLexicalOrder;
+    
+    if (!lexicalOrder || lexicalOrder.length === 0) {
+        // No reordering needed, generate normally
+        const args = expr.arguments.map(arg => generator.generateExpression(arg));
+        return generateCallCode(args);
+    }
+    
+    // Check if any arguments actually need temporaries
+    const anyNeedsTemp = lexicalOrder.some(arg => arg.needsTemp);
+    
+    if (!anyNeedsTemp) {
+        // All arguments are side-effect-free, no need for IIFE
+        const args = expr.arguments.map(arg => generator.generateExpression(arg));
+        return generateCallCode(args);
+    }
+    
+    // Generate an IIFE to ensure correct evaluation order
+    // Pattern: ((_t0, _t1) => func(_t1, _t0))(expr0, expr1)
+    // Or with let bindings: (() => { let _t0 = expr0; let _t1 = expr1; return func(_t1, _t0); })()
+    
+    const tempDecls: string[] = [];
+    const tempNames: string[] = new Array(expr.arguments.length).fill('');
+    
+    // Process arguments in lexical order (as they appear in source)
+    for (const arg of lexicalOrder) {
+        const tempName = `_arg${evalOrderTempCounter++}`;
+        const exprCode = generator.generateExpression(arg.expression);
+        tempDecls.push(`let ${tempName} = ${exprCode}`);
+        tempNames[arg.paramIndex] = tempName;
+    }
+    
+    // Generate the call with temporaries in positional order
+    const callCode = generateCallCode(tempNames);
+    
+    return `(() => { ${tempDecls.join('; ')}; return ${callCode}; })()`;
+}
+
 // Forward declaration for JsGenerator type
 export interface JsGeneratorInterface {
     generateExpression(expr: Expression): string;
@@ -322,8 +372,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
                     // Static method call: Counter.getCount()
                     const className = dispatchInfo.className!;
                     const methodName = dispatchInfo.targetName!;
-                    const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-                    return `${className}.${methodName}(${args})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${className}.${methodName}(${args.join(', ')})`);
                 }
 
             case 'instanceMethod':
@@ -332,8 +382,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
                     const memberExpr = expr.callee as MemberExpression;
                     const object = generator.generateExpression(memberExpr.object);
                     const methodName = dispatchInfo.targetName!;
-                    const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-                    return `${object}.${methodName}(${args})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${object}.${methodName}(${args.join(', ')})`);
                 }
                 break;
 
@@ -342,8 +392,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
                     const memberExpr = expr.callee as MemberExpression;
                     const object = generator.generateExpression(memberExpr.object);
                     const methodName = dispatchInfo.targetName!;
-                    const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-                    return `${object}.${methodName}(${args})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${object}.${methodName}(${args.join(', ')})`);
                 }
 
             case 'collectionMethod':
@@ -372,8 +422,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
                     // User-defined function call
                     if (expr.callee.kind === 'identifier') {
                         const funcName = dispatchInfo.targetName!;
-                        const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-                        return `${funcName}(${args})`;
+                        return generateCallWithEvaluationOrder(generator, expr,
+                            (args) => `${funcName}(${args.join(', ')})`);
                     }
                     break;
                 }
@@ -386,8 +436,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
                 {
                     // Lambda invocation - generate the callee expression and call it
                     const calleeExpr = generator.generateExpression(expr.callee);
-                    const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-                    return `${calleeExpr}(${args})`;
+                    return generateCallWithEvaluationOrder(generator, expr,
+                        (args) => `${calleeExpr}(${args.join(', ')})`);
                 }
         }
     }
@@ -395,8 +445,8 @@ export function generateCallExpression(generator: JsGeneratorInterface, expr: Ca
     const calleeType = expr.callee.inferredType;
     if (calleeType?.kind === 'function' || expr.callee.kind === 'lambda' || expr.callee.kind === 'trailingLambda') {
         const calleeExpr = generator.generateExpression(expr.callee);
-        const args = expr.arguments.map(arg => generator.generateExpression(arg)).join(', ');
-        return `${calleeExpr}(${args})`;
+        return generateCallWithEvaluationOrder(generator, expr,
+            (args) => `${calleeExpr}(${args.join(', ')})`);
     }
 
     const location = expr.location?.start
