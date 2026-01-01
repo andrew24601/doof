@@ -68,7 +68,7 @@ describe('Union Object Literal Disambiguation', () => {
       expect(result.source).toContain('Point3D');
     });
 
-    it('should disambiguate class with constructor', () => {
+    it('should disambiguate class based on fields', () => {
       const input = `
         class Employee {
           name: string;

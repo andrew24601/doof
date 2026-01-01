@@ -57,7 +57,7 @@ describe('Const and Readonly Fields - Core Functionality', () => {
   });
 
   describe('Validation Rules', () => {
-    it('should require defaults for const fields in classes without constructors', () => {
+    it('should require defaults for const fields', () => {
       const input = `
         class InvalidClass {
           const field: int;

@@ -110,24 +110,5 @@ describe('Automatic JSON Deserialization', () => {
     expect(result.source).toContain('doof_runtime::json::get_int(json_obj, "score")');
   });
 
-  it('should invoke constructors during deserialization when present', () => {
-    const code = `
-      class Record {
-        value: int = 0;
-        message: string = "ok";
 
-        constructor(value: int, message: string = "ok") {
-          this.value = value;
-          this.message = message;
-        }
-      }
-    `;
-    const result = transpileCode(code);
-    expect(result.errors).toHaveLength(0);
-
-    expect(result.header).toContain('static std::shared_ptr<Record> _new(int value, const std::string& message = "ok");');
-    expect(result.source).toContain('auto result = Record::_new(value, message);');
-    expect(result.source).toContain('doof_runtime::json::get_int(json_obj, "value")');
-    expect(result.source).toContain('Optional field: message');
-  });
 });

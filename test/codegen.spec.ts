@@ -163,29 +163,6 @@ describe('CppGenerator', () => {
       expect(source).toContain('int StaticTest::count = 0;');
     });
 
-    it('wires factory helpers when constructor exists', () => {
-      const { header, source } = generateCode(`
-        class Widget {
-          value: int = 0;
-          message: string = "hi";
-
-          constructor(value: int, message: string = "hi") {
-            this.value = value;
-            this.message = message;
-          }
-        }
-
-        function build(): Widget {
-          return Widget { value: 42 };
-        }
-      `);
-
-      expect(header).toContain('static std::shared_ptr<Widget> _new(int value, const std::string& message = "hi");');
-      expect(header).toContain('private:\n        Widget();');
-      expect(source).toContain('std::shared_ptr<Widget> Widget::_new(int value, const std::string& message)');
-      expect(source).toContain('obj->constructor(value, message);');
-      expect(source).toContain('return Widget::_new(42)');
-    });
   });
 
   describe('expressions', () => {

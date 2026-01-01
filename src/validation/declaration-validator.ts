@@ -180,11 +180,6 @@ export function validateClassDeclaration(stmt: ClassDeclaration, validator: Vali
     // Validate private field initialization rules
     validatePrivateFieldInitialization(stmt, validator);
 
-    if (stmt.constructor) {
-      validateConstructorFieldDefaults(stmt, stmt.constructor, validator);
-      validateConstructorDeclaration(stmt.constructor, validator);
-    }
-
     // Validate methods
     const methodNames = new Set<string>();
     for (const method of stmt.methods) {
@@ -353,122 +348,6 @@ export function validateMethodDeclaration(method: MethodDeclaration, validator: 
   validator.context.currentMethod = prevMethod;
 }
 
-function validateConstructorDeclaration(constructor: ConstructorDeclaration, validator: Validator): void {
-  const prevFunction = validator.context.currentFunction;
-  const prevMethod = validator.context.currentMethod;
-  const prevSymbols = new Map(validator.context.symbols);
-
-  const className = validator.context.currentClass?.name.name ?? 'constructor';
-
-  const syntheticIdentifier: Identifier = {
-    kind: 'identifier',
-    name: `${className}.constructor`,
-    location: constructor.location
-  };
-
-  const syntheticMethod: MethodDeclaration = {
-    kind: 'method',
-    name: syntheticIdentifier,
-    parameters: constructor.parameters,
-    returnType: createVoidType(),
-    body: constructor.body,
-    isPublic: constructor.isPublic,
-    isStatic: false,
-    location: constructor.location
-  };
-
-  validator.context.currentMethod = syntheticMethod;
-  validator.context.currentFunction = {
-    kind: 'function',
-    name: syntheticIdentifier,
-    parameters: constructor.parameters,
-    returnType: createVoidType(),
-    body: constructor.body,
-    location: constructor.location
-  } as FunctionDeclaration;
-
-  if (validator.context.currentClass) {
-    let thisType: Type;
-    if (classUsesThisAsValue(validator.context.currentClass)) {
-      thisType = {
-        kind: 'class',
-        name: validator.context.currentClass.name.name,
-        isSharedPtr: true
-      } as any;
-    } else {
-      thisType = {
-        kind: 'class',
-        name: validator.context.currentClass.name.name
-      };
-    }
-    validator.context.symbols.set('this', thisType);
-  }
-
-  const parameterNames: string[] = [];
-  for (const param of constructor.parameters) {
-    validateParameter(param, validator);
-    validator.context.symbols.set(param.name.name, param.type);
-    parameterNames.push(param.name.name);
-
-    const parameterEntry = createScopeTrackerEntry({
-      name: param.name.name,
-      kind: 'parameter',
-      scopeName: `${className}.constructor`,
-      location: param.location,
-      type: param.type,
-      isConstant: true,
-      declaringClass: validator.context.currentClass?.name.name
-    });
-  registerScopeTrackerEntry(validator.context.codeGenHints.scopeTracker, parameterEntry);
-  }
-
-  validateFunctionBody(constructor.body, parameterNames, validator);
-
-  validator.context.symbols = prevSymbols;
-  validator.context.currentFunction = prevFunction;
-  validator.context.currentMethod = prevMethod;
-}
-
-function validateConstructorFieldDefaults(classDecl: ClassDeclaration, constructor: ConstructorDeclaration, validator: Validator): void {
-  for (const field of classDecl.fields) {
-    if (field.isStatic) {
-      continue;
-    }
-    if (fieldHasDefaultInitializer(field)) {
-      continue;
-    }
-
-    validator.addError(
-      `Field '${field.name.name}' must declare a default value before defining an explicit constructor`,
-      field.location ?? constructor.location
-    );
-  }
-}
-
-function fieldHasDefaultInitializer(field: FieldDeclaration): boolean {
-  if (field.defaultValue) {
-    return true;
-  }
-
-  return typeSupportsImplicitDefault(field.type);
-}
-
-function typeSupportsImplicitDefault(type: Type): boolean {
-  switch (type.kind) {
-    case 'primitive':
-    case 'array':
-    case 'map':
-    case 'set':
-    case 'class':
-    case 'externClass':
-    case 'enum':
-    case 'function':
-    case 'typeAlias':
-      return true;
-    default:
-      return false;
-  }
-}
 
 export function validateFieldDeclaration(field: FieldDeclaration, validator: Validator): void {
   // Validate const/readonly rules

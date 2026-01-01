@@ -272,13 +272,6 @@ class Monomorphizer {
     clone.name = { ...clone.name, name: specializedName } as Identifier;
     delete clone.typeParameters;
 
-    if (owner.declaration.constructor) {
-      clone.constructor = deepClone(owner.declaration.constructor);
-    } else {
-      // Ensure the clone has an explicit constructor property so prototype lookups don't expose Object
-      clone.constructor = undefined;
-    }
-
     const record: ClassSpecialization = {
       kind: "class",
       key,
@@ -858,9 +851,6 @@ class Monomorphizer {
   private transformClassDeclaration(cls: ClassDeclaration, mapping?: Map<string, Type>): ClassDeclaration {
     cls.fields = cls.fields.map(field => this.transformValue(field, mapping));
     cls.methods = cls.methods.map(method => this.transformValue(method, mapping));
-    if (cls.constructor) {
-      cls.constructor = this.transformValue(cls.constructor, mapping);
-    }
     if (cls.nestedClasses) {
       cls.nestedClasses = cls.nestedClasses.map(nested => this.transformValue(nested, mapping));
     }

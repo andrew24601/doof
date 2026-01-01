@@ -253,19 +253,15 @@ function buildTypeParameterMapping(instantiation?: { typeParameters: TypeParamet
 function validateClassPositionalInitialization(expr: PositionalObjectExpression, classDecl: ClassDeclaration, validator: Validator): Type {
   const typeMapping = buildTypeParameterMapping(expr.genericInstantiation);
 
-  if (classDecl.constructor) {
-    validateConstructorPositionalInitialization(expr, classDecl, validator, typeMapping);
-  } else {
-    const fields = classDecl.fields.filter(f => !f.isStatic && f.isPublic);
+  const fields = classDecl.fields.filter(f => !f.isStatic && f.isPublic);
 
-    const targets = fields.map(field => ({
-      name: field.name.name,
-      type: typeMapping ? substituteTypeParametersInType(field.type, typeMapping) : field.type,
-      hasDefault: !!field.defaultValue
-    }));
+  const targets = fields.map(field => ({
+    name: field.name.name,
+    type: typeMapping ? substituteTypeParametersInType(field.type, typeMapping) : field.type,
+    hasDefault: !!field.defaultValue
+  }));
 
-    validatePositionalArguments(expr, targets, 'class', validator);
-  }
+  validatePositionalArguments(expr, targets, 'class', validator);
 
   const resultGenerics = expr.genericInstantiation
     ? expr.genericInstantiation.typeArguments.map(arg => cloneTypeNode(arg))
@@ -373,40 +369,6 @@ function validatePositionalArguments(
   }
 }
 
-function validateConstructorPositionalInitialization(
-  expr: PositionalObjectExpression,
-  classDecl: ClassDeclaration,
-  validator: Validator,
-  typeMapping?: Map<string, Type>
-): void {
-  const constructorDecl = classDecl.constructor!;
-  const params = constructorDecl.parameters;
-
-  if (expr.arguments.length > params.length) {
-    validator.addError(`Too many arguments for constructor of '${classDecl.name.name}': expected at most ${params.length}, got ${expr.arguments.length}`, expr.location);
-  }
-
-  for (let i = 0; i < Math.min(expr.arguments.length, params.length); i++) {
-    const arg = expr.arguments[i];
-    const param = params[i];
-    const paramType = typeMapping ? substituteTypeParametersInType(param.type, typeMapping) : param.type;
-    propagateTypeContext(arg, paramType, validator);
-    const argType = validateExpression(arg, validator);
-    if (!isTypeCompatible(argType, paramType, validator)) {
-      validator.addError(
-        `Argument ${i + 1}: cannot convert '${typeToString(argType)}' to '${typeToString(paramType)}' (constructor parameter '${param.name.name}')`,
-        arg.location
-      );
-    }
-  }
-
-  for (let i = expr.arguments.length; i < params.length; i++) {
-    const param = params[i];
-    if (!param.defaultValue) {
-      validator.addError(`Missing argument for required constructor parameter '${param.name.name}'`, expr.location);
-    }
-  }
-}
 
 function validateClassLiteral(
   expr: ObjectExpression,
@@ -414,11 +376,6 @@ function validateClassLiteral(
   validator: Validator,
   typeMapping?: Map<string, Type>
 ): void {
-  if (classDecl.constructor) {
-    validateConstructorLiteral(expr, classDecl, validator, typeMapping);
-    return;
-  }
-
   const providedProps = expr.properties.map(p => getPropertyKeyName(p.key));
   const providedPropsSet = new Set(providedProps);
 
@@ -465,78 +422,6 @@ function validateAggregateInitialization(expr: ObjectExpression, classDecl: Clas
   validateRequiredFields(publicFields, providedPropsSet, false, expr.location, validator);
 }
 
-function validateConstructorLiteral(
-  expr: ObjectExpression,
-  classDecl: ClassDeclaration,
-  validator: Validator,
-  typeMapping?: Map<string, Type>
-): void {
-  const constructorDecl = classDecl.constructor!;
-  const providedProps = new Map<string, ObjectProperty>();
-
-  for (const prop of expr.properties) {
-    const propName = getPropertyKeyName(prop.key);
-    if (!propName) {
-      validator.addError(`Invalid constructor argument key`, prop.location);
-      continue;
-    }
-    if (providedProps.has(propName)) {
-      validator.addError(`Duplicate constructor argument '${propName}' for class '${classDecl.name.name}'`, prop.location);
-    }
-    providedProps.set(propName, prop);
-  }
-
-  let firstMissingIndex = -1;
-
-  for (let i = 0; i < constructorDecl.parameters.length; i++) {
-    const param = constructorDecl.parameters[i];
-    const paramName = param.name.name;
-    const prop = providedProps.get(paramName);
-
-    if (prop) {
-      if (firstMissingIndex !== -1) {
-        validator.addError(
-          `Constructor parameter '${paramName}' provided after omitted parameter '${constructorDecl.parameters[firstMissingIndex].name.name}'`,
-          prop.location
-        );
-      }
-
-      if (!prop.value) {
-        validator.addError(`Constructor parameter '${paramName}' requires a value`, prop.location);
-        continue;
-      }
-
-      const paramType = typeMapping ? substituteTypeParametersInType(param.type, typeMapping) : param.type;
-      propagateTypeContext(prop.value, paramType, validator);
-      const valueType = validateExpression(prop.value, validator);
-      if (!isTypeCompatible(valueType, paramType, validator)) {
-        validator.addError(
-          `Cannot assign '${typeToString(valueType)}' to constructor parameter '${paramName}' of type '${typeToString(paramType)}'`,
-          prop.value.location
-        );
-      }
-    } else {
-      if (!param.defaultValue) {
-        validator.addError(`Missing required constructor parameter '${paramName}'`, expr.location);
-      }
-      if (firstMissingIndex === -1) {
-        firstMissingIndex = i;
-      }
-    }
-  }
-
-  for (const [propName, prop] of providedProps.entries()) {
-    if (!constructorDecl.parameters.some(param => param.name.name === propName)) {
-      validator.addError(`Unknown constructor parameter '${propName}' for class '${classDecl.name.name}'`, prop.location);
-    }
-  }
-
-  expr.instantiationInfo = {
-    targetClass: classDecl.name.name,
-    fieldMappings: [],
-    unmatchedProperties: []
-  };
-}
 
 function validateConstFieldRequirements(expr: ObjectExpression, classDecl: ClassDeclaration, validator: Validator): void {
   const providedProps = new Map<string, Expression>();

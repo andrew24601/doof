@@ -226,16 +226,6 @@ class InstantiationCollector {
       }
     }
 
-    if (stmt.constructor) {
-      for (const param of stmt.constructor.parameters) {
-        this.visitType(param.type);
-        if (param.defaultValue) {
-          this.visitExpression(param.defaultValue);
-        }
-      }
-      this.visitStatement(stmt.constructor.body);
-    }
-
     for (const method of stmt.methods) {
       for (const param of method.parameters) {
         this.visitType(param.type);

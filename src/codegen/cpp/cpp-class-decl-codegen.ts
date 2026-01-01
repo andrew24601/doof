@@ -1,7 +1,7 @@
 // C++ class declaration generation for doof
 
 import {
-    Type, ClassDeclaration, Expression, ConstructorDeclaration, MethodDeclaration,
+    Type, ClassDeclaration, Expression, MethodDeclaration,
     PrimitiveTypeNode, ArrayTypeNode, MapTypeNode, SetTypeNode, ClassTypeNode, EnumTypeNode, ExternClassTypeNode
 } from '../../types';
 import { CppGenerator } from '../cppgen';
@@ -44,30 +44,20 @@ export function generateClassDeclarationHeader(generator: CppGenerator, classDec
 
     let output = generator.indent() + `class ${classDecl.name.name}${inheritance} {\n`;
     generator.increaseIndent();
-    const constructorDecl = classDecl.constructor;
-    const hasConstructor = !!constructorDecl;
     const nonStaticFields = classDecl.fields.filter(f => !f.isStatic);
 
     output += generator.indent() + 'public:\n';
     generator.increaseIndent();
 
-    if (hasConstructor) {
-        const factoryParams = formatConstructorParameterList(generator, constructorDecl!, true);
-        output += generator.indent() + `static std::shared_ptr<${classDecl.name.name}> _new(${factoryParams});\n`;
-        if (constructorDecl!.isPublic) {
-            output += generateMethodDeclarationHeader(generator, createSyntheticConstructorMethod(classDecl));
-        }
-    } else {
-        output += generator.indent() + `${classDecl.name.name}();\n`;
+    output += generator.indent() + `${classDecl.name.name}();\n`;
 
-        if (nonStaticFields.length > 0) {
-            const params = nonStaticFields.map(field => {
-                const typeStr = generateParameterType(generator, field.type);
-                const fieldName = encodeCppFieldName(field.name.name);
-                return `${typeStr} ${fieldName}`;
-            }).join(', ');
-            output += generator.indent() + `${classDecl.name.name}(${params});\n`;
-        }
+    if (nonStaticFields.length > 0) {
+        const params = nonStaticFields.map(field => {
+            const typeStr = generateParameterType(generator, field.type);
+            const fieldName = encodeCppFieldName(field.name.name);
+            return `${typeStr} ${fieldName}`;
+        }).join(', ');
+        output += generator.indent() + `${classDecl.name.name}(${params});\n`;
     }
 
     for (const method of classDecl.methods) {
@@ -108,20 +98,13 @@ export function generateClassDeclarationHeader(generator: CppGenerator, classDec
         }
     }
 
-    const hasPrivateMembers = hasConstructor || classDecl.fields.some(f => !f.isPublic) ||
+    const hasPrivateMembers = classDecl.fields.some(f => !f.isPublic) ||
         classDecl.methods.some(m => !m.isPublic);
 
     if (hasPrivateMembers) {
         generator.decreaseIndent();
         output += generator.indent() + 'private:\n';
         generator.increaseIndent();
-
-        if (hasConstructor) {
-            output += generator.indent() + `${classDecl.name.name}();\n`;
-            if (!constructorDecl!.isPublic) {
-                output += generateMethodDeclarationHeader(generator, createSyntheticConstructorMethod(classDecl));
-            }
-        }
 
         for (const field of classDecl.fields) {
             if (!field.isPublic && !field.isStatic) {
@@ -186,8 +169,6 @@ export function generateClassDeclarationHeader(generator: CppGenerator, classDec
 export function generateClassDeclarationSource(generator: CppGenerator, classDecl: ClassDeclaration): string {
     generator.currentClass = classDecl;
     let output = '';
-    const constructorDecl = classDecl.constructor;
-    const hasConstructor = !!constructorDecl;
 
     const constFields = classDecl.fields.filter(f => (f.isConst || f.isReadonly) && !f.isStatic);
     const constInitializers = constFields
@@ -212,7 +193,7 @@ export function generateClassDeclarationSource(generator: CppGenerator, classDec
     output += '}\n\n';
 
     const nonStaticFields = classDecl.fields.filter(f => !f.isStatic);
-    if (!hasConstructor && nonStaticFields.length > 0) {
+    if (nonStaticFields.length > 0) {
         const params = nonStaticFields.map(field => {
             const typeStr = generateParameterType(generator, field.type);
             const fieldName = getCppFieldName(field);
@@ -239,13 +220,6 @@ export function generateClassDeclarationSource(generator: CppGenerator, classDec
         }
 
         output += '}\n\n';
-    }
-
-    if (constructorDecl) {
-        output += generateFactoryMethodSource(generator, classDecl);
-        output += '\n';
-        output += generateMethodDeclarationSource(generator, createSyntheticConstructorMethod(classDecl), classDecl.name.name);
-        output += '\n';
     }
 
     for (const method of classDecl.methods) {
@@ -519,77 +493,32 @@ export function generateFromJSONMethodSource(generator: CppGenerator, classDecl:
 
     output += `std::shared_ptr<${classDecl.name.name}> ${classDecl.name.name}::_fromJSON(const doof_runtime::json::JSONObject& json_obj) {\n`;
 
-    const constructorDecl = classDecl.constructor;
     const nonStaticFields = classDecl.fields.filter(f => !f.isStatic);
+    output += '    // Aggregate deserialization - all fields are deserialized\n';
 
-    if (constructorDecl) {
-        const parameterNames = new Set(constructorDecl.parameters.map(param => param.name.name));
+    const hasConstFields = nonStaticFields.some(f => f.isConst || f.isReadonly);
 
-        for (const param of constructorDecl.parameters) {
-            output += generateFieldDeserialization(
-                generator,
-                param.type,
-                param.name.name,
-                param.name.name,
-                'json_obj',
-                param.defaultValue === undefined,
-                param.defaultValue
-            );
+    if (hasConstFields) {
+        for (const field of nonStaticFields) {
+            const cppFieldName = getCppFieldName(field);
+            output += generateFieldDeserialization(generator, field.type, cppFieldName, field.name.name, 'json_obj', field.defaultValue === undefined, field.defaultValue);
         }
 
-        const argumentList = constructorDecl.parameters.map(param => param.name.name).join(', ');
-        output += `    auto result = ${classDecl.name.name}::_new(${argumentList});\n`;
+        const paramNames = nonStaticFields.map(f => getCppFieldName(f)).join(', ');
+        output += `    auto result = std::make_shared<${classDecl.name.name}>(${paramNames});\n`;
+        output += '    return result;\n';
+        output += '}\n';
+    } else {
+        output += `    auto result = std::make_shared<${classDecl.name.name}>();\n`;
 
         for (const field of nonStaticFields) {
-            if (parameterNames.has(field.name.name)) {
-                continue;
-            }
-            if (field.isConst || field.isReadonly) {
-                continue;
-            }
-
             const cppFieldName = getCppFieldName(field);
-            output += generateFieldDeserialization(
-                generator,
-                field.type,
-                cppFieldName,
-                field.name.name,
-                'json_obj',
-                field.defaultValue === undefined,
-                field.defaultValue
-            );
+            output += generateFieldDeserialization(generator, field.type, cppFieldName, field.name.name, 'json_obj', field.defaultValue === undefined, field.defaultValue);
             output += `    result->${cppFieldName} = ${cppFieldName};\n`;
         }
 
         output += '    return result;\n';
         output += '}\n';
-    } else {
-        output += '    // Aggregate deserialization - all fields are deserialized\n';
-
-        const hasConstFields = nonStaticFields.some(f => f.isConst || f.isReadonly);
-
-        if (hasConstFields) {
-            for (const field of nonStaticFields) {
-                const cppFieldName = getCppFieldName(field);
-                output += generateFieldDeserialization(generator, field.type, cppFieldName, field.name.name, 'json_obj', field.defaultValue === undefined, field.defaultValue);
-            }
-
-            const paramNames = nonStaticFields.map(f => getCppFieldName(f)).join(', ');
-            output += `    auto result = std::make_shared<${classDecl.name.name}>(${paramNames});\n`;
-            output += '    return result;\n';
-            output += '}\n';
-        } else {
-            output += `    auto result = std::make_shared<${classDecl.name.name}>();\n`;
-
-            for (const field of nonStaticFields) {
-                const cppFieldName = getCppFieldName(field);
-                output += generateFieldDeserialization(generator, field.type, cppFieldName, field.name.name, 'json_obj', field.defaultValue === undefined, field.defaultValue);
-                output += `    result->${cppFieldName} = ${cppFieldName};\n`;
-            }
-
-            output += '    return result;\n';
-            output += '}\n';
-        }
     }
 
     return output;
@@ -1003,55 +932,6 @@ export function generateFieldDeserialization(generator: CppGenerator, type: Type
         output += `    }\n`;
     }
 
-    return output;
-}
-
-function formatConstructorParameterList(generator: CppGenerator, ctor: ConstructorDeclaration, includeDefaults: boolean): string {
-    return ctor.parameters.map(param => {
-        let result = `${generateParameterType(generator, param.type)} ${param.name.name}`;
-        if (includeDefaults && param.defaultValue) {
-            result += ` = ${generator.generateExpression(param.defaultValue, param.type)}`;
-        }
-        return result;
-    }).join(', ');
-}
-
-function createSyntheticConstructorMethod(classDecl: ClassDeclaration): MethodDeclaration {
-    const ctor = classDecl.constructor!;
-    return {
-        kind: 'method',
-        name: {
-            kind: 'identifier',
-            name: 'constructor',
-            location: ctor.location
-        },
-        parameters: ctor.parameters,
-        returnType: { kind: 'primitive', type: 'void' },
-        body: ctor.body,
-        isPublic: ctor.isPublic,
-        isStatic: false,
-        location: ctor.location
-    };
-}
-
-function generateFactoryMethodSource(generator: CppGenerator, classDecl: ClassDeclaration): string {
-    const ctor = classDecl.constructor;
-    if (!ctor) {
-        return '';
-    }
-
-    const params = formatConstructorParameterList(generator, ctor, false);
-    const argumentList = ctor.parameters.map(param => param.name.name).join(', ');
-
-    let output = `std::shared_ptr<${classDecl.name.name}> ${classDecl.name.name}::_new(${params}) {\n`;
-    output += `    auto obj = std::make_shared<${classDecl.name.name}>();\n`;
-    if (ctor.parameters.length > 0) {
-        output += `    obj->constructor(${argumentList});\n`;
-    } else {
-        output += '    obj->constructor();\n';
-    }
-    output += '    return obj;\n';
-    output += '}\n';
     return output;
 }
 

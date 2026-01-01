@@ -590,7 +590,6 @@ export interface ClassDeclaration extends ASTNode {
   fields: FieldDeclaration[];
   methods: MethodDeclaration[];
   nestedClasses?: ClassDeclaration[];
-  constructor?: ConstructorDeclaration;
   isExport?: boolean;
   typeParameters?: TypeParameter[];
 }
@@ -625,13 +624,6 @@ export interface InterfaceMethod extends ASTNode {
   parameters: Parameter[];
   returnType: Type;
   optional: boolean;
-}
-
-export interface ConstructorDeclaration extends ASTNode {
-  kind: 'constructor';
-  parameters: Parameter[];
-  body: BlockStatement;
-  isPublic: boolean;
 }
 
 export interface ExternClassDeclaration extends ASTNode {

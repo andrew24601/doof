@@ -175,10 +175,6 @@ function generateClassInitialization(generator: CppGenerator, expr: ObjectExpres
         throw new Error(`Class definition not found: ${className}`);
     }
 
-    if (classDecl.constructor) {
-        return generateConstructorClassInitialization(generator, expr, classDecl);
-    }
-
     return generateAggregateClassInitialization(generator, expr, classDecl);
 }
 
@@ -227,43 +223,6 @@ function generateAggregateClassInitialization(generator: CppGenerator, expr: Obj
     return `std::make_shared<${qualifiedClassName}>(${args.join(', ')})`;
 }
 
-function generateConstructorClassInitialization(generator: CppGenerator, expr: ObjectExpression, classDecl: ClassDeclaration): string {
-    const qualifiedClassName = generator.getQualifiedClassName(classDecl.name.name);
-    const constructorDecl = classDecl.constructor!;
-
-    const propertyMap = new Map<string, ObjectProperty>();
-    for (const prop of expr.properties) {
-        if (prop.key.kind === 'identifier') {
-            propertyMap.set((prop.key as Identifier).name, prop);
-        }
-    }
-
-    let lastProvidedIndex = -1;
-    for (let i = constructorDecl.parameters.length - 1; i >= 0; i--) {
-        const paramName = constructorDecl.parameters[i].name.name;
-        if (propertyMap.has(paramName)) {
-            lastProvidedIndex = i;
-            break;
-        }
-    }
-
-    if (lastProvidedIndex === -1) {
-        return `${qualifiedClassName}::_new()`;
-    }
-
-    const args: string[] = [];
-    for (let i = 0; i <= lastProvidedIndex; i++) {
-        const param = constructorDecl.parameters[i];
-        const prop = propertyMap.get(param.name.name);
-        if (!prop) {
-            throw new Error(`Missing constructor argument '${param.name.name}' for class '${classDecl.name.name}'`);
-        }
-        args.push(getPropertyValue(generator, prop, param.type));
-    }
-
-    return `${qualifiedClassName}::_new(${args.join(', ')})`;
-}
-
 /**
  * Generates C++ code for positional class initialization
  */
@@ -284,10 +243,6 @@ function generateClassPositionalInitialization(generator: CppGenerator, expr: Po
     // Handle extern classes
     if (externClassDecl) {
         return `std::make_shared<${qualifiedClassName}>(${args.join(', ')})`;
-    }
-
-    if (classDecl && classDecl.constructor) {
-        return `${qualifiedClassName}::_new(${args.join(', ')})`;
     }
 
     return `std::make_shared<${qualifiedClassName}>(${args.join(', ')})`;

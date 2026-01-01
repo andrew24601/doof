@@ -25,7 +25,6 @@ interface ModifierFlags {
 type FieldOrMethodParseResult = {
     field?: FieldDeclaration;
     method?: MethodDeclaration;
-    constructor?: ConstructorDeclaration;
 };
 
 /**
@@ -313,7 +312,7 @@ export function parseClassDeclaration(parser: Parser, isReadonly: boolean = fals
     }
     parser.consume(TokenType.LEFT_BRACE, "Expected '{' after class name");
 
-    const { fields, methods, nestedClasses, constructor } = parseClassLikeBody(parser);
+    const { fields, methods, nestedClasses } = parseClassLikeBody(parser);
     parser.consume(TokenType.RIGHT_BRACE, "Expected '}' after class body");
 
     return {
@@ -323,7 +322,6 @@ export function parseClassDeclaration(parser: Parser, isReadonly: boolean = fals
         fields,
         methods,
         nestedClasses: nestedClasses.length > 0 ? nestedClasses : undefined,
-        constructor,
         location: name.location,
         typeParameters
     };
@@ -568,12 +566,10 @@ export function parseClassLikeBody(parser: Parser): {
     fields: FieldDeclaration[];
     methods: MethodDeclaration[];
     nestedClasses: ClassDeclaration[];
-    constructor?: ConstructorDeclaration;
 } {
     const fields: FieldDeclaration[] = [];
     const methods: MethodDeclaration[] = [];
     const nestedClasses: ClassDeclaration[] = [];
-    let constructorDecl: ConstructorDeclaration | undefined;
 
     while (!parser.check(TokenType.RIGHT_BRACE) && !parser.isAtEnd()) {
         while (parser.checkRaw(TokenType.NEWLINE)) {
@@ -601,15 +597,9 @@ export function parseClassLikeBody(parser: Parser): {
         }
 
         if (parser.check(TokenType.IDENTIFIER) || parser.check(TokenType.STRING) || parser.check(TokenType.TEMPLATE_STRING)) {
-            const { field, method, constructor } = parseFieldOrMethod(parser, modifiers);
+            const { field, method } = parseFieldOrMethod(parser, modifiers);
             if (field) fields.push(field);
             if (method) methods.push(method);
-            if (constructor) {
-                if (constructorDecl) {
-                    throw new ParseError("Class already declares a constructor", constructor.location);
-                }
-                constructorDecl = constructor;
-            }
         } else if (parser.check(TokenType.LEFT_BRACKET)) {
             throw new ParseError("computed property name expressions are not supported in class fields", parser.getLocation());
         } else {
@@ -617,7 +607,7 @@ export function parseClassLikeBody(parser: Parser): {
         }
     }
 
-    return { fields, methods, nestedClasses, constructor: constructorDecl };
+    return { fields, methods, nestedClasses };
 }
 
 function isCallableFieldDeclaration(parser: Parser): boolean {
@@ -684,34 +674,7 @@ export function parseFieldOrMethod(parser: Parser, modifiers: ModifierFlags): Fi
     }
 
     if (nameIdentifier.name === 'constructor') {
-        if (modifiers.isStatic) {
-            throw new ParseError("Constructors cannot be static", nameIdentifier.location);
-        }
-        if (modifiers.isConst || modifiers.isReadonly) {
-            throw new ParseError("Invalid modifier on constructor", nameIdentifier.location);
-        }
-        if (!parser.match(TokenType.LEFT_PAREN)) {
-            throw new ParseError("Expected '(' after constructor", parser.getLocation());
-        }
-
-        const parameters = parseParameterList(parser);
-        parser.consume(TokenType.RIGHT_PAREN, "Expected ')' after constructor parameters");
-
-        if (parser.match(TokenType.COLON)) {
-            throw new ParseError("Constructors cannot declare a return type", parser.getLocation());
-        }
-
-    const body = parser.withFunctionScope(() => parser.parseBlockStatement());
-
-        const result = Object.create(null) as FieldOrMethodParseResult;
-        result.constructor = {
-            kind: 'constructor',
-            parameters,
-            body,
-            isPublic: modifiers.isPublic,
-            location: nameIdentifier.location
-        };
-        return result;
+        throw new ParseError("Explicit constructors are not supported", nameIdentifier.location);
     }
 
     if (parser.check(TokenType.LEFT_PAREN) && isCallableFieldDeclaration(parser)) {
