@@ -12,12 +12,12 @@ class Person {
 }
 
 function main(): int {
-    // Positional initialization for class without constructor
+    // Positional initialization for Point
     let point1 = Point(10, 20);
     println(point1.x);      // Should print: 10
     println(point1.y);      // Should print: 20
     
-    // Positional initialization for class with constructor
+    // Positional initialization for Person
     let person1 = Person("Bob", 25);
     println(person1.name);  // Should print: Bob
     println(person1.age);   // Should print: 25
