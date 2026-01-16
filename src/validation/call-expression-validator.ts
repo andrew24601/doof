@@ -386,7 +386,9 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
   }
 
   // Track which parameters we've seen
-  const providedParams = new Set<string>();
+  const explicitlyProvidedParams = new Set<string>();
+  const spreadProvidedParams = new Set<string>();
+  
   const argumentsByIndex: (Expression | undefined)[] = new Array(parameters.length);
   
   // Track lexical order of arguments for evaluation order tracking
@@ -394,6 +396,65 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
 
   // Validate each named argument
   for (const namedArg of namedArgs) {
+    if (namedArg.kind === 'spread') {
+      const spreadType = validateExpression(namedArg.argument, validator);
+      
+      if (spreadType.kind === 'class') {
+        const spreadClassDecl = validator.context.classes.get(spreadType.name);
+        if (spreadClassDecl) {
+          // Check for side effects
+          if (!isSideEffectFreeExpression(namedArg.argument) && namedArg.argument.kind !== 'identifier') {
+             validator.addError("Spread argument must be side-effect free (e.g. variable or literal)", namedArg.location);
+          }
+
+          for (const field of spreadClassDecl.fields) {
+            if (field.isPublic && !field.isStatic) {
+              const paramInfo = paramMap.get(field.name.name);
+              if (paramInfo) {
+                // Check for overwrite of explicit param
+                if (explicitlyProvidedParams.has(field.name.name)) {
+                  validator.addError(`Spread property '${field.name.name}' overwrites earlier argument`, namedArg.location);
+                }
+                
+                spreadProvidedParams.add(field.name.name);
+                
+                // Synthesize member access
+                const memberExpr: MemberExpression = {
+                  kind: 'member',
+                  object: namedArg.argument,
+                  property: { kind: 'identifier', name: field.name.name, location: namedArg.location },
+                  computed: false,
+                  location: namedArg.location
+                };
+                
+                let fieldType = field.type;
+                if (spreadType.typeArguments && spreadClassDecl.typeParameters) {
+                    const mapping = new Map<string, Type>();
+                    for(let k=0; k<spreadClassDecl.typeParameters.length; k++) {
+                        if (k < spreadType.typeArguments.length) {
+                            mapping.set(spreadClassDecl.typeParameters[k].name, spreadType.typeArguments[k]);
+                        }
+                    }
+                    fieldType = substituteTypeParametersInType(fieldType, mapping);
+                }
+                memberExpr.inferredType = fieldType;
+
+                if (!isTypeCompatible(fieldType, paramInfo.type, validator)) {
+                  validator.addError(
+                    `Spread argument '${field.name.name}': cannot convert '${typeToString(fieldType)}' to '${typeToString(paramInfo.type)}'`,
+                    namedArg.location
+                  );
+                }
+                
+                argumentsByIndex[paramInfo.index] = memberExpr;
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
     if (namedArg.key.kind !== 'identifier') {
       validator.addError('Named argument keys must be identifiers', namedArg.key.location);
       continue;
@@ -407,12 +468,12 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
       continue;
     }
 
-    if (providedParams.has(paramName)) {
+    if (explicitlyProvidedParams.has(paramName)) {
       validator.addError(`Parameter '${paramName}' specified multiple times`, namedArg.key.location);
       continue;
     }
 
-    providedParams.add(paramName);
+    explicitlyProvidedParams.add(paramName);
 
     // Validate the argument value
     if (namedArg.value) {
@@ -436,7 +497,7 @@ function validateNamedArgumentCall(expr: CallExpression, funcType: FunctionTypeN
   // Check for missing required parameters & build finalized positional argument list
   for (let i = 0; i < parameters.length; i++) {
     const param = parameters[i];
-    if (!providedParams.has(param.name)) {
+    if (!explicitlyProvidedParams.has(param.name) && !spreadProvidedParams.has(param.name)) {
       validator.addError(`Missing required parameter '${param.name}'`, expr.location);
     }
   }

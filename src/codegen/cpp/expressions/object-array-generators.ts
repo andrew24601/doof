@@ -6,6 +6,7 @@ import {
 import { CppGenerator } from "../../cppgen";
 import { generateExpression } from "../cpp-expression-codegen";
 import { generateMemberExpression } from "./method-call-generators";
+import { getPropertyKeyName } from "../../../type-utils";
 
 /**
  * Generates C++ code for array expressions
@@ -37,6 +38,7 @@ export function generateArrayExpression(generator: CppGenerator, expr: ArrayExpr
  * Generates C++ code for object expressions (both class instances, maps, and sets)
  */
 export function generateObjectExpression(generator: CppGenerator, expr: ObjectExpression, targetType?: Type): string {
+    console.log("generateObjectExpression", expr.className);
     if (expr.className) {
         return generateClassObjectExpression(generator, expr, targetType);
     } else if (expr.inferredType?.kind === 'set') {
@@ -129,6 +131,10 @@ function generateMapObjectExpression(generator: CppGenerator, expr: ObjectExpres
 
     // Generate as compact initializer list format for map literals
     const entries = expr.properties.map(prop => {
+        if (prop.kind === 'spread') {
+            throw new Error("Spread operator not supported in map literals yet");
+        }
+
         let key: string;
         if (prop.key.kind === 'enumShorthand' && keyType?.kind === 'enum') {
             const enumType = keyType as EnumTypeNode;
@@ -188,6 +194,9 @@ function generateAggregateExternClassInitialization(generator: CppGenerator, exp
     // For extern classes, use the properties provided in the object expression
     const args: string[] = [];
     for (const prop of expr.properties) {
+        if (prop.kind === 'spread') {
+            throw new Error("Spread operator not supported in extern class initialization yet");
+        }
         args.push(getPropertyValue(generator, prop));
     }
 
@@ -198,6 +207,7 @@ function generateAggregateExternClassInitialization(generator: CppGenerator, exp
  * Generates C++ code for aggregate class initialization
  */
 function generateAggregateClassInitialization(generator: CppGenerator, expr: ObjectExpression, classDecl: ClassDeclaration): string {
+    console.log("generateAggregateClassInitialization", classDecl.name.name);
     const className = expr.className!;
     const qualifiedClassName = generator.getQualifiedClassName(className);
 
@@ -207,12 +217,32 @@ function generateAggregateClassInitialization(generator: CppGenerator, expr: Obj
     // Use aggregate constructor with make_shared
     const args = nonStaticFields.map(field => {
         // Find property for this field
-        const prop = expr.properties.find(p =>
-            p.key.kind === 'identifier' && (p.key as Identifier).name === field.name.name
-        );
+        let value: string | undefined;
 
-        if (prop) {
-            return getPropertyValue(generator, prop, field.type);
+        for (const prop of expr.properties) {
+            if (prop.kind === 'spread') {
+                // Check if spread provides this field
+                const spreadType = prop.argument.inferredType;
+                if (spreadType && spreadType.kind === 'class') {
+                    const spreadClassDecl = generator.getClassDeclaration(spreadType.name);
+                    if (spreadClassDecl) {
+                        const hasField = spreadClassDecl.fields.some(f => f.name.name === field.name.name && !f.isStatic && f.isPublic);
+                        if (hasField) {
+                            const spreadExprStr = generateExpression(generator, prop.argument);
+                            value = `${spreadExprStr}->${field.name.name}`;
+                        }
+                    }
+                }
+            } else {
+                const propName = getPropertyKeyName(prop.key);
+                if (propName === field.name.name) {
+                    value = getPropertyValue(generator, prop, field.type);
+                }
+            }
+        }
+
+        if (value) {
+            return value;
         } else if (field.defaultValue) {
             return generateExpression(generator, field.defaultValue, { targetType: field.type });
         } else {

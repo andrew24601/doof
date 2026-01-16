@@ -358,6 +358,22 @@ export class DefiniteAssignmentAnalyzer {
         this.findUnassignedUsages(typeGuard.expression, assignedVars, unassignedUsages);
         break;
 
+      case 'object':
+        const objExpr = node as ObjectExpression;
+        for (const prop of objExpr.properties) {
+          if (prop.kind === 'spread') {
+            this.findUnassignedUsages(prop.argument, assignedVars, unassignedUsages);
+          } else {
+            if (prop.key.kind === 'member') {
+               this.findUnassignedUsages(prop.key, assignedVars, unassignedUsages);
+            }
+            if (prop.value) {
+              this.findUnassignedUsages(prop.value, assignedVars, unassignedUsages);
+            }
+          }
+        }
+        break;
+
       case 'positionalObject':
         // For positional object expressions like Adult { age: 25 }, analyze the arguments
         const posObj = node as any; // Use any since PositionalObjectExpression isn't imported

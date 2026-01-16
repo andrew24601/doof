@@ -294,7 +294,7 @@ export interface CallExpression extends ASTNode {
   kind: 'call';
   callee: Expression;
   arguments: Expression[];
-  namedArguments?: ObjectProperty[]; // For named argument syntax: func { arg1: value1, arg2: value2 }
+  namedArguments?: (ObjectProperty | SpreadElement)[]; // For named argument syntax: func { arg1: value1, arg2: value2 }
   typeArguments?: Type[]; // Explicit generic type arguments
   resolvedTypeArguments?: Type[]; // Type arguments after validation/alias resolution
   genericInstantiation?: {
@@ -383,7 +383,7 @@ export interface ArrayExpression extends ASTNode {
 
 export interface ObjectExpression extends ASTNode {
   kind: 'object';
-  properties: ObjectProperty[];
+  properties: (ObjectProperty | SpreadElement)[];
   className?: string;
   typeArguments?: Type[];
   resolvedTypeArguments?: Type[];
@@ -427,6 +427,11 @@ export interface SetExpression extends ASTNode {
   kind: 'set';
   elements: Expression[];
   _expectedEnumType?: EnumTypeNode;
+}
+
+export interface SpreadElement extends ASTNode {
+  kind: 'spread';
+  argument: Expression;
 }
 
 export interface ObjectProperty extends ASTNode {

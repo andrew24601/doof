@@ -324,6 +324,10 @@ class InstantiationCollector {
         break;
       case "object":
         for (const prop of expr.properties) {
+          if (prop.kind === 'spread') {
+            this.visitExpression(prop.argument);
+            continue;
+          }
           if (prop.key.kind === "member") {
             this.visitExpression(prop.key);
           }

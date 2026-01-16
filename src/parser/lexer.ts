@@ -117,6 +117,7 @@ export enum TokenType {
   ARROW = '=>',
   RANGE_INCLUSIVE = '..',
   RANGE_EXCLUSIVE = '..<',
+  SPREAD = '...',
 
   // Brackets
   LEFT_PAREN = '(',
@@ -732,6 +733,12 @@ export class Lexer {
             this.advance();
             this.advance();
             tokens.push({ type: TokenType.RANGE_EXCLUSIVE, value: '..<', location: this.createLocation(start) });
+          } else if (this.peek(2) === '.') {
+            // ...
+            this.advance();
+            this.advance();
+            this.advance();
+            tokens.push({ type: TokenType.SPREAD, value: '...', location: this.createLocation(start) });
           } else {
             // ..
             this.advance();

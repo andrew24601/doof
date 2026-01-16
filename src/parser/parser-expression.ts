@@ -1,4 +1,4 @@
-import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation, AsyncExpression, AwaitExpression } from "../types";
+import { Expression, ConditionalExpression, NullCoalesceExpression, TypeGuardExpression, RangeExpression, NonNullAssertionExpression, Identifier, CallExpression, Literal, OptionalChainExpression, MemberExpression, ObjectExpression, ObjectProperty, SpreadElement, ParseError, IndexExpression, TrailingLambdaExpression, BlockStatement, InterpolatedString, ArrayExpression, EnumShorthandMemberExpression, LambdaExpression, Type, BinaryExpression, UnaryExpression, TupleExpression, SourceLocation, AsyncExpression, AwaitExpression } from "../types";
 import { TokenType } from "./lexer";
 import { Parser } from "./parser";
 import { parseParameterList } from "./parser-parameters";
@@ -363,11 +363,22 @@ function parseNamedArgumentCall(parser: Parser, callee: Expression, typeArgument
     return callExpression;
 }
 
-function parseNamedArguments(parser: Parser): ObjectProperty[] {
-    const properties: ObjectProperty[] = [];
+function parseNamedArguments(parser: Parser): (ObjectProperty | SpreadElement)[] {
+    const properties: (ObjectProperty | SpreadElement)[] = [];
 
     if (!parser.check(TokenType.RIGHT_BRACE)) {
         do {
+            if (parser.match(TokenType.SPREAD)) {
+                const spreadToken = parser.previous();
+                const argument = parseExpression(parser);
+                properties.push({
+                    kind: 'spread',
+                    argument,
+                    location: { start: spreadToken.location.start, end: argument.location.end, filename: parser.filename }
+                });
+                continue;
+            }
+
             let key: Identifier | Literal;
             let value: Expression | undefined;
             let shorthand = false;
@@ -1008,11 +1019,21 @@ function parseObjectLiteral(parser: Parser, braceAlreadyConsumed: boolean = fals
 }
 
 function parseObjectProperties(parser: Parser, className?: string, typeArguments?: Type[]): ObjectExpression {
-    const properties: ObjectProperty[] = [];
+    const properties: (ObjectProperty | SpreadElement)[] = [];
 
     if (!parser.check(TokenType.RIGHT_BRACE)) {
         do {
-            properties.push(parseObjectProperty(parser));
+            if (parser.match(TokenType.SPREAD)) {
+                const spreadToken = parser.previous();
+                const argument = parseExpression(parser);
+                properties.push({
+                    kind: 'spread',
+                    argument,
+                    location: { start: spreadToken.location.start, end: argument.location.end, filename: parser.filename }
+                });
+            } else {
+                properties.push(parseObjectProperty(parser));
+            }
         } while (parser.match(TokenType.COMMA));
     }
 

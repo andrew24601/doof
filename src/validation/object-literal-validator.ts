@@ -5,7 +5,7 @@ import { getMemberPropertyName } from "./member-access-validator";
 import { propagateTypeContext } from "./expression-validator";
 import { getLiteralType } from "./literals-validator";
 import { typeToString, isTypeCompatible, createUnknownType, createClassType, resolveActualType, commonTypes, validateRequiredFields, getPropertyKeyName, isStrictLiteral, validateEnumMember, createPrimitiveType, validateType } from "../type-utils";
-import { Type, ObjectExpression, PositionalObjectExpression, CallExpression, Identifier, EnumShorthandMemberExpression, Expression, Parameter, ClassDeclaration, Literal, ArrayExpression, MapTypeNode, UnionTypeNode, SetTypeNode, EnumTypeNode, ClassTypeNode, ObjectProperty, TypeParameter } from "../types";
+import { Type, ObjectExpression, PositionalObjectExpression, CallExpression, Identifier, EnumShorthandMemberExpression, Expression, Parameter, ClassDeclaration, Literal, ArrayExpression, MapTypeNode, UnionTypeNode, SetTypeNode, EnumTypeNode, ClassTypeNode, ObjectProperty, SpreadElement, TypeParameter } from "../types";
 import { Validator } from "./validator";
 
 export function validateObjectExpression(expr: ObjectExpression, validator: Validator): Type {
@@ -376,10 +376,33 @@ function validateClassLiteral(
   validator: Validator,
   typeMapping?: Map<string, Type>
 ): void {
-  const providedProps = expr.properties.map(p => getPropertyKeyName(p.key));
-  const providedPropsSet = new Set(providedProps);
+  const providedProps = new Set<string>();
+  const providedPropsList: string[] = [];
+
+  for (const prop of expr.properties) {
+    if (prop.kind === 'spread') {
+      const spreadType = validateExpression(prop.argument, validator);
+      if (spreadType.kind === 'class') {
+        const spreadClassDecl = validator.context.classes.get(spreadType.name);
+        if (spreadClassDecl) {
+          for (const field of spreadClassDecl.fields) {
+            if (field.isPublic && !field.isStatic) {
+              providedProps.add(field.name.name);
+              providedPropsList.push(field.name.name);
+            }
+          }
+        }
+      }
+    } else {
+      const name = getPropertyKeyName(prop.key);
+      providedProps.add(name);
+      providedPropsList.push(name);
+    }
+  }
 
   for (const property of expr.properties) {
+    if (property.kind === 'spread') continue;
+
     const propertyName = getPropertyKeyName(property.key);
     const field = classDecl.fields.find(f => f.name.name === propertyName);
     
@@ -398,7 +421,7 @@ function validateClassLiteral(
     unmatchedProperties: []
   };
 
-  validateAggregateInitialization(expr, classDecl, providedPropsSet, validator);
+  validateAggregateInitialization(expr, classDecl, providedProps, validator);
 
   expr.instantiationInfo.fieldMappings = classDecl.fields
     .filter(field => !field.isStatic)
@@ -408,7 +431,7 @@ function validateClassLiteral(
       defaultValue: field.defaultValue
     }));
   
-  expr.instantiationInfo.unmatchedProperties = providedProps;
+  expr.instantiationInfo.unmatchedProperties = providedPropsList;
 
   const instantiationKey = `${expr.className}_${expr.location?.start?.line || 0}_${expr.location?.start?.column || 0}`;
   validator.context.codeGenHints.objectInstantiations.set(instantiationKey, expr.instantiationInfo);
@@ -428,6 +451,21 @@ function validateConstFieldRequirements(expr: ObjectExpression, classDecl: Class
 
   // Build a map of provided properties
   for (const prop of expr.properties) {
+    if (prop.kind === 'spread') {
+      const spreadType = validateExpression(prop.argument, validator);
+      if (spreadType.kind === 'class') {
+        const spreadClassDecl = validator.context.classes.get(spreadType.name);
+        if (spreadClassDecl) {
+          for (const field of spreadClassDecl.fields) {
+            if (field.isPublic && !field.isStatic && field.defaultValue) {
+               providedProps.set(field.name.name, field.defaultValue);
+            }
+          }
+        }
+      }
+      continue;
+    }
+
     const keyName = getPropertyKeyName(prop.key);
     if (prop.value) {
       providedProps.set(keyName, prop.value);
@@ -496,7 +534,28 @@ function validateObjectProperties(
   classDecl?: ClassDeclaration,
   typeMapping?: Map<string, Type>
 ): void {
+  const seenProperties = new Set<string>();
+
   for (const prop of expr.properties) {
+    if (prop.kind === 'spread') {
+      const spreadType = validateExpression(prop.argument, validator);
+      
+      // Check for overwrites
+      if (spreadType.kind === 'class') {
+        const spreadClassDecl = validator.context.classes.get(spreadType.name);
+        if (spreadClassDecl) {
+          for (const field of spreadClassDecl.fields) {
+            if (field.isPublic && !field.isStatic) {
+              if (seenProperties.has(field.name.name)) {
+                validator.addError(`Spread property '${field.name.name}' overwrites earlier property`, prop.location);
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
     // Validate the property key if it's an expression (like enum member access or shorthand)
     if (prop.key.kind === 'member') {
       validateExpression(prop.key, validator);
@@ -508,6 +567,12 @@ function validateObjectProperties(
         validateEnumMember(expectedEnumKeyType, shorthandExpr.memberName, prop.key.location, validator);
       }
     }
+
+    const keyName = getPropertyKeyName(prop.key);
+    if (seenProperties.has(keyName)) {
+      validator.addError(`Duplicate property '${keyName}'`, prop.key.location);
+    }
+    seenProperties.add(keyName);
 
     if (prop.value) {
       // Propagate expected enum type to property values for struct/class fields
@@ -658,6 +723,17 @@ export function disambiguateUnionObjectLiteral(objExpr: ObjectExpression, unionT
   // Step 1: Preflight filter based on const fields
   const providedPropsMap = new Map<string, Expression>();
   for (const prop of objExpr.properties) {
+    if (prop.kind === 'spread') {
+      // Spread provides values, but we can't easily check them here.
+      // We'll assume spread might provide the const field.
+      // But we can't verify the value.
+      // If we skip it, we might filter out valid candidates.
+      // If we include it, we might include invalid candidates.
+      
+      // For now, let's just skip spread properties in this preflight check.
+      // This means we won't filter based on spread properties.
+      continue;
+    }
     const keyName = getPropertyKeyName(prop.key);
     if (prop.value) {
       providedPropsMap.set(keyName, prop.value);
@@ -734,7 +810,24 @@ function isConstFieldValueMatch(defaultValue: Expression, providedValue: Express
  * Checks if an object literal can be used to construct a given class.
  */
 function canConstructFromObjectLiteral(objExpr: ObjectExpression, declaration: ClassDeclaration, validator: Validator): boolean {
-  const providedProps = new Set(objExpr.properties.map(p => getPropertyKeyName(p.key)));
+  const providedProps = new Set<string>();
+  for (const prop of objExpr.properties) {
+    if (prop.kind === 'spread') {
+      const spreadType = validateExpression(prop.argument, validator);
+      if (spreadType.kind === 'class') {
+        const spreadClassDecl = validator.context.classes.get(spreadType.name);
+        if (spreadClassDecl) {
+          for (const field of spreadClassDecl.fields) {
+            if (field.isPublic && !field.isStatic) {
+              providedProps.add(field.name.name);
+            }
+          }
+        }
+      }
+    } else {
+      providedProps.add(getPropertyKeyName(prop.key));
+    }
+  }
 
   const classDecl = declaration as ClassDeclaration;
 
