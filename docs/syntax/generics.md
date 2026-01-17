@@ -1,6 +1,35 @@
 # Generics
 
-Doof supports generic (parameterized) functions, classes, and methods. Generics are monomorphized at compile time, meaning specialized versions are generated for each unique type argument combination used in the code.
+Doof supports generic (parameterized) functions, classes, methods, and type aliases. Generics are monomorphized at compile time, meaning specialized versions are generated for each unique type argument combination used in the code.
+
+## Generic Type Aliases
+
+Type aliases can declare type parameters, enabling reusable type definitions:
+
+```doof
+// Single type parameter
+type Row<T> = T[];
+let numbers: Row<int> = [1, 2, 3];
+let strings: Row<string> = ["a", "b", "c"];
+
+// Multiple type parameters
+type Tuple<A, B> = A | B;
+let value: Tuple<int, string> = 42;
+
+// Nested generic aliases
+type Matrix<T> = Row<T>[];
+let m: Matrix<int> = [[1, 2], [3, 4]];
+```
+
+Generic type aliases are resolved at usage sites - the type parameters are substituted with the provided type arguments:
+
+```doof
+type Callback<T> = (value: T): void;
+
+function process(cb: Callback<int>): void {
+    cb(42);
+}
+```
 
 ## Generic Functions
 
@@ -139,6 +168,8 @@ Generic functions and classes map to mangled names in C++:
 | `identity<int>(x)` | `identity__primitive_int(x)` |
 | `Box<string>` | `Box__class_String` |
 | `Map<int, string>` | Uses built-in `std::unordered_map` |
+| `type Row<T> = T[]` | Resolved at usage, no C++ alias generated |
+| `Row<int>` | `std::shared_ptr<std::vector<int>>` |
 
 Type parameter mangling rules:
 - Primitive types: `primitive_int`, `primitive_string`, etc.

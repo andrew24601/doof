@@ -680,6 +680,7 @@ export interface EnumDeclaration extends ASTNode {
 export interface TypeAliasDeclaration extends ASTNode {
   kind: 'typeAlias';
   name: Identifier;
+  typeParameters?: TypeParameter[];
   type: Type;
   isExport?: boolean;
 }

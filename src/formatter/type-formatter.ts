@@ -73,6 +73,17 @@ export class TypeFormatter {
           this.printer.write('weak ');
         }
         this.printer.write(aliasType.name);
+        // Format type arguments if present: Alias<int, string>
+        if (aliasType.typeArguments && aliasType.typeArguments.length > 0) {
+          this.printer.write('<');
+          for (let i = 0; i < aliasType.typeArguments.length; i++) {
+            if (i > 0) {
+              this.printer.write(', ');
+            }
+            this.formatType(aliasType.typeArguments[i]);
+          }
+          this.printer.write('>');
+        }
         break;
       }
       case 'unknown':
@@ -121,8 +132,20 @@ export class TypeFormatter {
         return this.estimateFunctionTypeLength(type as FunctionTypeNode);
       case 'union':
         return this.estimateUnionTypeLength(type as UnionTypeNode);
-      case 'typeAlias':
-        return (type as TypeAliasNode).name.length + ((type as TypeAliasNode).isWeak ? 5 : 0);
+      case 'typeAlias': {
+        const aliasType = type as TypeAliasNode;
+        let length = aliasType.name.length + (aliasType.isWeak ? 5 : 0);
+        if (aliasType.typeArguments && aliasType.typeArguments.length > 0) {
+          length += 2; // for < and >
+          for (let i = 0; i < aliasType.typeArguments.length; i++) {
+            if (i > 0) {
+              length += 2; // for ", "
+            }
+            length += this.estimateTypeLength(aliasType.typeArguments[i]);
+          }
+        }
+        return length;
+      }
       case 'unknown':
         return 'unknown'.length;
       case 'range': {

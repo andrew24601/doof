@@ -4,6 +4,12 @@ import { TypeAliasDeclaration } from '../../types';
 import { CppGenerator } from '../cppgen';
 
 export function generateTypeAliasDeclaration(generator: CppGenerator, aliasDecl: TypeAliasDeclaration): string {
+  // Skip generic type aliases - they are resolved at usage sites via monomorphization
+  // rather than generating C++ template aliases
+  if (aliasDecl.typeParameters && aliasDecl.typeParameters.length > 0) {
+    return '';
+  }
+
   const aliasName = aliasDecl.name.name;
   const targetType = generator.generateType(aliasDecl.type);
 

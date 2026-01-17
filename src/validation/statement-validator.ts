@@ -551,8 +551,14 @@ export function validateTypeAliasDeclaration(stmt: TypeAliasDeclaration, validat
   return;
   }
 
+  // Push type parameters into scope before validating the type expression
+  validator.pushTypeParameters(stmt.typeParameters);
+
   // Validate the type expression
   validateType(stmt.type, stmt.location, validator);
+
+  // Pop type parameters after validation
+  validator.popTypeParameters();
 
   // Then check for circular references
   if (hasCircularTypeAlias(validator, stmt.type, aliasName, new Set())) {

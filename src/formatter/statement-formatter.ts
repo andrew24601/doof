@@ -693,6 +693,19 @@ export class StatementFormatter {
 
     this.printer.write('type ');
     this.printer.write(stmt.name.name);
+
+    // Format type parameters if present: type Alias<T, U> = ...
+    if (stmt.typeParameters && stmt.typeParameters.length > 0) {
+      this.printer.write('<');
+      for (let i = 0; i < stmt.typeParameters.length; i++) {
+        if (i > 0) {
+          this.printer.write(', ');
+        }
+        this.printer.write(stmt.typeParameters[i].name);
+      }
+      this.printer.write('>');
+    }
+
     this.printer.write(' = ');
     this.typeFormatter.formatType(stmt.type);
     this.printer.write(';');

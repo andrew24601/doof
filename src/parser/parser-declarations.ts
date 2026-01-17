@@ -868,6 +868,12 @@ export function parseTypeAliasDeclaration(parser: Parser): TypeAliasDeclaration 
     // 'type' token already consumed by match() in parseStatement
     const name = parser.consume(TokenType.IDENTIFIER, "Expected type alias name");
 
+    // Check for optional type parameters: type Alias<T, U> = ...
+    let typeParameters: TypeParameter[] | undefined;
+    if (parser.match(TokenType.LESS_THAN)) {
+        typeParameters = parseTypeParameterList(parser);
+    }
+
     parser.consume(TokenType.ASSIGN, "Expected '=' after type alias name");
 
     const type = parseType(parser);
@@ -877,6 +883,7 @@ export function parseTypeAliasDeclaration(parser: Parser): TypeAliasDeclaration 
     return {
         kind: 'typeAlias',
         name: { kind: 'identifier', name: name.value, location: name.location },
+        typeParameters,
         type,
         location: name.location
     };

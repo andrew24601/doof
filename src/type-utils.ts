@@ -1,6 +1,7 @@
 import { isEnumMemberExpression } from "./validation/expression-validator";
 import { Type, PrimitiveTypeNode, ClassTypeNode, ExternClassTypeNode, EnumTypeNode, ArrayTypeNode, MapTypeNode, SetTypeNode, FunctionTypeNode, UnionTypeNode, TypeAliasNode, Expression, ObjectExpression, ArrayExpression, Literal, MemberExpression, Identifier, FieldDeclaration, SourceLocation, UnknownTypeNode, EnumShorthandMemberExpression, RangeTypeNode, TypeParameter, TypeParameterTypeNode } from "./types";
 import { Validator } from "./validation/validator";
+import { substituteTypeParametersInType } from "./validation/type-substitution";
 
 // Cache commonly used types to avoid repeated creation
 export const commonTypes = {
@@ -836,8 +837,33 @@ export function resolveTypeAlias(aliasType: TypeAliasNode, validator: Validator,
     return createUnknownType();
   }
 
-  // Return a deep copy of the resolved type to avoid mutation
-  return cloneType(aliasDecl.type, validator);
+  // Clone the type to avoid mutation
+  let resolvedType = cloneType(aliasDecl.type, validator);
+
+  // If the type alias has type parameters, perform substitution
+  const expectedParams = aliasDecl.typeParameters ?? [];
+  const providedArgs = aliasType.typeArguments ?? [];
+
+  if (expectedParams.length > 0 || providedArgs.length > 0) {
+    // Validate type argument count
+    if (expectedParams.length === 0 && providedArgs.length > 0) {
+      validator.addError(`Type alias '${aliasType.name}' does not accept type arguments`, location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } });
+    } else if (providedArgs.length === 0 && expectedParams.length > 0) {
+      validator.addError(`Type alias '${aliasType.name}' requires ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'}`, location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } });
+    } else if (providedArgs.length !== expectedParams.length) {
+      validator.addError(`Type alias '${aliasType.name}' expects ${expectedParams.length} type ${expectedParams.length === 1 ? 'argument' : 'arguments'} but got ${providedArgs.length}`, location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } });
+    } else {
+      // Build mapping from type parameter names to provided type arguments
+      const mapping = new Map<string, Type>();
+      for (let i = 0; i < expectedParams.length; i++) {
+        mapping.set(expectedParams[i].name, providedArgs[i]);
+      }
+      // Substitute type parameters in the resolved type
+      resolvedType = substituteTypeParametersInType(resolvedType, mapping);
+    }
+  }
+
+  return resolvedType;
 }
 
 
