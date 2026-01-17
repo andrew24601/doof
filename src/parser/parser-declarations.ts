@@ -757,11 +757,18 @@ export function parseFieldOrMethod(parser: Parser, modifiers: ModifierFlags): Fi
         const result = Object.create(null) as FieldOrMethodParseResult;
         result.field = field;
         return result;
-    } else if (parser.match(TokenType.LEFT_PAREN)) {
-        // Method declaration
+    } else if (parser.match(TokenType.LESS_THAN) || parser.match(TokenType.LEFT_PAREN)) {
+        // Method declaration (possibly generic)
         // Reject constructor methods - explicit constructors are not supported
         if (nameIdentifier.name === 'constructor') {
             throw new ParseError("Explicit constructor methods are not supported. Use object literal initialization instead.", nameIdentifier.location);
+        }
+
+        // Check if we matched '<' for type parameters
+        let typeParameters: TypeParameter[] | undefined;
+        if (parser.previous().type === TokenType.LESS_THAN) {
+            typeParameters = parseTypeParameterList(parser);
+            parser.consume(TokenType.LEFT_PAREN, "Expected '(' after type parameters");
         }
         
         const parameters = parseParameterList(parser);
@@ -782,6 +789,7 @@ export function parseFieldOrMethod(parser: Parser, modifiers: ModifierFlags): Fi
             isPublic: modifiers.isPublic,
             isStatic: modifiers.isStatic,
             isAsync: modifiers.isAsync,
+            typeParameters,
             location: nameIdentifier.location
         };
         const result = Object.create(null) as FieldOrMethodParseResult;

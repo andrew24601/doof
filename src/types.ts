@@ -666,6 +666,7 @@ export interface MethodDeclaration extends ASTNode {
   isExtern?: boolean;
   usesFunctionKeyword?: boolean;
   isAsync?: boolean;
+  typeParameters?: TypeParameter[];
 }
 
 

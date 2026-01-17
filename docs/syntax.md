@@ -21,6 +21,7 @@ This guide has been split into focused topics under `docs/syntax/` to make it ea
 - Interfaces (structural): [syntax/interfaces.md](syntax/interfaces.md)
 - Collections: [syntax/collections.md](syntax/collections.md)
 - Functions: [syntax/functions.md](syntax/functions.md)
+- Generics: [syntax/generics.md](syntax/generics.md)
 - Async/Await: [syntax/async-await.md](syntax/async-await.md)
 - Markdown blocks in code: [syntax/markdown-blocks.md](syntax/markdown-blocks.md)
 - Expressions and control flow: [syntax/expressions-and-control-flow.md](syntax/expressions-and-control-flow.md)

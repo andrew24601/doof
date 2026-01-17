@@ -286,66 +286,72 @@ export function validateMethodDeclaration(method: MethodDeclaration, validator: 
     location: method.location
   } as FunctionDeclaration;
 
-  // Add 'this' to scope if not static
-  if (!method.isStatic && validator.context.currentClass) {
-    let thisType: Type;
-    // Check if this class will need enable_shared_from_this (fluent interface)
-    const isFluentInterface = classUsesThisAsValue(validator.context.currentClass);
+  // Push type parameters for generic methods
+  validator.pushTypeParameters(method.typeParameters);
 
-    if (isFluentInterface) {
-      // For fluent interface classes, 'this' should be treated as shared_ptr<Class> for type compatibility
-      thisType = {
-        kind: 'class',
-        name: validator.context.currentClass.name.name,
-        isSharedPtr: true // Add a marker to indicate this is a shared_ptr context
-      } as any; // Cast as any since we're extending the type
-    } else {
-      // Regular class type
-      thisType = {
-        kind: 'class',
-        name: validator.context.currentClass.name.name
-      };
+  try {
+    // Add 'this' to scope if not static
+    if (!method.isStatic && validator.context.currentClass) {
+      let thisType: Type;
+      // Check if this class will need enable_shared_from_this (fluent interface)
+      const isFluentInterface = classUsesThisAsValue(validator.context.currentClass);
+
+      if (isFluentInterface) {
+        // For fluent interface classes, 'this' should be treated as shared_ptr<Class> for type compatibility
+        thisType = {
+          kind: 'class',
+          name: validator.context.currentClass.name.name,
+          isSharedPtr: true // Add a marker to indicate this is a shared_ptr context
+        } as any; // Cast as any since we're extending the type
+      } else {
+        // Regular class type
+        thisType = {
+          kind: 'class',
+          name: validator.context.currentClass.name.name
+        };
+      }
+      validator.context.symbols.set('this', thisType);
     }
-    validator.context.symbols.set('this', thisType);
-  }
 
-  // Validate parameters
-  for (const param of method.parameters) {
-    validateParameter(param, validator);
-    validator.context.symbols.set(param.name.name, param.type);
+    // Validate parameters
+    for (const param of method.parameters) {
+      validateParameter(param, validator);
+      validator.context.symbols.set(param.name.name, param.type);
 
-    // Track parameters in scope tracker for lambda capture analysis
-    const scopeName = validator.context.currentClass
-      ? `${validator.context.currentClass.name.name}.${method.name.name}`
-      : method.name.name;
-    const parameterEntry = createScopeTrackerEntry({
-      name: param.name.name,
-      kind: 'parameter',
-      scopeName,
-      location: param.location,
-      type: param.type,
-      isConstant: true,
-      declaringClass: validator.context.currentClass?.name.name
-    });
-  registerScopeTrackerEntry(validator.context.codeGenHints.scopeTracker, parameterEntry);
-  }
-
-  // Validate return type
-  validateType(method.returnType, method.location, validator);
-
-  // Validate body with parameter pre-assignment
-  validateFunctionBody(method.body, method.parameters.map(p => p.name.name), validator);
-
-  // Check return paths
-  if (method.returnType.kind !== 'primitive' || (method.returnType as PrimitiveTypeNode).type !== 'void') {
-    if (!allPathsReturn(method.body)) {
-      validator.addError(`Method '${method.name.name}' not all code paths return a value`, method.location);
+      // Track parameters in scope tracker for lambda capture analysis
+      const scopeName = validator.context.currentClass
+        ? `${validator.context.currentClass.name.name}.${method.name.name}`
+        : method.name.name;
+      const parameterEntry = createScopeTrackerEntry({
+        name: param.name.name,
+        kind: 'parameter',
+        scopeName,
+        location: param.location,
+        type: param.type,
+        isConstant: true,
+        declaringClass: validator.context.currentClass?.name.name
+      });
+    registerScopeTrackerEntry(validator.context.codeGenHints.scopeTracker, parameterEntry);
     }
-  }
 
-  validator.context.symbols = prevSymbols;
-  validator.context.currentFunction = prevFunction;
-  validator.context.currentMethod = prevMethod;
+    // Validate return type
+    validateType(method.returnType, method.location, validator);
+
+    // Validate body with parameter pre-assignment
+    validateFunctionBody(method.body, method.parameters.map(p => p.name.name), validator);
+
+    // Check return paths
+    if (method.returnType.kind !== 'primitive' || (method.returnType as PrimitiveTypeNode).type !== 'void') {
+      if (!allPathsReturn(method.body)) {
+        validator.addError(`Method '${method.name.name}' not all code paths return a value`, method.location);
+      }
+    }
+  } finally {
+    validator.context.symbols = prevSymbols;
+    validator.context.currentFunction = prevFunction;
+    validator.context.currentMethod = prevMethod;
+    validator.popTypeParameters();
+  }
 }
 
 
@@ -984,7 +990,8 @@ function populateSymbolTable(validator: Validator, stmt: Statement): void {
         if (method.isStatic) {
           const methodType = createFunctionType(
             method.parameters.map(p => ({ name: p.name.name, type: p.type })),
-            method.returnType
+            method.returnType,
+            method.typeParameters
           );
           // Store static methods with class prefix for member access validation
           validator.context.symbols.set(`${stmt.name.name}.${method.name.name}`, methodType);
@@ -1004,7 +1011,8 @@ function populateSymbolTable(validator: Validator, stmt: Statement): void {
         if (method.isStatic) {
           const methodType = createFunctionType(
             method.parameters.map(p => ({ name: p.name.name, type: p.type })),
-            method.returnType
+            method.returnType,
+            method.typeParameters
           );
           // Store static methods with class prefix for member access validation
           validator.context.symbols.set(`${stmt.name.name}.${method.name.name}`, methodType);

@@ -6,16 +6,19 @@ import {
   ValidationContext,
   SourceLocation,
   CallExpression,
-  PositionalObjectExpression
+  PositionalObjectExpression,
+  MemberExpression
 } from "../types";
 import { getTypeKey } from "../type-utils";
 import { cloneTypeNode } from "../validation/type-substitution";
 
-export type GenericInstantiationKind = "function" | "class";
+export type GenericInstantiationKind = "function" | "class" | "method";
 
 export interface GenericInstantiationRecord {
   kind: GenericInstantiationKind;
   name: string;
+  /** For method instantiations, the class name that owns the method */
+  className?: string;
   typeArguments: Type[];
   location?: SourceLocation;
 }
@@ -482,9 +485,63 @@ class InstantiationCollector {
       return;
     }
 
+    // Handle method calls (member expressions)
+    if (expr.callee.kind === "member") {
+      const memberExpr = expr.callee as MemberExpression;
+      if (memberExpr.property.kind !== "identifier") {
+        return; // computed property access not supported for generic methods
+      }
+
+      const methodName = memberExpr.property.name;
+      
+      // Resolve the class name from the object's inferred type
+      const objectType = (memberExpr.object as any).inferredType;
+      if (!objectType) {
+        this.diagnostics.push({
+          message: `Cannot resolve class type for generic method call '${methodName}'`,
+          location: expr.location
+        });
+        return;
+      }
+
+      let className: string | undefined;
+      if (objectType.kind === "class") {
+        className = objectType.name;
+      } else if (memberExpr.object.kind === "identifier") {
+        // Static method call: ClassName.method<T>()
+        className = memberExpr.object.name;
+      }
+
+      if (!className) {
+        this.diagnostics.push({
+          message: `Cannot determine class for generic method '${methodName}'`,
+          location: expr.location
+        });
+        return;
+      }
+
+      const key = this.createMethodKey(className, methodName, expr.genericInstantiation.typeArguments);
+      if (this.seen.has(key)) {
+        return;
+      }
+
+      const clonedArgs = expr.genericInstantiation.typeArguments.map(arg => cloneTypeNode(arg));
+      const record: GenericInstantiationRecord = {
+        kind: "method",
+        name: methodName,
+        className,
+        typeArguments: clonedArgs,
+        location: expr.location
+      };
+
+      this.seen.set(key, record);
+      this.instantiations.push(record);
+      return;
+    }
+
     if (expr.callee.kind !== "identifier") {
       this.diagnostics.push({
-        message: "Generic instantiation collector currently supports only identifier call expressions",
+        message: "Generic instantiation collector currently supports only identifier and member call expressions",
         location: expr.location
       });
       return;
@@ -557,5 +614,10 @@ class InstantiationCollector {
   private createKey(kind: GenericInstantiationKind, name: string, typeArguments: Type[]): string {
     const argsKey = typeArguments.map(arg => getTypeKey(arg)).join("|");
     return `${kind}:${name}:${argsKey}`;
+  }
+
+  private createMethodKey(className: string, methodName: string, typeArguments: Type[]): string {
+    const argsKey = typeArguments.map(arg => getTypeKey(arg)).join("|");
+    return `method:${className}.${methodName}:${argsKey}`;
   }
 }

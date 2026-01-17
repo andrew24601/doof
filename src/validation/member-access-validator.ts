@@ -82,10 +82,12 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
             // IMPORTANT: Validate the object identifier to ensure its inferredType is set
             validateExpression(expr.object, validator);
             
-            const funcType = createFunctionType(
-              method.parameters.map(p => ({ name: p.name.name, type: p.type })),
-              method.returnType
-            );
+            const funcType: FunctionTypeNode = {
+              kind: 'function',
+              parameters: method.parameters.map(p => ({ name: p.name.name, type: p.type })),
+              returnType: method.returnType,
+              typeParameters: method.typeParameters
+            };
             // If this is a static fromJSON call, mark the target type for JSON-from helper generation
             if (memberName === 'fromJSON') {
               maybeMarkTypeForJsonFrom(typeDecl.name.name, validator);
@@ -285,17 +287,19 @@ export function validateMemberExpression(expr: MemberExpression, validator: Vali
           if (typeDecl.kind === 'class' && !validator.isPrivateMemberAccessible(method.isPublic, className)) {
             validator.addError(`Cannot access private method '${method.name.name}' outside class '${className}'`, expr.property.location);
           }
-          const funcType = createFunctionType(
-            method.parameters.map(p => ({
+          const funcType: FunctionTypeNode = {
+            kind: 'function',
+            parameters: method.parameters.map(p => ({
               name: p.name.name,
               type: typeDecl.kind === 'class' && typeMapping
                 ? substituteTypeParametersInType(p.type, typeMapping)
                 : p.type
             })),
-            typeDecl.kind === 'class' && typeMapping
+            returnType: typeDecl.kind === 'class' && typeMapping
               ? substituteTypeParametersInType(method.returnType, typeMapping)
-              : method.returnType
-          );
+              : method.returnType,
+            typeParameters: method.typeParameters
+          };
           expr.inferredType = funcType;
           return funcType;
         }

@@ -4,6 +4,7 @@ import {
   Statement,
   FunctionDeclaration,
   ClassDeclaration,
+  MethodDeclaration,
   Type,
   TypeParameter,
   Expression,
@@ -13,7 +14,8 @@ import {
   Identifier,
   ExportDeclaration,
   SourceLocation,
-  Parameter
+  Parameter,
+  MemberExpression
 } from "../types";
 import {
   collectGenericInstantiations,
@@ -35,6 +37,13 @@ interface ClassOwner {
   program: Program;
   context: ValidationContext;
   declaration: ClassDeclaration;
+}
+
+interface MethodOwner {
+  program: Program;
+  context: ValidationContext;
+  classDeclaration: ClassDeclaration;
+  methodDeclaration: MethodDeclaration;
 }
 
 interface FunctionSpecialization {
@@ -61,9 +70,22 @@ interface ClassSpecialization {
   location?: SourceLocation;
 }
 
-type SpecializationRecord = FunctionSpecialization | ClassSpecialization;
+interface MethodSpecialization {
+  kind: "method";
+  key: string;
+  className: string;
+  originalMethodName: string;
+  specializedMethodName: string;
+  typeArguments: Type[];
+  mapping: Map<string, Type>;
+  owner: MethodOwner;
+  clone: MethodDeclaration;
+  location?: SourceLocation;
+}
 
-type SpecializationKind = "function" | "class";
+type SpecializationRecord = FunctionSpecialization | ClassSpecialization | MethodSpecialization;
+
+type SpecializationKind = "function" | "class" | "method";
 
 interface MonomorphizationInput {
   program: Program;
@@ -109,12 +131,17 @@ class Monomorphizer {
 
   private readonly functionOwners = new Map<string, FunctionOwner>();
   private readonly classOwners = new Map<string, ClassOwner>();
+  /** Key: "className.methodName" */
+  private readonly methodOwners = new Map<string, MethodOwner>();
 
   private readonly functionSpecializationsByKey = new Map<string, FunctionSpecialization>();
   private readonly classSpecializationsByKey = new Map<string, ClassSpecialization>();
+  private readonly methodSpecializationsByKey = new Map<string, MethodSpecialization>();
 
   private readonly functionSpecializationsByProgram = new Map<Program, Map<string, FunctionSpecialization[]>>();
   private readonly classSpecializationsByProgram = new Map<Program, Map<string, ClassSpecialization[]>>();
+  /** Key: "className.methodName" -> list of specializations */
+  private readonly methodSpecializationsByClass = new Map<string, MethodSpecialization[]>();
 
   constructor(inputs: MonomorphizationInput[]) {
     this.programs = inputs.map(input => input.program);
@@ -151,6 +178,18 @@ class Monomorphizer {
       if (classDecl.typeParameters && classDecl.typeParameters.length > 0) {
         this.classOwners.set(classDecl.name.name, { program, context, declaration: classDecl });
       }
+      // Index generic methods within this class
+      for (const method of classDecl.methods) {
+        if (method.typeParameters && method.typeParameters.length > 0) {
+          const key = `${classDecl.name.name}.${method.name.name}`;
+          this.methodOwners.set(key, {
+            program,
+            context,
+            classDeclaration: classDecl,
+            methodDeclaration: method
+          });
+        }
+      }
     }
   }
 
@@ -160,6 +199,8 @@ class Monomorphizer {
         this.ensureFunctionSpecialization(inst.name, inst.typeArguments, inst.location);
       } else if (inst.kind === "class") {
         this.ensureClassSpecialization(inst.name, inst.typeArguments, inst.location);
+      } else if (inst.kind === "method" && inst.className) {
+        this.ensureMethodSpecialization(inst.className, inst.name, inst.typeArguments, inst.location);
       }
     }
   }
@@ -290,6 +331,74 @@ class Monomorphizer {
     return record;
   }
 
+  private ensureMethodSpecialization(className: string, methodName: string, typeArguments: Type[], location?: any): MethodSpecialization | undefined {
+    if (typeArguments.some(arg => arg.kind === "typeParameter")) {
+      return undefined;
+    }
+
+    const key = this.createMethodSpecializationKey(className, methodName, typeArguments);
+    const existing = this.methodSpecializationsByKey.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const ownerKey = `${className}.${methodName}`;
+    const owner = this.methodOwners.get(ownerKey);
+    if (!owner) {
+      this.diagnostics.push({
+        message: `Generic method '${className}.${methodName}' has no declaration available for instantiation`,
+        location
+      });
+      return undefined;
+    }
+
+    const methodDecl = owner.methodDeclaration;
+    if (!methodDecl.typeParameters || methodDecl.typeParameters.length === 0) {
+      this.diagnostics.push({
+        message: `Method '${className}.${methodName}' is not generic but was instantiated with type arguments`,
+        location
+      });
+      return undefined;
+    }
+
+    if (methodDecl.typeParameters.length !== typeArguments.length) {
+      this.diagnostics.push({
+        message: `Method '${className}.${methodName}' requires ${methodDecl.typeParameters.length} type argument(s); got ${typeArguments.length}`,
+        location: location || methodDecl.location
+      });
+      return undefined;
+    }
+
+    const mapping = this.createTypeMapping(methodDecl.typeParameters, typeArguments);
+    const clone = deepClone(methodDecl);
+    const specializedMethodName = mangleName(methodDecl.name.name, typeArguments);
+    clone.name = { ...clone.name, name: specializedMethodName } as Identifier;
+    delete clone.typeParameters;
+
+    const record: MethodSpecialization = {
+      kind: "method",
+      key,
+      className,
+      originalMethodName: methodDecl.name.name,
+      specializedMethodName,
+      typeArguments: typeArguments.map(arg => cloneTypeNode(arg)),
+      mapping,
+      owner,
+      clone,
+      location
+    };
+
+    this.methodSpecializationsByKey.set(key, record);
+    this.registerMethodSpecialization(record);
+    this.transformNode(clone, mapping);
+    return record;
+  }
+
+  private createMethodSpecializationKey(className: string, methodName: string, typeArguments: Type[]): string {
+    const argsKey = typeArguments.map(arg => getTypeKey(arg)).join("|");
+    return `method:${className}.${methodName}:${argsKey}`;
+  }
+
   private createTypeMapping(params: TypeParameter[], args: Type[]): Map<string, Type> {
     const mapping = new Map<string, Type>();
     for (let i = 0; i < params.length; i++) {
@@ -312,6 +421,13 @@ class Monomorphizer {
     list.push(record);
     perProgram.set(record.originalName, list);
     this.classSpecializationsByProgram.set(record.owner.program, perProgram);
+  }
+
+  private registerMethodSpecialization(record: MethodSpecialization): void {
+    const key = `${record.className}.${record.originalMethodName}`;
+    const list = this.methodSpecializationsByClass.get(key) ?? [];
+    list.push(record);
+    this.methodSpecializationsByClass.set(key, list);
   }
 
   private applySpecializations(): void {
@@ -353,6 +469,8 @@ class Monomorphizer {
               }
               continue;
             }
+            // Apply method specializations to non-generic classes
+            this.applyMethodSpecializationsToClass(stmt);
             this.transformNode(stmt);
             newBody.push(stmt);
             break;
@@ -417,6 +535,33 @@ class Monomorphizer {
 
     this.transformNode(stmt);
     newBody.push(stmt);
+  }
+
+  private applyMethodSpecializationsToClass(classDecl: ClassDeclaration): void {
+    const className = classDecl.name.name;
+    const newMethods: MethodDeclaration[] = [];
+
+    for (const method of classDecl.methods) {
+      if (method.typeParameters && method.typeParameters.length > 0) {
+        // This is a generic method - replace with specializations
+        const key = `${className}.${method.name.name}`;
+        const specs = this.methodSpecializationsByClass.get(key) ?? [];
+        if (specs.length === 0) {
+          this.diagnostics.push({
+            message: `Generic method '${className}.${method.name.name}' has no concrete instantiations and will be omitted`,
+            location: method.location
+          });
+        }
+        for (const spec of specs) {
+          newMethods.push(spec.clone);
+        }
+      } else {
+        // Non-generic method - keep as is (will be transformed later)
+        newMethods.push(method);
+      }
+    }
+
+    classDecl.methods = newMethods;
   }
 
   private updateValidationContexts(): void {
@@ -524,6 +669,10 @@ class Monomorphizer {
       return this.transformFunctionDeclaration(value, mapping);
     }
 
+    if (this.isMethodDeclarationNode(value)) {
+      return this.transformMethodDeclaration(value, mapping);
+    }
+
     if (this.isClassDeclarationNode(value)) {
       return this.transformClassDeclaration(value, mapping);
     }
@@ -565,6 +714,43 @@ class Monomorphizer {
       expr.resolvedTypeArguments = expr.resolvedTypeArguments.map(arg => this.rewriteTypeNode(arg, mapping));
     }
 
+    // Handle generic method calls (member expression callee)
+    if (expr.genericInstantiation && expr.callee.kind === "member") {
+      const memberExpr = expr.callee as MemberExpression;
+      if (memberExpr.property.kind === "identifier") {
+        const methodName = memberExpr.property.name;
+        const typeArgs = expr.genericInstantiation.typeArguments?.map(arg => this.rewriteTypeNode(arg, mapping)) ?? [];
+        
+        // Try to resolve the class name from the object's inferred type
+        let className: string | undefined;
+        const objectType = (memberExpr.object as any).inferredType;
+        if (objectType && objectType.kind === "class") {
+          className = objectType.name;
+        } else if (memberExpr.object.kind === "identifier") {
+          // Could be a static method call: ClassName.method<T>()
+          className = (memberExpr.object as Identifier).name;
+        }
+
+        if (className) {
+          const specialization = this.ensureMethodSpecialization(className, methodName, typeArgs, expr.location);
+          if (specialization) {
+            (memberExpr.property as Identifier).name = specialization.specializedMethodName;
+            expr.typeArguments = undefined;
+            expr.resolvedTypeArguments = undefined;
+            expr.genericInstantiation = undefined;
+            // Update callInfo for method calls (instanceMethod or staticMethod)
+            if (expr.callInfo && (expr.callInfo.kind === "instanceMethod" || expr.callInfo.kind === "staticMethod")) {
+              expr.callInfo.targetName = specialization.specializedMethodName;
+            }
+            if (expr.callInfoSnapshot && (expr.callInfoSnapshot.kind === "instanceMethod" || expr.callInfoSnapshot.kind === "staticMethod")) {
+              expr.callInfoSnapshot.targetName = specialization.specializedMethodName;
+            }
+          }
+        }
+      }
+    }
+
+    // Handle generic function calls (identifier callee)
     if (expr.genericInstantiation && expr.callee.kind === "identifier") {
       const typeArgs = expr.genericInstantiation.typeArguments?.map(arg => this.rewriteTypeNode(arg, mapping)) ?? [];
       const specialization = this.ensureFunctionSpecialization((expr.callee as Identifier).name, typeArgs, expr.location);
@@ -607,7 +793,9 @@ class Monomorphizer {
       inferredType: expr.inferredType && (expr.inferredType as any).name
     });
     expr.properties = expr.properties.map(prop => {
-      if (prop.value) {
+      if (prop.kind === 'spread') {
+        prop.argument = this.transformValue(prop.argument, mapping) as Expression;
+      } else if (prop.value) {
         prop.value = this.transformValue(prop.value, mapping) as Expression;
       }
       return prop;
@@ -836,6 +1024,10 @@ class Monomorphizer {
     return value && typeof value === "object" && value.kind === "class" && Array.isArray(value.fields) && Array.isArray(value.methods);
   }
 
+  private isMethodDeclarationNode(value: any): value is MethodDeclaration {
+    return value && typeof value === "object" && value.kind === "method" && Array.isArray(value.parameters) && "body" in value;
+  }
+
   private transformFunctionDeclaration(fn: FunctionDeclaration, mapping?: Map<string, Type>): FunctionDeclaration {
     fn.parameters = fn.parameters.map(param => this.transformValue(param, mapping));
     if (fn.returnType) {
@@ -848,9 +1040,21 @@ class Monomorphizer {
     return fn;
   }
 
+  private transformMethodDeclaration(method: MethodDeclaration, mapping?: Map<string, Type>): MethodDeclaration {
+    method.parameters = method.parameters.map(param => this.transformValue(param, mapping));
+    if (method.returnType) {
+      method.returnType = this.rewriteTypeNode(method.returnType, mapping);
+    }
+    method.body = this.transformValue(method.body, mapping);
+    if (method.typeParameters) {
+      method.typeParameters = undefined;
+    }
+    return method;
+  }
+
   private transformClassDeclaration(cls: ClassDeclaration, mapping?: Map<string, Type>): ClassDeclaration {
     cls.fields = cls.fields.map(field => this.transformValue(field, mapping));
-    cls.methods = cls.methods.map(method => this.transformValue(method, mapping));
+    cls.methods = cls.methods.map(method => this.transformMethodDeclaration(method, mapping));
     if (cls.nestedClasses) {
       cls.nestedClasses = cls.nestedClasses.map(nested => this.transformValue(nested, mapping));
     }
