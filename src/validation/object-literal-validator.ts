@@ -3,6 +3,7 @@ import { cloneTypeNode, substituteTypeParametersInType } from "./type-substituti
 import { validateExpression } from "./expression-validator";
 import { getMemberPropertyName } from "./member-access-validator";
 import { propagateTypeContext } from "./expression-validator";
+import { transformObjectToCall, setTemporaryProperty, getTemporaryProperty } from "./ast-transform-utils";
 import { getLiteralType } from "./literals-validator";
 import { typeToString, isTypeCompatible, createUnknownType, createClassType, resolveActualType, commonTypes, validateRequiredFields, getPropertyKeyName, isStrictLiteral, validateEnumMember, createPrimitiveType, validateType } from "../type-utils";
 import { Type, ObjectExpression, PositionalObjectExpression, CallExpression, Identifier, EnumShorthandMemberExpression, Expression, Parameter, ClassDeclaration, Literal, ArrayExpression, MapTypeNode, UnionTypeNode, SetTypeNode, EnumTypeNode, ClassTypeNode, ObjectProperty, SpreadElement, TypeParameter } from "../types";
@@ -30,29 +31,9 @@ export function validateObjectExpression(expr: ObjectExpression, validator: Vali
       // Validate as a call expression
       const returnType = validateCallExpression(callExpr, validator);
 
-      // Update the AST node in place (validator is a bit of a hack, but works for validation)
-      (expr as any).kind = 'call';
-      (expr as any).callee = callExpr.callee;
-      (expr as any).arguments = callExpr.arguments;
-      (expr as any).namedArguments = callExpr.namedArguments;
-      (expr as any).callInfo = callExpr.callInfo;
-      (expr as any).callInfoSnapshot = callExpr.callInfoSnapshot;
-      if (callExpr.intrinsicInfo) {
-        (expr as any).intrinsicInfo = callExpr.intrinsicInfo;
-      }
-      if (callExpr.typeConversionInfo) {
-        (expr as any).typeConversionInfo = callExpr.typeConversionInfo;
-      }
-      if (callExpr.enumConversionInfo) {
-        (expr as any).enumConversionInfo = callExpr.enumConversionInfo;
-      }
-      // Copy named argument evaluation order metadata
-      if (callExpr.namedArgumentsLexicalOrder) {
-        (expr as any).namedArgumentsLexicalOrder = callExpr.namedArgumentsLexicalOrder;
-      }
-      if (callExpr.argumentEvaluationOrder) {
-        (expr as any).argumentEvaluationOrder = callExpr.argumentEvaluationOrder;
-      }
+      // Transform the AST node from ObjectExpression to CallExpression
+      // This is still a runtime mutation, but using a type-safe utility
+      transformObjectToCall(expr, callExpr);
 
       expr.inferredType = returnType;
       return returnType;
@@ -72,7 +53,7 @@ export function validateObjectExpression(expr: ObjectExpression, validator: Vali
   }
 
   // Check if we have expected union type context for disambiguation BEFORE validating properties
-  const expectedUnionType = (expr as any)._expectedUnionType;
+  const expectedUnionType = getTemporaryProperty<ObjectExpression, '_expectedUnionType', UnionTypeNode>(expr, '_expectedUnionType');
   if (!expr.className && expectedUnionType && expectedUnionType.kind === 'union') {
     // Try to disambiguate union object literal
     const disambiguation = disambiguateUnionObjectLiteral(expr, expectedUnionType, validator);
@@ -120,7 +101,9 @@ export function validateObjectExpression(expr: ObjectExpression, validator: Vali
       expr.instantiationInfo = {
         targetClass: 'StringBuilder',
         fieldMappings: [],
-        unmatchedProperties: expr.properties.map(prop => getPropertyKeyName(prop.key))
+        unmatchedProperties: expr.properties
+          .filter(prop => prop.kind !== 'spread')
+          .map(prop => getPropertyKeyName((prop as ObjectProperty).key))
       };
 
       const instantiationKey = `${expr.className}_${expr.location?.start?.line || 0}_${expr.location?.start?.column || 0}`;
@@ -628,6 +611,10 @@ export function inferObjectLiteralType(objExpr: ObjectExpression, expectedType: 
 
     // Validate each property
     for (const prop of objExpr.properties) {
+      if (prop.kind === 'spread') {
+        continue; // Skip spread elements for map validation
+      }
+      
       if (prop.key.kind === 'literal') {
         const keyType = getLiteralType(prop.key as Literal);
         if (!isTypeCompatible(keyType, mapType.keyType, validator)) {
@@ -657,6 +644,10 @@ export function inferObjectLiteralType(objExpr: ObjectExpression, expectedType: 
 
     // Validate each property as a set element
     for (const prop of objExpr.properties) {
+      if (prop.kind === 'spread') {
+        continue; // Skip spread elements for set validation
+      }
+      
       if (prop.value) {
         const elementType = validateExpression(prop.value, validator);
         if (!isTypeCompatible(elementType, setType.elementType, validator)) {

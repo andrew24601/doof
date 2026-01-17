@@ -2,6 +2,7 @@ import { isEnumMemberExpression } from "./validation/expression-validator";
 import { Type, PrimitiveTypeNode, ClassTypeNode, ExternClassTypeNode, EnumTypeNode, ArrayTypeNode, MapTypeNode, SetTypeNode, FunctionTypeNode, UnionTypeNode, TypeAliasNode, Expression, ObjectExpression, ArrayExpression, Literal, MemberExpression, Identifier, FieldDeclaration, SourceLocation, UnknownTypeNode, EnumShorthandMemberExpression, RangeTypeNode, TypeParameter, TypeParameterTypeNode } from "./types";
 import { Validator } from "./validation/validator";
 import { substituteTypeParametersInType } from "./validation/type-substitution";
+import { transformTypeKind } from "./validation/ast-transform-utils";
 
 // Cache commonly used types to avoid repeated creation
 export const commonTypes = {
@@ -492,6 +493,9 @@ export function isConstantLiteral(expr: Expression, validator: Validator): boole
       // Object literals with constant properties are considered constant
       const objectExpr = expr as ObjectExpression;
       return objectExpr.properties.every(prop => {
+        if (prop.kind === 'spread') {
+          return false; // Spread elements are not constant
+        }
         return prop.value ? isConstantLiteral(prop.value, validator) : true;
       });
     case 'array':
@@ -762,20 +766,14 @@ export function resolveActualType(type: Type, validator: Validator, location?: S
         // Check if it's actually a class or enum
         const isWeak = aliasType.isWeak;
         if (validator.context.classes.has(aliasType.name)) {
-          (type as any).kind = 'class';
-          if (isWeak) {
-            (type as any).isWeak = true;
-          }
+          transformTypeKind(type, 'class', isWeak ? { isWeak: true } : undefined);
         } else if (validator.context.enums.has(aliasType.name)) {
-          (type as any).kind = 'enum';
+          transformTypeKind(type, 'enum');
           if (isWeak) {
             validator.addError("'weak' can only be applied to class types", location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } });
           }
         } else if (validator.context.externClasses.has(aliasType.name)) {
-          (type as any).kind = 'externClass';
-          if (isWeak) {
-            (type as any).isWeak = true;
-          }
+          transformTypeKind(type, 'externClass', isWeak ? { isWeak: true } : undefined);
         } else if (isWeak) {
           // If weak was applied but type doesn't exist or isn't a class, error
           validator.addError("'weak' can only be applied to class types", location || { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } });
@@ -802,7 +800,7 @@ export function resolveActualType(type: Type, validator: Validator, location?: S
       const classType = type as ClassTypeNode;
       // If this "class" type is actually an enum, convert it
       if (validator.context.enums.has(classType.name)) {
-        (type as any).kind = 'enum';
+        transformTypeKind(type, 'enum');
         break;
       }
       if (classType.typeArguments) {

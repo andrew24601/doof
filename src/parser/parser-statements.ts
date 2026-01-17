@@ -255,10 +255,10 @@ export function parseForStatement(parser: Parser): ForStatement | ForOfStatement
       if (parser.match(TokenType.LET, TokenType.CONST, TokenType.READONLY)) {
         const decl = parseVariableDeclaration(parser);
         // MVP: Destructuring variable declarations are not supported in 'for' initializer
-        if ((decl as any).kind === 'destructuringVariable') {
+        if (decl.kind === 'destructuringVariable') {
           throw new ParseError("Destructuring declarations are not supported in 'for' initializers (MVP)", parser.getLocation());
         }
-        init = decl as VariableDeclaration;
+        init = decl;
       } else {
         init = parseExpression(parser);
       }

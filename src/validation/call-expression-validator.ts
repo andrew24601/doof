@@ -33,6 +33,7 @@ import { propagateTypeContext } from "./binary-expression-validator";
 import { validateObjectExpression, validatePositionalObjectExpression } from "./object-literal-validator";
 import { validateSetExpression } from "./collection-validator";
 import { cloneTypeNode, substituteTypeParametersInType } from "./type-substitution";
+import { transformCallToObject, transformCallToSet } from "./ast-transform-utils";
 
 /**
  * Mark an expression's type (and nested component types) as needing JSON "to" helpers
@@ -606,19 +607,12 @@ export function validateCallExpression(expr: CallExpression, validator: Validato
         const objExpr: ObjectExpression = {
           kind: 'object',
           properties: [],
-          location: expr.location
+          location: expr.location,
+          inferredType: mapType
         } as ObjectExpression;
-        // Pre-infer so validator treats this as a generic map literal
-        objExpr.inferredType = mapType;
 
-        // Mutate the current node into the object expression to keep downstream codegen simple
-        (expr as any).kind = 'object';
-        delete (expr as any).callee;
-        delete (expr as any).arguments;
-        delete (expr as any).namedArguments;
-        (expr as any).properties = objExpr.properties;
-        (expr as any).className = undefined;
-        (expr as any).inferredType = mapType;
+        // Transform the call expression into an object expression
+        transformCallToObject(expr, objExpr);
 
         return validateObjectExpression((expr as unknown) as ObjectExpression, validator);
       }
@@ -640,17 +634,12 @@ export function validateCallExpression(expr: CallExpression, validator: Validato
         const setExpr: SetExpression = {
           kind: 'set',
           elements: [],
-          location: expr.location
+          location: expr.location,
+          inferredType: setType
         } as SetExpression;
-        (setExpr as any).inferredType = setType;
 
-        // Mutate current node into a set literal
-        (expr as any).kind = 'set';
-        delete (expr as any).callee;
-        delete (expr as any).arguments;
-        delete (expr as any).namedArguments;
-        (expr as any).elements = setExpr.elements;
-        (expr as any).inferredType = setType;
+        // Transform the call expression into a set expression
+        transformCallToSet(expr, setExpr);
 
         return validateSetExpression((expr as unknown) as SetExpression, validator);
       }

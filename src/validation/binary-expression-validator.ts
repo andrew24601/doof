@@ -24,6 +24,7 @@ import {
 import { Validator } from "./validator";
 import { validateExpression } from "./expression-validator";
 import { canInferObjectLiteralType, inferObjectLiteralType } from "./object-literal-validator";
+import { transformArrayToSet, setTemporaryProperty } from "./ast-transform-utils";
 import { isIdentifierParameter } from "./declaration-validator";
 
 /**
@@ -86,21 +87,14 @@ export function propagateTypeContext(expr: Expression, expectedType: Type, valid
     // Set literals use [] syntax (same as arrays) and are converted based on type context
     if (expectedType.kind === 'set' && expr.kind === 'array') {
         // Convert ArrayExpression to SetExpression in place
-        const arrayExpr = expr as ArrayExpression;
-        (expr as any).kind = 'set';
-        // Pre-set the inferred type so empty sets are properly typed
         const setType = expectedType as SetTypeNode;
-        (expr as any).inferredType = setType;
-        // Propagate expected enum type to set elements if applicable
-        if (setType.elementType.kind === 'enum') {
-            (expr as any)._expectedEnumType = setType.elementType;
-        }
+        transformArrayToSet(expr as ArrayExpression, setType);
     }
     // Propagate union type context to object literals for disambiguation
     if (expectedType.kind === 'union' && expr.kind === 'object') {
         if (!expr.className) {
             // Store the union type for later disambiguation
-            (expr as any)._expectedUnionType = expectedType;
+            setTemporaryProperty(expr, '_expectedUnionType', expectedType);
         }
     }
     // Propagate array element type context to array literals

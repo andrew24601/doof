@@ -170,49 +170,52 @@ function defaultTypeEquals(left: Type, right: Type): boolean {
 
   switch (left.kind) {
     case 'primitive':
-      return (left as any).type === (right as any).type;
+      return left.type === (right as PrimitiveTypeNode).type;
     case 'class':
     case 'externClass':
+      return left.name === (right as ClassTypeNode | ExternClassTypeNode).name;
     case 'enum':
     case 'typeAlias':
-      return (left as any).name === (right as any).name;
+      return left.name === (right as EnumTypeNode | TypeAliasNode).name;
     case 'array':
-      return defaultTypeEquals((left as any).elementType, (right as any).elementType);
-    case 'map':
+      return defaultTypeEquals(left.elementType, (right as ArrayTypeNode).elementType);
+    case 'map': {
+      const rightMap = right as MapTypeNode;
       return (
-        defaultTypeEquals((left as any).keyType, (right as any).keyType) &&
-        defaultTypeEquals((left as any).valueType, (right as any).valueType)
+        defaultTypeEquals(left.keyType, rightMap.keyType) &&
+        defaultTypeEquals(left.valueType, rightMap.valueType)
       );
+    }
     case 'set':
-      return defaultTypeEquals((left as any).elementType, (right as any).elementType);
+      return defaultTypeEquals(left.elementType, (right as SetTypeNode).elementType);
     case 'function': {
-      const leftFunc = left as any;
-      const rightFunc = right as any;
-      if (leftFunc.parameters.length !== rightFunc.parameters.length) {
+      const rightFunc = right as FunctionTypeNode;
+      if (left.parameters.length !== rightFunc.parameters.length) {
         return false;
       }
-      for (let i = 0; i < leftFunc.parameters.length; i++) {
-        if (!defaultTypeEquals(leftFunc.parameters[i].type, rightFunc.parameters[i].type)) {
+      for (let i = 0; i < left.parameters.length; i++) {
+        if (!defaultTypeEquals(left.parameters[i].type, rightFunc.parameters[i].type)) {
           return false;
         }
       }
-      return defaultTypeEquals(leftFunc.returnType, rightFunc.returnType);
+      return defaultTypeEquals(left.returnType, rightFunc.returnType);
     }
     case 'union': {
-      const leftUnion = left as any;
-      const rightUnion = right as any;
-      if (leftUnion.types.length !== rightUnion.types.length) {
+      const rightUnion = right as UnionTypeNode;
+      if (left.types.length !== rightUnion.types.length) {
         return false;
       }
-      return leftUnion.types.every((type: Type, index: number) => defaultTypeEquals(type, rightUnion.types[index]));
+      return left.types.every((type: Type, index: number) => defaultTypeEquals(type, rightUnion.types[index]));
     }
     case 'unknown':
       return true;
-    case 'range':
+    case 'range': {
+      const rightRange = right as RangeTypeNode;
       return (
-        defaultTypeEquals((left as any).start, (right as any).start) &&
-        defaultTypeEquals((left as any).end, (right as any).end)
+        defaultTypeEquals(left.start, rightRange.start) &&
+        defaultTypeEquals(left.end, rightRange.end)
       );
+    }
     default:
       return false;
   }
@@ -221,22 +224,22 @@ function defaultTypeEquals(left: Type, right: Type): boolean {
 function describeType(type: Type): string {
   switch (type.kind) {
     case 'primitive':
-      return (type as any).type;
+      return type.type;
     case 'class':
     case 'externClass':
     case 'enum':
     case 'typeAlias':
-      return (type as any).name;
+      return type.name;
     case 'array':
-      return `${describeType((type as any).elementType)}[]`;
+      return `${describeType(type.elementType)}[]`;
     case 'map':
-      return `Map<${describeType((type as any).keyType)}, ${describeType((type as any).valueType)}>`;
+      return `Map<${describeType(type.keyType)}, ${describeType(type.valueType)}>`;
     case 'set':
-      return `Set<${describeType((type as any).elementType)}>`;
+      return `Set<${describeType(type.elementType)}>`;
     case 'function':
       return 'function';
     case 'union':
-      return (type as any).types.map((t: Type) => describeType(t)).join(' | ');
+      return type.types.map((t: Type) => describeType(t)).join(' | ');
     case 'range':
       return 'range';
     case 'unknown':
