@@ -150,5 +150,78 @@ describe('Extern Class Bridging', () => {
       expect(result!.header).toContain('std::shared_ptr<Foo> test()');
       expect(result!.source).toContain('return Foo::create()');
     });
+
+    it('should generate custom header include with from { cpp: "..." } syntax', () => {
+      const source = `
+        extern class Vec3 from { cpp: "math_types.h" } {
+          x: float;
+          y: float;
+          z: float;
+          static create(x: float, y: float, z: float): Vec3;
+        }
+        
+        let v = Vec3.create(1.0, 2.0, 3.0);
+      `;
+      
+      const { result, errors } = parseValidateAndGenerate(source);
+      
+      expect(errors).toHaveLength(0);
+      expect(result).not.toBeNull();
+      expect(result!.header).toContain('#include "math_types.h"');
+      expect(result!.header).not.toContain('#include "Vec3.h"');
+    });
+
+    it('should generate default header when no from clause', () => {
+      const source = `
+        extern class MyClass {
+          static create(): MyClass;
+        }
+        
+        let obj = MyClass.create();
+      `;
+      
+      const { result, errors } = parseValidateAndGenerate(source);
+      
+      expect(errors).toHaveLength(0);
+      expect(result).not.toBeNull();
+      expect(result!.header).toContain('#include "MyClass.h"');
+    });
+
+    it('should parse from clause with both cpp and js targets', () => {
+      const source = `
+        extern class AudioEngine from { cpp: "audio/engine.h", js: "./audio-module" } {
+          static init(): AudioEngine;
+        }
+        
+        let engine = AudioEngine.init();
+      `;
+      
+      const { ast, errors } = parseValidateAndGenerate(source);
+      
+      expect(errors).toHaveLength(0);
+      const externDecl = ast.body[0] as any;
+      expect(externDecl.header).toBe('audio/engine.h');
+      expect(externDecl.jsModule).toBe('./audio-module');
+    });
+
+    it('should support simple string syntax from "header.h" for C++', () => {
+      const source = `
+        extern class Mat4 from "metal_bridge.h" {
+          static identity(): Mat4;
+          multiply(other: Mat4): Mat4;
+        }
+        
+        let m = Mat4.identity();
+      `;
+      
+      const { ast, result, errors } = parseValidateAndGenerate(source);
+      
+      expect(errors).toHaveLength(0);
+      const externDecl = ast.body[0] as any;
+      expect(externDecl.header).toBe('metal_bridge.h');
+      expect(externDecl.jsModule).toBe('metal_bridge.h');
+      expect(result).not.toBeNull();
+      expect(result!.header).toContain('#include "metal_bridge.h"');
+    });
   });
 });

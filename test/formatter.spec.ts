@@ -319,10 +319,10 @@ function main(): int {
     });
 
     it('should handle extern class declarations', () => {
-      const input = `extern class AudioEngine{static function initialize():AudioEngine;function playSound(filename:string):void;}`;
+      const input = `extern class AudioEngine{static initialize():AudioEngine;playSound(filename:string):void;}`;
       const expected = `extern class AudioEngine {
-    static function initialize(): AudioEngine;
-    function playSound(filename: string): void;
+    static initialize(): AudioEngine;
+    playSound(filename: string): void;
 }
 `;
   expect(formatDoofCode(input)).toBe(expected);

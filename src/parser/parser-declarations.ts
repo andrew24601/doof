@@ -2,7 +2,6 @@ import {
     Statement, Type, VariableDeclaration, FunctionDeclaration, ClassDeclaration, ExternClassDeclaration,
     EnumDeclaration, TypeAliasDeclaration, InterfaceDeclaration, InterfaceMember, InterfaceProperty, InterfaceMethod, InterfaceTypeReference,
     FieldDeclaration, MethodDeclaration, Parameter, TypeParameter,
-    ConstructorDeclaration,
     EnumMember, LambdaExpression, BlockStatement, Expression, Identifier, Literal,
     FunctionTypeNode, ParseError,
     DestructuringVariableDeclaration
@@ -438,13 +437,48 @@ export function parseExternDeclaration(parser: Parser): ExternClassDeclaration {
     parser.consume(TokenType.CLASS, "Expected 'class' after 'extern'");
     const name = parser.consume(TokenType.IDENTIFIER, "Expected class name");
 
+    let header: string | undefined;
     let jsModule: string | undefined;
+    
     if (parser.match(TokenType.FROM)) {
-        const moduleToken = parser.advance();
-        if (moduleToken.type === TokenType.STRING || moduleToken.type === TokenType.TEMPLATE_STRING) {
-             jsModule = moduleToken.value;
+        // Check if it's an object literal { cpp: "...", js: "..." } or a simple string
+        if (parser.check(TokenType.LEFT_BRACE)) {
+            // Object form: from { cpp: "header.h", js: "./module" }
+            parser.advance(); // consume '{'
+            
+            while (!parser.check(TokenType.RIGHT_BRACE) && !parser.isAtEnd()) {
+                const keyToken = parser.consume(TokenType.IDENTIFIER, "Expected property name (cpp or js)");
+                const key = keyToken.value;
+                
+                parser.consume(TokenType.COLON, `Expected ':' after '${key}'`);
+                
+                const valueToken = parser.advance();
+                if (valueToken.type !== TokenType.STRING && valueToken.type !== TokenType.TEMPLATE_STRING) {
+                    throw new ParseError(`Expected string value for '${key}'`, parser.getLocation());
+                }
+                
+                if (key === 'cpp') {
+                    header = valueToken.value;
+                } else if (key === 'js') {
+                    jsModule = valueToken.value;
+                } else {
+                    throw new ParseError(`Unknown extern source key '${key}'. Use 'cpp' or 'js'.`, keyToken.location);
+                }
+                
+                // Optional comma between properties
+                parser.match(TokenType.COMMA);
+            }
+            
+            parser.consume(TokenType.RIGHT_BRACE, "Expected '}' after extern source specifier");
         } else {
-             throw new ParseError("Expected string literal for module path", parser.getLocation());
+            // Simple string form: from "module" (sets header for C++ and jsModule for JS)
+            const moduleToken = parser.advance();
+            if (moduleToken.type === TokenType.STRING || moduleToken.type === TokenType.TEMPLATE_STRING) {
+                header = moduleToken.value;
+                jsModule = moduleToken.value;
+            } else {
+                throw new ParseError("Expected string literal or { cpp: '...', js: '...' } for module path", parser.getLocation());
+            }
         }
     }
 
@@ -458,6 +492,7 @@ export function parseExternDeclaration(parser: Parser): ExternClassDeclaration {
         name: { kind: 'identifier', name: name.value, location: name.location },
         fields,
         methods,
+        header,
         jsModule,
         location: name.location
     };
@@ -484,17 +519,18 @@ export function parseExternClassBody(parser: Parser): {
         // Parse modifiers - extern classes only allow private and static
         const allowedModifiers = new Set(['private', 'static']);
         const modifiers = parseModifiers(parser, allowedModifiers);
-    const hasFunctionKeyword = parser.match(TokenType.FUNCTION);
+
+        // Reject 'function' keyword in extern class methods
+        if (parser.check(TokenType.FUNCTION)) {
+            throw new ParseError("The 'function' keyword is not allowed in class method declarations", parser.getLocation());
+        }
 
         if (parser.check(TokenType.IDENTIFIER)) {
             // Look ahead to determine if this is a method (has parentheses) or field (has colon)
             const nameToken = parser.advance();
             let hasParameterList = parser.match(TokenType.LEFT_PAREN);
 
-            if (hasFunctionKeyword || hasParameterList) {
-                if (!hasParameterList) {
-                    parser.consume(TokenType.LEFT_PAREN, "Expected '(' after method name");
-                }
+            if (hasParameterList) {
                 // Method declaration
                 
                 // Reject constructor methods - explicit constructors are not supported for extern classes either
@@ -528,7 +564,6 @@ export function parseExternClassBody(parser: Parser): {
                     isPublic: modifiers.isPublic,
                     isStatic: modifiers.isStatic,
                     isExtern: true,
-                    usesFunctionKeyword: hasFunctionKeyword,
                     location: nameToken.location
                 };
                 methods.push(method);
@@ -552,9 +587,6 @@ export function parseExternClassBody(parser: Parser): {
                 throw new ParseError("Expected '(' for method or ':' for field", parser.getLocation());
             }
         } else {
-            if (hasFunctionKeyword) {
-                throw new ParseError("Expected method name after 'function'", parser.getLocation());
-            }
             throw new ParseError("Expected field or method declaration", parser.getLocation());
         }
     }
@@ -594,6 +626,11 @@ export function parseClassLikeBody(parser: Parser): {
             const nested = parseClassDeclaration(parser);
             nestedClasses.push(nested);
             continue;
+        }
+
+        // Reject 'function' keyword in class method declarations
+        if (parser.check(TokenType.FUNCTION)) {
+            throw new ParseError("The 'function' keyword is not allowed in class method declarations", parser.getLocation());
         }
 
         if (parser.check(TokenType.IDENTIFIER) || parser.check(TokenType.STRING) || parser.check(TokenType.TEMPLATE_STRING)) {
@@ -653,6 +690,11 @@ function isCallableFieldDeclaration(parser: Parser): boolean {
 }
 
 export function parseFieldOrMethod(parser: Parser, modifiers: ModifierFlags): FieldOrMethodParseResult {
+    // Reject 'function' keyword in class method declarations
+    if (parser.check(TokenType.FUNCTION)) {
+        throw new ParseError("The 'function' keyword is not allowed in class method declarations", parser.getLocation());
+    }
+
     let nameIdentifier: Identifier;
     if (parser.check(TokenType.STRING) || parser.check(TokenType.TEMPLATE_STRING)) {
         const nameToken = parser.advance();

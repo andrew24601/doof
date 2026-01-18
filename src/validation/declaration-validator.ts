@@ -211,6 +211,13 @@ export function validateExternClassDeclaration(stmt: ExternClassDeclaration, val
   // Register extern class in context
   validator.context.externClasses.set(stmt.name.name, stmt);
 
+  // Validate header if present
+  if (stmt.header !== undefined) {
+    if (stmt.header.trim() === '') {
+      validator.addError(`Extern class '${stmt.name.name}' has empty cpp header path`, stmt.location);
+    }
+  }
+
   // Validate jsModule if present
   if (stmt.jsModule !== undefined) {
     if (stmt.jsModule.trim() === '') {
@@ -1086,6 +1093,15 @@ function extractExportedSymbol(exportDecl: ExportDeclaration, moduleName: string
         name: decl.name.name,
         fullyQualifiedName: `${moduleName}::${decl.name.name}`,
         type: 'class',
+        signature: createClassType(decl.name.name),
+        sourceModule: moduleName
+      };
+
+    case 'externClass':
+      return {
+        name: decl.name.name,
+        fullyQualifiedName: `${moduleName}::${decl.name.name}`,
+        type: 'externClass',
         signature: createClassType(decl.name.name),
         sourceModule: moduleName
       };

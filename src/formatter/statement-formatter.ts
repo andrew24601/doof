@@ -634,7 +634,6 @@ export class StatementFormatter {
       this.printer.write('private ');
     }
 
-    this.printer.write('function ');
     this.printer.write(method.name.name);
     this.printer.write('(');
     this.formatParameterList(method.parameters);

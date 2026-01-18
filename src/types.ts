@@ -664,7 +664,6 @@ export interface MethodDeclaration extends ASTNode {
   isPublic: boolean;
   isStatic: boolean;
   isExtern?: boolean;
-  usesFunctionKeyword?: boolean;
   isAsync?: boolean;
   typeParameters?: TypeParameter[];
 }
@@ -910,7 +909,7 @@ export interface GlobalValidationContext {
 export interface ExportedSymbol {
   name: string;
   fullyQualifiedName: string;
-  type: 'function' | 'class' | 'enum' | 'variable' | 'typeAlias';
+  type: 'function' | 'class' | 'externClass' | 'enum' | 'variable' | 'typeAlias';
   signature: Type;
   sourceModule: string;
 }

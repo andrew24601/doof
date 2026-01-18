@@ -1,12 +1,12 @@
 export extern class DominoRemoteRunnerNative {
-    static function start(port: int): bool;
-    static function stop(): void;
-    static function isConnected(): bool;
-    static function emitEvent(eventName: string, payload: string): void;
-    static function waitNextEvent(timeoutMillis: int): bool;
-    static function hasPendingEvents(): bool;
-    static function lastEventName(): string;
-    static function lastEventPayload(): string;
+    static start(port: int): bool;
+    static stop(): void;
+    static isConnected(): bool;
+    static emitEvent(eventName: string, payload: string): void;
+    static waitNextEvent(timeoutMillis: int): bool;
+    static hasPendingEvents(): bool;
+    static lastEventName(): string;
+    static lastEventPayload(): string;
 }
 
 export function notifyUnity(eventName: string, payload: string): void {

@@ -388,8 +388,10 @@ export class CppGenerator implements ICodeGenerator {
 
     const uniqueDefaults = Array.from(new Set(defaultIncludes));
     uniqueDefaults.sort();
+    const emittedIncludes = new Set<string>();
     for (const header of uniqueDefaults) {
       lines.push(`#include ${header}`);
+      emittedIncludes.add(header.trim());
     }
 
     const externHeaders = new Set<string>();
@@ -430,9 +432,13 @@ export class CppGenerator implements ICodeGenerator {
     const sortedExternHeaders = Array.from(externHeaders).sort();
     for (const header of sortedExternHeaders) {
       lines.push(`#include ${header}`);
+      emittedIncludes.add(header.trim());
     }
 
-    lines.push(`#include "doof_runtime.h"`);
+    if (!emittedIncludes.has('"doof_runtime.h"')) {
+      lines.push(`#include "doof_runtime.h"`);
+      emittedIncludes.add('"doof_runtime.h"');
+    }
 
     if (this.validationContext?.imports) {
       const includedModules = new Set<string>();

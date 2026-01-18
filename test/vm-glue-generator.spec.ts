@@ -17,13 +17,13 @@ describe('VM glue generator', () => {
   it('generates glue for extern classes with primitive and extern references', () => {
     const source = `
       extern class Foo {
-        static function create(count: int): Foo;
-        function attach(other: Foo | null): void;
+        static create(count: int): Foo;
+        attach(other: Foo | null): void;
       }
 
       extern class Bar {
-        function consume(target: Foo): void;
-        static function build(label: string): Bar;
+        consume(target: Foo): void;
+        static build(label: string): Bar;
       }
     `;
 
@@ -51,7 +51,7 @@ describe('VM glue generator', () => {
   it('throws for unsupported parameter types', () => {
     const source = `
       extern class Data {
-        function ingest(values: int[]): void;
+        ingest(values: int[]): void;
       }
     `;
 

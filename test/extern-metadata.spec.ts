@@ -12,7 +12,7 @@ describe('Extern metadata collection', () => {
       extern class Foo {
         field: int;
         static create(value: int): Foo;
-        function clear(): void;
+        clear(): void;
       }
     `;
 

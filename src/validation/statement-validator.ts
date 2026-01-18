@@ -884,7 +884,7 @@ export function validateImportDeclaration(stmt: ImportDeclaration, globalContext
     validator.context.symbols.set(localName, exportedSymbol.signature);
 
     // so that object literal validation can access the full declaration
-    if (exportedSymbol.type === 'class' || exportedSymbol.type === 'enum') {
+    if (exportedSymbol.type === 'class' || exportedSymbol.type === 'enum' || exportedSymbol.type === 'externClass') {
       addImportedDeclaration(localName, exportedSymbol, resolvedFilePath, globalContext, validator);
     }
 
@@ -961,6 +961,13 @@ function addImportedDeclaration(localName: string, exportedSymbol: ExportedSymbo
           // Add the class declaration with the local name
           const importedClassDecl = { ...decl, name: { ...decl.name, name: localName } };
           validator.context.classes.set(localName, importedClassDecl);
+          return;
+        }
+      } else if (exportedSymbol.type === 'externClass' && decl.kind === 'externClass') {
+        if (decl.name.name === exportedSymbol.name) {
+          // Add the extern class declaration with the local name
+          const importedExternClassDecl = { ...decl, name: { ...decl.name, name: localName } };
+          validator.context.externClasses.set(localName, importedExternClassDecl);
           return;
         }
       } else if (exportedSymbol.type === 'enum' && decl.kind === 'enum') {
@@ -1086,10 +1093,25 @@ function withNarrowedContext(narrowing: Map<string, Type>, callback: () => void,
  */
 function checkDefiniteAssignmentInBlock(validator: Validator, stmt: BlockStatement, preAssignedVariables: string[] = []): void {
   const unassignedUsages = validator.definiteAssignmentAnalyzer.getUnassignedUsages(stmt.body);
+  
+  // Get the current scope name to determine if variables are local
+  const currentScopeName = validator.context.currentFunction?.name.name;
+  
   for (const usage of unassignedUsages) {
     // Skip if the variable is pre-assigned (e.g., function parameter)
     if (preAssignedVariables.includes(usage.variableName)) {
       continue;
+    }
+
+    // Check if this variable was declared in an outer scope (module-level const, imported, etc.)
+    // Such variables are already assigned by definition
+    const scopeEntry = validator.context.codeGenHints.scopeTracker.get(usage.variableName);
+    if (scopeEntry) {
+      // If declared at global scope or in a different function, it's already assigned
+      const declScope = scopeEntry.declarationScope;
+      if (declScope === 'global' || (currentScopeName && declScope !== currentScopeName)) {
+        continue;
+      }
     }
 
     const variableType = validator.context.symbols.get(usage.variableName);

@@ -134,4 +134,46 @@ function test(param: string) {
       expect(result.errors.filter(e => e.message.includes("Variable 'param' is used before being definitely assigned"))).toEqual([]);
     });
   });
+
+  describe('Module-level constants', () => {
+    it('should not error when using module-level const in function', () => {
+      const code = `
+const BUFFER_SIZE = 1024;
+const MULTIPLIER = 4;
+
+function processBuffer(): int {
+  let result = BUFFER_SIZE * MULTIPLIER;
+  return result;
+}
+`;
+      const result = transpileCode(code);
+      expect(result.errors.filter(e => e.message.includes("definitely assigned"))).toEqual([]);
+    });
+
+    it('should not error when using module-level readonly in function', () => {
+      const code = `
+readonly VERTEX_SIZE = 40;
+
+function createBuffer(count: int): int {
+  return count * VERTEX_SIZE;
+}
+`;
+      const result = transpileCode(code);
+      expect(result.errors.filter(e => e.message.includes("definitely assigned"))).toEqual([]);
+    });
+
+    it('should still error for unassigned local variables when module consts exist', () => {
+      const code = `
+const GLOBAL_SIZE = 100;
+
+function test(): int {
+  let localVar: int;
+  return localVar + GLOBAL_SIZE; // Error: localVar not assigned
+}
+`;
+      const result = transpileCode(code);
+      expect(result.errors.some(e => e.message.includes("Variable 'localVar' is used before being definitely assigned"))).toBe(true);
+      expect(result.errors.filter(e => e.message.includes("GLOBAL_SIZE"))).toEqual([]);
+    });
+  });
 });
