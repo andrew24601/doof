@@ -269,7 +269,31 @@ Features:
 - No direct construction; use static factories
 - Type-safe member access; header is included in generated C++
 
-Usage:
+#### Specifying source files
+
+By default, the generated C++ includes `#include "<ClassName>.h"`. Use `from` to specify custom headers:
+
+```doof
+// Simple form - specify C++ header directly
+extern class Vec3 from { cpp: "math_types.h" } {
+    x: float;
+    y: float;
+    z: float;
+}
+
+// Both C++ and JS targets
+extern class AudioEngine from { cpp: "audio/engine.h", js: "./audio-module" } {
+    static function initialize(): AudioEngine;
+    function playSound(filename: string): void;
+}
+
+// JS-only module (legacy syntax, equivalent to from { js: "..." })
+extern class SomeJsClass from "some-js-module" {
+    function doThing(): void;
+}
+```
+
+#### Usage
 
 ```doof
 extern class AudioEngine {
