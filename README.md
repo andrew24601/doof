@@ -1,395 +1,274 @@
 # Doof
 
-Doof is a statically typed programming language that transpiles to C++. The current repository contains the compiler, CLI, language specification, samples, and a small playground.
-
-The language is designed around a few core ideas:
-
-- static typing with inference where it stays predictable
-- immutable-by-default programming
-- explicit nullability via union types
-- `Result`-based error handling instead of exceptions
-- pattern matching, modules, classes, interfaces, and concurrency features
-- closed-world compilation so the compiler can analyze the whole program before emitting C++
-
-## Very Brief Language Overview
-
-Doof syntax is intentionally close to JavaScript and TypeScript, but the semantics are stricter. Types are checked ahead of time, mutation is opt-in, and common footguns like implicit null are avoided.
-
-Example:
+Doof is a statically typed language that looks like TypeScript and compiles to native C++. The syntax is familiar; the safety guarantees are not.
 
 ```javascript
-function main(): int {
+function main(): void {
   println("Hello, Doof!")
-  return 0
 }
 ```
 
-Some notable language traits:
+→ transpiles to idiomatic, optimized C++17 with no runtime, no GC, no surprises.
 
-- `const`, `readonly`, and `let` make mutability explicit
-- `T | null` represents nullable values
-- `Result<T, E>` integrates with `try`, `try!`, `try?`, and `??`
-- `case` expressions support pattern matching and type narrowing
-- modules use static `import` and `export`
+> [!CAUTION]
+> Doof is almost entirely AI generated and is more for the author's amusement than for production use.
 
-For the full language reference, see the files under `spec/`.
+## What makes it interesting
 
-## Repository Contents
+### No null, no exceptions, no data races — by design
 
-- `src/`: compiler, checker, emitter, CLI, and tests
-- `samples/`: small example Doof programs
-- `spec/`: language specification
-- `playground/`: browser playground
-- `build/` and `build-apple/`: generated C++ output examples
+Three of the most common sources of production bugs are ruled out at the language level:
 
-## Getting Started
+**Nullability is explicit.** There is no `null` unless you ask for it. `string` is always a string. `string | null` says you mean to handle the absent case.
 
-Each compilable Doof project now has a `doof.json` file at its root. The compiler discovers the project root by walking upward from the entry `.do` file.
+**Errors are values.** Functions that can fail return `Result<T, E>`. The `try` operator threads errors through call chains cleanly, and `try!` / `try?` handle the two common cases without noise:
 
-Minimal example:
-
-```json
-{
-  "name": "hello-doof",
-  "version": "0.1.0",
-  "license": "MIT",
-  "dependencies": {}
+```javascript
+function parseInt(s: string): Result<int, string> {
+  if s == "0" { return Success { value: 0 } }
+  return Failure { error: "not a number: " + s }
 }
+
+function compute(input: string): Result<int, string> {
+  try n := parseInt(input)          // propagates Failure automatically
+  try result := safeDivide(100, n)
+  return Success { value: result }
+}
+
+const a = try! parseInt("42")       // unwrap or panic
+const b = try? parseInt("bad")      // convert to null on failure
 ```
 
-Local package dependencies point at another Doof package directory:
+**Concurrency is race-free.** The compiler tracks which functions access mutable global state. Only provably `isolated` functions can be dispatched to worker threads. The `Actor<T>` model provides safe stateful concurrency without locks:
 
-```json
-{
-  "dependencies": {
-    "boardgame": {
-      "path": "../lib/cardgame"
-    }
+```javascript
+isolated function fib(n: int): int { ... }  // compiler verifies no shared state
+
+const p1 = async fib(40)     // runs on a worker thread
+const p2 = async fib(41)
+const r1 = try! p1.get()     // collect results
+const r2 = try! p2.get()
+
+const acc = Actor<Accumulator>(0)   // single-threaded actor
+acc.add(r1)
+acc.add(r2)
+println(acc.getTotal())
+```
+
+### Immutability as the default
+
+Bindings are immutable by default. You opt into mutation:
+
+```javascript
+name := "Alice"          // immutable binding, type inferred
+let count = 0            // mutable binding
+count = count + 1        // ok
+name = "Bob"             // ❌ error: cannot reassign immutable binding
+```
+
+`readonly` enforces deeply immutable — safe to share across threads. `const` is a compile-time constant.
+
+### Flexible construction, inferred types
+
+Doof infers types from context wherever the intent is unambiguous, and offers several construction styles so you can match the form to the situation.
+
+#### Positional vs. named class construction
+```javascript
+class Point { x, y: float }
+class User {
+    readonly id: int
+    name: string
+    email: string | null = null
+}
+
+// Positional — field declaration order, terse for small value types
+p := Point(1.5, 2.5)
+
+// Named — explicit, self-documenting, fields may be omitted if they have defaults
+user := User { id: 1, name: "Alice" }
+
+// Shorthand — { name } is sugar for { name: name } when a binding matches the field
+id   := 1
+name := "Alice"
+user := User { id, name }        // equivalent to User { id: id, name: name }
+```
+
+#### Positional vs. named function calls
+
+The same two forms apply to function calls. Named arguments use `{` and can appear in any order:
+```javascript
+function clamp(value: int, min: int, max: int): int {
+    if value < min { return min }
+    if value > max { return max }
+    return value
+}
+
+clamp(score, 0, 100)                    // positional — order is the contract
+clamp{ value: score, min: 0, max: 100 } // named — order doesn't matter
+clamp{ min: 0, max: 100, value: score } // equally valid
+```
+
+Named calls are especially useful when a function has several parameters of the same type and the ordering would be easy to get wrong.
+
+#### Construction type inferred from context
+
+When the expected type is known — from a return annotation, a collection element type, or an argument position — you can omit the class name entirely:
+```javascript
+class Point { x, y: float }
+class Rect  { origin: Point; width, height: float }
+
+// Return position — the declared return type supplies the class name
+function unit(): Point => { x: 1.0, y: 0.0 }
+
+function bounds(): Rect {
+    return { origin: { x: 0, y: 0 }, width: 800.0, height: 600.0 }
+    //       ^^^^^^   ^^^^^^^^^^^^^^^^^^^
+    //       Rect     Point — inferred from Rect.origin's type
+}
+
+// Collection literals — element type drives inference throughout
+points: Point[] := [(0, 0), (1, 0), (0.5, 1)]
+```
+
+This keeps data-heavy code readable without requiring the class name to appear on every line.
+
+#### Type inference for bindings and return types
+
+The compiler also infers the types of bindings and unambiguous function return types without annotation:
+```javascript
+ratio  := 0.75              // double
+count  := 0                 // int
+active := true              // bool
+label  := "hello"           // string
+
+// Numeric context narrows literals — no cast needed
+x: float  := 3.14           // narrowed from double literal to float
+n: long   := 42             // widened from int literal to long
+
+// Return type inferred for unambiguous single-expression functions
+function double(x: int) => x * 2
+function greet(name: string) => "Hi, ${name}"
+
+// Shorthand lambda infers parameter names and types
+numbers.map(=> it * 2)
+numbers.filter(=> it > 10)
+numbers.reduce(0, => acc + it)
+```
+
+### Pattern matching with type narrowing
+
+`case` expressions match on values, ranges, and types. When you match on an interface type, the branch body knows the concrete type:
+
+```javascript
+function classify(score: int): string {
+  return case score {
+    90..100 => "A",
+    80..<90 => "B",
+    70..<80 => "C",
+    _       => "F"
+  }
+}
+
+function describe(shape: Shape): string {
+  return case shape {
+    c: Circle    => `circle r=${c.radius}`,
+    r: Rectangle => `rect ${r.width}×${r.height}`
   }
 }
 ```
 
-Remote package dependencies point at a git repository URL plus a version string:
+### Closed-world compilation
 
-```json
-{
-  "dependencies": {
-    "hello-doof": {
-      "url": "https://github.com/andrew24601/hello-doof",
-      "version": "0.1"
-    }
-  }
+All source is known at compile time. The compiler uses this to resolve structural interfaces to concrete `std::variant` types in C++, verify concurrency isolation across the whole program, and eliminate dead code. There is no reflection or dynamic dispatch overhead.
+
+### Native C++ interop via `import class`
+
+Doof code can call into C++ libraries by declaring their surface with `import class`. The type checker enforces the declared API; build flags wire up the actual headers and libraries. No FFI boilerplate, no code generation step.
+
+```javascript
+import class NativeHttpServer from "./native_http_server.hpp" {
+  port: int
+  isReady(): bool
+  errorMessage(): string
+  nextRequest(): NativeRequest
 }
 ```
 
-The compiler materializes remote packages into `~/.doof/packages/` by default. It currently clones a git tag matching either the declared version or `v<version>`, so `"version": "0.1"` resolves a `v0.1` tag.
+---
 
-Packages can also declare native build inputs under `build.native`. These values propagate transitively through package dependencies and are merged into both generated `CMakeLists.txt` output and the emitted external build manifest:
+## Quick start
 
-```json
-{
-  "build": {
-    "targetExecutableName": "demo-app",
-    "native": {
-      "includePaths": ["./native/include"],
-      "sourceFiles": ["./native/bridge.cpp"],
-      "libraryPaths": ["./native/lib"],
-      "linkLibraries": ["curl"],
-      "frameworks": ["Foundation"],
-      "defines": ["USE_DEMO=1"],
-      "compilerFlags": ["-O2"],
-      "linkerFlags": ["-pthread"]
-    }
-  }
-}
-```
-
-For v1, package-native path entries are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/`.
-
-Requirements:
-
-- Node.js
-- npm
-- a native C++ compiler if you want to use `doof build`, `doof run`, or `doof test`
-
-On macOS and Linux, the CLI auto-detects `clang++`, `g++`, or `c++`.
-
-On Windows, the CLI auto-detects Visual Studio's `cl.exe` and configures the required MSVC environment automatically when Visual Studio is installed with the C++ tools workload.
-
-Install the CLI into a project:
+Install:
 
 ```bash
 npm install --save-dev doof
 ```
 
-Run it with `npx`:
-
-```bash
-npx doof --help
-```
-
-If you prefer a global install:
-
-```bash
-npm install --global doof
-doof --help
-```
-
-If you are working on the compiler repository itself, build the local CLI:
-
-```bash
-npm install
-npm run build
-```
-
-Run the CLI directly from the built output:
-
-```bash
-node dist/cli.js --help
-```
-
-You can also use the package bin after linking or installing the package in a Node environment:
-
-```bash
-doof --help
-```
-
-## CLI
-
-The CLI transpiles Doof source files to C++, optionally compiles the generated project, and can run the resulting binary.
-
-### Usage
-
-```text
-doof <command> [options] <entry.do | path>
-```
-
-### Commands
-
-| Command | Description |
-| --- | --- |
-| `emit <entry.do>` | Emit C++ source files to an output directory |
-| `build <entry.do>` | Emit and compile to a native binary |
-| `run <entry.do>` | Emit, compile, and run the program |
-| `check <entry.do>` | Type-check only without writing C++ output |
-| `test <path>` | Discover and run Doof tests from a file or directory |
-
-### Options
-
-| Option | Description |
-| --- | --- |
-| `-o, --outdir <dir>` | Output directory. Default: `./build` |
-| `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
-| `--std <standard>` | C++ standard. Default: `c++17` |
-| `--include-path <dir>` | Additional header search path. Repeatable |
-| `--lib-path <dir>` | Additional library search path. Repeatable |
-| `--link-lib <name>` | Link a native library by name. Repeatable |
-| `--framework <name>` | Link an Apple framework by name. Repeatable |
-| `--source <path>` | Compile and link an additional native source file. Repeatable |
-| `--object <path>` | Link an additional native object file. Repeatable |
-| `--define <name[=value]>` | Add a preprocessor definition. Repeatable |
-| `--cxxflag <flag>` | Add an extra compiler flag. Repeatable |
-| `--ldflag <flag>` | Add an extra linker flag. Repeatable |
-| `--filter <text>` | Run only tests whose discovered id contains the text |
-| `--list` | List discovered tests without compiling or running them |
-| `-v, --verbose` | Print detailed progress information |
-| `-h, --help` | Show help |
-| `--version` | Show CLI version |
-
-### Examples
-
-Type-check a file:
+Check, build, and run:
 
 ```bash
 npx doof check samples/hello.do
-```
-
-Those sample commands work from this repository because it includes a root `doof.json`. In your own projects, place `doof.json` at the project root before running the CLI.
-
-Emit C++ sources into a custom directory:
-
-```bash
-npx doof emit -o dist samples/fibonacci.do
-```
-
-`doof emit` writes:
-
-- generated `.hpp` / `.cpp` files
-- `doof_runtime.hpp`
-- `CMakeLists.txt`
-- `provenance.json`
-- `doof-build.json`
-
-`doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integration should consume this file instead of re-implementing package resolution.
-
-Build a native binary:
-
-```bash
 npx doof build samples/hello.do
+npx doof run   samples/hello.do
 ```
 
-Run a program end to end:
+Each project needs a [`doof.json`](docs/packages.md) at its root. This repository includes one, so the samples above work as-is.
 
-```bash
-npx doof run samples/hello.do
-```
+Full CLI reference → [docs/cli.md](docs/cli.md)  
+Package system → [docs/packages.md](docs/packages.md)  
+Testing → [docs/testing.md](docs/testing.md)
 
-List discovered tests:
+## Language reference
 
-```bash
-npx doof test --list samples
-```
+| Document | Contents |
+| --- | --- |
+| [spec/01-overview.md](spec/01-overview.md) | Design philosophy, compilation model, hello world |
+| [spec/02-type-system.md](spec/02-type-system.md) | Primitives, inference, nullability, unions, generics |
+| [spec/03-variables-and-bindings.md](spec/03-variables-and-bindings.md) | `const`, `:=`, `let`, destructuring, scope |
+| [spec/04-functions-and-lambdas.md](spec/04-functions-and-lambdas.md) | Functions, lambdas, closures |
+| [spec/05-operators.md](spec/05-operators.md) | Arithmetic, comparison, null-coalescing, ranges |
+| [spec/06-control-flow.md](spec/06-control-flow.md) | If/else, loops, break/continue |
+| [spec/07-classes-and-interfaces.md](spec/07-classes-and-interfaces.md) | Classes, interfaces, object construction |
+| [spec/08-pattern-matching.md](spec/08-pattern-matching.md) | `case`, value/range/type patterns, narrowing |
+| [spec/09-error-handling.md](spec/09-error-handling.md) | `Result`, `try`, `panic` |
+| [spec/10-concurrency.md](spec/10-concurrency.md) | Isolation, actors, workers, promises |
+| [spec/11-modules.md](spec/11-modules.md) | Imports, exports, re-exports |
+| [spec/12-json-serialization.md](spec/12-json-serialization.md) | Auto-generated JSON serialization |
 
-Run all tests under a directory:
+## Samples
 
-```bash
-npx doof test samples
-```
+| Sample | What it shows |
+| --- | --- |
+| [`samples/hello.do`](samples/hello.do) | Hello world |
+| [`samples/fibonacci.do`](samples/fibonacci.do) | Recursion |
+| [`samples/results.do`](samples/results.do) | `Result` types and `try` propagation |
+| [`samples/patterns.do`](samples/patterns.do) | `case` expressions and range matching |
+| [`samples/closures.do`](samples/closures.do) | Lambdas and captured bindings |
+| [`samples/concurrency.do`](samples/concurrency.do) | `isolated`, `async`, `Actor<T>` |
+| [`samples/classes.do`](samples/classes.do) | Classes and methods |
+| [`samples/sqlite/`](samples/sqlite/) | Native C++ interop — sqlite3 |
+| [`samples/http-client/`](samples/http-client/) | Native C++ interop — libcurl |
+| [`samples/openai-responses/`](samples/openai-responses/) | Metadata-driven API integration |
+| [`samples/solitaire/`](samples/solitaire/) | Full SDL/Metal Klondike app |
+| [`samples/seahaven-towers/`](samples/seahaven-towers/) | Full interactive Seahaven Towers app |
+| [`samples/hello-package/`](samples/hello-package/) | Remote package import |
 
-Run only matching tests:
+## Repository structure
 
-```bash
-npx doof test --filter fibonacci samples
-```
-
-Use a specific compiler and standard:
-
-```bash
-npx doof build --compiler /usr/bin/clang++ --std c++20 samples/hello.do
-```
-
-On Windows, you can also point directly at `cl.exe` if you want to override auto-detection:
-
-```powershell
-npx doof build --compiler "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\bin\Hostx64\x64\cl.exe" samples/hello.do
-```
-
-Build a Doof program that depends on native headers and a system library:
-
-```bash
-npx doof build \
-  --include-path ./vendor/include \
-  --lib-path ./vendor/lib \
-  --link-lib curl \
-  samples/http.do
-```
-
-For checked-in native-backed examples, see `samples/sqlite/` for a thin sqlite3 wrapper, `samples/regex/` for a small `std::regex` bridge with a Doof-first API, `samples/http-client/` for a small libcurl bridge, `samples/openai-responses/` for a metadata-driven OpenAI Responses API integration, `samples/obj-viewer/` for an SDL3-backed wireframe OBJ viewer with Doof-side parsing and projection, and `samples/reminders-mcp/` for a macOS EventKit-backed MCP server packaged inside an app bundle. For card-game examples, see `samples/solitaire/` for the full host-backed Klondike app and `samples/seahaven-towers/` for a full interactive Seahaven Towers app built on the shared boardgame host.
-
-For a remote package example, see `samples/hello-package/`, which imports `hello-doof/hello` from the tagged GitHub package.
-
-Emit a project with native build metadata in the generated `CMakeLists.txt`:
-
-```bash
-npx doof emit \
-  --include-path ./native/include \
-  --source ./native/bridge.cpp \
-  --framework Foundation \
-  samples/apple-intelligence/apple-intelligence.do
-```
-
-### What Each Command Does
-
-- `check` runs parsing, module analysis, and type checking
-- `emit` runs the full compiler pipeline and writes generated C++ files plus `CMakeLists.txt`; native build flags are written into the generated build metadata
-- `build` emits the project and compiles it to a native executable in the output directory, including any additional include paths, libraries, frameworks, native sources, objects, defines, and extra flags
-- `run` does the same as `build` and then executes the produced binary
-- `test` discovers exported test functions in `.test.do` files, builds a temporary test harness, compiles once with the same native compiler detection used by `build`, and runs each discovered test in its own process
-
-## Testing
-
-Doof tests are currently a CLI convention rather than a separate language feature.
-
-Use these conventions in the current MVP:
-
-- Put test files in `*.test.do`
-- Export top-level test functions whose names start with `test`
-- Test functions must take no parameters
-- Test functions must return `void`
-- Use `assert(condition, message)` for test failures
-- Import `Assert` from `std/assert` for richer assertions
-
-Example:
-
-```javascript
-// math.test.do
-import { Assert } from "std/assert"
-
-export function testAdd(): void {
-  Assert.equal(1 + 1, 2)
-}
-
-export function testSubtract(): void {
-  Assert.equal(10 - 3, 7, "expected subtraction to work")
-}
-```
-
-Run the file directly:
-
-```bash
-npx doof test math.test.do
-```
-
-Run a whole tree:
-
-```bash
-npx doof test src
-```
-
-The discovered test id format is `<relative-path>::<functionName>`. `--filter` matches against that full id.
-
-A failing `assert(...)` panics and fails the current test. The test runner executes each test in a separate process, so one failure does not stop later tests from running.
-
-The compiler also provides a `std/assert` module with an `Assert` class. The initial surface includes `Assert.equal(...)`, `Assert.notEqual(...)`, `Assert.isTrue(...)`, `Assert.isFalse(...)`, and `Assert.fail(...)`.
-
-### Mixed Doof and Native C++ Builds
-
-Doof `import class` declarations describe the C++ surface area the type checker and emitter should use, but build concerns still live at the CLI layer.
-
-Use the native build flags when your program needs any of the following:
-
-- headers outside the generated output directory or default compiler search paths
-- prebuilt libraries or custom library search directories
-- Apple frameworks
-- additional `.cpp` bridge files or precompiled object files
-- preprocessor defines, compiler flags, or linker flags
-
-`emit`, `build`, and `run` all accept the native build options. `emit` persists them into the generated `CMakeLists.txt`, while `build` and `run` also pass them directly to the compiler/linker invocation.
-
-These native build flags work best for simple bridge files and library integrations. If a project needs Objective-C++, Swift, app bundle packaging, asset staging, or a larger native build graph, prefer `doof emit` plus CMake or your existing native build system. The checked-in `samples/solitaire` SDL/Metal host and `samples/reminders-mcp` EventKit sample both fall into that category today.
-
-For complex multi-language projects, `doof emit` is still the most flexible path: generate the C++ output and integrate it into your existing CMake or native build system.
+- `src/` — compiler, checker, emitter, CLI, and tests
+- `samples/` — runnable example programs
+- `spec/` — language specification
+- `docs/` — CLI reference, package system, and testing guide
+- `playground/` — browser playground
 
 ## Development
 
-Build the TypeScript sources:
-
 ```bash
-npm run build
+npm install
+npm run build   # compile TypeScript
+npm test        # run compiler test suite
 ```
-
-Run the test suite:
-
-```bash
-npm test
-```
-
-Run one sample through the checker:
-
-```bash
-node dist/cli.js check samples/hello.do
-```
-
-## Specification
-
-Start with these specification files:
-
-- `spec/01-overview.md`
-- `spec/02-type-system.md`
-- `spec/03-variables-and-bindings.md`
-- `spec/04-functions-and-lambdas.md`
-- `spec/11-modules.md`
 
 ## Status
 
-This repository is an active compiler project. The CLI and language surface are evolving, so the source in `src/` and the documents in `spec/` are the authoritative references.
+Active development. The `src/` sources and `spec/` documents are the authoritative references.
