@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include <simd/simd.h>
+
 static NSString* const kShaderSource = @R"(
 #include <metal_stdlib>
 using namespace metal;
@@ -40,6 +42,19 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
     return color;
 }
 )";
+
+namespace {
+
+simd_float4x4 toSimdMatrix(const std::array<float, 16>& matrix) {
+    return simd_matrix(
+        simd_make_float4(matrix[0], matrix[1], matrix[2], matrix[3]),
+        simd_make_float4(matrix[4], matrix[5], matrix[6], matrix[7]),
+        simd_make_float4(matrix[8], matrix[9], matrix[10], matrix[11]),
+        simd_make_float4(matrix[12], matrix[13], matrix[14], matrix[15])
+    );
+}
+
+} // namespace
 
 MetalRenderer::~MetalRenderer() {
     [m_msaaColorTexture release];
@@ -191,12 +206,15 @@ bool MetalRenderer::init(CAMetalLayer* layer, int sampleCount) {
 void MetalRenderer::renderFrame(
     CAMetalLayer* layer,
     const std::vector<RenderBatch>& worldBatches,
-    const simd_float4x4& worldMVP,
+    const std::array<float, 16>& worldMVP,
     const std::vector<RenderBatch>& uiBatches,
-    const simd_float4x4& uiMVP,
+    const std::array<float, 16>& uiMVP,
     int pixelW,
     int pixelH
 ) {
+    const simd_float4x4 worldMvpMatrix = toSimdMatrix(worldMVP);
+    const simd_float4x4 uiMvpMatrix = toSimdMatrix(uiMVP);
+
     layer.drawableSize = CGSizeMake((CGFloat)pixelW, (CGFloat)pixelH);
 
     id<CAMetalDrawable> drawable = [layer nextDrawable];
@@ -274,8 +292,8 @@ void MetalRenderer::renderFrame(
         [enc setFrontFacingWinding:MTLWindingCounterClockwise];
         [enc setViewport:viewport];
 
-        id<MTLBuffer> mvpBuffer = [m_device newBufferWithBytes:&worldMVP
-                                                        length:sizeof(worldMVP)
+        id<MTLBuffer> mvpBuffer = [m_device newBufferWithBytes:&worldMvpMatrix
+                                length:sizeof(worldMvpMatrix)
                                                        options:MTLResourceStorageModeShared];
         [enc setVertexBuffer:mvpBuffer offset:0 atIndex:1];
         [mvpBuffer release];
@@ -309,8 +327,8 @@ void MetalRenderer::renderFrame(
         [uiEnc setDepthStencilState:m_painterDepthState];
         [uiEnc setViewport:viewport];
 
-        id<MTLBuffer> uiMVPBuffer = [m_device newBufferWithBytes:&uiMVP
-                                                          length:sizeof(uiMVP)
+        id<MTLBuffer> uiMVPBuffer = [m_device newBufferWithBytes:&uiMvpMatrix
+                                  length:sizeof(uiMvpMatrix)
                                                          options:MTLResourceStorageModeShared];
         [uiEnc setVertexBuffer:uiMVPBuffer offset:0 atIndex:1];
         [uiMVPBuffer release];

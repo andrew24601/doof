@@ -3,7 +3,7 @@
 #include <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
-#include <simd/simd.h>
+#include <array>
 #include <vector>
 
 #include "Vertex.h"
@@ -26,9 +26,9 @@ public:
     void renderFrame(
         CAMetalLayer* layer,
         const std::vector<RenderBatch>& worldBatches,
-        const simd_float4x4& worldMVP,
+        const std::array<float, 16>& worldMVP,
         const std::vector<RenderBatch>& uiBatches,
-        const simd_float4x4& uiMVP,
+        const std::array<float, 16>& uiMVP,
         int pixelW,
         int pixelH
     );
