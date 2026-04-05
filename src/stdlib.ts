@@ -1,11 +1,12 @@
 import * as nodePath from "node:path";
 import { ModuleResolver, type FileSystem, type ResolverOptions } from "./resolver.js";
+import { toVirtualPath } from "./path-utils.js";
 
-export const BUNDLED_STDLIB_ROOT = nodePath.resolve(nodePath.sep, "__doof_stdlib__");
+export const BUNDLED_STDLIB_ROOT = "/__doof_stdlib__";
 
 const BUNDLED_MODULES = new Map<string, string>([
   [
-    nodePath.join(BUNDLED_STDLIB_ROOT, "std", "assert.do"),
+    nodePath.posix.join(BUNDLED_STDLIB_ROOT, "std", "assert.do"),
     [
       "export class Assert {",
       "    static equal(actual: any, expected: any, message: string | null = null): void {",
@@ -69,11 +70,13 @@ class BundledStdlibFS implements FileSystem {
   constructor(private readonly fallback: FileSystem) {}
 
   readFile(absolutePath: string): string | null {
-    return BUNDLED_MODULES.get(absolutePath) ?? this.fallback.readFile(absolutePath);
+    const normalizedPath = toVirtualPath(absolutePath);
+    return BUNDLED_MODULES.get(normalizedPath) ?? this.fallback.readFile(absolutePath);
   }
 
   fileExists(absolutePath: string): boolean {
-    return BUNDLED_MODULES.has(absolutePath) || this.fallback.fileExists(absolutePath);
+    const normalizedPath = toVirtualPath(absolutePath);
+    return BUNDLED_MODULES.has(normalizedPath) || this.fallback.fileExists(absolutePath);
   }
 }
 

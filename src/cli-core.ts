@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
 import type { FileSystem } from "./resolver.js";
+import { joinFsPath, resolveFsPath } from "./path-utils.js";
 import {
   createBuildProvenance,
   loadPackageGraph,
@@ -85,21 +86,30 @@ export interface DoofBuildManifest {
 }
 
 export function findCompiler(): string {
-  for (const cc of ["clang++", "g++"]) {
+  const compiler = tryFindCompiler();
+  if (compiler) return compiler;
+  throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
+}
+
+export function tryFindCompiler(): string | null {
+  for (const cc of [process.env.CXX, "clang++", "g++", "c++"]) {
+    if (!cc) {
+      continue;
+    }
     try {
-      execSync(`which ${cc}`, { stdio: "pipe" });
+      execFileSync(cc, ["--version"], { stdio: "pipe", timeout: 5000 });
       return cc;
     } catch {
       continue;
     }
   }
 
-  throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
+  return null;
 }
 
 export function findNlohmannInclude(): string | null {
   try {
-    const prefix = execSync("brew --prefix nlohmann-json 2>/dev/null", { stdio: "pipe" }).toString().trim();
+    const prefix = execFileSync("brew", ["--prefix", "nlohmann-json"], { stdio: "pipe", timeout: 5000 }).toString().trim();
     if (prefix && fs.existsSync(path.join(prefix, "include", "nlohmann", "json.hpp"))) {
       return path.join(prefix, "include");
     }
@@ -124,7 +134,7 @@ export function runPipelineWithFs(
   log: (msg: string) => void,
   onDiagnostic: (diagnostic: DiagnosticLike) => void,
 ): PipelineResult {
-  const normalizedEntryPath = path.resolve(entryPath);
+  const normalizedEntryPath = resolveFsPath(entryPath);
   const pipelineFileSystem = withBundledStdlib(fileSystem);
   if (!pipelineFileSystem.fileExists(normalizedEntryPath)) {
     throw new Error(`File not found: ${normalizedEntryPath}`);
@@ -228,9 +238,9 @@ export function buildCompileArgs(
   nativeBuild: NativeBuildOptions,
   outputBinaryName = "a.out",
 ): { outBinary: string; args: string[] } {
-  const absOutDir = path.resolve(outDir);
-  const outBinary = path.join(absOutDir, outputBinaryName);
-  const moduleCppFiles = project.modules.map((mod) => path.join(absOutDir, mod.cppPath));
+  const absOutDir = resolveFsPath(outDir);
+  const outBinary = joinFsPath(absOutDir, outputBinaryName);
+  const moduleCppFiles = project.modules.map((mod) => joinFsPath(absOutDir, mod.cppPath));
 
   const args = [
     `-std=${nativeBuild.cppStd}`,

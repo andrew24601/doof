@@ -4,12 +4,13 @@
  * Covers: module splitting (.hpp/.cpp), extern class imports, namespace imports.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe as vitestDescribe, it, expect, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { E2EContext } from "./e2e-test-helpers.js";
+import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
 
 const ctx = new E2EContext();
+const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
 beforeAll(() => ctx.setup());
 afterAll(() => ctx.cleanup());
 

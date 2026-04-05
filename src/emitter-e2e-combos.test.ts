@@ -5,10 +5,11 @@
  * multi-module feature combinations.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { E2EContext } from "./e2e-test-helpers.js";
+import { describe as vitestDescribe, it, expect, beforeAll, afterAll } from "vitest";
+import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
 
 const ctx = new E2EContext();
+const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
 beforeAll(() => ctx.setup());
 afterAll(() => ctx.cleanup());
 

@@ -4,6 +4,14 @@ import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
 import type { NativeBuildOptions } from "./emitter-module.js";
 import type { FileSystem } from "./resolver.js";
+import {
+  dirnameFsPath,
+  isAbsoluteFsPath,
+  joinFsPath,
+  relativeFsPath,
+  resolveFsPath,
+  resolveFsPathFrom,
+} from "./path-utils.js";
 
 export type ResolvedPackageNativeBuild = Pick<
   NativeBuildOptions,
@@ -124,15 +132,15 @@ const MANIFEST_FILENAME = "doof.json";
 const REMOTE_METADATA_FILENAME = ".doof-remote.json";
 
 export function findDoofManifestPath(fileSystem: FileSystem, entryPath: string): string | null {
-  let currentDir = nodePath.dirname(nodePath.resolve(entryPath));
+  let currentDir = dirnameFsPath(resolveFsPath(entryPath));
 
   while (true) {
-    const manifestPath = nodePath.join(currentDir, MANIFEST_FILENAME);
+    const manifestPath = joinFsPath(currentDir, MANIFEST_FILENAME);
     if (fileSystem.readFile(manifestPath) !== null) {
       return manifestPath;
     }
 
-    const parentDir = nodePath.dirname(currentDir);
+    const parentDir = dirnameFsPath(currentDir);
     if (parentDir === currentDir) {
       return null;
     }
@@ -148,7 +156,7 @@ export function loadPackageGraph(
 ): PackageGraph {
   const manifestPath = findDoofManifestPath(fileSystem, entryPath);
   if (!manifestPath) {
-    throw new Error(`No doof.json found for ${nodePath.resolve(entryPath)}`);
+    throw new Error(`No doof.json found for ${resolveFsPath(entryPath)}`);
   }
 
   const cache = new Map<string, MutableLoadedPackage>();
@@ -240,8 +248,8 @@ function loadPackageFromManifest(
   loadingStack: string[],
   context: PackageLoadContext,
 ): LoadedPackage {
-  const normalizedManifestPath = nodePath.resolve(manifestPath);
-  const rootDir = nodePath.dirname(normalizedManifestPath);
+  const normalizedManifestPath = resolveFsPath(manifestPath);
+  const rootDir = dirnameFsPath(normalizedManifestPath);
   const cached = cache.get(rootDir);
   if (cached) {
     return cached;
@@ -272,8 +280,8 @@ function loadPackageFromManifest(
   try {
     for (const [dependencyName, dependency] of Object.entries(manifest.dependencies)) {
       if ("path" in dependency) {
-        const dependencyRoot = nodePath.resolve(rootDir, dependency.path);
-        const dependencyManifestPath = nodePath.join(dependencyRoot, MANIFEST_FILENAME);
+        const dependencyRoot = resolveFsPathFrom(rootDir, dependency.path);
+        const dependencyManifestPath = joinFsPath(dependencyRoot, MANIFEST_FILENAME);
         const loadedDependency = loadPackageFromManifest(
           fileSystem,
           dependencyManifestPath,
@@ -291,9 +299,9 @@ function loadPackageFromManifest(
         manifestPath: normalizedManifestPath,
         cacheRoot: context.cacheRoot,
       });
-      const dependencyRoot = nodePath.resolve(resolvedRemoteDependency.rootDir);
+      const dependencyRoot = resolveFsPath(resolvedRemoteDependency.rootDir);
       context.remoteDependencyMetadata.set(dependencyRoot, resolvedRemoteDependency.provenance);
-      const dependencyManifestPath = nodePath.join(dependencyRoot, MANIFEST_FILENAME);
+      const dependencyManifestPath = joinFsPath(dependencyRoot, MANIFEST_FILENAME);
       const loadedDependency = loadPackageFromManifest(
         fileSystem,
         dependencyManifestPath,
@@ -508,7 +516,7 @@ function normalizePackagePaths(
 }
 
 function normalizePackagePath(value: string, rootDir: string, manifestPath: string, fieldPath: string): string {
-  const resolvedPath = nodePath.resolve(rootDir, value);
+  const resolvedPath = resolveFsPathFrom(rootDir, value);
   if (!isWithinRoot(resolvedPath, rootDir)) {
     throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must stay within the package root`);
   }
@@ -524,9 +532,10 @@ function appendUnique(target: string[], values: readonly string[]) {
 }
 
 function isWithinRoot(targetPath: string, rootDir: string): boolean {
-  const relativePath = nodePath.relative(rootDir, targetPath);
+  const relativePath = relativeFsPath(rootDir, targetPath);
+  const portableRelativePath = relativePath.replace(/\\/g, "/");
   return relativePath === ""
-    || (!relativePath.startsWith(`..${nodePath.sep}`) && relativePath !== ".." && !nodePath.isAbsolute(relativePath));
+    || (!portableRelativePath.startsWith("../") && portableRelativePath !== ".." && !isAbsoluteFsPath(relativePath));
 }
 
 function defaultResolveRemoteDependency(

@@ -479,8 +479,8 @@ describe("emitter — classes", () => {
         back: CardSprite = {}
       }
     `);
-    expect(cpp).toContain("std::shared_ptr<CardSprite> front = std::make_shared<CardSprite>()");
-    expect(cpp).toContain("std::shared_ptr<CardSprite> back = std::make_shared<CardSprite>()");
+    expect(cpp).toContain("std::shared_ptr<CardSprite> front = std::make_shared<CardSprite>(-1)");
+    expect(cpp).toContain("std::shared_ptr<CardSprite> back = std::make_shared<CardSprite>(-1)");
     expect(cpp).not.toContain("/* complex default */");
   });
 

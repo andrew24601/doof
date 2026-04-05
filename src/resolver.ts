@@ -13,7 +13,14 @@
  * used with both a real FS and a virtual/in-memory FS for testing.
  */
 
-import * as nodePath from "node:path";
+import {
+  dirnameFsPath,
+  fsPathSep,
+  isWithinFsRoot,
+  joinFsPath,
+  resolveFsPath,
+  resolveFsPathFrom,
+} from "./path-utils.js";
 
 // ============================================================================
 // File system abstraction
@@ -62,7 +69,7 @@ export class ModuleResolver {
     this.packageRoot = options.packageRoot;
     this.packages = [...(options.packages ?? [])]
       .map((pkg) => ({
-        rootDir: nodePath.resolve(pkg.rootDir),
+        rootDir: resolveFsPath(pkg.rootDir),
         dependencies: pkg.dependencies,
       }))
       .sort((left, right) => right.rootDir.length - left.rootDir.length);
@@ -100,8 +107,8 @@ export class ModuleResolver {
   }
 
   private resolveRelative(specifier: string, fromModule: string): string | null {
-    const dir = nodePath.dirname(fromModule);
-    const base = nodePath.resolve(dir, specifier);
+    const dir = dirnameFsPath(fromModule);
+    const base = resolveFsPathFrom(dir, specifier);
     return this.tryResolveFile(base);
   }
 
@@ -120,7 +127,7 @@ export class ModuleResolver {
 
   private resolveLegacyPackage(specifier: string): string | null {
     if (!this.packageRoot) return null;
-    const base = nodePath.join(this.packageRoot, specifier);
+    const base = joinFsPath(this.packageRoot, specifier);
     return this.tryResolveFile(base);
   }
 
@@ -142,12 +149,12 @@ export class ModuleResolver {
 
     const base = rest.length === 0
       ? dependencyRoot
-      : nodePath.join(dependencyRoot, ...rest);
+      : joinFsPath(dependencyRoot, ...rest);
     return this.tryResolveFile(base);
   }
 
   private findOwningPackage(fromModule: string): PackageResolutionInfo | null {
-    const normalizedModulePath = nodePath.resolve(fromModule);
+    const normalizedModulePath = resolveFsPath(fromModule);
     for (const candidate of this.packages) {
       if (isWithinRoot(normalizedModulePath, candidate.rootDir)) {
         return candidate;
@@ -159,7 +166,7 @@ export class ModuleResolver {
 
   private resolveStdlib(specifier: string): string | null {
     if (!this.stdlibRoot) return null;
-    const base = nodePath.join(this.stdlibRoot, specifier);
+    const base = joinFsPath(this.stdlibRoot, specifier);
     return this.tryResolveFile(base);
   }
 
@@ -176,19 +183,19 @@ export class ModuleResolver {
   private tryResolveFile(base: string): string | null {
     // 1. Exact match (e.g. "./foo.do" specified explicitly)
     if (this.fs.fileExists(base)) {
-      return nodePath.resolve(base);
+      return resolveFsPath(base);
     }
 
     // 2. Append extension
     const withExt = base + this.extension;
     if (this.fs.fileExists(withExt)) {
-      return nodePath.resolve(withExt);
+      return resolveFsPath(withExt);
     }
 
     // 3. Barrel file: base/index.do
-    const indexFile = nodePath.join(base, "index" + this.extension);
+    const indexFile = joinFsPath(base, "index" + this.extension);
     if (this.fs.fileExists(indexFile)) {
-      return nodePath.resolve(indexFile);
+      return resolveFsPath(indexFile);
     }
 
     return null;
@@ -196,5 +203,5 @@ export class ModuleResolver {
 }
 
 function isWithinRoot(filePath: string, rootDir: string): boolean {
-  return filePath === rootDir || filePath.startsWith(rootDir + nodePath.sep);
+  return filePath === rootDir || isWithinFsRoot(filePath, rootDir) || filePath.startsWith(rootDir + fsPathSep(rootDir));
 }

@@ -8,10 +8,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { buildAnyRuntimePlan } from "./any-runtime.js";
-import { buildCompileArgs } from "./cli-core.js";
+import { buildCompileArgs, findNlohmannInclude, tryFindCompiler } from "./cli-core.js";
 import { emitCpp } from "./emitter.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitProject, type NativeBuildOptions } from "./emitter-module.js";
@@ -51,34 +51,8 @@ function createNativeBuildOptions(
 // Standalone helpers (no state needed)
 // ============================================================================
 
-export function findCompiler(): string | null {
-  for (const cc of ["clang++", "g++"]) {
-    try {
-      execSync(`which ${cc}`, { stdio: "pipe" });
-      return cc;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** Find the nlohmann/json include path (Homebrew or system). */
-export function findNlohmannInclude(): string {
-  // Try Homebrew
-  try {
-    const prefix = execSync("brew --prefix nlohmann-json 2>/dev/null", { stdio: "pipe" }).toString().trim();
-    if (prefix && fs.existsSync(path.join(prefix, "include", "nlohmann", "json.hpp"))) {
-      return `-I${prefix}/include`;
-    }
-  } catch { /* not available via Homebrew */ }
-  // Try system include paths (often /usr/local/include on Linux)
-  for (const dir of ["/usr/local/include", "/usr/include"]) {
-    if (fs.existsSync(path.join(dir, "nlohmann", "json.hpp"))) {
-      return `-I${dir}`;
-    }
-  }
-  return "";
+export function hasNativeToolchain(): boolean {
+  return tryFindCompiler() !== null;
 }
 
 /** Run the full Doof pipeline and return the generated C++ string. */
@@ -113,12 +87,13 @@ export class E2EContext {
   nlohmannInclude = "";
 
   setup(): void {
-    const compiler = findCompiler();
+    const compiler = tryFindCompiler();
     if (!compiler) {
       console.warn("No C++ compiler found — skipping end-to-end tests");
     }
-    this.cppCompiler = compiler ?? "false";
-    this.nlohmannInclude = findNlohmannInclude();
+    this.cppCompiler = compiler ?? "";
+    const includeDir = findNlohmannInclude();
+    this.nlohmannInclude = includeDir ? `-I${includeDir}` : "";
     this.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-e2e-"));
   }
 
@@ -132,6 +107,14 @@ export class E2EContext {
    * Compile and run a Doof source program. Returns the program's output.
    */
   compileAndRun(doofSource: string): RunResult {
+    if (!this.cppCompiler) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: "No C++ compiler found. Install clang++, g++, or set CXX.",
+      };
+    }
+
     let cppCode: string;
     let runtimeCode: string;
     try {
@@ -155,10 +138,15 @@ export class E2EContext {
 
     // Compile
     try {
-      execSync(
-        `${this.cppCompiler} -std=c++17 -o ${outFile} ${cppFile} -I${this.tmpDir} ${this.nlohmannInclude}`,
-        { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 },
-      );
+      const compileArgs = [
+        "-std=c++17",
+        "-o",
+        outFile,
+        cppFile,
+        `-I${this.tmpDir}`,
+        ...(this.nlohmannInclude ? [this.nlohmannInclude] : []),
+      ];
+      execFileSync(this.cppCompiler, compileArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
     } catch (e: any) {
       return {
         exitCode: -1,
@@ -169,7 +157,7 @@ export class E2EContext {
 
     // Run
     try {
-      const stdout = execSync(outFile, {
+      const stdout = execFileSync(outFile, [], {
         stdio: "pipe",
         timeout: 5000,
       }).toString();
@@ -187,6 +175,14 @@ export class E2EContext {
    * Just compile (syntax check) without running. Returns true if compilation succeeds.
    */
   compileOnly(doofSource: string): { success: boolean; error: string; code: string } {
+    if (!this.cppCompiler) {
+      return {
+        success: false,
+        error: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        code: "",
+      };
+    }
+
     let cppCode: string;
     let runtimeCode: string;
     try {
@@ -208,10 +204,14 @@ export class E2EContext {
     fs.writeFileSync(runtimeFile, runtimeCode);
 
     try {
-      execSync(
-        `${this.cppCompiler} -std=c++17 -fsyntax-only ${cppFile} -I${this.tmpDir} ${this.nlohmannInclude}`,
-        { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 },
-      );
+      const compileArgs = [
+        "-std=c++17",
+        "-fsyntax-only",
+        cppFile,
+        `-I${this.tmpDir}`,
+        ...(this.nlohmannInclude ? [this.nlohmannInclude] : []),
+      ];
+      execFileSync(this.cppCompiler, compileArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
       return { success: true, error: "", code: cppCode };
     } catch (e: any) {
       return {
@@ -230,6 +230,14 @@ export class E2EContext {
     entry: string,
     nativeBuildOptions: Partial<NativeBuildOptions> = {},
   ): RunResult {
+    if (!this.cppCompiler) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: "No C++ compiler found. Install clang++, g++, or set CXX.",
+      };
+    }
+
     const vfs = new VirtualFS(files);
     const resolver = createResolverForEntry(vfs, entry);
     const analyzer = new ModuleAnalyzer(withBundledStdlib(vfs), resolver);
@@ -304,6 +312,14 @@ export class E2EContext {
     entry: string,
     nativeBuildOptions: Partial<NativeBuildOptions> = {},
   ): { success: boolean; error: string; codes: string } {
+    if (!this.cppCompiler) {
+      return {
+        success: false,
+        error: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        codes: "",
+      };
+    }
+
     const vfs = new VirtualFS(files);
     const resolver = createResolverForEntry(vfs, entry);
     const analyzer = new ModuleAnalyzer(withBundledStdlib(vfs), resolver);

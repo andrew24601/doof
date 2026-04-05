@@ -39,6 +39,7 @@ import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib.js";
+import { relativeFsPath, toPortablePath } from "./path-utils.js";
 
 // ============================================================================
 // Public types
@@ -1018,20 +1019,20 @@ function projectUsesJson(analysisResult: AnalysisResult): boolean {
  * Compute a relative path from baseDir, stripping leading "/" or baseDir prefix.
  */
 function relativeModulePath(modulePath: string, baseDir: string): string {
-  if (modulePath.startsWith(BUNDLED_STDLIB_ROOT + nodePath.sep) || modulePath === BUNDLED_STDLIB_ROOT) {
-    return nodePath.join("__doof_stdlib__", nodePath.relative(BUNDLED_STDLIB_ROOT, modulePath));
+  if (modulePath.startsWith(`${BUNDLED_STDLIB_ROOT}/`) || modulePath === BUNDLED_STDLIB_ROOT) {
+    return nodePath.posix.join("__doof_stdlib__", relativeFsPath(BUNDLED_STDLIB_ROOT, modulePath));
   }
   // For virtual-FS test paths like "/main.do" with baseDir "/",
   // nodePath.relative("/", "/main.do") === "main.do" — works correctly.
-  return anchorRelativePath(nodePath.relative(baseDir, modulePath));
+  return anchorRelativePath(toPortablePath(relativeFsPath(baseDir, modulePath)));
 }
 
 function anchorRelativePath(relativePath: string): string {
-  const parts = relativePath.split(nodePath.sep);
+  const parts = relativePath.split("/");
   while (parts.length > 0 && parts[0] === "..") {
     parts.shift();
   }
-  return parts.join(nodePath.sep);
+  return parts.join("/");
 }
 
 /** Convert a Doof module path to C++ .hpp/.cpp filenames (relative to baseDir). */

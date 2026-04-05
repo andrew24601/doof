@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe as vitestDescribe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { E2EContext } from "./e2e-test-helpers.js";
+import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
 
 const ctx = new E2EContext();
+const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
 
 beforeAll(() => ctx.setup());
 afterAll(() => ctx.cleanup());
