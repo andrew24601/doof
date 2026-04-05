@@ -8,3 +8,5 @@ vscode-doof/out
 build-*/
 _build
 .doof
+_build*
+*.obj

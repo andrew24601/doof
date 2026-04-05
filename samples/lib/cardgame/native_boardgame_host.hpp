@@ -4,8 +4,6 @@
 #include <memory>
 #include <string>
 
-#include <simd/simd.h>
-
 #include "doof_runtime.hpp"
 #include "lib/cardgame/types.hpp"
 #include "lib/cardgame/matrix.hpp"

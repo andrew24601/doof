@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(DoofSeahavenTowersSample LANGUAGES CXX OBJCXX)
+include(FetchContent)
+
+set(DOOF_SEAHAVEN_LANGUAGES CXX)
+if(APPLE)
+    list(APPEND DOOF_SEAHAVEN_LANGUAGES OBJCXX)
+endif()
+
+project(DoofSeahavenTowersSample LANGUAGES ${DOOF_SEAHAVEN_LANGUAGES})
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,29 +38,56 @@ set(DOOF_REQUIRED_HEADERS
 foreach(DOOF_REQUIRED_HEADER IN LISTS DOOF_REQUIRED_HEADERS)
     if(NOT EXISTS "${DOOF_OUTPUT_DIR}/${DOOF_REQUIRED_HEADER}")
         message(FATAL_ERROR
-            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path \"$(pwd)\" -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
+            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
         )
     endif()
 endforeach()
 
 if(NOT EXISTS "${DOOF_OUTPUT_DIR}/doof_runtime.hpp")
     message(FATAL_ERROR
-        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path \"$(pwd)\" -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing doof_runtime.hpp."
+        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing doof_runtime.hpp."
     )
 endif()
 
 find_package(SDL3 CONFIG QUIET)
+find_package(nlohmann_json CONFIG QUIET)
+
+if(NOT nlohmann_json_FOUND)
+    FetchContent_Declare(
+        json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(json)
+endif()
 
 if(NOT SDL3_FOUND)
+    if(WIN32)
+        message(FATAL_ERROR
+            "SDL3 was not found. On Windows, install SDL3 with vcpkg and configure CMake with -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake, or point CMAKE_PREFIX_PATH at an SDL3 package config directory."
+        )
+    endif()
+
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
 endif()
 
-add_subdirectory("${DOOF_SHARED_ENGINE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/boardgame-engine")
+if(APPLE)
+    add_subdirectory("${DOOF_SHARED_ENGINE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/boardgame-engine")
+endif()
 
 file(GLOB DOOF_GENERATED_SOURCES CONFIGURE_DEPENDS "${DOOF_OUTPUT_DIR}/*.cpp")
 file(GLOB_RECURSE DOOF_GENERATED_SHARED_SOURCES CONFIGURE_DEPENDS "${DOOF_OUTPUT_DIR}/lib/**/*.cpp")
 list(APPEND DOOF_GENERATED_SOURCES ${DOOF_GENERATED_SHARED_SOURCES})
+
+set(DOOF_SEAHAVEN_HOST_SOURCE)
+if(APPLE)
+    set(DOOF_SEAHAVEN_HOST_SOURCE "${DOOF_SHARED_HOST_DIR}/native_boardgame_host.mm")
+elseif(WIN32)
+    set(DOOF_SEAHAVEN_HOST_SOURCE "${DOOF_SHARED_HOST_DIR}/native_boardgame_host.cpp")
+else()
+    message(FATAL_ERROR "The Seahaven Towers sample currently supports macOS and Windows native builds.")
+endif()
 
 set(DOOF_SEAHAVEN_TARGET_ARGS)
 if(APPLE)
@@ -62,9 +96,13 @@ endif()
 
 add_executable(DoofSeahavenTowers
     ${DOOF_SEAHAVEN_TARGET_ARGS}
-    ${DOOF_SHARED_HOST_DIR}/native_boardgame_host.mm
+    ${DOOF_SEAHAVEN_HOST_SOURCE}
     ${DOOF_GENERATED_SOURCES}
 )
+
+if(WIN32)
+    set_target_properties(DoofSeahavenTowers PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 target_include_directories(DoofSeahavenTowers PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -73,7 +111,9 @@ target_include_directories(DoofSeahavenTowers PRIVATE
     ${DOOF_REPO_ROOT}
 )
 
-target_link_libraries(DoofSeahavenTowers PRIVATE BoardGameEngine)
+if(APPLE)
+    target_link_libraries(DoofSeahavenTowers PRIVATE BoardGameEngine)
+endif()
 
 if(SDL3_FOUND)
     target_link_libraries(DoofSeahavenTowers PRIVATE SDL3::SDL3)
@@ -81,8 +121,24 @@ else()
     target_link_libraries(DoofSeahavenTowers PRIVATE PkgConfig::SDL3)
 endif()
 
-target_link_libraries(DoofSeahavenTowers PRIVATE "-framework Cocoa" "-framework Foundation")
+target_link_libraries(DoofSeahavenTowers PRIVATE nlohmann_json::nlohmann_json)
+
+if(APPLE)
+    target_link_libraries(DoofSeahavenTowers PRIVATE "-framework Cocoa" "-framework Foundation")
+elseif(WIN32)
+    target_link_libraries(DoofSeahavenTowers PRIVATE windowscodecs ole32)
+endif()
+
 target_compile_definitions(DoofSeahavenTowers PRIVATE SDL_MAIN_HANDLED)
+
+if(MSVC)
+    target_compile_definitions(DoofSeahavenTowers PRIVATE NOMINMAX)
+    if(WIN32)
+        target_link_options(DoofSeahavenTowers PRIVATE /ENTRY:mainCRTStartup)
+    endif()
+elseif(WIN32)
+    target_link_options(DoofSeahavenTowers PRIVATE -mwindows)
+endif()
 
 file(GLOB DOOF_SAMPLE_IMAGE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/images/*")
 

@@ -1,6 +1,6 @@
 # Solitaire in Doof
 
-A complete Klondike Solitaire implementation with **game logic, visual layer, camera projection, application state, and host input handling written in Doof**, the statically-typed language that compiles to C++. Only the SDL3/Metal rendering pipeline and type conversion remains in C++/Objective-C++.
+A complete Klondike Solitaire implementation with **game logic, visual layer, camera projection, application state, and host input handling written in Doof**, the statically-typed language that compiles to C++. Only the shared native host, texture loading, and final render submission remain in C++.
 
 The sample now consumes shared Doof support modules through its local [doof.json](/Users/andrew/develop/doof/samples/solitaire/doof.json) dependency on [samples/lib/cardgame](/Users/andrew/develop/doof/samples/lib/cardgame). The consumer modules import `boardgame/*` directly instead of routing through sample-local wrapper modules.
 
@@ -39,8 +39,8 @@ The sample now consumes shared Doof support modules through its local [doof.json
                │  #include generated headers
 ┌──────────────▼──────────────────────────────┐
 │  Native Boardgame Host                      │
-│  native_boardgame_host.mm / TextureLoader   │
-│  SDL3 window, texture loading, Metal render │
+│  native_boardgame_host.mm/.cpp              │
+│  SDL3 window, texture loading, native render│
 └─────────────────────────────────────────────┘
 ```
 
@@ -64,15 +64,16 @@ The sample now consumes shared Doof support modules through its local [doof.json
 - **Static world draw prep**: sprite resolution and quad vertex generation for placeholders, static cards, and flip animations
 - **UI buttons**: `GameButton` state, hit testing, interaction events, UI render plan
 - **Button icon geometry**: refresh icon vertices and background quad generated in Doof
-- **Matrix math**: `Mat4` extern class wrapping Apple SIMD `simd_float4x4` via `matrix_bridge.hpp` — perspective, lookAt, ortho, multiply, inverse, frame transforms, projection
+- **Matrix math**: `Mat4` extern class wrapping the native 4x4 matrix bridge in `matrix_bridge.hpp` — perspective, lookAt, ortho, multiply, inverse, frame transforms, projection
 - **Content**: atlas configuration, card library population, texture path lookup
 - **Math functions**: `sin`, `cos`, `tan`, `sqrt`, `abs`, `floor`, `ceil`, `fmod`, `min`, `max`, `clamp` via `import function` from `<cmath>` / `<algorithm>`
 - **Application state**: `AppState` class bundling game state, camera, card library, and button; lifecycle functions (`createApp`, `appNewGame`, `appUpdate`, `appClick`, `appDragStart/Move/End`, `appAutoComplete`, `appIsWon`)
 - **Host input**: `HostInput` class with mouse/drag tracking and camera sync; event handlers (`hostMouseDown`, `hostMouseUp`, `hostMouseMove`, `hostUpdate`) managing drag detection, click-vs-drag threshold, auto-camera, change detection, and button layout
 
-### C++ (shared native host runtime) — SDL host, texture loading, and Metal rendering
-- **native_boardgame_host.mm**: SDL3 window lifecycle, native event collection, texture loading, and Metal rendering from `samples/lib/cardgame`
-- **TextureLoader.mm / TextureRegistry.mm**: image loading and texture management
+### C++ (shared native host runtime) — SDL host, texture loading, and platform-specific rendering
+- **native_boardgame_host.mm**: macOS SDL3 window lifecycle, native event collection, texture loading, and Metal rendering from `samples/lib/cardgame`
+- **native_boardgame_host.cpp**: Windows SDL3 window lifecycle, WIC-backed texture loading, and SDL geometry rendering from `samples/lib/cardgame`
+- **TextureLoader.mm / TextureRegistry.mm**: macOS texture loading and Metal texture management
 
 ## Current Doof Limitations
 
@@ -80,7 +81,7 @@ The following C++ code cannot yet be ported to Doof due to missing language feat
 
 | Limitation | Impact | Workaround |
 |---|---|---|
-| No matrix/vector types | MVP computation, ray casting | `import class` wrapping `simd_float4x4` |
+| No matrix/vector types | MVP computation, ray casting | `import class` wrapping a native 4x4 matrix bridge |
 | No Map/Dictionary type | CardLibrary uses linear search | O(n) lookup; fine for ~53 cards |
 | No stable native bridge ABI yet | Handwritten host bridge drifts from emitted C++ API shape | Rewire bridge after emitter ABI settles |
 | No fixed-size arrays | Tableau/foundation as individual fields | `tableau0..6`, `foundation0..3` |
@@ -92,7 +93,7 @@ The following C++ code cannot yet be ported to Doof due to missing language feat
 - The `AppState` class in Doof owns all game objects; the C++ bridge has zero global state.
 - The `HostInput` class manages mouse tracking, drag detection, per-frame camera sync, and debug camera key state entirely in Doof.
 - `main.do` now owns the event loop and interprets `NativeBoardgameEvent` values directly.
-- The shared native host runtime is responsible only for SDL/Metal integration, texture loading, and presenting already-prepared render plans.
+- The shared native host runtime is responsible only for SDL/native integration, texture loading, and presenting already-prepared render plans.
 
 ## File Overview
 
@@ -107,8 +108,8 @@ The following C++ code cannot yet be ported to Doof due to missing language feat
 | [sprite.do](sprite.do) | ~85 | CardSprite, CardDefinition, CardLibrary |
 | [vertex.do](vertex.do) | ~70 | Vertex class, static card quad generation |
 | [camera.do](camera.do) | ~380 | Camera state, bounds, damping, projection, MVP |
-| [matrix.do](matrix.do) | ~17 | Mat4 extern class (simd_float4x4 wrapper) |
-| [../lib/cardgame/matrix_bridge.hpp](../lib/cardgame/matrix_bridge.hpp) | ~85 | C++ Mat4 implementation |
+| [matrix.do](matrix.do) | ~17 | Mat4 extern class (native 4x4 matrix wrapper) |
+| [../lib/cardgame/matrix_bridge.hpp](../lib/cardgame/matrix_bridge.hpp) | ~250 | C++ Mat4 implementation |
 | [render.do](render.do) | ~155 | Render ordering and plan generation |
 | [button.do](button.do) | ~190 | GameButton state, interaction, UI render plan |
 | [content.do](content.do) | ~70 | Atlas config, card library, texture paths |
@@ -120,7 +121,8 @@ The following C++ code cannot yet be ported to Doof due to missing language feat
 | [main.do](main.do) | ~150 | Doof-owned event loop and app entrypoint |
 | [solitaire.do](solitaire.do) | ~103 | Module re-exports |
 | **Shared Native Host** | | |
-| [../lib/cardgame/native_boardgame_host.mm](../lib/cardgame/native_boardgame_host.mm) | ~350 | SDL3/Metal host runtime and native event collection |
+| [../lib/cardgame/native_boardgame_host.mm](../lib/cardgame/native_boardgame_host.mm) | ~460 | macOS SDL3/Metal host runtime and native event collection |
+| [../lib/cardgame/native_boardgame_host.cpp](../lib/cardgame/native_boardgame_host.cpp) | ~500 | Windows SDL3/WIC host runtime and native event collection |
 
 ## Building
 
@@ -136,26 +138,28 @@ If `doof` is already on your `PATH`, you can replace `node dist/cli.js` with `do
 ### Standalone binary (CLI one-shot)
 
 The executable entrypoint now lives in [main.do](main.do), which drives the shared native boardgame host from Doof.
-The solitaire sample is designed to be used with the SDL3/Metal host.
+The solitaire sample is designed to be used with the SDL3-based host.
 
 ### Transpile Doof sources
 
 ```bash
 # Transpile the interactive sample entrypoint to C++
 rm -rf build-solitaire
-node dist/cli.js emit --include-path "$(pwd)" -o build-solitaire samples/solitaire/main.do
+node dist/cli.js emit --include-path "$PWD" -o build-solitaire samples/solitaire/main.do
 ```
 
-### SDL3 / Metal rendering status
+### Native build status
 
 The interactive sample now builds against the shared native boardgame package in [samples/lib/cardgame](/Users/andrew/develop/doof/samples/lib/cardgame), while keeping its own sample-local CMake entrypoint and atlas assets under [samples/solitaire](./README.md).
+
+On macOS:
 
 ```bash
 # Refresh emitted sample sources first
 rm -rf build-solitaire
-node dist/cli.js emit --include-path "$(pwd)" -o build-solitaire samples/solitaire/main.do
+node dist/cli.js emit --include-path "$PWD" -o build-solitaire samples/solitaire/main.do
 
-# Configure and build the sample-local SDL/Metal host
+# Configure and build the sample-local Metal host
 cmake -S samples/solitaire -B build-solitaire-sdl
 cmake --build build-solitaire-sdl
 
@@ -163,9 +167,33 @@ cmake --build build-solitaire-sdl
 open build-solitaire-sdl/DoofSolitaire.app
 ```
 
+On Windows PowerShell:
+
+```powershell
+# One-time prerequisites
+winget install --id Kitware.CMake --source winget
+winget install --id Microsoft.VisualStudio.2022.BuildTools --source winget
+# In the Visual Studio installer, include the "Desktop development with C++" workload.
+
+git clone https://github.com/microsoft/vcpkg $HOME\vcpkg
+& $HOME\vcpkg\bootstrap-vcpkg.bat
+& $HOME\vcpkg\vcpkg install sdl3:x64-windows
+$env:VCPKG_ROOT = "$HOME\vcpkg"
+
+# Emit and build
+if (Test-Path build-solitaire) { Remove-Item build-solitaire -Recurse -Force }
+node dist/cli.js emit --include-path $PWD -o build-solitaire samples/solitaire/main.do
+cmake -S samples/solitaire -B build-solitaire-sdl -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build-solitaire-sdl --config Release
+
+# Launch the executable
+& .\build-solitaire-sdl\Release\DoofSolitaire.exe
+```
+
 If you previously configured an older SDL sample build, remove `build-solitaire-sdl/` and re-run the two CMake commands above so you are not reusing a stale cache.
 
-On macOS, the sample now builds as a real `.app` bundle with staged resources, a Dock/Finder icon, and bundle metadata owned by CMake.
+On macOS, the sample builds as a real `.app` bundle with staged resources, a Dock/Finder icon, and bundle metadata owned by CMake.
+On Windows, the sample builds as a normal `.exe` and stages the `images/` directory next to the executable.
 
 ## Game Rules (Klondike Solitaire)
 
@@ -182,10 +210,16 @@ On macOS, the sample now builds as a real `.app` bundle with staged resources, a
 - **Drag** face-up cards between tableau piles or to foundations
 - Sequences of face-up cards can be dragged together from tableau
 - **Escape** cancels an in-progress drag or pressed UI interaction
-- **Command+W** closes the window
-- **Command+Q** quits the app
+- **Command+W** on macOS or **Ctrl+W** on Windows closes the window
+- **Command+Q** on macOS or **Ctrl+Q** on Windows quits the app
 
 ## macOS Notes
 
 - Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to emit sources, build the sample, and copy the finished bundle to `build/DoofSolitaire.app`.
 - The helper build now reuses the CMake-produced app bundle instead of writing a separate `Info.plist`, so the icon and staged resources stay in sync.
+
+## Windows Notes
+
+- Run [scripts/build-solitaire-windows.ps1](/Users/andrew/develop/doof/scripts/build-solitaire-windows.ps1) after setting `VCPKG_ROOT` to automate the emit + CMake flow on Windows. If you are not already in a Developer PowerShell session, pass `-VcVarsPath "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"`.
+- The Windows host uses Windows Imaging Component (WIC) to decode the PNG atlas and SDL3 geometry rendering to draw the prepared render plans.
+- The sample CMake config will use an installed `nlohmann_json` package when available and otherwise fetch the header-only release automatically during configure.
