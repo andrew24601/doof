@@ -6,7 +6,7 @@
  * that the checker produces.
  */
 
-import type { SourceSpan } from "./ast.js";
+import type { Expression, SourceSpan } from "./ast.js";
 import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic } from "./types.js";
 
 // ============================================================================
@@ -72,6 +72,8 @@ export interface FunctionResolvedType {
 export interface FunctionResolvedParam {
   name: string;
   type: ResolvedType;
+  hasDefault?: boolean;
+  defaultValue?: Expression | null;
 }
 
 export interface ArrayResolvedType {
@@ -1006,6 +1008,8 @@ export function substituteTypeParams(
         params: type.params.map((p) => ({
           name: p.name,
           type: substituteTypeParams(p.type, paramMap),
+          hasDefault: p.hasDefault,
+          defaultValue: p.defaultValue,
         })),
         returnType: substituteTypeParams(type.returnType, paramMap),
         typeParams: type.typeParams,

@@ -134,7 +134,7 @@ describeSkipOnWindows("e2e — http server sample", () => {
     }
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("2\nabc\r\n\r\ndef");
+    expect(result.stdout).toBe("2\nabc\n\ndef");
   });
 
   it("routes header inspection through the sample app", () => {

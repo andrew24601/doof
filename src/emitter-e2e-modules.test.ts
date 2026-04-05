@@ -240,6 +240,31 @@ describe("e2e — module splitting", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("hello world");
   });
+
+  it("runs imported exported function with named arguments", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": [
+          `import { clamp } from "./math"`,
+          `function main(): int {`,
+          `  return clamp{ min: 0, max: 100, value: 150 }`,
+          `}`,
+        ].join("\n"),
+        "/math.do": [
+          `export function clamp(value: int, min: int, max: int): int {`,
+          `  if value < min { return min }`,
+          `  if value > max { return max }`,
+          `  return value`,
+          `}`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(100);
+  });
 });
 
 // ============================================================================

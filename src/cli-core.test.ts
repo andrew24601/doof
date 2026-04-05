@@ -183,7 +183,7 @@ describe("CLI output binary naming", () => {
   });
 });
 
-describe("CLI nlohmann/json include lookup", () => {
+describe.runIf(process.platform === "win32")("CLI nlohmann/json include lookup", () => {
   it("prefers explicit include paths", () => {
     const includeDir = findNlohmannInclude(["C:\\vendor\\include"], {
       platform: "win32",

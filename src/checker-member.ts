@@ -81,6 +81,8 @@ function resolveClassMethodType(
     params: method.params.map((p) => ({
       name: p.name,
       type: p.type ? host.resolveTypeAnnotation(p.type, classTable) : UNKNOWN_TYPE,
+      hasDefault: p.defaultValue !== null,
+      defaultValue: p.defaultValue,
     })),
     returnType: method.returnType
       ? host.resolveTypeAnnotation(method.returnType, classTable)

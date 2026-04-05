@@ -153,7 +153,7 @@ describe("CLI compile args", () => {
     expect(args).toContain("/tmp/doof-build/demo-app");
   });
 
-  it("builds MSVC compiler arguments on Windows", () => {
+  it.runIf(process.platform === "win32")("builds MSVC compiler arguments on Windows", () => {
     const project = createProjectEmitResult();
 
     const { outBinary, args } = buildCompileArgs("C:\\tmp\\doof-build", project, {

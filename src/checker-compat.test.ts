@@ -781,6 +781,74 @@ describe("Function argument type checking", () => {
     expect(info.diagnostics[0].message).toContain("Expected 1 argument(s) but got 2");
   });
 
+  it("accepts named arguments out of order", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function clamp(value: int, min: int, max: int): int => value
+          const result = clamp{ min: 0, max: 100, value: 50 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("accepts named arguments with omitted defaulted parameters", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function greet(name: string, punctuation: string = "!"): string => name + punctuation
+          const result = greet{ name: "Ada" }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects unknown named arguments", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function clamp(value: int, min: int, max: int): int => value
+          const result = clamp{ min: 0, max: 100, score: 50 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('does not have a parameter named "score"');
+  });
+
+  it("rejects missing required named arguments", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function clamp(value: int, min: int, max: int): int => value
+          const result = clamp{ min: 0, max: 100 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Missing required parameter "value"');
+  });
+
+  it("rejects spaced named call syntax", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function clamp(value: int, min: int, max: int): int => value
+          const result = clamp { min: 0, max: 100, value: 50 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain("requires '{' to immediately follow \"clamp\"");
+  });
+
   it("accepts correct argument types with imported functions", () => {
     const info = check(
       {

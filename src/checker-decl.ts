@@ -148,6 +148,8 @@ export function checkFunction(
     params: decl.params.map((p) => ({
       name: p.name,
       type: p.resolvedType ?? UNKNOWN_TYPE,
+      hasDefault: p.defaultValue !== null,
+      defaultValue: p.defaultValue,
     })),
     returnType: inferredReturnType,
     typeParams: decl.typeParams.length > 0 ? decl.typeParams : undefined,
@@ -402,6 +404,8 @@ export function checkMethod(
     params: method.params.map((p) => ({
       name: p.name,
       type: p.resolvedType ?? UNKNOWN_TYPE,
+      hasDefault: p.defaultValue !== null,
+      defaultValue: p.defaultValue,
     })),
     returnType: returnType ?? VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,

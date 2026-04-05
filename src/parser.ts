@@ -131,6 +131,11 @@ export class Parser {
     return !!prev && prev.line === this.current().line;
   }
 
+  private isCurrentTokenImmediatelyAfterPrevious(): boolean {
+    const prev = this.tokens[this.pos - 1];
+    return !!prev && prev.offset + prev.value.length === this.current().offset;
+  }
+
   // ===========================================================================
   // Statements
   // ===========================================================================
@@ -2716,6 +2721,9 @@ export class Parser {
           // No chaining after trailing lambda — break out of postfix loop
           break;
         }
+      } else if (this.check(TokenType.LeftBrace)
+          && this.isCurrentTokenImmediatelyAfterPrevious()) {
+        expr = this.parseNamedCallExpression(expr);
       } else {
         break;
       }
@@ -2739,6 +2747,45 @@ export class Parser {
     }
 
     this.expect(TokenType.RightParen);
+
+    return {
+      kind: "call-expression",
+      callee,
+      args,
+      span: { start: callee.span.start, end: this.loc() },
+    };
+  }
+
+  private parseNamedCallExpression(callee: Expression): Expression {
+    this.expect(TokenType.LeftBrace);
+    const args: CallArgument[] = [];
+
+    while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
+      const argStart = this.loc();
+      const name = this.expect(TokenType.Identifier).value;
+
+      if (this.match(TokenType.Colon)) {
+        args.push({
+          name,
+          value: this.parseExpression(),
+          span: this.span(argStart),
+        });
+      } else {
+        args.push({
+          name,
+          value: {
+            kind: "identifier",
+            name,
+            span: this.span(argStart),
+          },
+          span: this.span(argStart),
+        });
+      }
+
+      if (!this.match(TokenType.Comma)) break;
+    }
+
+    this.expect(TokenType.RightBrace);
 
     return {
       kind: "call-expression",
@@ -2933,7 +2980,7 @@ export class Parser {
       if (this.check(TokenType.Less) && !this.inCaseSubject && this.looksLikeGenericConstruction()) {
         const typeArgs = this.parseGenericTypeArgs();
         if (this.check(TokenType.LeftBrace) && this.looksLikeConstructor()) {
-          return this.parseNamedConstruction(name, startLoc, typeArgs);
+          return this.parseNamedConstruction(name, startLoc, typeArgs, this.isCurrentTokenImmediatelyAfterPrevious());
         }
         // Name<T>(args) — generic positional construction or function call
         // Fall through to identifier with typeArgs stored — handled by caller
@@ -2941,7 +2988,7 @@ export class Parser {
 
       // Constructor with named fields: Name { ... }
       if (this.check(TokenType.LeftBrace) && !this.inCaseSubject && this.looksLikeConstructor()) {
-        return this.parseNamedConstruction(name, startLoc);
+        return this.parseNamedConstruction(name, startLoc, [], this.isCurrentTokenImmediatelyAfterPrevious());
       }
 
       return {
@@ -3042,7 +3089,12 @@ export class Parser {
     return typeArgs;
   }
 
-  private parseNamedConstruction(typeName: string, startLoc: SourceLocation, typeArgs: TypeAnnotation[] = []): Expression {
+  private parseNamedConstruction(
+    typeName: string,
+    startLoc: SourceLocation,
+    typeArgs: TypeAnnotation[] = [],
+    tightBraces: boolean = false,
+  ): Expression {
     this.expect(TokenType.LeftBrace);
 
     const properties: ObjectProperty[] = [];
@@ -3089,6 +3141,7 @@ export class Parser {
       typeArgs,
       args: properties,
       named: true,
+      tightBraces,
       span: this.span(startLoc),
     };
   }

@@ -329,6 +329,25 @@ function factorial(n: int): int {
 function add(a: int, b: int) => a + b
 ```
 
+### Calling Functions
+
+```doof
+function clamp(value: int, min: int, max: int): int {
+    if value < min { return min }
+    if value > max { return max }
+    return value
+}
+
+clamp(score, 0, 100)
+clamp{ value: score, min: 0, max: 100 }
+clamp{ min: 0, max: 100, value: score }
+
+value := score
+clamp{ value, min: 0, max: 100 }   // shorthand for value: value
+```
+
+Named calls are matched by parameter name rather than source order. Any omitted parameter must have a default value in the declaration. The `{` must immediately follow the callee with no whitespace. The same syntax works for top-level functions, imported functions, and methods.
+
 ### Lambdas
 
 ```doof

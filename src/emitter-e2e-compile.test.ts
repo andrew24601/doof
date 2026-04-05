@@ -763,6 +763,42 @@ describe("e2e — default parameters", () => {
     }
   });
 
+  it("runs named arguments out of order", () => {
+    const result = ctx.compileAndRun(`
+      function clamp(value: int, min: int, max: int): int {
+        if value < min { return min }
+        if value > max { return max }
+        return value
+      }
+      function main(): int {
+        return clamp{ min: 0, max: 100, value: 150 }
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(100);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("fills omitted defaults in named calls by parameter name", () => {
+    const result = ctx.compileAndRun(`
+      function wrap(value: string, suffix: string = "!"): string {
+        return value + suffix
+      }
+      function main(): int {
+        println(wrap{ value: "ok" })
+        return 0
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe("ok!");
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
   it("runs Set default parameter from empty array syntax", () => {
     const result = ctx.compileAndRun(`
       function sizeOf(values: Set<int> = []): int {

@@ -350,6 +350,7 @@ export interface ConstructExpression extends Typed {
   typeArgs: TypeAnnotation[];
   args: ObjectProperty[] | Expression[];
   named: boolean;
+  tightBraces?: boolean;
   span: SourceSpan;
 }
 

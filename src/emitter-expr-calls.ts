@@ -7,10 +7,11 @@ import type {
   CallExpression,
   ConstructExpression,
   Expression,
+  ObjectProperty,
   MemberExpression,
   QualifiedMemberExpression,
 } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
 import { emitType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -82,8 +83,110 @@ function isUnshadowedResultCtorCall(
     && (!expr.callee.resolvedBinding || expr.callee.resolvedBinding.kind === "builtin");
 }
 
+function buildOrderedNamedCallValues(
+  params: FunctionResolvedParam[],
+  args: Array<{ name: string; value: Expression | null }>,
+  ctx: EmitContext,
+): string[] {
+  const argMap = new Map(args.map((arg) => [arg.name, arg]));
+  return params.flatMap((param) => {
+    const arg = argMap.get(param.name);
+    if (arg) {
+      return [arg.value ? emitExpression(arg.value, ctx, param.type) : emitIdentifierSafe(arg.name)];
+    }
+    if (param.defaultValue) {
+      return [emitExpression(param.defaultValue, ctx, param.type)];
+    }
+    return [];
+  });
+}
+
+function buildPositionalCallValues(
+  params: FunctionResolvedParam[] | undefined,
+  args: Array<{ value: Expression }>,
+  ctx: EmitContext,
+): string[] {
+  return args.map((arg, index) => {
+    const targetType = params && index < params.length ? params[index].type : undefined;
+    return emitExpression(arg.value, ctx, targetType);
+  });
+}
+
+function emitIdentifierCallByName(name: string, args: string[], ctx: EmitContext): string {
+  const joinedArgs = args.join(", ");
+
+  if (name === "string") {
+    const arg = args.length === 1 ? args[0] : "";
+    return `doof::to_string(${arg})`;
+  }
+
+  const NUMERIC_CAST_MAP: Record<string, string> = {
+    int: "int32_t",
+    long: "int64_t",
+    float: "float",
+    double: "double",
+  };
+  if (name in NUMERIC_CAST_MAP) {
+    const cppType = NUMERIC_CAST_MAP[name];
+    const arg = args.length === 1 ? args[0] : "";
+    return `static_cast<${cppType}>(${arg})`;
+  }
+
+  if (name === "assert") {
+    return `doof::assert_(${joinedArgs})`;
+  }
+  if (DOOF_RUNTIME_BUILTINS.has(name)) {
+    return `doof::${name}(${joinedArgs})`;
+  }
+
+  const externCppName = resolveExternFunctionCppName(name, ctx);
+  if (externCppName) {
+    return `${externCppName}(${joinedArgs})`;
+  }
+
+  return `${emitIdentifierSafe(name)}(${joinedArgs})`;
+}
+
 export function emitCallExpression(expr: CallExpression, ctx: EmitContext): string {
   const calleeType = expr.callee.resolvedType;
+  const hasNamedArgs = expr.args.some((arg) => arg.name);
+
+  if (hasNamedArgs && calleeType?.kind === "function") {
+    const args = buildOrderedNamedCallValues(
+      calleeType.params,
+      expr.args.map((arg) => ({ name: arg.name!, value: arg.value })),
+      ctx,
+    );
+
+    if (expr.callee.kind === "identifier") {
+      return emitIdentifierCallByName(expr.callee.name, args, ctx);
+    }
+
+    const callee = emitExpression(expr.callee, ctx);
+    return `${callee}(${args.join(", ")})`;
+  }
+
+  if (hasNamedArgs && calleeType?.kind === "class") {
+    const props: ObjectProperty[] = expr.args.map((arg) => ({
+      kind: "object-property",
+      name: arg.name!,
+      value: arg.value,
+      span: arg.span,
+    }));
+    const propMap = new Map(props.map((prop) => [prop.name, prop]));
+    const cppName = calleeType.symbol.extern_?.cppName ?? calleeType.symbol.name;
+    const args = buildConstructorFieldInfoList(calleeType.symbol).map((field) => {
+      const prop = propMap.get(field.name);
+      if (prop) {
+        return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
+      }
+      if (field.defaultValue) {
+        return emitExpression(field.defaultValue, ctx, field.type);
+      }
+      throw new Error(`Missing constructor field "${field.name}" during call emission`);
+    }).join(", ");
+    return `std::make_shared<${cppName}>(${args})`;
+  }
 
   if (expr.callee.kind === "identifier"
       && expr.callee.name === "string"
@@ -109,10 +212,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Build argument list, passing parameter target types for null coercion.
   const paramTypes = calleeType?.kind === "function" ? calleeType.params : undefined;
-  const args = expr.args.map((a, i) => {
-    const targetType = paramTypes && i < paramTypes.length ? paramTypes[i].type : undefined;
-    return emitExpression(a.value, ctx, targetType);
-  }).join(", ");
+  const args = buildPositionalCallValues(paramTypes, expr.args, ctx).join(", ");
 
   // Positional Success(value) → doof::Result<T, E>::success(val)
   if (expr.callee.kind === "identifier" && expr.callee.name === "Success" && isUnshadowedResultCtorCall(expr, "Success")) {
@@ -350,6 +450,7 @@ function emitActorSyncCall(
 
 export function emitConstructExpression(expr: ConstructExpression, ctx: EmitContext): string {
   const sym = resolveClassSymbol(expr, ctx);
+  const functionParams = resolveFunctionParams(expr, ctx);
 
   // Success { value: expr } → doof::Result<T, E>::success(val)
   if (!sym && expr.type === "Success" && expr.named) {
@@ -398,6 +499,11 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
       return `${emitType(fnRet)}::failure(${err})`;
     }
     throw new Error("Failure { ... } is missing Result type context during emission");
+  }
+
+  if (!sym && expr.named && expr.tightBraces && functionParams) {
+    const args = buildOrderedNamedCallValues(functionParams, expr.args as ObjectProperty[], ctx);
+    return emitIdentifierCallByName(expr.type, args, ctx);
   }
 
   // Resolve the C++ class name and class symbol
@@ -459,6 +565,41 @@ export function resolveClassSymbol(
   }
   const sym = ctx.module.symbols.get(expr.type);
   if (sym?.symbolKind === "class") return sym;
+  const imported = ctx.module.imports.find((imp) => imp.localName === expr.type)?.symbol;
+  if (imported?.symbolKind === "class") return imported;
   return undefined;
+}
+
+function resolveFunctionParams(
+  expr: ConstructExpression,
+  ctx: EmitContext,
+): FunctionResolvedParam[] | null {
+  const local = ctx.module.symbols.get(expr.type);
+  if (local?.symbolKind === "function" && local.declaration.resolvedType?.kind === "function") {
+    return local.declaration.resolvedType.params;
+  }
+
+  const imported = ctx.module.imports.find((imp) => imp.localName === expr.type)?.symbol;
+  if (imported?.symbolKind === "function" && imported.declaration.resolvedType?.kind === "function") {
+    return imported.declaration.resolvedType.params;
+  }
+
+  if (expr.type === "string") {
+    return [{ name: "value", type: { kind: "unknown" } }];
+  }
+  if (["int", "long", "float", "double"].includes(expr.type)) {
+    return [{ name: "value", type: { kind: "unknown" } }];
+  }
+  if (expr.type === "assert") {
+    return [
+      { name: "condition", type: { kind: "primitive", name: "bool" } },
+      { name: "message", type: { kind: "primitive", name: "string" } },
+    ];
+  }
+  if (DOOF_RUNTIME_BUILTINS.has(expr.type)) {
+    return [{ name: "value", type: { kind: "unknown" } }];
+  }
+
+  return null;
 }
 

@@ -43,6 +43,42 @@ function mixed(flag: bool): int | string {
 }
 ```
 
+### Calling Functions
+
+Function calls support both positional `()` and named `{}` argument forms.
+
+```javascript
+function clamp(value: int, min: int, max: int): int {
+    if value < min { return min }
+    if value > max { return max }
+    return value
+}
+
+clamp(score, 0, 100)                    // positional
+clamp{ value: score, min: 0, max: 100 } // named, order-independent
+clamp{ min: 0, max: 100, value: score } // same call, different source order
+```
+
+Named calls are resolved by parameter name, so they work well when several parameters share the same type. They also support the same shorthand as named construction when a binding already has the target parameter name:
+
+```javascript
+value := score
+clamp{ value, min: 0, max: 100 }      // shorthand for value: value
+```
+
+Omitting a named parameter is only valid when that parameter has a default value:
+
+```javascript
+function greet(name: string, punctuation: string = "!"): string => name + punctuation
+
+greet{ name: "Ada" }                 // ok
+greet{ punctuation: "?" }            // error: missing required parameter "name"
+```
+
+The `{` must immediately follow the callee token with no whitespace: `clamp{ ... }`, not `clamp { ... }`.
+
+The same named-call form applies to methods and imported functions.
+
 ### Modifiers
 
 Top-level and class-level function declarations accept modifiers that control visibility and concurrency behaviour.

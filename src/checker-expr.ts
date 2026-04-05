@@ -1,5 +1,6 @@
 import type {
   Block,
+  CallArgument,
   ConstructExpression,
   Expression,
   ObjectLiteral,
@@ -88,6 +89,168 @@ function isUnshadowedResultCtorConstruct(
     return false;
   }
   return table.symbols.get(expr.type)?.symbolKind !== "class";
+}
+
+interface ResolvedCallArgumentInfo {
+  span: SourceSpan;
+  type: ResolvedType;
+}
+
+interface NamedCallInput {
+  name: string;
+  span: SourceSpan;
+  inferType: (expectedType?: ResolvedType) => ResolvedType;
+}
+
+function validatePositionalFunctionArgs(
+  params: FunctionResolvedParam[],
+  argTypes: ResolvedType[],
+  argSpans: SourceSpan[],
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  callSpan: SourceSpan,
+): void {
+  const requiredCount = params.filter((param) => !param.hasDefault).length;
+  const totalCount = params.length;
+
+  if (argTypes.length < requiredCount || argTypes.length > totalCount) {
+    const range = requiredCount === totalCount ? `${totalCount}` : `${requiredCount}-${totalCount}`;
+    info.diagnostics.push({
+      severity: "error",
+      message: `Expected ${range} argument(s) but got ${argTypes.length}`,
+      span: callSpan,
+      module: table.path,
+    });
+  }
+
+  for (let i = 0; i < Math.min(argTypes.length, params.length); i++) {
+    if (!isAssignableTo(argTypes[i], params[i].type)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Argument of type "${typeToString(argTypes[i])}" is not assignable to parameter "${params[i].name}" of type "${typeToString(params[i].type)}"`,
+        span: argSpans[i] ?? callSpan,
+        module: table.path,
+      });
+    }
+  }
+}
+
+function resolveNamedFunctionArgs(
+  params: FunctionResolvedParam[],
+  args: NamedCallInput[],
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  callSpan: SourceSpan,
+): Array<ResolvedCallArgumentInfo | null> {
+  const ordered: Array<ResolvedCallArgumentInfo | null> = Array.from({ length: params.length }, () => null);
+  const paramIndexByName = new Map(params.map((param, index) => [param.name, index]));
+  const provided = new Set<string>();
+
+  for (const arg of args) {
+    const paramIndex = paramIndexByName.get(arg.name);
+    const expectedType = paramIndex !== undefined ? params[paramIndex].type : undefined;
+    const argType = arg.inferType(expectedType);
+
+    if (paramIndex === undefined) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Function call does not have a parameter named "${arg.name}"`,
+        span: arg.span,
+        module: table.path,
+      });
+      continue;
+    }
+
+    if (provided.has(arg.name)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Parameter "${arg.name}" is specified more than once`,
+        span: arg.span,
+        module: table.path,
+      });
+      continue;
+    }
+
+    provided.add(arg.name);
+    ordered[paramIndex] = { span: arg.span, type: argType };
+  }
+
+  for (let i = 0; i < params.length; i++) {
+    if (!ordered[i] && !params[i].hasDefault) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Missing required parameter "${params[i].name}"`,
+        span: callSpan,
+        module: table.path,
+      });
+    }
+  }
+
+  return ordered;
+}
+
+function validateResolvedNamedFunctionArgs(
+  params: FunctionResolvedParam[],
+  orderedArgs: Array<ResolvedCallArgumentInfo | null>,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  for (let i = 0; i < Math.min(params.length, orderedArgs.length); i++) {
+    const arg = orderedArgs[i];
+    if (!arg) continue;
+    if (!isAssignableTo(arg.type, params[i].type)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Argument of type "${typeToString(arg.type)}" is not assignable to parameter "${params[i].name}" of type "${typeToString(params[i].type)}"`,
+        span: arg.span,
+        module: table.path,
+      });
+    }
+  }
+}
+
+function buildNamedCallInputsFromCallArgs(
+  args: CallArgument[],
+  host: CheckerHost,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): NamedCallInput[] {
+  return args.map((arg, index) => ({
+    name: arg.name ?? `_${index}`,
+    span: arg.span,
+    inferType: (expectedType?: ResolvedType) => inferExprType(host, arg.value, scope, table, info, expectedType),
+  }));
+}
+
+function buildNamedCallInputsFromProperties(
+  props: ObjectProperty[],
+  host: CheckerHost,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): NamedCallInput[] {
+  return props.map((prop) => ({
+    name: prop.name,
+    span: prop.span,
+    inferType: (expectedType?: ResolvedType) => {
+      if (prop.value) {
+        return inferExprType(host, prop.value, scope, table, info, expectedType);
+      }
+      const binding = host.lookupBinding(prop.name, scope);
+      if (binding) {
+        (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+        return binding.type;
+      }
+      info.diagnostics.push({
+        severity: "error",
+        message: `Undefined identifier "${prop.name}"`,
+        span: prop.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    },
+  }));
 }
 
 function reportNamespaceLikeValueUse(
@@ -539,6 +702,31 @@ function inferExprTypeInner(
 
       if (calleeType.kind === "function") {
         let effectiveCalleeType = calleeType;
+        const hasNamedArgs = expr.args.some((arg) => arg.name);
+
+        if (hasNamedArgs) {
+          const orderedArgs = resolveNamedFunctionArgs(
+            calleeType.params,
+            buildNamedCallInputsFromCallArgs(expr.args, host, scope, table, info),
+            table,
+            info,
+            expr.span,
+          );
+          if (calleeType.typeParams && calleeType.typeParams.length > 0) {
+            const providedParams: FunctionResolvedParam[] = [];
+            const providedArgTypes: ResolvedType[] = [];
+            for (let i = 0; i < orderedArgs.length; i++) {
+              if (!orderedArgs[i]) continue;
+              providedParams.push(calleeType.params[i]);
+              providedArgTypes.push(orderedArgs[i]!.type);
+            }
+            const paramMap = host.inferTypeArgs(calleeType.typeParams, providedParams, providedArgTypes);
+            effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
+          }
+          validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
+          return effectiveCalleeType.returnType;
+        }
+
         if (calleeType.typeParams && calleeType.typeParams.length > 0) {
           const argTypes: ResolvedType[] = [];
           for (let i = 0; i < expr.args.length; i++) {
@@ -546,24 +734,14 @@ function inferExprTypeInner(
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
           effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
-          for (let i = 0; i < Math.min(argTypes.length, effectiveCalleeType.params.length); i++) {
-            if (!isAssignableTo(argTypes[i], effectiveCalleeType.params[i].type)) {
-              info.diagnostics.push({
-                severity: "error",
-                message: `Argument of type "${typeToString(argTypes[i])}" is not assignable to parameter "${effectiveCalleeType.params[i].name}" of type "${typeToString(effectiveCalleeType.params[i].type)}"`,
-                span: expr.args[i].span,
-                module: table.path,
-              });
-            }
-          }
-          if (argTypes.length > effectiveCalleeType.params.length) {
-            info.diagnostics.push({
-              severity: "error",
-              message: `Expected ${effectiveCalleeType.params.length} argument(s) but got ${argTypes.length}`,
-              span: expr.span,
-              module: table.path,
-            });
-          }
+          validatePositionalFunctionArgs(
+            effectiveCalleeType.params,
+            argTypes,
+            expr.args.map((arg) => arg.span),
+            table,
+            info,
+            expr.span,
+          );
           return effectiveCalleeType.returnType;
         }
 
@@ -572,35 +750,41 @@ function inferExprTypeInner(
           const paramType = i < calleeType.params.length ? calleeType.params[i].type : undefined;
           argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
         }
-        if (argTypes.length > calleeType.params.length) {
-          info.diagnostics.push({
-            severity: "error",
-            message: `Expected ${calleeType.params.length} argument(s) but got ${argTypes.length}`,
-            span: expr.span,
-            module: table.path,
-          });
-        }
-        for (let i = 0; i < Math.min(argTypes.length, calleeType.params.length); i++) {
-          if (!isAssignableTo(argTypes[i], calleeType.params[i].type)) {
-            info.diagnostics.push({
-              severity: "error",
-              message: `Argument of type "${typeToString(argTypes[i])}" is not assignable to parameter "${calleeType.params[i].name}" of type "${typeToString(calleeType.params[i].type)}"`,
-              span: expr.args[i].span,
-              module: table.path,
-            });
-          }
-        }
+        validatePositionalFunctionArgs(
+          calleeType.params,
+          argTypes,
+          expr.args.map((arg) => arg.span),
+          table,
+          info,
+          expr.span,
+        );
         return calleeType.returnType;
       }
 
       if (calleeType.kind === "class") {
-        const params = getConstructorParams(host, calleeType.symbol, table, true);
-        const argTypes: ResolvedType[] = [];
-        for (let i = 0; i < expr.args.length; i++) {
-          const paramType = i < params.length ? params[i].type : undefined;
-          argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+        if (expr.args.some((arg) => arg.name)) {
+          const props: ObjectProperty[] = expr.args.map((arg) => ({
+            kind: "object-property",
+            name: arg.name!,
+            value: arg.value,
+            span: arg.span,
+          }));
+          const params = getConstructorParams(host, calleeType.symbol, table, true);
+          const paramMap = new Map(params.map((param) => [param.name, param]));
+          for (const prop of props) {
+            const fieldParam = paramMap.get(prop.name);
+            inferExprType(host, prop.value!, scope, table, info, fieldParam?.type);
+          }
+          validateNamedConstructorArgs(host, calleeType.symbol, props, true, table, info, expr.span);
+        } else {
+          const params = getConstructorParams(host, calleeType.symbol, table, true);
+          const argTypes: ResolvedType[] = [];
+          for (let i = 0; i < expr.args.length; i++) {
+            const paramType = i < params.length ? params[i].type : undefined;
+            argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+          }
+          validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span);
         }
-        validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span);
         return calleeType;
       }
 
@@ -671,7 +855,11 @@ function inferExprTypeInner(
         return { kind: "result", successType: resultContext.successType, errorType };
       }
 
-      const sym = table.symbols.get(expr.type);
+      const targetBinding = host.lookupBinding(expr.type, scope);
+      const resolvedClassSymbol = targetBinding?.type.kind === "class"
+        ? targetBinding.type.symbol
+        : null;
+      const sym = targetBinding ? resolvedClassSymbol : table.symbols.get(expr.type);
       if (sym?.symbolKind === "class") {
         const resolvedTypeArgs = host.resolveGenericTypeArgs(sym.declaration.typeParams, expr.typeArgs, table);
         let paramSubMap: Map<string, ResolvedType> | undefined;
@@ -747,6 +935,61 @@ function inferExprTypeInner(
         return resolvedTypeArgs
           ? { kind: "class", symbol: sym, typeArgs: resolvedTypeArgs }
           : { kind: "class", symbol: sym };
+      }
+
+      if (expr.named
+          && targetBinding?.type.kind === "function"
+          && (targetBinding.kind === "function"
+        || targetBinding.kind === "import"
+        || targetBinding.kind === "builtin")) {
+        if (!expr.tightBraces) {
+          for (const arg of expr.args as ObjectProperty[]) {
+            if (arg.value) {
+              inferExprType(host, arg.value, scope, table, info);
+            } else {
+              const binding = host.lookupBinding(arg.name, scope);
+              if (binding) {
+                (arg as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+              } else {
+                info.diagnostics.push({
+                  severity: "error",
+                  message: `Undefined identifier "${arg.name}"`,
+                  span: arg.span,
+                  module: table.path,
+                });
+              }
+            }
+          }
+          info.diagnostics.push({
+            severity: "error",
+            message: `Named call syntax requires '{' to immediately follow "${expr.type}" with no whitespace`,
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+
+        let effectiveCalleeType = targetBinding.type;
+        const orderedArgs = resolveNamedFunctionArgs(
+          targetBinding.type.params,
+          buildNamedCallInputsFromProperties(expr.args as ObjectProperty[], host, scope, table, info),
+          table,
+          info,
+          expr.span,
+        );
+        if (targetBinding.type.typeParams && targetBinding.type.typeParams.length > 0) {
+          const providedParams: FunctionResolvedParam[] = [];
+          const providedArgTypes: ResolvedType[] = [];
+          for (let i = 0; i < orderedArgs.length; i++) {
+            if (!orderedArgs[i]) continue;
+            providedParams.push(targetBinding.type.params[i]);
+            providedArgTypes.push(orderedArgs[i]!.type);
+          }
+          const paramMap = host.inferTypeArgs(targetBinding.type.typeParams, providedParams, providedArgTypes);
+          effectiveCalleeType = substituteTypeParams(targetBinding.type, paramMap) as typeof targetBinding.type;
+        }
+        validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
+        return effectiveCalleeType.returnType;
       }
 
       if (expr.named) {
@@ -1001,6 +1244,8 @@ function inferExprTypeInner(
         type: p.type
           ? host.resolveTypeAnnotation(p.type, table)
           : p.resolvedType ?? UNKNOWN_TYPE,
+        hasDefault: p.defaultValue !== null,
+        defaultValue: p.defaultValue,
       }));
 
       const declaredReturn = expr.returnType

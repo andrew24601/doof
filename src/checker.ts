@@ -767,6 +767,8 @@ export class TypeChecker {
         const params: FunctionResolvedParam[] = sym.declaration.params.map((p) => ({
           name: p.name,
           type: p.type ? this.resolveTypeAnnotation(p.type, table) : UNKNOWN_TYPE,
+          hasDefault: p.defaultValue !== null,
+          defaultValue: p.defaultValue,
         }));
         const returnType = sym.declaration.returnType
           ? this.resolveTypeAnnotation(sym.declaration.returnType, table)
