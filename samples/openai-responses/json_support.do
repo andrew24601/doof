@@ -1,0 +1,1 @@
+export function parseJsonText(text: string): Result<JSONValue, string> => JSON.parse(text)

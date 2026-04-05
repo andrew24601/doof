@@ -1,0 +1,70 @@
+{
+  "name": "doof-language",
+  "displayName": "Doof Language",
+  "description": "Language support for the Doof programming language",
+  "version": "0.1.0",
+  "publisher": "doof-lang",
+  "engines": {
+    "vscode": "^1.85.0"
+    },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrew24601/doof.git"
+  },
+
+  "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:doof"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "doof",
+        "aliases": ["Doof", "doof"],
+        "extensions": [".do"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "doof",
+        "scopeName": "source.doof",
+        "path": "./syntaxes/doof.tmLanguage.json"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "doof",
+        "scopes": {
+          "type": ["entity.name.type.doof"],
+          "class": ["entity.name.type.class.doof"],
+          "interface": ["entity.name.type.interface.doof"],
+          "enum": ["entity.name.type.enum.doof"],
+          "typeParameter": ["entity.name.type.parameter.doof"],
+          "parameter": ["variable.parameter.doof"],
+          "variable": ["variable.other.doof"],
+          "property": ["variable.other.property.doof"],
+          "function": ["entity.name.function.doof"],
+          "method": ["entity.name.function.method.doof"],
+          "keyword": ["keyword.control.doof"],
+          "number": ["constant.numeric.doof"],
+          "string": ["string.quoted.double.doof"],
+          "comment": ["comment.doof"],
+          "operator": ["keyword.operator.doof"]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "package": "vsce package --skip-license"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.1",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.9.3"
+  }
+}

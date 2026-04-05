@@ -1,0 +1,310 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Doof",
+  "scopeName": "source.doof",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#template-literals" },
+    { "include": "#char-literals" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#storage" },
+    { "include": "#type-keywords" },
+    { "include": "#builtin-types" },
+    { "include": "#constants" },
+    { "include": "#function-definition" },
+    { "include": "#class-definition" },
+    { "include": "#interface-definition" },
+    { "include": "#enum-definition" },
+    { "include": "#type-alias-definition" },
+    { "include": "#function-call" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.doof",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.doof",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.doof",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.doof",
+              "match": "\\\\(?:[\"\\\\nrt0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})"
+            }
+          ]
+        }
+      ]
+    },
+    "template-literals": {
+      "patterns": [
+        {
+          "name": "string.template.doof",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "constant.character.escape.doof",
+              "match": "\\\\(?:[`\\\\nrt0$]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})"
+            },
+            {
+              "name": "meta.template.expression.doof",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.begin.doof" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.end.doof" }
+              },
+              "patterns": [
+                { "include": "source.doof" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "char-literals": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.doof",
+          "match": "'(?:\\\\(?:['\\\\/nrt0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})|[^'\\\\])'",
+          "captures": {
+            "0": { "name": "constant.character.doof" }
+          }
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.doof",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*[Ll]?\\b"
+        },
+        {
+          "name": "constant.numeric.binary.doof",
+          "match": "\\b0[bB][01][01_]*[Ll]?\\b"
+        },
+        {
+          "name": "constant.numeric.octal.doof",
+          "match": "\\b0[oO][0-7][0-7_]*[Ll]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.doof",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*(?:[eE][+-]?[0-9]+)?[fFdD]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.doof",
+          "match": "\\b[0-9][0-9_]*[eE][+-]?[0-9]+[fFdD]?\\b"
+        },
+        {
+          "name": "constant.numeric.float.doof",
+          "match": "\\b[0-9][0-9_]*[fFdD]\\b"
+        },
+        {
+          "name": "constant.numeric.integer.doof",
+          "match": "\\b[0-9][0-9_]*[Ll]?\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.doof",
+          "match": "\\b(if|else|then|while|for|of|return|break|continue|case|try|catch|panic|with)\\b"
+        },
+        {
+          "name": "keyword.control.import.doof",
+          "match": "\\b(import|export|from|as)\\b"
+        },
+        {
+          "name": "keyword.other.doof",
+          "match": "\\b(is|implements)\\b"
+        }
+      ]
+    },
+    "storage": {
+      "patterns": [
+        {
+          "name": "storage.type.doof",
+          "match": "\\b(const|readonly|let|function|class|interface|enum|type)\\b"
+        },
+        {
+          "name": "storage.modifier.doof",
+          "match": "\\b(static|private|export|isolated|async|weak)\\b"
+        }
+      ]
+    },
+    "type-keywords": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.doof",
+          "match": "\\b(int|long|float|double|string|char|bool|void)\\b"
+        }
+      ]
+    },
+    "builtin-types": {
+      "patterns": [
+        {
+          "name": "support.type.builtin.doof",
+          "match": "\\b(Array|ReadonlyArray|Map|ReadonlyMap|Set|ReadonlySet|Tuple|Result|Success|Failure|Actor|Future)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.doof",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.doof",
+          "match": "\\bnull\\b"
+        },
+        {
+          "name": "variable.language.this.doof",
+          "match": "\\bthis\\b"
+        }
+      ]
+    },
+    "function-definition": {
+      "patterns": [
+        {
+          "match": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?:<|\\()",
+          "captures": {
+            "1": { "name": "storage.type.function.doof" },
+            "2": { "name": "entity.name.function.doof" }
+          }
+        },
+        {
+          "match": "\\b(destructor)\\s*\\(",
+          "captures": {
+            "1": { "name": "storage.type.function.doof" }
+          }
+        }
+      ]
+    },
+    "class-definition": {
+      "patterns": [
+        {
+          "match": "\\b(class)\\s+([A-Z][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.class.doof" },
+            "2": { "name": "entity.name.type.class.doof" }
+          }
+        }
+      ]
+    },
+    "interface-definition": {
+      "patterns": [
+        {
+          "match": "\\b(interface)\\s+([A-Z][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.interface.doof" },
+            "2": { "name": "entity.name.type.interface.doof" }
+          }
+        }
+      ]
+    },
+    "enum-definition": {
+      "patterns": [
+        {
+          "match": "\\b(enum)\\s+([A-Z][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.enum.doof" },
+            "2": { "name": "entity.name.type.enum.doof" }
+          }
+        }
+      ]
+    },
+    "type-alias-definition": {
+      "patterns": [
+        {
+          "match": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)\\s*=",
+          "captures": {
+            "1": { "name": "storage.type.doof" },
+            "2": { "name": "entity.name.type.alias.doof" }
+          }
+        }
+      ]
+    },
+    "function-call": {
+      "patterns": [
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.doof" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.doof",
+          "match": "(:=|\\+=|-=|\\*=|/=|\\\\=|%=|\\*\\*=|&=|\\|=|\\^=|<<=|>>=|\\?\\?=|=)"
+        },
+        {
+          "name": "keyword.operator.comparison.doof",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.doof",
+          "match": "(\\*\\*|[+\\-*/%\\\\])"
+        },
+        {
+          "name": "keyword.operator.logical.doof",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.bitwise.doof",
+          "match": "(>>>|<<|>>|[&|^~])"
+        },
+        {
+          "name": "keyword.operator.nullish.doof",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.arrow.doof",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.range.doof",
+          "match": "\\.\\.<|\\.\\."
+        },
+        {
+          "name": "keyword.operator.optional-chain.doof",
+          "match": "\\?\\.|!\\."
+        },
+        {
+          "name": "keyword.operator.spread.doof",
+          "match": "\\.\\.\\."
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.doof",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

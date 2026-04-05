@@ -1,0 +1,1455 @@
+import type {
+  Block,
+  ConstructExpression,
+  Expression,
+  ObjectLiteral,
+  ObjectProperty,
+  SourceSpan,
+  TupleLiteral,
+} from "./ast.js";
+import {
+  BOOL_TYPE,
+  CHAR_TYPE,
+  DOUBLE_TYPE,
+  formatUnsupportedHashCollectionConstraintMessage,
+  FLOAT_TYPE,
+  isSupportedHashCollectionElementType,
+  isSupportedMapKeyType,
+  INT_TYPE,
+  isAssignableTo,
+  JSON_VALUE_TYPE,
+  LONG_TYPE,
+  NULL_TYPE,
+  recordAnyTypeUsage,
+  type Binding,
+  type FunctionResolvedParam,
+  type ModuleTypeInfo,
+  STRING_TYPE,
+  substituteTypeParams,
+  type ResolvedType,
+  type Scope,
+  typeToString,
+  typesEqual,
+  UNKNOWN_TYPE,
+  VOID_TYPE,
+} from "./checker-types.js";
+import {
+  NUMERIC_PRIMITIVE_NAMES,
+  STRING_CONVERTIBLE_PRIMITIVE_NAMES,
+  type CheckerHost,
+  type ConstructorParam,
+} from "./checker-internal.js";
+import { inferBinaryType, inferUnaryType, resolveExpectedEnumType } from "./checker-expr-ops.js";
+import { inferMemberType } from "./checker-member.js";
+import { buildCaseArmScope } from "./checker-result.js";
+import type { ClassSymbol, ModuleSymbolTable } from "./types.js";
+
+function resolveExpectedResultContext(
+  host: CheckerHost,
+  scope: Scope,
+  expectedType?: ResolvedType,
+): Extract<ResolvedType, { kind: "result" }> | null {
+  if (expectedType?.kind === "result") return expectedType;
+  const fnReturn = host.findReturnType(scope);
+  return fnReturn?.kind === "result" ? fnReturn : null;
+}
+
+function reportMissingResultContext(
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+  ctorName: "Success" | "Failure",
+): void {
+  info.diagnostics.push({
+    severity: "error",
+    message: `${ctorName} requires contextual Result type; add an explicit Result<T, E> annotation`,
+    span,
+    module: table.path,
+  });
+}
+
+function isVoidResultType(resultType: Extract<ResolvedType, { kind: "result" }>): boolean {
+  return resultType.successType.kind === "void";
+}
+
+function isUnshadowedResultCtorCall(
+  calleeName: string,
+  calleeBinding: Binding | null,
+): calleeName is "Success" | "Failure" {
+  return (calleeName === "Success" || calleeName === "Failure")
+    && (!calleeBinding || calleeBinding.kind === "builtin");
+}
+
+function isUnshadowedResultCtorConstruct(
+  expr: ConstructExpression,
+  table: ModuleSymbolTable,
+): expr is ConstructExpression & { type: "Success" | "Failure"; named: true } {
+  if (!expr.named || (expr.type !== "Success" && expr.type !== "Failure")) {
+    return false;
+  }
+  return table.symbols.get(expr.type)?.symbolKind !== "class";
+}
+
+function reportNamespaceLikeValueUse(
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+  name: string,
+  kind: "namespace" | "builtin-namespace",
+): void {
+  const message = kind === "namespace"
+    ? `Namespace import "${name}" cannot be used as a value; access an exported member instead`
+    : `Builtin namespace "${name}" cannot be used as a value; access a static member instead`;
+  info.diagnostics.push({
+    severity: "error",
+    message,
+    span,
+    module: table.path,
+  });
+}
+
+function combineArrayElementTypes(elemTypes: ResolvedType[]): ResolvedType {
+  const combinedTypes: ResolvedType[] = [];
+  const seen = new Set<string>();
+
+  const pushUnique = (type: ResolvedType) => {
+    if (type.kind === "union") {
+      for (const member of type.types) pushUnique(member);
+      return;
+    }
+
+    const key = typeToString(type);
+    if (!seen.has(key)) {
+      seen.add(key);
+      combinedTypes.push(type);
+    }
+  };
+
+  for (const elemType of elemTypes) pushUnique(elemType);
+
+  if (combinedTypes.length === 0) return UNKNOWN_TYPE;
+  return combinedTypes.length === 1 ? combinedTypes[0] : { kind: "union", types: combinedTypes };
+}
+
+function mergeInferredMapKeyType(
+  current: ResolvedType,
+  next: ResolvedType,
+): ResolvedType | null {
+  if (current.kind === "unknown") return next;
+  if (isAssignableTo(next, current)) return current;
+  if (isSupportedHashCollectionElementType(next) && isAssignableTo(current, next)) return next;
+  return null;
+}
+
+export function inferExprType(
+  host: CheckerHost,
+  expr: Expression,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  expectedType?: ResolvedType,
+): ResolvedType {
+  const type = inferExprTypeInner(host, expr, scope, table, info, expectedType);
+  expr.resolvedType = type;
+  recordAnyTypeUsage(info.anyUsage, type);
+  return type;
+}
+
+function inferExprTypeInner(
+  host: CheckerHost,
+  expr: Expression,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  expectedType?: ResolvedType,
+): ResolvedType {
+  switch (expr.kind) {
+    case "int-literal":
+      if (expectedType?.kind === "primitive" &&
+          (expectedType.name === "long" || expectedType.name === "float" || expectedType.name === "double")) {
+        return expectedType;
+      }
+      return INT_TYPE;
+    case "long-literal":
+      if (expectedType?.kind === "primitive" && expectedType.name === "double") {
+        return expectedType;
+      }
+      return LONG_TYPE;
+    case "float-literal":
+      if (expectedType?.kind === "primitive" && expectedType.name === "double") {
+        return expectedType;
+      }
+      return FLOAT_TYPE;
+    case "double-literal":
+      if (expectedType?.kind === "primitive" && expectedType.name === "float") {
+        return expectedType;
+      }
+      return DOUBLE_TYPE;
+    case "char-literal":
+      return CHAR_TYPE;
+    case "bool-literal":
+      return BOOL_TYPE;
+    case "null-literal":
+      return NULL_TYPE;
+
+    case "string-literal": {
+      for (const part of expr.parts) {
+        if (typeof part !== "string") {
+          inferExprType(host, part, scope, table, info);
+        }
+      }
+      return STRING_TYPE;
+    }
+
+    case "identifier": {
+      const binding = host.lookupBinding(expr.name, scope);
+      if (binding) {
+        expr.resolvedBinding = binding;
+        if (binding.type.kind === "namespace" || binding.type.kind === "builtin-namespace") {
+          reportNamespaceLikeValueUse(info, table, expr.span, expr.name, binding.type.kind);
+          return UNKNOWN_TYPE;
+        }
+        return binding.type;
+      }
+      info.diagnostics.push({
+        severity: "error",
+        message: `Undefined identifier "${expr.name}"`,
+        span: expr.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    }
+
+    case "this-expression": {
+      const thisType = host.findThisType(scope);
+      if (thisType) return thisType;
+      info.diagnostics.push({
+        severity: "error",
+        message: "\"this\" is not available in this context",
+        span: expr.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    }
+
+    case "binary-expression": {
+      let left: ResolvedType;
+      let right: ResolvedType;
+
+      if (expr.left.kind === "dot-shorthand") {
+        right = inferExprType(host, expr.right, scope, table, info);
+        left = inferExprType(host, expr.left, scope, table, info, resolveExpectedEnumType(right));
+      } else if (expr.right.kind === "dot-shorthand") {
+        left = inferExprType(host, expr.left, scope, table, info);
+        right = inferExprType(host, expr.right, scope, table, info, resolveExpectedEnumType(left));
+      } else {
+        left = inferExprType(host, expr.left, scope, table, info);
+        right = inferExprType(host, expr.right, scope, table, info);
+      }
+
+      return inferBinaryType(expr.operator, left, right, info, table, expr.span);
+    }
+
+    case "unary-expression": {
+      const operand = inferExprType(host, expr.operand, scope, table, info);
+      return inferUnaryType(expr.operator, operand, info, table, expr.span);
+    }
+
+    case "assignment-expression": {
+      const targetType = inferExprType(host, expr.target, scope, table, info);
+      const valueType = inferExprType(host, expr.value, scope, table, info, targetType);
+
+      if (expr.target.kind === "identifier") {
+        const binding = host.lookupBinding(expr.target.name, scope);
+        if (binding && !binding.mutable) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Cannot assign to "${expr.target.name}" because it is ${binding.kind === "const" ? "a constant" : binding.kind === "readonly" ? "readonly" : "an immutable binding"}`,
+            span: expr.span,
+            module: table.path,
+          });
+        }
+      } else if (expr.target.kind === "member-expression") {
+        if (expr.target.object.kind === "identifier") {
+          const objBinding = host.lookupBinding(expr.target.object.name, scope);
+          if (objBinding && objBinding.type.kind === "class") {
+            const classDecl = objBinding.type.symbol.declaration;
+            for (const field of classDecl.fields) {
+              if (field.names.includes(expr.target.property)) {
+                if (field.readonly_ || field.const_) {
+                  info.diagnostics.push({
+                    severity: "error",
+                    message: `Cannot assign to "${expr.target.property}" because it is ${field.const_ ? "a const field" : "a readonly field"}`,
+                    span: expr.span,
+                    module: table.path,
+                  });
+                }
+                break;
+              }
+            }
+          }
+        }
+      } else if (expr.target.kind === "qualified-member-expression") {
+        if (expr.target.object.kind === "identifier") {
+          const objBinding = host.lookupBinding(expr.target.object.name, scope);
+          if (objBinding && objBinding.type.kind === "class") {
+            const classDecl = objBinding.type.symbol.declaration;
+            for (const field of classDecl.fields) {
+              if (field.names.includes(expr.target.property)) {
+                if (field.readonly_ || field.const_) {
+                  info.diagnostics.push({
+                    severity: "error",
+                    message: `Cannot assign to "${expr.target.property}" because it is ${field.const_ ? "a const field" : "a readonly field"}`,
+                    span: expr.span,
+                    module: table.path,
+                  });
+                }
+                break;
+              }
+            }
+          }
+        }
+      } else if (expr.target.kind === "index-expression") {
+        const collectionType = inferExprType(host, expr.target.object, scope, table, info);
+        if (collectionType.kind === "array" && collectionType.readonly_) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "Cannot assign to an element of a readonly array",
+            span: expr.span,
+            module: table.path,
+          });
+        }
+        if (collectionType.kind === "map" && collectionType.readonly_) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "Cannot assign to an entry of a readonly map",
+            span: expr.span,
+            module: table.path,
+          });
+        }
+      }
+
+      if (expr.operator === "=" && !isAssignableTo(valueType, targetType)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Type "${typeToString(valueType)}" is not assignable to type "${typeToString(targetType)}"`,
+          span: expr.span,
+          module: table.path,
+        });
+      }
+
+      return valueType;
+    }
+
+    case "member-expression": {
+      let objectType: ResolvedType;
+      let binding: Binding | null = null;
+      if (expr.object.kind === "identifier") {
+        binding = host.lookupBinding(expr.object.name, scope);
+        if (binding) {
+          expr.object.resolvedBinding = binding;
+          expr.object.resolvedType = binding.type;
+          recordAnyTypeUsage(info.anyUsage, binding.type);
+          objectType = binding.type;
+        } else {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Undefined identifier "${expr.object.name}"`,
+            span: expr.object.span,
+            module: table.path,
+          });
+          objectType = UNKNOWN_TYPE;
+        }
+      } else {
+        objectType = inferExprType(host, expr.object, scope, table, info);
+      }
+      if ((expr.force || expr.optional) && objectType.kind === "union") {
+        const nonNull = objectType.types.filter((t: ResolvedType) => t.kind !== "null");
+        if (nonNull.length === 1) {
+          objectType = nonNull[0];
+        }
+      }
+
+      const lookupMode = binding && (
+        (binding.kind === "class" || binding.kind === "import") && objectType.kind === "class"
+        || binding.kind === "interface" && objectType.kind === "interface"
+      )
+        ? "named-static"
+        : "instance";
+      return inferMemberType(host, objectType, expr.property, table, lookupMode, info, expr.span);
+    }
+
+    case "qualified-member-expression": {
+      let objectType: ResolvedType;
+      if (expr.object.kind === "identifier") {
+        const binding = host.lookupBinding(expr.object.name, scope);
+        if (binding) {
+          expr.object.resolvedBinding = binding;
+          expr.object.resolvedType = binding.type;
+          recordAnyTypeUsage(info.anyUsage, binding.type);
+          objectType = binding.type;
+        } else {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Undefined identifier "${expr.object.name}"`,
+            span: expr.object.span,
+            module: table.path,
+          });
+          objectType = UNKNOWN_TYPE;
+        }
+      } else {
+        objectType = inferExprType(host, expr.object, scope, table, info);
+      }
+      return inferMemberType(host, objectType, expr.property, table, "qualified-static", info, expr.span);
+    }
+
+    case "index-expression": {
+      const objectType = inferExprType(host, expr.object, scope, table, info);
+      inferExprType(host, expr.index, scope, table, info);
+      if (objectType.kind === "any") {
+        info.diagnostics.push({
+          severity: "error",
+          message: 'Cannot index value of type "any" before narrowing',
+          span: expr.span,
+          module: table.path,
+        });
+        return UNKNOWN_TYPE;
+      }
+      if (objectType.kind === "array") return objectType.elementType;
+      if (objectType.kind === "map") return objectType.valueType;
+      return UNKNOWN_TYPE;
+    }
+
+    case "call-expression": {
+      const calleeBinding = expr.callee.kind === "identifier"
+        ? host.lookupBinding(expr.callee.name, scope)
+        : null;
+      if (expr.callee.kind === "identifier"
+          && (!calleeBinding || calleeBinding.kind === "builtin")
+          && NUMERIC_PRIMITIVE_NAMES.has(expr.callee.name)) {
+        if (expr.args.length !== 1) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Numeric cast ${expr.callee.name}() requires exactly 1 argument`,
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        const argType = inferExprType(host, expr.args[0].value, scope, table, info);
+        if (argType.kind !== "unknown" && !(argType.kind === "primitive" && NUMERIC_PRIMITIVE_NAMES.has(argType.name))) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Cannot cast "${typeToString(argType)}" to ${expr.callee.name}; numeric casts require a numeric operand`,
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        return { kind: "primitive", name: expr.callee.name as "int" | "long" | "float" | "double" };
+      }
+
+      if (expr.callee.kind === "identifier"
+          && expr.callee.name === "string"
+          && (!calleeBinding || calleeBinding.kind === "builtin")) {
+        if (expr.args.length !== 1) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "string() requires exactly 1 argument",
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        const argType = inferExprType(host, expr.args[0].value, scope, table, info);
+        if (argType.kind !== "unknown" && !(argType.kind === "primitive" && STRING_CONVERTIBLE_PRIMITIVE_NAMES.has(argType.name))) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Cannot convert "${typeToString(argType)}" to string; string() requires a primitive operand`,
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        return STRING_TYPE;
+      }
+
+      if (expr.callee.kind === "identifier" && isUnshadowedResultCtorCall(expr.callee.name, calleeBinding)) {
+        const resultContext = resolveExpectedResultContext(host, scope, expectedType);
+        const argTypes: ResolvedType[] = [];
+        for (const arg of expr.args) {
+          argTypes.push(inferExprType(host, arg.value, scope, table, info));
+        }
+        if (expr.callee.name === "Failure" && argTypes.length !== 1) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "Failure() requires exactly 1 argument",
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        if (!resultContext) {
+          reportMissingResultContext(info, table, expr.span, expr.callee.name);
+          return UNKNOWN_TYPE;
+        }
+        if (expr.callee.name === "Success") {
+          if (isVoidResultType(resultContext)) {
+            if (argTypes.length !== 0) {
+              info.diagnostics.push({
+                severity: "error",
+                message: "Success() for Result<void, E> must not take an argument",
+                span: expr.span,
+                module: table.path,
+              });
+              return UNKNOWN_TYPE;
+            }
+            return { kind: "result", successType: VOID_TYPE, errorType: resultContext.errorType };
+          }
+          if (argTypes.length !== 1) {
+            info.diagnostics.push({
+              severity: "error",
+              message: "Success() requires exactly 1 argument",
+              span: expr.span,
+              module: table.path,
+            });
+            return UNKNOWN_TYPE;
+          }
+          const successType = argTypes[0];
+          return { kind: "result", successType, errorType: resultContext.errorType };
+        }
+        const errorType = argTypes[0];
+        return { kind: "result", successType: resultContext.successType, errorType };
+      }
+
+      const calleeType = inferExprType(host, expr.callee, scope, table, info);
+
+      if (calleeType.kind === "any") {
+        for (const arg of expr.args) {
+          inferExprType(host, arg.value, scope, table, info);
+        }
+        info.diagnostics.push({
+          severity: "error",
+          message: 'Cannot call value of type "any" before narrowing',
+          span: expr.span,
+          module: table.path,
+        });
+        return UNKNOWN_TYPE;
+      }
+
+      if (calleeType.kind === "function") {
+        let effectiveCalleeType = calleeType;
+        if (calleeType.typeParams && calleeType.typeParams.length > 0) {
+          const argTypes: ResolvedType[] = [];
+          for (let i = 0; i < expr.args.length; i++) {
+            argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info));
+          }
+          const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
+          effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
+          for (let i = 0; i < Math.min(argTypes.length, effectiveCalleeType.params.length); i++) {
+            if (!isAssignableTo(argTypes[i], effectiveCalleeType.params[i].type)) {
+              info.diagnostics.push({
+                severity: "error",
+                message: `Argument of type "${typeToString(argTypes[i])}" is not assignable to parameter "${effectiveCalleeType.params[i].name}" of type "${typeToString(effectiveCalleeType.params[i].type)}"`,
+                span: expr.args[i].span,
+                module: table.path,
+              });
+            }
+          }
+          if (argTypes.length > effectiveCalleeType.params.length) {
+            info.diagnostics.push({
+              severity: "error",
+              message: `Expected ${effectiveCalleeType.params.length} argument(s) but got ${argTypes.length}`,
+              span: expr.span,
+              module: table.path,
+            });
+          }
+          return effectiveCalleeType.returnType;
+        }
+
+        const argTypes: ResolvedType[] = [];
+        for (let i = 0; i < expr.args.length; i++) {
+          const paramType = i < calleeType.params.length ? calleeType.params[i].type : undefined;
+          argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+        }
+        if (argTypes.length > calleeType.params.length) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Expected ${calleeType.params.length} argument(s) but got ${argTypes.length}`,
+            span: expr.span,
+            module: table.path,
+          });
+        }
+        for (let i = 0; i < Math.min(argTypes.length, calleeType.params.length); i++) {
+          if (!isAssignableTo(argTypes[i], calleeType.params[i].type)) {
+            info.diagnostics.push({
+              severity: "error",
+              message: `Argument of type "${typeToString(argTypes[i])}" is not assignable to parameter "${calleeType.params[i].name}" of type "${typeToString(calleeType.params[i].type)}"`,
+              span: expr.args[i].span,
+              module: table.path,
+            });
+          }
+        }
+        return calleeType.returnType;
+      }
+
+      if (calleeType.kind === "class") {
+        const params = getConstructorParams(host, calleeType.symbol, table, true);
+        const argTypes: ResolvedType[] = [];
+        for (let i = 0; i < expr.args.length; i++) {
+          const paramType = i < params.length ? params[i].type : undefined;
+          argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+        }
+        validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span);
+        return calleeType;
+      }
+
+      for (const arg of expr.args) {
+        inferExprType(host, arg.value, scope, table, info);
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    case "construct-expression": {
+      if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Success") {
+        const props = expr.args as ObjectProperty[];
+        for (const prop of props) {
+          if (prop.value) inferExprType(host, prop.value, scope, table, info);
+        }
+        const resultContext = resolveExpectedResultContext(host, scope, expectedType);
+        if (!resultContext) {
+          reportMissingResultContext(info, table, expr.span, "Success");
+          return UNKNOWN_TYPE;
+        }
+        if (isVoidResultType(resultContext)) {
+          if (props.length !== 0) {
+            info.diagnostics.push({
+              severity: "error",
+              message: "Success for Result<void, E> must not specify any fields",
+              span: expr.span,
+              module: table.path,
+            });
+            return UNKNOWN_TYPE;
+          }
+          return { kind: "result", successType: VOID_TYPE, errorType: resultContext.errorType };
+        }
+        const valueProp = props.find((p) => p.name === "value");
+        if (!valueProp || !valueProp.value) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "Success requires a \"value\" field",
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        const successType = valueProp.value.resolvedType ?? UNKNOWN_TYPE;
+        return { kind: "result", successType, errorType: resultContext.errorType };
+      }
+
+      if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Failure") {
+        const props = expr.args as ObjectProperty[];
+        for (const prop of props) {
+          if (prop.value) inferExprType(host, prop.value, scope, table, info);
+        }
+        const errorProp = props.find((p) => p.name === "error");
+        if (!errorProp || !errorProp.value) {
+          info.diagnostics.push({
+            severity: "error",
+            message: "Failure requires an \"error\" field",
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
+        const errorType = errorProp.value.resolvedType ?? UNKNOWN_TYPE;
+        const resultContext = resolveExpectedResultContext(host, scope, expectedType);
+        if (!resultContext) {
+          reportMissingResultContext(info, table, expr.span, "Failure");
+          return UNKNOWN_TYPE;
+        }
+        return { kind: "result", successType: resultContext.successType, errorType };
+      }
+
+      const sym = table.symbols.get(expr.type);
+      if (sym?.symbolKind === "class") {
+        const resolvedTypeArgs = host.resolveGenericTypeArgs(sym.declaration.typeParams, expr.typeArgs, table);
+        let paramSubMap: Map<string, ResolvedType> | undefined;
+        if (resolvedTypeArgs && sym.declaration.typeParams.length > 0) {
+          paramSubMap = new Map<string, ResolvedType>();
+          for (let i = 0; i < sym.declaration.typeParams.length && i < resolvedTypeArgs.length; i++) {
+            paramSubMap.set(sym.declaration.typeParams[i], resolvedTypeArgs[i]);
+          }
+        }
+
+        let constructParams = getConstructorParams(host, sym, table, true);
+        if (paramSubMap) {
+          constructParams = constructParams.map((p) => ({
+            ...p,
+            type: substituteTypeParams(p.type, paramSubMap!),
+          }));
+        }
+
+        if (expr.named) {
+          const props = expr.args as ObjectProperty[];
+          const cpMap = new Map(constructParams.map((p) => [p.name, p]));
+          for (const prop of props) {
+            const fieldParam = cpMap.get(prop.name);
+            if (prop.value) {
+              inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
+            } else {
+              const binding = host.lookupBinding(prop.name, scope);
+              if (binding) {
+                (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+              } else {
+                info.diagnostics.push({
+                  severity: "error",
+                  message: `Undefined identifier "${prop.name}"`,
+                  span: prop.span,
+                  module: table.path,
+                });
+              }
+            }
+          }
+          validateNamedConstructorArgs(host, sym, props, true, table, info, expr.span);
+        } else {
+          const argTypes: ResolvedType[] = [];
+          for (let i = 0; i < expr.args.length; i++) {
+            const paramType = i < constructParams.length ? constructParams[i].type : undefined;
+            argTypes.push(inferExprType(host, expr.args[i] as Expression, scope, table, info, paramType));
+          }
+          const argSpans = (expr.args as Expression[]).map((a) => a.span);
+          validateConstructorArgs(host, sym, argTypes, argSpans, true, table, info, expr.span);
+        }
+
+        if (sym.declaration.private_ && sym.module !== table.path) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Class "${sym.name}" is private and only accessible within "${sym.module}"`,
+            span: expr.span,
+            module: table.path,
+          });
+        }
+        if (sym.module !== table.path) {
+          const privateFieldsWithoutDefaults = sym.declaration.fields.filter(
+            (f) => f.private_ && f.defaultValue === null,
+          );
+          if (privateFieldsWithoutDefaults.length > 0) {
+            const fieldNames = privateFieldsWithoutDefaults.flatMap((f) => f.names).join(", ");
+            info.diagnostics.push({
+              severity: "error",
+              message: `Class "${sym.name}" cannot be constructed from outside "${sym.module}" because it has private fields without defaults: ${fieldNames}`,
+              span: expr.span,
+              module: table.path,
+            });
+          }
+        }
+        return resolvedTypeArgs
+          ? { kind: "class", symbol: sym, typeArgs: resolvedTypeArgs }
+          : { kind: "class", symbol: sym };
+      }
+
+      if (expr.named) {
+        for (const arg of expr.args) {
+          const prop = arg as ObjectProperty;
+          if (prop.value) inferExprType(host, prop.value, scope, table, info);
+        }
+      } else {
+        for (const arg of expr.args) {
+          inferExprType(host, arg as Expression, scope, table, info);
+        }
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    case "array-literal": {
+      if (expectedType?.kind === "json-value") {
+        expr.elements.forEach((e) => inferExprType(host, e, scope, table, info, JSON_VALUE_TYPE));
+        return { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: expr.readonly_ };
+      }
+      const expectedElemType = expectedType?.kind === "array"
+        ? expectedType.elementType
+        : expectedType?.kind === "set"
+          ? expectedType.elementType
+          : undefined;
+      const elemTypes = expr.elements.map((e) => inferExprType(host, e, scope, table, info, expectedElemType));
+      const elemType = elemTypes.length > 0 ? combineArrayElementTypes(elemTypes) : (expectedElemType ?? UNKNOWN_TYPE);
+      if (expectedType?.kind === "set") {
+        return { kind: "set", elementType: elemType, readonly_: expectedType.readonly_ };
+      }
+      return { kind: "array", elementType: elemType, readonly_: expr.readonly_ };
+    }
+
+    case "tuple-literal": {
+      if (expectedType?.kind === "class") {
+        const sym = expectedType.symbol;
+        const params = getConstructorParams(host, sym, table, false);
+        const argTypes: ResolvedType[] = [];
+        for (let i = 0; i < expr.elements.length; i++) {
+          const paramType = i < params.length ? params[i].type : undefined;
+          argTypes.push(inferExprType(host, expr.elements[i], scope, table, info, paramType));
+        }
+        const argSpans = expr.elements.map((e) => e.span);
+        validateConstructorArgs(host, sym, argTypes, argSpans, false, table, info, expr.span);
+        return expectedType;
+      }
+      if (expectedType?.kind === "union") {
+        const classTarget = resolveUnionForLiteral(host, expectedType, expr, scope, table, info);
+        if (classTarget) return classTarget;
+      }
+      const elems = expr.elements.map((e) => inferExprType(host, e, scope, table, info));
+      return { kind: "tuple", elements: elems };
+    }
+
+    case "object-literal": {
+      if (expectedType?.kind === "json-value") {
+        for (const prop of expr.properties) {
+          if (prop.value) {
+            inferExprType(host, prop.value, scope, table, info, JSON_VALUE_TYPE);
+          } else {
+            const binding = host.lookupBinding(prop.name, scope);
+            if (binding) {
+              (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+            } else {
+              info.diagnostics.push({
+                severity: "error",
+                message: `Undefined identifier "${prop.name}"`,
+                span: prop.span,
+                module: table.path,
+              });
+            }
+          }
+        }
+        return { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE };
+      }
+      if (expectedType?.kind === "map" && expr.properties.length === 0 && !expr.spread) {
+        return expectedType;
+      }
+      if (expectedType?.kind === "class") {
+        const sym = expectedType.symbol;
+        for (const prop of expr.properties) {
+          const fieldParams = getConstructorParams(host, sym, table, false);
+          const fieldParam = fieldParams.find((p) => p.name === prop.name);
+          if (prop.value) {
+            inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
+          } else {
+            const binding = host.lookupBinding(prop.name, scope);
+            if (binding) {
+              (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+            } else {
+              info.diagnostics.push({
+                severity: "error",
+                message: `Undefined identifier "${prop.name}"`,
+                span: prop.span,
+                module: table.path,
+              });
+            }
+          }
+        }
+        validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
+        return expectedType;
+      }
+      if (expectedType?.kind === "union") {
+        const classTarget = resolveUnionForObjectLiteral(host, expectedType, expr, scope, table, info);
+        if (classTarget) return classTarget;
+      }
+      for (const prop of expr.properties) {
+        if (prop.value) inferExprType(host, prop.value, scope, table, info);
+      }
+      if (!expectedType) {
+        info.diagnostics.push({
+          severity: "error",
+          message: "Object literal requires contextual type information or an explicit annotation",
+          span: expr.span,
+          module: table.path,
+        });
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    case "map-literal": {
+      const expectedMap = expectedType?.kind === "map"
+        ? expectedType
+        : expectedType?.kind === "json-value"
+          ? { kind: "map" as const, keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE }
+          : undefined;
+
+      let keyType: ResolvedType = UNKNOWN_TYPE;
+      const valueTypes: ResolvedType[] = [];
+
+      for (const entry of expr.entries) {
+        const kt = inferExprType(host, entry.key, scope, table, info, expectedMap?.keyType);
+        const vt = inferExprType(host, entry.value, scope, table, info, expectedMap?.valueType);
+        if ((!expectedMap || expectedMap.keyType.kind === "unknown") && !isSupportedMapKeyType(kt)) {
+          info.diagnostics.push({
+            severity: "error",
+            message: formatUnsupportedHashCollectionConstraintMessage({ kind: "map-key", type: kt }, "map-literal-key"),
+            span: entry.key.span,
+            module: table.path,
+          });
+        }
+        if (keyType.kind === "unknown") {
+          keyType = kt;
+        } else if (!expectedMap && isSupportedMapKeyType(keyType)) {
+          const mergedKeyType = mergeInferredMapKeyType(keyType, kt);
+          if (!mergedKeyType && isSupportedMapKeyType(kt)) {
+            info.diagnostics.push({
+              severity: "error",
+              message: `Map literal key type "${typeToString(kt)}" is not compatible with inferred key type "${typeToString(keyType)}"`,
+              span: entry.key.span,
+              module: table.path,
+            });
+          } else if (mergedKeyType) {
+            keyType = mergedKeyType;
+          }
+        }
+        valueTypes.push(vt);
+      }
+
+      const valueType = valueTypes.length > 0
+        ? combineArrayElementTypes(valueTypes)
+        : (expectedMap?.valueType ?? UNKNOWN_TYPE);
+
+      if (expectedMap) {
+        return {
+          kind: "map",
+          keyType: expectedMap.keyType.kind === "unknown" ? keyType : expectedMap.keyType,
+          valueType: expectedMap.valueType.kind === "unknown" ? valueType : expectedMap.valueType,
+          readonly_: expectedMap.readonly_,
+        };
+      }
+
+      return { kind: "map", keyType, valueType };
+    }
+
+    case "lambda-expression": {
+      const expectedFn = expectedType?.kind === "function" ? expectedType : undefined;
+
+      if (expr.parameterless && expectedFn) {
+        for (const ep of expectedFn.params) {
+          expr.params.push({
+            name: ep.name,
+            type: null,
+            defaultValue: null,
+            span: expr.span,
+          });
+        }
+      }
+
+      if (expectedFn && expr.params.length > 0 && !expr.parameterless) {
+        const hasUntypedParams = expr.params.some((p) => !p.type);
+
+        if (hasUntypedParams) {
+          const expectedParamNames = new Set(expectedFn.params.map((p) => p.name));
+          const expectedParamMap = new Map(expectedFn.params.map((p) => [p.name, p]));
+
+          let hasErrors = false;
+          for (const p of expr.params) {
+            if (!p.type && !expectedParamNames.has(p.name)) {
+              hasErrors = true;
+              info.diagnostics.push({
+                severity: "error",
+                message: `Parameter "${p.name}" does not match any parameter in the expected signature (${expectedFn.params.map((ep) => ep.name).join(", ")})`,
+                span: p.span,
+                module: table.path,
+              });
+            }
+          }
+
+          if (!hasErrors) {
+            const namedSet = new Set(expr.params.map((p) => p.name));
+            const fullParams: typeof expr.params = [];
+
+            for (const ep of expectedFn.params) {
+              if (namedSet.has(ep.name)) {
+                const existing = expr.params.find((p) => p.name === ep.name)!;
+                existing.resolvedType = ep.type;
+                fullParams.push(existing);
+              } else {
+                fullParams.push({
+                  name: `_$${ep.name}`,
+                  type: null,
+                  defaultValue: null,
+                  span: expr.span,
+                });
+              }
+            }
+            expr.params.length = 0;
+            for (const p of fullParams) expr.params.push(p);
+
+            for (const p of expr.params) {
+              if (!p.type && !p.resolvedType) {
+                const originalName = p.name.startsWith("_$") ? p.name.slice(2) : p.name;
+                const match = expectedParamMap.get(originalName);
+                if (match) p.resolvedType = match.type;
+              }
+            }
+          }
+        }
+      } else if (expectedFn && expr.parameterless) {
+        const expectedParamMap = new Map(expectedFn.params.map((p) => [p.name, p]));
+        for (const p of expr.params) {
+          if (!p.type) {
+            const match = expectedParamMap.get(p.name);
+            if (match) p.resolvedType = match.type;
+          }
+        }
+      }
+
+      const params: FunctionResolvedParam[] = expr.params.map((p) => ({
+        name: p.name,
+        type: p.type
+          ? host.resolveTypeAnnotation(p.type, table)
+          : p.resolvedType ?? UNKNOWN_TYPE,
+      }));
+
+      const declaredReturn = expr.returnType
+        ? host.resolveTypeAnnotation(expr.returnType, table)
+        : null;
+      if (expr.trailing && expectedFn && expectedFn.returnType.kind !== "void") {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Trailing lambda requires a void callback type, but expected return type is "${typeToString(expectedFn.returnType)}"; use an explicit lambda instead`,
+          span: expr.span,
+          module: table.path,
+        });
+      }
+
+      const lambdaScope = host.pushScope(scope, "function", declaredReturn);
+      if (expr.trailing) {
+        lambdaScope.inTrailingLambda = true;
+      }
+      for (const param of expr.params) {
+        const pType = param.type
+          ? host.resolveTypeAnnotation(param.type, table)
+          : param.resolvedType ?? UNKNOWN_TYPE;
+        param.resolvedType = pType;
+        if (param.name.startsWith("_$")) continue;
+        lambdaScope.bindings.set(param.name, {
+          name: param.name,
+          kind: "parameter",
+          type: pType,
+          mutable: false,
+          span: param.span,
+          module: table.path,
+        });
+      }
+
+      let returnType: ResolvedType;
+      if (expr.returnType) {
+        returnType = host.resolveTypeAnnotation(expr.returnType, table);
+        if (expr.body.kind === "block") {
+          host.checkStatements(expr.body.statements, lambdaScope, table, info);
+        } else {
+          const bodyType = inferExprType(host, expr.body, lambdaScope, table, info);
+          if (!isAssignableTo(bodyType, returnType)) {
+            info.diagnostics.push({
+              severity: "error",
+              message: `Type "${typeToString(bodyType)}" is not assignable to return type "${typeToString(returnType)}"`,
+              span: expr.body.span,
+              module: table.path,
+            });
+          }
+        }
+      } else if (expr.body.kind === "block") {
+        host.checkStatements(expr.body.statements, lambdaScope, table, info);
+        returnType = expectedFn?.returnType ?? VOID_TYPE;
+      } else {
+        returnType = inferExprType(host, expr.body, lambdaScope, table, info);
+      }
+
+      return { kind: "function", params, returnType };
+    }
+
+    case "if-expression": {
+      const condType = inferExprType(host, expr.condition, scope, table, info);
+      host.checkConditionIsBool(condType, expr.condition, table, info);
+      const thenType = inferExprType(host, expr.then, scope, table, info);
+      inferExprType(host, expr.else_, scope, table, info);
+      return thenType;
+    }
+
+    case "case-expression": {
+      const subjectType = inferExprType(host, expr.subject, scope, table, info);
+      const expectedEnumType = resolveExpectedEnumType(subjectType);
+      let resultType: ResolvedType = UNKNOWN_TYPE;
+      for (const arm of expr.arms) {
+        for (const pattern of arm.patterns) {
+          if (pattern.kind === "value-pattern") {
+            inferExprType(host, pattern.value, scope, table, info, expectedEnumType);
+          } else if (pattern.kind === "range-pattern") {
+            if (pattern.start) inferExprType(host, pattern.start, scope, table, info, expectedEnumType);
+            if (pattern.end) inferExprType(host, pattern.end, scope, table, info, expectedEnumType);
+          }
+        }
+        let armScope = buildCaseArmScope(host, arm, subjectType, scope, table, info);
+        armScope = { ...armScope, inCaseExpressionArm: true };
+        if (arm.body.kind === "block") {
+          armScope.caseExpressionYield = {
+            type: resultType.kind === "unknown" ? null : resultType,
+            hasYield: false,
+          };
+          host.checkBlock(arm.body as Block, armScope, table, info);
+          if (!host.blockAlwaysYields(arm.body as Block)) {
+            info.diagnostics.push({
+              severity: "error",
+              message: "Block case-expression arms must yield a value on every path",
+              span: arm.body.span,
+              module: table.path,
+            });
+          }
+          const yieldedType: ResolvedType = armScope.caseExpressionYield.type ?? UNKNOWN_TYPE;
+          if (resultType.kind === "unknown") resultType = yieldedType;
+        } else {
+          const expectedBodyType = resultType.kind === "unknown" ? undefined : resultType;
+          const bodyType = inferExprType(host, arm.body as Expression, armScope, table, info, expectedBodyType);
+          if (resultType.kind === "unknown") resultType = bodyType;
+        }
+      }
+      return resultType;
+    }
+
+    case "enum-access": {
+      if (expr.enumName) {
+        const sym = table.symbols.get(expr.enumName);
+        if (sym?.symbolKind === "enum") return { kind: "enum", symbol: sym };
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    case "dot-shorthand": {
+      const enumType = resolveExpectedEnumType(expectedType);
+      if (enumType) return enumType;
+      info.diagnostics.push({
+        severity: "error",
+        message: `Cannot infer enum type for ".${expr.name}"`,
+        span: expr.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    }
+
+    case "async-expression": {
+      if (expr.expression.kind === "block") {
+        host.checkBlock(expr.expression as Block, scope, table, info);
+        return { kind: "promise", valueType: UNKNOWN_TYPE };
+      }
+      const innerType = inferExprType(host, expr.expression as Expression, scope, table, info);
+      return { kind: "promise", valueType: innerType };
+    }
+
+    case "actor-creation-expression": {
+      for (const arg of expr.args) {
+        inferExprType(host, arg, scope, table, info);
+      }
+      const sym = table.symbols.get(expr.className);
+      if (sym?.symbolKind === "class") {
+        return { kind: "actor", innerClass: { kind: "class", symbol: sym } };
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    case "catch-expression":
+      return host.checkCatchExpression(expr, scope, table, info);
+
+    case "non-null-assertion": {
+      const innerType = inferExprType(host, expr.expression, scope, table, info);
+      if (innerType.kind === "union") {
+        const nonNull = innerType.types.filter((t) => t.kind !== "null");
+        if (nonNull.length === 1) return nonNull[0];
+        if (nonNull.length > 1) return { kind: "union", types: nonNull };
+      }
+      return innerType;
+    }
+
+    case "as-expression": {
+      const sourceType = inferExprType(host, expr.expression, scope, table, info);
+      const targetType = host.resolveTypeAnnotation(expr.targetType, table);
+      return inferAsNarrowType(sourceType, targetType, info, table, expr.span);
+    }
+
+    default:
+      return UNKNOWN_TYPE;
+  }
+}
+
+function getConstructorParams(
+  host: CheckerHost,
+  sym: ClassSymbol,
+  table: ModuleSymbolTable,
+  nominal: boolean,
+): ConstructorParam[] {
+  const params: ConstructorParam[] = [];
+  for (const field of sym.declaration.fields) {
+    if (field.static_) continue;
+    if (nominal && field.const_) continue;
+    const fieldType = field.type
+      ? host.resolveTypeAnnotation(field.type, table)
+      : UNKNOWN_TYPE;
+    for (const name of field.names) {
+      params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null });
+    }
+  }
+  return params;
+}
+
+function validateConstructorArgs(
+  host: CheckerHost,
+  sym: ClassSymbol,
+  argTypes: ResolvedType[],
+  argSpans: SourceSpan[],
+  nominal: boolean,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  callSpan: SourceSpan,
+): void {
+  const params = getConstructorParams(host, sym, table, nominal);
+  const requiredCount = params.filter((p) => !p.hasDefault).length;
+  const totalCount = params.length;
+
+  if (argTypes.length < requiredCount || argTypes.length > totalCount) {
+    const range = requiredCount === totalCount ? `${totalCount}` : `${requiredCount}-${totalCount}`;
+    info.diagnostics.push({
+      severity: "error",
+      message: `Class "${sym.name}" expects ${range} constructor argument(s) but got ${argTypes.length}`,
+      span: callSpan,
+      module: table.path,
+    });
+    return;
+  }
+
+  for (let i = 0; i < argTypes.length; i++) {
+    if (!isAssignableTo(argTypes[i], params[i].type)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Argument ${i + 1}: type "${typeToString(argTypes[i])}" is not assignable to field "${params[i].name}" of type "${typeToString(params[i].type)}"`,
+        span: argSpans[i] ?? callSpan,
+        module: table.path,
+      });
+    }
+  }
+}
+
+function validateNamedConstructorArgs(
+  host: CheckerHost,
+  sym: ClassSymbol,
+  props: ObjectProperty[],
+  nominal: boolean,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  callSpan: SourceSpan,
+): void {
+  const params = getConstructorParams(host, sym, table, nominal);
+  const paramMap = new Map(params.map((p) => [p.name, p]));
+
+  for (const prop of props) {
+    if (!paramMap.has(prop.name)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Class "${sym.name}" does not have a field "${prop.name}"`,
+        span: prop.span,
+        module: table.path,
+      });
+    } else {
+      const param = paramMap.get(prop.name)!;
+      const valueType = prop.value?.resolvedType ?? (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType ?? UNKNOWN_TYPE;
+      if (!isAssignableTo(valueType, param.type)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Field "${prop.name}": type "${typeToString(valueType)}" is not assignable to type "${typeToString(param.type)}"`,
+          span: prop.span,
+          module: table.path,
+        });
+      }
+    }
+  }
+
+  const providedNames = new Set(props.map((p) => p.name));
+  for (const param of params) {
+    if (!param.hasDefault && !providedNames.has(param.name)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Missing required field "${param.name}" in construction of "${sym.name}"`,
+        span: callSpan,
+        module: table.path,
+      });
+    }
+  }
+}
+
+function resolveUnionForLiteral(
+  host: CheckerHost,
+  unionType: { kind: "union"; types: ResolvedType[] },
+  expr: TupleLiteral,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): ResolvedType | null {
+  const candidates = unionType.types.filter(
+    (t): t is Extract<ResolvedType, { kind: "class" }> => t.kind === "class",
+  );
+  if (candidates.length === 0) return null;
+
+  const matching = candidates.filter((c) => {
+    const params = getConstructorParams(host, c.symbol, table, false);
+    const required = params.filter((p) => !p.hasDefault).length;
+    return expr.elements.length >= required && expr.elements.length <= params.length;
+  });
+
+  if (matching.length !== 1) return null;
+
+  const sym = matching[0].symbol;
+  const params = getConstructorParams(host, sym, table, false);
+  const argTypes: ResolvedType[] = [];
+  for (let i = 0; i < expr.elements.length; i++) {
+    const paramType = i < params.length ? params[i].type : undefined;
+    argTypes.push(inferExprType(host, expr.elements[i], scope, table, info, paramType));
+  }
+  const argSpans = expr.elements.map((e) => e.span);
+  validateConstructorArgs(host, sym, argTypes, argSpans, false, table, info, expr.span);
+  return matching[0];
+}
+
+function resolveUnionForObjectLiteral(
+  host: CheckerHost,
+  unionType: { kind: "union"; types: ResolvedType[] },
+  expr: ObjectLiteral,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): ResolvedType | null {
+  const candidates = unionType.types.filter(
+    (t): t is Extract<ResolvedType, { kind: "class" }> => t.kind === "class",
+  );
+  if (candidates.length === 0) return null;
+
+  const propNames = new Set(expr.properties.map((p) => p.name));
+
+  const constDiscriminatorProp = expr.properties.find((p) => {
+    if (!p.value || p.value.kind !== "string-literal") return false;
+    return candidates.some((c) =>
+      c.symbol.declaration.fields.some((f) => f.const_ && f.names.includes(p.name)),
+    );
+  });
+
+  if (constDiscriminatorProp && constDiscriminatorProp.value?.kind === "string-literal") {
+    const discValue = constDiscriminatorProp.value.parts.length === 1
+      && typeof constDiscriminatorProp.value.parts[0] === "string"
+      ? constDiscriminatorProp.value.parts[0]
+      : null;
+    if (discValue) {
+      const matching = candidates.filter((c) => {
+        const field = c.symbol.declaration.fields.find(
+          (f) => f.const_ && f.names.includes(constDiscriminatorProp.name),
+        );
+        if (!field || !field.defaultValue) return false;
+        if (field.defaultValue.kind === "string-literal") {
+          return field.defaultValue.parts.length === 1 && field.defaultValue.parts[0] === discValue;
+        }
+        return false;
+      });
+
+      if (matching.length === 1) {
+        const sym = matching[0].symbol;
+        for (const prop of expr.properties) {
+          const fieldParams = getConstructorParams(host, sym, table, false);
+          const fieldParam = fieldParams.find((p) => p.name === prop.name);
+          if (prop.value) inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
+        }
+        validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
+        return matching[0];
+      }
+    }
+  }
+
+  const matching = candidates.filter((c) => {
+    const allFieldNames = new Set<string>();
+    for (const f of c.symbol.declaration.fields) {
+      for (const n of f.names) allFieldNames.add(n);
+    }
+    return [...propNames].every((n) => allFieldNames.has(n));
+  });
+
+  if (matching.length !== 1) return null;
+
+  const sym = matching[0].symbol;
+  for (const prop of expr.properties) {
+    const fieldParams = getConstructorParams(host, sym, table, false);
+    const fieldParam = fieldParams.find((p) => p.name === prop.name);
+    if (prop.value) inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
+  }
+  validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
+  return matching[0];
+}
+
+// ============================================================================
+// As narrowing expression
+// ============================================================================
+
+/**
+ * Validate an `expr as T` narrowing and return `Result<T, string>`.
+ *
+ * v1 support matrix:
+ * - `any -> T` — any concrete non-any target
+ * - `U1 | U2 | ... -> T` — T must be an exact union member
+ * - `Interface -> ConcreteClass` — interface lowers to closed-world variant
+ * - `T | null -> T` — nullable narrowing
+ * - `T -> T` — identity fast path (unconditional success)
+ */
+function inferAsNarrowType(
+  sourceType: ResolvedType,
+  targetType: ResolvedType,
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+): ResolvedType {
+  if (sourceType.kind === "unknown" || targetType.kind === "unknown") {
+    return UNKNOWN_TYPE;
+  }
+
+  if (!isValidAsNarrow(sourceType, targetType)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be any, a union, an interface, or nullable`,
+      span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+
+  const resultType: ResolvedType = {
+    kind: "result",
+    successType: targetType,
+    errorType: STRING_TYPE,
+  };
+  recordAnyTypeUsage(info.anyUsage, resultType);
+  return resultType;
+}
+
+/**
+ * Check whether `expr as T` is a valid narrowing in v1.
+ */
+function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {
+  // Identity: T -> T is always valid
+  if (typesEqual(sourceType, targetType)) return true;
+
+  // any -> T (any concrete non-any target)
+  if (sourceType.kind === "any" && targetType.kind !== "any") return true;
+
+  // T | null -> T (nullable narrowing: target is the non-null part)
+  if (sourceType.kind === "union") {
+    const nonNull = sourceType.types.filter((t) => t.kind !== "null");
+    const hasNull = nonNull.length < sourceType.types.length;
+
+    // T | null -> T
+    if (hasNull && nonNull.length === 1 && typesEqual(nonNull[0], targetType)) return true;
+
+    // Union member extraction: U1 | U2 | ... -> T where T is an exact member
+    if (sourceType.types.some((member) => typesEqual(member, targetType))) return true;
+  }
+
+  // Interface -> ConcreteClass
+  if (sourceType.kind === "interface" && targetType.kind === "class") return true;
+
+  return false;
+}
