@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { RealFS, runPipelineWithFs, writeProject } from "./cli-core.js";
+import { normalizeOutputBinaryName, RealFS, runPipelineWithFs, writeProject } from "./cli-core.js";
 import {
   createBuildProvenance,
   findDoofManifestPath,
@@ -300,7 +300,7 @@ describe("manifest-derived pipeline metadata", () => {
       () => {},
     );
 
-    expect(result.outputBinaryName).toBe("demo-app");
+    expect(result.outputBinaryName).toBe(normalizeOutputBinaryName("demo-app"));
     expect(createBuildProvenance(loadPackageGraph(fs, "/app/main.do"))).toEqual({ dependencies: [] });
     expect(result.provenance).toEqual({ dependencies: [] });
   });
@@ -355,7 +355,7 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.project.cmake).toContain("FOO=1");
     expect(result.project.cmake).toContain("-O2");
     expect(result.project.cmake).toContain("-pthread");
-    expect(result.buildManifest.outputBinaryName).toBe("demo-app");
+    expect(result.buildManifest.outputBinaryName).toBe(normalizeOutputBinaryName("demo-app"));
     expect(result.buildManifest.nativeIncludePaths).toEqual(["/deps/foo/include"]);
     expect(result.buildManifest.nativeSourceFiles).toEqual(["/deps/foo/bridge.cpp"]);
     expect(result.buildManifest.libraryPaths).toEqual(["/deps/foo/lib"]);

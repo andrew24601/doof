@@ -5,6 +5,7 @@ import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
 
 const ctx = new E2EContext();
 const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
+const describeSkipOnWindows = process.platform === "win32" ? vitestDescribe.skip : describe;
 
 beforeAll(() => ctx.setup());
 afterAll(() => ctx.cleanup());
@@ -20,7 +21,7 @@ function loadHttpServerSample(overrides: Record<string, string> = {}): Record<st
 }
 
 function loadSharedBoardgamePackages(): Record<string, string> {
-  const boardgameDir = path.join(process.cwd(), "samples", "lib", "boardgame");
+  const boardgameDir = path.join(process.cwd(), "samples", "lib", "cardgame");
   return {
     "/lib/cardgame/doof.json": fs.readFileSync(path.join(boardgameDir, "doof.json"), "utf8"),
     "/lib/cardgame/index.do": fs.readFileSync(path.join(boardgameDir, "index.do"), "utf8"),
@@ -58,7 +59,7 @@ function loadRemindersMcpSample(overrides: Record<string, string> = {}): Record<
 
 const httpServerIncludeDir = path.join(process.cwd(), "samples", "http-server");
 
-describe("e2e — http server sample", () => {
+describeSkipOnWindows("e2e — http server sample", () => {
   it("parses request lines and headers in Doof", () => {
     const result = ctx.compileAndRunProject(
       loadHttpServerSample({
@@ -269,7 +270,7 @@ describe("e2e — solitaire sample logic", () => {
   });
 });
 
-describe("e2e — reminders MCP sample", () => {
+describeSkipOnWindows("e2e — reminders MCP sample", () => {
   it("compiles the shipped reminders MCP sample", () => {
     const sampleDir = path.join(process.cwd(), "samples", "reminders-mcp");
     const { success, error, codes } = ctx.compileOnlyProject(

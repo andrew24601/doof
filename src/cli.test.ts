@@ -93,19 +93,7 @@ describe("CLI argument parsing", () => {
 
 describe("CLI compile args", () => {
   it("builds compiler arguments from native build options", () => {
-    const project: ProjectEmitResult = {
-      modules: [
-        {
-          modulePath: "/main.do",
-          hppPath: "main.hpp",
-          cppPath: "main.cpp",
-          hppCode: "",
-          cppCode: "",
-        },
-      ],
-      runtime: "",
-      cmake: "",
-    };
+    const project = createProjectEmitResult();
 
     const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
       cppStd: "gnu++20",
@@ -118,6 +106,9 @@ describe("CLI compile args", () => {
       compilerFlags: ["-O2"],
       linkerFlags: ["-pthread"],
       defines: ["DEBUG", "API_LEVEL=2"],
+    }, {
+      platform: "linux",
+      toolchain: { kind: "gcc-like", command: "clang++" },
     });
 
     expect(outBinary).toBe("/tmp/doof-build/a.out");
@@ -139,19 +130,7 @@ describe("CLI compile args", () => {
   });
 
   it("uses the configured output binary name when provided", () => {
-    const project: ProjectEmitResult = {
-      modules: [
-        {
-          modulePath: "/main.do",
-          hppPath: "main.hpp",
-          cppPath: "main.cpp",
-          hppCode: "",
-          cppCode: "",
-        },
-      ],
-      runtime: "",
-      cmake: "",
-    };
+    const project = createProjectEmitResult();
 
     const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
       cppStd: "c++17",
@@ -164,10 +143,84 @@ describe("CLI compile args", () => {
       compilerFlags: [],
       linkerFlags: [],
       defines: [],
-    }, "demo-app");
+    }, {
+      outputBinaryName: "demo-app",
+      platform: "linux",
+      toolchain: { kind: "gcc-like", command: "clang++" },
+    });
 
     expect(outBinary).toBe("/tmp/doof-build/demo-app");
     expect(args).toContain("/tmp/doof-build/demo-app");
+  });
+
+  it("builds MSVC compiler arguments on Windows", () => {
+    const project = createProjectEmitResult();
+
+    const { outBinary, args } = buildCompileArgs("C:\\tmp\\doof-build", project, {
+      cppStd: "gnu++20",
+      includePaths: ["C:\\vendor\\include"],
+      libraryPaths: ["C:\\vendor\\lib"],
+      linkLibraries: ["curl", "ssl.lib"],
+      frameworks: [],
+      sourceFiles: ["C:\\tmp\\native\\bridge.cpp"],
+      objectFiles: ["C:\\tmp\\native\\bridge.obj"],
+      compilerFlags: ["/O2"],
+      linkerFlags: ["/DEBUG"],
+      defines: ["DEBUG", "API_LEVEL=2"],
+    }, {
+      outputBinaryName: "demo-app",
+      platform: "win32",
+      toolchain: { kind: "msvc", command: "cl.exe" },
+    });
+
+    expect(outBinary).toBe("C:\\tmp\\doof-build\\demo-app.exe");
+    expect(args).toContain("/std:c++20");
+    expect(args).toContain("/IC:\\tmp\\doof-build");
+    expect(args).toContain("/IC:\\vendor\\include");
+    expect(args).toContain("/DDEBUG");
+    expect(args).toContain("/DAPI_LEVEL=2");
+    expect(args).toContain("/O2");
+    expect(args).toContain("C:\\tmp\\doof-build\\main.cpp");
+    expect(args).toContain("C:\\tmp\\native\\bridge.cpp");
+    expect(args).toContain("C:\\tmp\\native\\bridge.obj");
+    expect(args).toContain("/FeC:\\tmp\\doof-build\\demo-app.exe");
+    expect(args).toContain("/link");
+    expect(args).toContain("/LIBPATH:C:\\vendor\\lib");
+    expect(args).toContain("curl.lib");
+    expect(args).toContain("ssl.lib");
+    expect(args).toContain("/DEBUG");
+  });
+
+  it("builds syntax-only compiler arguments without linker inputs", () => {
+    const project = createProjectEmitResult();
+
+    const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
+      cppStd: "c++17",
+      includePaths: ["/opt/vendor/include"],
+      libraryPaths: ["/opt/vendor/lib"],
+      linkLibraries: ["curl"],
+      frameworks: ["Foundation"],
+      sourceFiles: ["/tmp/native/bridge.cpp"],
+      objectFiles: ["/tmp/native/bridge.o"],
+      compilerFlags: ["-O2"],
+      linkerFlags: ["-pthread"],
+      defines: ["DEBUG"],
+    }, {
+      mode: "syntax-only",
+      platform: "linux",
+      toolchain: { kind: "gcc-like", command: "clang++" },
+    });
+
+    expect(outBinary).toBe("/tmp/doof-build/a.out");
+    expect(args).toContain("-fsyntax-only");
+    expect(args).not.toContain("-o");
+    expect(args).not.toContain("/tmp/doof-build/a.out");
+    expect(args).not.toContain("-L/opt/vendor/lib");
+    expect(args).not.toContain("-lcurl");
+    expect(args).not.toContain("-framework");
+    expect(args).not.toContain("Foundation");
+    expect(args).not.toContain("/tmp/native/bridge.o");
+    expect(args).not.toContain("-pthread");
   });
 });
 
@@ -191,4 +244,20 @@ function createTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-cli-"));
   tmpDirs.push(dir);
   return dir;
+}
+
+function createProjectEmitResult(): ProjectEmitResult {
+  return {
+    modules: [
+      {
+        modulePath: "/main.do",
+        hppPath: "main.hpp",
+        cppPath: "main.cpp",
+        hppCode: "",
+        cppCode: "",
+      },
+    ],
+    runtime: "",
+    cmake: "",
+  };
 }

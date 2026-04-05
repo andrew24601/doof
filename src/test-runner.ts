@@ -6,6 +6,7 @@ import { ModuleAnalyzer } from "./analyzer.js";
 import type { FunctionDeclaration } from "./ast.js";
 import {
   compileCpp,
+  type CompilerToolchain,
   formatDiagnostic,
   RealFS,
   runPipelineWithFs,
@@ -36,7 +37,7 @@ export interface TestReporter {
 
 export interface RunTestCommandOptions {
   targetPath: string;
-  compiler: string;
+  compiler: CompilerToolchain;
   nativeBuild: NativeBuildOptions;
   filter: string | null;
   listOnly: boolean;
@@ -233,7 +234,11 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
       if (options.verbose) options.reporter.log(`Running ${test.id}`);
 
       try {
-        execFileSync(binary, [test.id], { stdio: "pipe", timeout: 30000 });
+        execFileSync(binary, [test.id], {
+          stdio: "pipe",
+          timeout: 30000,
+          env: options.compiler.env ?? process.env,
+        });
         passed++;
         options.reporter.log(`PASS ${test.id}`);
       } catch (e: any) {

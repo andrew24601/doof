@@ -16,12 +16,17 @@ import { renderAnyRuntimeSupport } from "./any-runtime.js";
  * Return the full contents of the doof_runtime.hpp header.
  */
 export function generateRuntimeHeader(plan?: AnyRuntimePlan): string {
-    return RUNTIME_HEADER.replace("__DOOF_ANY_SUPPORT__", renderAnyRuntimeSupport(plan ?? {
+    const anySupport = renderAnyRuntimeSupport(plan ?? {
         usesAny: false,
         carriers: [],
         carrierByKey: new Map(),
         interfaceImpls: new Map(),
-    }));
+    });
+    return RUNTIME_HEADER
+        .replace("__DOOF_JSON_INCLUDE__", "#include <nlohmann/json.hpp>")
+        .replace("__DOOF_JSON_SUPPORT__", JSON_RUNTIME_SUPPORT)
+        .replace("__DOOF_JSON_TO_STRING_OVERLOAD__", JSON_TO_STRING_OVERLOAD)
+        .replace("__DOOF_ANY_SUPPORT__", anySupport);
 }
 
 // ============================================================================
@@ -44,7 +49,7 @@ const RUNTIME_HEADER = `#pragma once
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <nlohmann/json.hpp>
+__DOOF_JSON_INCLUDE__
 #include <optional>
 #include <queue>
 #include <limits>
@@ -67,6 +72,17 @@ namespace doof {
 [[noreturn]] inline void panic(const std::string& msg) {
     std::cerr << "panic: " << msg << std::endl;
     std::abort();
+}
+
+[[noreturn]] inline void unreachable() {
+#if defined(_MSC_VER)
+    __assume(false);
+    std::abort();
+#elif defined(__GNUC__) || defined(__clang__)
+    __builtin_unreachable();
+#else
+    std::abort();
+#endif
 }
 
 inline void assert_(bool condition, const std::string& message) {
@@ -180,104 +196,7 @@ struct JSONValue {
     bool isNull() const { return std::holds_alternative<std::monostate>(value); }
 };
 
-inline JSONValue json_from_nlohmann(const nlohmann::json& value) {
-    if (value.is_null()) {
-        return JSONValue(nullptr);
-    }
-    if (value.is_boolean()) {
-        return JSONValue(value.get<bool>());
-    }
-    if (value.is_number_integer()) {
-        const auto number = value.get<int64_t>();
-        if (number >= std::numeric_limits<int32_t>::min() && number <= std::numeric_limits<int32_t>::max()) {
-            return JSONValue(static_cast<int32_t>(number));
-        }
-        return JSONValue(number);
-    }
-    if (value.is_number_unsigned()) {
-        const auto number = value.get<uint64_t>();
-        if (number <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
-            return JSONValue(static_cast<int32_t>(number));
-        }
-        if (number <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-            return JSONValue(static_cast<int64_t>(number));
-        }
-        return JSONValue(static_cast<double>(number));
-    }
-    if (value.is_number_float()) {
-        return JSONValue(value.get<double>());
-    }
-    if (value.is_string()) {
-        return JSONValue(value.get<std::string>());
-    }
-    if (value.is_array()) {
-        auto result = std::make_shared<std::vector<JSONValue>>();
-        result->reserve(value.size());
-        for (const auto& item : value) {
-            result->push_back(json_from_nlohmann(item));
-        }
-        return JSONValue(std::move(result));
-    }
-    auto result = std::make_shared<std::unordered_map<std::string, JSONValue>>();
-    for (auto it = value.begin(); it != value.end(); ++it) {
-        (*result)[it.key()] = json_from_nlohmann(it.value());
-    }
-    return JSONValue(std::move(result));
-}
-
-inline nlohmann::json json_to_nlohmann(const JSONValue& value) {
-    return std::visit([](const auto& inner) -> nlohmann::json {
-        using T = std::decay_t<decltype(inner)>;
-        if constexpr (std::is_same_v<T, std::monostate>) {
-            return nullptr;
-        } else if constexpr (std::is_same_v<T, bool>
-            || std::is_same_v<T, int32_t>
-            || std::is_same_v<T, int64_t>
-            || std::is_same_v<T, float>
-            || std::is_same_v<T, double>
-            || std::is_same_v<T, std::string>) {
-            return inner;
-        } else if constexpr (std::is_same_v<T, JSONValue::Array>) {
-            auto result = nlohmann::json::array();
-            if (inner != nullptr) {
-                for (const auto& item : *inner) {
-                    result.push_back(json_to_nlohmann(item));
-                }
-            }
-            return result;
-        } else {
-            auto result = nlohmann::json::object();
-            if (inner != nullptr) {
-                for (const auto& [key, item] : *inner) {
-                    result[key] = json_to_nlohmann(item);
-                }
-            }
-            return result;
-        }
-    }, value.value);
-}
-
-struct JSON {
-    static Result<JSONValue, std::string> parse(const std::string& text) {
-        try {
-            return Result<JSONValue, std::string>::success(json_from_nlohmann(nlohmann::json::parse(text)));
-        } catch (const std::exception& error) {
-            return Result<JSONValue, std::string>::failure(error.what());
-        }
-    }
-
-    static std::string stringify(const JSONValue& value) {
-        return json_to_nlohmann(value).dump();
-    }
-};
-
-inline JSONValue json_parse_or_panic(const std::string& text) {
-    auto result = JSON::parse(text);
-    if (result.isFailure()) {
-        panic("Invalid embedded JSON: " + result.error());
-    }
-    return std::move(result.value());
-}
+__DOOF_JSON_SUPPORT__
 
 __DOOF_ANY_SUPPORT__
 
@@ -310,9 +229,7 @@ inline std::string to_string(ParseError val) {
     return ParseError_name(val);
 }
 
-inline std::string to_string(const JSONValue& value) {
-    return JSON::stringify(value);
-}
+__DOOF_JSON_TO_STRING_OVERLOAD__
 
 // Variadic string concatenation for string interpolation
 inline std::string concat() { return ""; }
@@ -930,3 +847,106 @@ struct ClassMetadata {
 
 } // namespace doof
 `;
+
+const JSON_TO_STRING_OVERLOAD = `inline std::string to_string(const JSONValue& value) {
+    return JSON::stringify(value);
+}`;
+
+const JSON_RUNTIME_SUPPORT = `inline JSONValue json_from_nlohmann(const nlohmann::json& value) {
+    if (value.is_null()) {
+        return JSONValue(nullptr);
+    }
+    if (value.is_boolean()) {
+        return JSONValue(value.get<bool>());
+    }
+    if (value.is_number_integer()) {
+        const auto number = value.get<int64_t>();
+        if (number >= std::numeric_limits<int32_t>::min() && number <= std::numeric_limits<int32_t>::max()) {
+            return JSONValue(static_cast<int32_t>(number));
+        }
+        return JSONValue(number);
+    }
+    if (value.is_number_unsigned()) {
+        const auto number = value.get<uint64_t>();
+        if (number <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+            return JSONValue(static_cast<int32_t>(number));
+        }
+        if (number <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return JSONValue(static_cast<int64_t>(number));
+        }
+        return JSONValue(static_cast<double>(number));
+    }
+    if (value.is_number_float()) {
+        return JSONValue(value.get<double>());
+    }
+    if (value.is_string()) {
+        return JSONValue(value.get<std::string>());
+    }
+    if (value.is_array()) {
+        auto result = std::make_shared<std::vector<JSONValue>>();
+        result->reserve(value.size());
+        for (const auto& item : value) {
+            result->push_back(json_from_nlohmann(item));
+        }
+        return JSONValue(std::move(result));
+    }
+    auto result = std::make_shared<std::unordered_map<std::string, JSONValue>>();
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        (*result)[it.key()] = json_from_nlohmann(it.value());
+    }
+    return JSONValue(std::move(result));
+}
+
+inline nlohmann::json json_to_nlohmann(const JSONValue& value) {
+    return std::visit([](const auto& inner) -> nlohmann::json {
+        using T = std::decay_t<decltype(inner)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            return nullptr;
+        } else if constexpr (std::is_same_v<T, bool>
+            || std::is_same_v<T, int32_t>
+            || std::is_same_v<T, int64_t>
+            || std::is_same_v<T, float>
+            || std::is_same_v<T, double>
+            || std::is_same_v<T, std::string>) {
+            return inner;
+        } else if constexpr (std::is_same_v<T, JSONValue::Array>) {
+            auto result = nlohmann::json::array();
+            if (inner != nullptr) {
+                for (const auto& item : *inner) {
+                    result.push_back(json_to_nlohmann(item));
+                }
+            }
+            return result;
+        } else {
+            auto result = nlohmann::json::object();
+            if (inner != nullptr) {
+                for (const auto& [key, item] : *inner) {
+                    result[key] = json_to_nlohmann(item);
+                }
+            }
+            return result;
+        }
+    }, value.value);
+}
+
+struct JSON {
+    static Result<JSONValue, std::string> parse(const std::string& text) {
+        try {
+            return Result<JSONValue, std::string>::success(json_from_nlohmann(nlohmann::json::parse(text)));
+        } catch (const std::exception& error) {
+            return Result<JSONValue, std::string>::failure(error.what());
+        }
+    }
+
+    static std::string stringify(const JSONValue& value) {
+        return json_to_nlohmann(value).dump();
+    }
+};
+
+inline JSONValue json_parse_or_panic(const std::string& text) {
+    auto result = JSON::parse(text);
+    if (result.isFailure()) {
+        panic("Invalid embedded JSON: " + result.error());
+    }
+    return std::move(result.value());
+}`;

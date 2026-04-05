@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
@@ -85,45 +86,198 @@ export interface DoofBuildManifest {
   remoteDependencies: BuildProvenance["dependencies"];
 }
 
+export type CompilerToolchainKind = "gcc-like" | "msvc";
+
+export interface CompilerToolchain {
+  kind: CompilerToolchainKind;
+  command: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface CompilerDetectionHost {
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  fileExists(filePath: string): boolean;
+  execFile(command: string, args: string[], options?: ExecFileSyncOptions): Buffer;
+}
+
+export type CompileMode = "build" | "syntax-only";
+
+export interface BuildCompileArgsOptions {
+  toolchain?: CompilerToolchain;
+  outputBinaryName?: string;
+  mode?: CompileMode;
+  extraIncludePaths?: string[];
+  platform?: NodeJS.Platform;
+}
+
+interface WindowsEnvScript {
+  filePath: string;
+  args: string[];
+}
+
+const DEFAULT_GCC_TOOLCHAIN: CompilerToolchain = { kind: "gcc-like", command: "c++" };
+const VSWHERE_COMPONENT = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64";
+const GCC_LIKE_COMPILERS = ["clang++", "g++", "c++"] as const;
+const VISUAL_STUDIO_VERSION_NAMES = ["18", "17", "16", "15", "Preview", "Current"];
+const VISUAL_STUDIO_EDITIONS = ["Community", "Professional", "Enterprise", "BuildTools"];
+const NLOHMANN_JSON_VERSION = "v3.11.3";
+const NLOHMANN_JSON_URL = `https://raw.githubusercontent.com/nlohmann/json/${NLOHMANN_JSON_VERSION}/single_include/nlohmann/json.hpp`;
+
+interface ResolveNlohmannIncludeOptions {
+  host?: CompilerDetectionHost;
+  allowProvision?: boolean;
+  provisioner?: (host: CompilerDetectionHost) => string | null;
+}
+
+function defaultCompilerDetectionHost(): CompilerDetectionHost {
+  return {
+    platform: process.platform,
+    env: process.env,
+    fileExists(filePath: string) {
+      return fs.existsSync(filePath);
+    },
+    execFile(command: string, args: string[], options?: ExecFileSyncOptions) {
+      const result = execFileSync(command, args, { stdio: "pipe", timeout: 5000, ...options });
+      return Buffer.isBuffer(result) ? result : Buffer.from(result);
+    },
+  };
+}
+
+export function getDefaultOutputBinaryName(platform = process.platform): string {
+  return platform === "win32" ? "a.exe" : "a.out";
+}
+
+export function normalizeOutputBinaryName(outputBinaryName: string, platform = process.platform): string {
+  if (platform !== "win32") {
+    return outputBinaryName;
+  }
+
+  return path.win32.extname(outputBinaryName) ? outputBinaryName : `${outputBinaryName}.exe`;
+}
+
+function getResolvedOutputBinaryName(outputBinaryName: string | undefined, platform = process.platform): string {
+  return normalizeOutputBinaryName(outputBinaryName ?? getDefaultOutputBinaryName(platform), platform);
+}
+
+export function findCompilerToolchain(): CompilerToolchain {
+  return resolveCompilerToolchain(null);
+}
+
 export function findCompiler(): string {
-  const compiler = tryFindCompiler();
-  if (compiler) return compiler;
-  throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
+  return findCompilerToolchain().command;
 }
 
 export function tryFindCompiler(): string | null {
-  for (const cc of [process.env.CXX, "clang++", "g++", "c++"]) {
-    if (!cc) {
-      continue;
+  return tryFindCompilerToolchain()?.command ?? null;
+}
+
+export function tryFindCompilerToolchain(host: CompilerDetectionHost = defaultCompilerDetectionHost()): CompilerToolchain | null {
+  const explicitCompiler = host.env.CXX?.trim();
+  if (explicitCompiler) {
+    return tryResolveCompilerToolchain(explicitCompiler, host);
+  }
+
+  if (host.platform === "win32") {
+    const msvcToolchain = tryResolveMsvcToolchain("cl.exe", host);
+    if (msvcToolchain) {
+      return msvcToolchain;
     }
-    try {
-      execFileSync(cc, ["--version"], { stdio: "pipe", timeout: 5000 });
-      return cc;
-    } catch {
-      continue;
+  }
+
+  for (const compiler of GCC_LIKE_COMPILERS) {
+    const toolchain = tryResolveGccLikeToolchain(compiler, host);
+    if (toolchain) {
+      return toolchain;
     }
   }
 
   return null;
 }
 
-export function findNlohmannInclude(): string | null {
+export function resolveCompilerToolchain(
+  compiler: string | null | undefined,
+  host: CompilerDetectionHost = defaultCompilerDetectionHost(),
+): CompilerToolchain {
+  if (compiler) {
+    const explicitToolchain = tryResolveCompilerToolchain(compiler, host);
+    if (explicitToolchain) {
+      return explicitToolchain;
+    }
+
+    throw new Error(`Unable to use C++ compiler: ${compiler}`);
+  }
+
+  const autoDetected = tryFindCompilerToolchain(host);
+  if (autoDetected) {
+    return autoDetected;
+  }
+
+  if (host.platform === "win32") {
+    throw new Error("No C++ compiler found. Install Visual Studio with MSVC tools, or use --compiler <path>");
+  }
+
+  throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
+}
+
+export function findNlohmannInclude(
+  includePaths: readonly string[] = [],
+  host: CompilerDetectionHost = defaultCompilerDetectionHost(),
+): string | null {
+  for (const dir of includePaths) {
+    if (hasNlohmannHeader(dir, host.fileExists)) {
+      return dir;
+    }
+  }
+
+  const configuredInclude = host.env.DOOF_NLOHMANN_INCLUDE;
+  if (configuredInclude && hasNlohmannHeader(configuredInclude, host.fileExists)) {
+    return configuredInclude;
+  }
+
+  if (host.platform === "win32") {
+    for (const dir of getWindowsNlohmannCandidates(host.env)) {
+      if (hasNlohmannHeader(dir, host.fileExists)) {
+        return dir;
+      }
+    }
+    return null;
+  }
+
   try {
-    const prefix = execFileSync("brew", ["--prefix", "nlohmann-json"], { stdio: "pipe", timeout: 5000 }).toString().trim();
-    if (prefix && fs.existsSync(path.join(prefix, "include", "nlohmann", "json.hpp"))) {
-      return path.join(prefix, "include");
+    const prefix = host.execFile("brew", ["--prefix", "nlohmann-json"], { timeout: 5000 }).toString().trim();
+    const brewInclude = prefix ? path.join(prefix, "include") : "";
+    if (brewInclude && hasNlohmannHeader(brewInclude, host.fileExists)) {
+      return brewInclude;
     }
   } catch {
     // Ignore missing Homebrew or package.
   }
 
   for (const dir of ["/usr/local/include", "/usr/include"]) {
-    if (fs.existsSync(path.join(dir, "nlohmann", "json.hpp"))) {
+    if (hasNlohmannHeader(dir, host.fileExists)) {
       return dir;
     }
   }
 
   return null;
+}
+
+export function resolveNlohmannInclude(
+  includePaths: readonly string[] = [],
+  options: ResolveNlohmannIncludeOptions = {},
+): string | null {
+  const host = options.host ?? defaultCompilerDetectionHost();
+  const discoveredInclude = findNlohmannInclude(includePaths, host);
+  if (discoveredInclude) {
+    return discoveredInclude;
+  }
+
+  if (!options.allowProvision) {
+    return null;
+  }
+
+  return (options.provisioner ?? provisionNlohmannInclude)(host);
 }
 
 export function runPipelineWithFs(
@@ -186,7 +340,7 @@ export function runPipelineWithFs(
   const project = emitProject(normalizedEntryPath, analysisResult, resolvedNativeBuild);
   if (verbose) log(`  ${project.modules.length} module(s) emitted`);
 
-  const outputBinaryName = packageGraph.rootPackage.manifest.build?.targetExecutableName ?? "a.out";
+  const outputBinaryName = getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
   const provenance = createBuildProvenance(packageGraph);
 
   return {
@@ -236,28 +390,23 @@ export function buildCompileArgs(
   outDir: string,
   project: ProjectEmitResult,
   nativeBuild: NativeBuildOptions,
-  outputBinaryName = "a.out",
+  options: BuildCompileArgsOptions = {},
 ): { outBinary: string; args: string[] } {
-  const absOutDir = resolveFsPath(outDir);
-  const outBinary = joinFsPath(absOutDir, outputBinaryName);
-  const moduleCppFiles = project.modules.map((mod) => joinFsPath(absOutDir, mod.cppPath));
+  const toolchain = options.toolchain ?? DEFAULT_GCC_TOOLCHAIN;
+  const platform = options.platform ?? process.platform;
+  const mode = options.mode ?? "build";
+  const absOutDir = platform === "win32" ? path.resolve(outDir) : resolveFsPath(outDir);
+  const outBinary = platform === "win32"
+    ? path.win32.join(absOutDir, getResolvedOutputBinaryName(options.outputBinaryName, platform))
+    : joinFsPath(absOutDir, getResolvedOutputBinaryName(options.outputBinaryName, platform));
+  const moduleCppFiles = project.modules.map((mod) => platform === "win32"
+    ? path.win32.join(absOutDir, mod.cppPath)
+    : joinFsPath(absOutDir, mod.cppPath));
+  const includePaths = uniqueStrings([absOutDir, ...(options.extraIncludePaths ?? []), ...nativeBuild.includePaths]);
 
-  const args = [
-    `-std=${nativeBuild.cppStd}`,
-    `-I${absOutDir}`,
-    ...nativeBuild.includePaths.map((includePath) => `-I${includePath}`),
-    ...nativeBuild.defines.map((define) => `-D${define}`),
-    ...nativeBuild.compilerFlags,
-    "-o",
-    outBinary,
-    ...moduleCppFiles,
-    ...nativeBuild.sourceFiles,
-    ...nativeBuild.objectFiles,
-    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
-    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
-    ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
-    ...nativeBuild.linkerFlags,
-  ];
+  const args = toolchain.kind === "msvc"
+    ? buildMsvcCompileArgs(outBinary, moduleCppFiles, includePaths, nativeBuild, mode)
+    : buildGccLikeCompileArgs(outBinary, moduleCppFiles, includePaths, nativeBuild, mode);
 
   return { outBinary, args };
 }
@@ -265,23 +414,30 @@ export function buildCompileArgs(
 export function compileCpp(
   outDir: string,
   project: ProjectEmitResult,
-  compiler: string,
+  toolchain: CompilerToolchain,
   nativeBuild: NativeBuildOptions,
   verbose: boolean,
   log: (msg: string) => void,
-  outputBinaryName = "a.out",
+  outputBinaryName = getDefaultOutputBinaryName(),
 ): string {
-  const { outBinary, args } = buildCompileArgs(outDir, project, nativeBuild, outputBinaryName);
-  const nlohmannInclude = findNlohmannInclude();
-  const compileArgs = nlohmannInclude
-    ? [args[0], args[1], `-I${nlohmannInclude}`, ...args.slice(2)]
-    : args;
-  if (verbose) log(`Compiling: ${[compiler, ...compileArgs].map(formatShellArg).join(" ")}`);
+  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
+    allowProvision: true,
+  });
+  const { outBinary, args } = buildCompileArgs(outDir, project, nativeBuild, {
+    toolchain,
+    outputBinaryName,
+    extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
+  });
+  if (verbose) log(`Compiling: ${[toolchain.command, ...args].map(formatShellArg).join(" ")}`);
 
   try {
-    execFileSync(compiler, compileArgs, { stdio: "pipe", timeout: 30000 });
+    execFileSync(toolchain.command, args, {
+      stdio: "pipe",
+      timeout: 30000,
+      env: toolchain.env ?? process.env,
+    });
   } catch (e: any) {
-    throw new Error(`Compilation failed:\n${e.stderr?.toString() ?? e.message}`);
+    throw new Error(formatProcessFailure("Compilation failed", e));
   }
 
   if (verbose) log(`  binary: ${outBinary}`);
@@ -368,6 +524,390 @@ function mergeResolvedNativeBuildOptions(
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function formatProcessFailure(prefix: string, error: any): string {
+  const stdout = error?.stdout?.toString()?.trim();
+  const stderr = error?.stderr?.toString()?.trim();
+  const details = [stdout, stderr].filter((value): value is string => Boolean(value && value.length > 0));
+  return details.length > 0
+    ? `${prefix}:\n${details.join("\n")}`
+    : `${prefix}:\n${error?.message ?? String(error)}`;
+}
+
+function tryResolveCompilerToolchain(compiler: string, host: CompilerDetectionHost): CompilerToolchain | null {
+  return isMsvcCompilerCommand(compiler, host.platform)
+    ? tryResolveMsvcToolchain(compiler, host)
+    : tryResolveGccLikeToolchain(compiler, host);
+}
+
+function tryResolveGccLikeToolchain(compiler: string, host: CompilerDetectionHost): CompilerToolchain | null {
+  try {
+    host.execFile(compiler, ["--version"], { timeout: 5000 });
+    return { kind: "gcc-like", command: compiler };
+  } catch {
+    return null;
+  }
+}
+
+function tryResolveMsvcToolchain(compiler: string, host: CompilerDetectionHost): CompilerToolchain | null {
+  if (canRunMsvcCompiler(compiler, host.env, host)) {
+    return { kind: "msvc", command: compiler, env: host.env };
+  }
+
+  const installationPath = findVisualStudioInstallationPath(host);
+  if (!installationPath) {
+    return null;
+  }
+
+  const envScript = findVisualStudioEnvScript(installationPath, host.fileExists);
+  if (!envScript) {
+    return null;
+  }
+
+  const preparedEnv = loadWindowsBuildEnvironment(envScript, host);
+  const resolvedCompiler = hasPathSeparators(compiler)
+    ? compiler
+    : findCommandInPath(compiler, getEnvValue(preparedEnv, "PATH"), host.fileExists);
+  if (!resolvedCompiler || !canRunMsvcCompiler(resolvedCompiler, preparedEnv, host)) {
+    return null;
+  }
+
+  return {
+    kind: "msvc",
+    command: resolvedCompiler,
+    env: preparedEnv,
+  };
+}
+
+function canRunMsvcCompiler(compiler: string, env: NodeJS.ProcessEnv, host: CompilerDetectionHost): boolean {
+  try {
+    host.execFile(compiler, ["/?"], { timeout: 5000, env });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isMsvcCompilerCommand(compiler: string, platform: NodeJS.Platform): boolean {
+  if (platform !== "win32") {
+    return false;
+  }
+
+  const baseName = path.win32.basename(compiler).toLowerCase();
+  return baseName === "cl" || baseName === "cl.exe";
+}
+
+function findVisualStudioInstallationPath(host: CompilerDetectionHost): string | null {
+  for (const vswherePath of getVswhereCandidates(host.env, host.fileExists)) {
+    try {
+      const result = host.execFile(vswherePath, [
+        "-latest",
+        "-products",
+        "*",
+        "-requires",
+        VSWHERE_COMPONENT,
+        "-property",
+        "installationPath",
+      ], { timeout: 5000 });
+      const installationPath = result.toString().trim().split(/\r?\n/)[0]?.trim();
+      if (installationPath) {
+        return installationPath;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  for (const candidate of getVisualStudioInstallationFallbacks(host.env, host.fileExists)) {
+    return candidate;
+  }
+
+  return null;
+}
+
+function getVswhereCandidates(env: NodeJS.ProcessEnv, fileExists: (filePath: string) => boolean): string[] {
+  const candidates: string[] = [];
+  const programFilesX86 = env["ProgramFiles(x86)"] ?? env.ProgramFiles;
+  if (programFilesX86) {
+    const defaultPath = path.win32.join(programFilesX86, "Microsoft Visual Studio", "Installer", "vswhere.exe");
+    if (fileExists(defaultPath)) {
+      candidates.push(defaultPath);
+    }
+  }
+
+  candidates.push("vswhere.exe");
+  return uniqueStrings(candidates);
+}
+
+function getVisualStudioInstallationFallbacks(
+  env: NodeJS.ProcessEnv,
+  fileExists: (filePath: string) => boolean,
+): string[] {
+  return getVisualStudioInstallationCandidates(env).filter((installationPath) =>
+    hasVisualStudioBuildEnvironment(installationPath, fileExists));
+}
+
+function getVisualStudioInstallationCandidates(env: NodeJS.ProcessEnv): string[] {
+  const roots = uniqueStrings([
+    env.ProgramFiles ? path.win32.join(env.ProgramFiles, "Microsoft Visual Studio") : "",
+    env["ProgramFiles(x86)"] ? path.win32.join(env["ProgramFiles(x86)"], "Microsoft Visual Studio") : "",
+  ].filter(Boolean));
+
+  const candidates: string[] = [];
+  for (const root of roots) {
+    for (const versionName of VISUAL_STUDIO_VERSION_NAMES) {
+      for (const edition of VISUAL_STUDIO_EDITIONS) {
+        candidates.push(path.win32.join(root, versionName, edition));
+      }
+    }
+  }
+
+  return uniqueStrings(candidates);
+}
+
+function findVisualStudioEnvScript(
+  installationPath: string,
+  fileExists: (filePath: string) => boolean,
+): WindowsEnvScript | null {
+  const candidates: WindowsEnvScript[] = [
+    { filePath: path.win32.join(installationPath, "VC", "Auxiliary", "Build", "vcvars64.bat"), args: [] },
+    { filePath: path.win32.join(installationPath, "VC", "Auxiliary", "Build", "vcvarsall.bat"), args: ["x64"] },
+    { filePath: path.win32.join(installationPath, "Common7", "Tools", "VsDevCmd.bat"), args: [] },
+  ];
+
+  return candidates.find((candidate) => fileExists(candidate.filePath)) ?? null;
+}
+
+function hasVisualStudioBuildEnvironment(
+  installationPath: string,
+  fileExists: (filePath: string) => boolean,
+): boolean {
+  return fileExists(path.win32.join(installationPath, "VC", "Auxiliary", "Build", "vcvars64.bat"))
+    || fileExists(path.win32.join(installationPath, "VC", "Auxiliary", "Build", "vcvarsall.bat"))
+    || fileExists(path.win32.join(installationPath, "Common7", "Tools", "VsDevCmd.bat"));
+}
+
+function loadWindowsBuildEnvironment(script: WindowsEnvScript, host: CompilerDetectionHost): NodeJS.ProcessEnv {
+  const output = host.execFile("cmd.exe", [
+    "/d",
+    "/c",
+    "call",
+    script.filePath,
+    ...script.args,
+    ">",
+    "nul",
+    "&&",
+    "set",
+  ], {
+    timeout: 15000,
+    env: host.env,
+  }).toString();
+
+  return parseEnvironmentBlock(output, host.env);
+}
+
+function parseEnvironmentBlock(output: string, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...baseEnv };
+
+  for (const rawLine of output.split(/\r?\n/)) {
+    if (!rawLine) {
+      continue;
+    }
+
+    const equalsIndex = rawLine.indexOf("=");
+    if (equalsIndex <= 0) {
+      continue;
+    }
+
+    const key = rawLine.slice(0, equalsIndex);
+    const value = rawLine.slice(equalsIndex + 1);
+    env[key] = value;
+  }
+
+  return env;
+}
+
+function getEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const directValue = env[key];
+  if (directValue !== undefined) {
+    return directValue;
+  }
+
+  const normalizedKey = key.toLowerCase();
+  const actualKey = Object.keys(env).find((candidate) => candidate.toLowerCase() === normalizedKey);
+  return actualKey ? env[actualKey] : undefined;
+}
+
+function findCommandInPath(
+  command: string,
+  pathValue: string | undefined,
+  fileExists: (filePath: string) => boolean,
+): string | null {
+  if (!pathValue) {
+    return null;
+  }
+
+  for (const segment of pathValue.split(";")) {
+    const trimmedSegment = segment.trim();
+    if (!trimmedSegment) {
+      continue;
+    }
+
+    const candidate = path.win32.join(trimmedSegment, command);
+    if (fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function hasPathSeparators(value: string): boolean {
+  return value.includes("/") || value.includes("\\") || /^[A-Za-z]:/.test(value);
+}
+
+function hasNlohmannHeader(includeDir: string, fileExists: (filePath: string) => boolean): boolean {
+  return fileExists(path.join(includeDir, "nlohmann", "json.hpp"));
+}
+
+function getWindowsNlohmannCandidates(env: NodeJS.ProcessEnv): string[] {
+  const candidates: string[] = [];
+  const configuredVcpkgRoot = env.VCPKG_ROOT;
+  if (configuredVcpkgRoot) {
+    candidates.push(path.win32.join(configuredVcpkgRoot, "installed", "x64-windows", "include"));
+    candidates.push(path.win32.join(configuredVcpkgRoot, "installed", "x86-windows", "include"));
+  }
+
+  for (const installationPath of getVisualStudioInstallationCandidates(env)) {
+    candidates.push(path.win32.join(installationPath, "VC", "vcpkg", "installed", "x64-windows", "include"));
+    candidates.push(path.win32.join(installationPath, "VC", "vcpkg", "installed", "x86-windows", "include"));
+  }
+
+  candidates.push(getProvisionedNlohmannIncludeDir());
+  return uniqueStrings(candidates);
+}
+
+function getProvisionedNlohmannIncludeDir(): string {
+  return path.join(os.homedir(), ".doof", "cache", "nlohmann-json", NLOHMANN_JSON_VERSION, "include");
+}
+
+function provisionNlohmannInclude(host: CompilerDetectionHost): string | null {
+  const includeDir = getProvisionedNlohmannIncludeDir();
+  if (hasNlohmannHeader(includeDir, host.fileExists)) {
+    return includeDir;
+  }
+
+  try {
+    const targetFile = path.join(includeDir, "nlohmann", "json.hpp");
+    const downloadScript = [
+      'import { mkdirSync, writeFileSync } from "node:fs";',
+      'import { dirname } from "node:path";',
+      'const [, url, targetFile] = process.argv;',
+      'const response = await fetch(url);',
+      'if (!response.ok) throw new Error(`HTTP ${response.status} while downloading ${url}`);',
+      'const text = await response.text();',
+      'mkdirSync(dirname(targetFile), { recursive: true });',
+      'writeFileSync(targetFile, text, "utf8");',
+    ].join(" ");
+    execFileSync(process.execPath, ["--input-type=module", "-e", downloadScript, NLOHMANN_JSON_URL, targetFile], {
+      stdio: "pipe",
+      timeout: 60000,
+      env: host.env,
+    });
+
+    return hasNlohmannHeader(includeDir, host.fileExists) ? includeDir : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildGccLikeCompileArgs(
+  outBinary: string,
+  moduleCppFiles: string[],
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  mode: CompileMode,
+): string[] {
+  const compileArgs = [
+    `-std=${nativeBuild.cppStd}`,
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+  ];
+
+  const compileSources = [...moduleCppFiles, ...nativeBuild.sourceFiles];
+  if (mode === "syntax-only") {
+    return [...compileArgs, "-fsyntax-only", ...compileSources];
+  }
+
+  return [
+    ...compileArgs,
+    "-o",
+    outBinary,
+    ...compileSources,
+    ...nativeBuild.objectFiles,
+    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
+    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+    ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
+    ...nativeBuild.linkerFlags,
+  ];
+}
+
+function buildMsvcCompileArgs(
+  outBinary: string,
+  moduleCppFiles: string[],
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  mode: CompileMode,
+): string[] {
+  const compileArgs = [
+    "/nologo",
+    `/std:${toMsvcCppStandard(nativeBuild.cppStd)}`,
+    "/EHsc",
+    ...includePaths.map((includePath) => `/I${includePath}`),
+    ...nativeBuild.defines.map((define) => `/D${define}`),
+    ...nativeBuild.compilerFlags,
+  ];
+
+  const compileSources = [...moduleCppFiles, ...nativeBuild.sourceFiles];
+  if (mode === "syntax-only") {
+    return [...compileArgs, "/Zs", ...compileSources];
+  }
+
+  const linkArgs = [
+    ...nativeBuild.libraryPaths.map((libraryPath) => `/LIBPATH:${libraryPath}`),
+    ...nativeBuild.linkLibraries.map(normalizeMsvcLibraryName),
+    ...nativeBuild.linkerFlags,
+  ];
+
+  return [
+    ...compileArgs,
+    `/Fe${outBinary}`,
+    ...compileSources,
+    ...nativeBuild.objectFiles,
+    ...(linkArgs.length > 0 ? ["/link", ...linkArgs] : []),
+  ];
+}
+
+function toMsvcCppStandard(cppStd: string): string {
+  switch (cppStd) {
+    case "gnu++14":
+      return "c++14";
+    case "gnu++17":
+      return "c++17";
+    case "gnu++20":
+      return "c++20";
+    case "gnu++23":
+    case "c++23":
+      return "c++latest";
+    default:
+      return cppStd;
+  }
+}
+
+function normalizeMsvcLibraryName(library: string): string {
+  return library.toLowerCase().endsWith(".lib") ? library : `${library}.lib`;
 }
 
 export function formatDiagnostic(diagnostic: DiagnosticLike): string {

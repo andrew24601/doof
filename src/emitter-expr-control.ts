@@ -114,7 +114,7 @@ function emitCaseAsAnyMatch(expr: CaseExpression, subject: string, ctx: EmitCont
     }
   }
 
-  result += `${innerInd}__builtin_unreachable();\n`;
+  result += `${innerInd}doof::unreachable();\n`;
   result += `${ind}}()`;
   return result;
 }
@@ -154,7 +154,7 @@ function emitCaseAsResultMatch(expr: CaseExpression, subject: string, ctx: EmitC
     }
   }
 
-  result += `${innerInd}__builtin_unreachable();\n`;
+  result += `${innerInd}doof::unreachable();\n`;
   result += `${ind}}()`;
   return result;
 }

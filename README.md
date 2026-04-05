@@ -110,7 +110,11 @@ Requirements:
 
 - Node.js
 - npm
-- `clang++` or `g++` if you want to use `doof build` or `doof run`
+- a native C++ compiler if you want to use `doof build`, `doof run`, or `doof test`
+
+On macOS and Linux, the CLI auto-detects `clang++`, `g++`, or `c++`.
+
+On Windows, the CLI auto-detects Visual Studio's `cl.exe` and configures the required MSVC environment automatically when Visual Studio is installed with the C++ tools workload.
 
 Install the CLI into a project:
 
@@ -175,7 +179,7 @@ doof <command> [options] <entry.do | path>
 | Option | Description |
 | --- | --- |
 | `-o, --outdir <dir>` | Output directory. Default: `./build` |
-| `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++` or `g++` |
+| `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
 | `--std <standard>` | C++ standard. Default: `c++17` |
 | `--include-path <dir>` | Additional header search path. Repeatable |
 | `--lib-path <dir>` | Additional library search path. Repeatable |
@@ -254,6 +258,12 @@ Use a specific compiler and standard:
 npx doof build --compiler /usr/bin/clang++ --std c++20 samples/hello.do
 ```
 
+On Windows, you can also point directly at `cl.exe` if you want to override auto-detection:
+
+```powershell
+npx doof build --compiler "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\bin\Hostx64\x64\cl.exe" samples/hello.do
+```
+
 Build a Doof program that depends on native headers and a system library:
 
 ```bash
@@ -282,9 +292,9 @@ npx doof emit \
 
 - `check` runs parsing, module analysis, and type checking
 - `emit` runs the full compiler pipeline and writes generated C++ files plus `CMakeLists.txt`; native build flags are written into the generated build metadata
-- `build` emits the project and compiles it to `a.out` in the output directory, including any additional include paths, libraries, frameworks, native sources, objects, defines, and extra flags
+- `build` emits the project and compiles it to a native executable in the output directory, including any additional include paths, libraries, frameworks, native sources, objects, defines, and extra flags
 - `run` does the same as `build` and then executes the produced binary
-- `test` discovers exported test functions in `.test.do` files, builds a temporary test harness, compiles once, and runs each discovered test in its own process
+- `test` discovers exported test functions in `.test.do` files, builds a temporary test harness, compiles once with the same native compiler detection used by `build`, and runs each discovered test in its own process
 
 ## Testing
 

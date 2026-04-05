@@ -94,6 +94,13 @@ describe("emitter — Result type", () => {
     expect(cpp).toContain("std::optional<int32_t>");
     expect(cpp).toContain("std::nullopt");
   });
+
+  it("always includes JSON runtime support", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("nlohmann/json.hpp");
+    expect(header).toContain("json_from_nlohmann");
+    expect(header).toContain("struct JSONValue");
+  });
 });
 
 // ============================================================================

@@ -65,6 +65,21 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(cppCode).toContain("return a + b");
   });
 
+  it("always emits runtime JSON support and CMake dependency", () => {
+    const project = emitProjectHelper({
+      "/main.do": `
+        function main(): int {
+          println("ok")
+          return 0
+        }
+      `,
+    }, "/main.do");
+
+    expect(project.runtime).toContain("#include <nlohmann/json.hpp>");
+    expect(project.runtime).toContain("struct JSON {");
+    expect(project.cmake).toContain("FetchContent_Declare(");
+  });
+
   it("hpp has struct definition for exported class", () => {
     const { hppCode } = emitSplit(`
       export class Point { x, y: float }
@@ -336,7 +351,7 @@ describe("emitter-module — emitProject", () => {
     expect(result.cmake).toContain("-pthread");
   });
 
-  it("cmake omits nlohmann/json when no JSON is used", () => {
+  it("cmake includes nlohmann/json even when no user JSON API is used", () => {
     const result = emitProjectHelper(
       {
         "/main.do": `
@@ -346,8 +361,8 @@ describe("emitter-module — emitProject", () => {
       },
       "/main.do",
     );
-    expect(result.cmake).not.toContain("nlohmann");
-    expect(result.cmake).not.toContain("FetchContent");
+    expect(result.cmake).toContain("nlohmann_json::nlohmann_json");
+    expect(result.cmake).toContain("FetchContent");
   });
 
   it("cmake includes nlohmann/json when JSON is used", () => {

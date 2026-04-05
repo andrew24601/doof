@@ -876,19 +876,14 @@ function generateCMakeLists(
   }
   lines.push("");
 
-  // Check if any module in the project needs JSON serialization
-  const projectNeedsJson = projectUsesJson(analysisResult);
-
-  if (projectNeedsJson) {
-    // nlohmann/json dependency (header-only, fetched via FetchContent)
-    lines.push("include(FetchContent)");
-    lines.push("FetchContent_Declare(");
-    lines.push("    json");
-    lines.push("    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz");
-    lines.push(")");
-    lines.push("FetchContent_MakeAvailable(json)");
-    lines.push("");
-  }
+  // nlohmann/json dependency (header-only, fetched via FetchContent)
+  lines.push("include(FetchContent)");
+  lines.push("FetchContent_Declare(");
+  lines.push("    json");
+  lines.push("    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz");
+  lines.push(")");
+  lines.push("FetchContent_MakeAvailable(json)");
+  lines.push("");
 
   // Collect all .cpp source files
   const sources = [
@@ -951,9 +946,7 @@ function generateCMakeLists(
     lines.push(")");
   }
 
-  if (projectNeedsJson) {
-    nativeBuild.linkLibraries = [...nativeBuild.linkLibraries, "nlohmann_json::nlohmann_json"];
-  }
+  nativeBuild.linkLibraries = [...nativeBuild.linkLibraries, "nlohmann_json::nlohmann_json"];
 
   if (nativeBuild.linkLibraries.length > 0) {
     lines.push("");
@@ -997,18 +990,6 @@ function cmakeValue(value: string): string {
     return value;
   }
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-/** Check if any module in the project has a class or interface marked needsJson. */
-function projectUsesJson(analysisResult: AnalysisResult): boolean {
-  for (const [, table] of analysisResult.modules) {
-    for (const stmt of table.program.statements) {
-      const decl = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
-      if (decl.kind === "class-declaration" && decl.needsJson) return true;
-      if (decl.kind === "interface-declaration" && decl.needsJson) return true;
-    }
-  }
-  return false;
 }
 
 // ============================================================================

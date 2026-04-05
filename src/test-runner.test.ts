@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findCompiler, findNlohmannInclude } from "./cli-core.js";
+import { findNlohmannInclude, resolveCompilerToolchain } from "./cli-core.js";
 import {
   discoverTests,
   filterTests,
@@ -116,7 +116,7 @@ describe("test runner execution", () => {
     const reporter = createReporter();
     const result = runTestCommand({
       targetPath: dir,
-      compiler: "clang++",
+      compiler: { kind: "gcc-like", command: "clang++" },
       nativeBuild: emptyNativeBuildOptions(),
       filter: "Sub",
       listOnly: true,
@@ -129,9 +129,9 @@ describe("test runner execution", () => {
   });
 
   it("compiles once and reports pass/fail counts", () => {
-    let compiler: string;
+    let compiler;
     try {
-      compiler = findCompiler();
+      compiler = resolveCompilerToolchain(null);
     } catch {
       return;
     }

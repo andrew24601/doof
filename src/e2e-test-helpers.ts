@@ -11,7 +11,13 @@ import * as os from "node:os";
 import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { buildAnyRuntimePlan } from "./any-runtime.js";
-import { buildCompileArgs, findNlohmannInclude, tryFindCompiler } from "./cli-core.js";
+import {
+  buildCompileArgs,
+  type CompilerToolchain,
+  resolveNlohmannInclude,
+  resolveCompilerToolchain,
+  tryFindCompilerToolchain,
+} from "./cli-core.js";
 import { emitCpp } from "./emitter.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitProject, type NativeBuildOptions } from "./emitter-module.js";
@@ -52,7 +58,7 @@ function createNativeBuildOptions(
 // ============================================================================
 
 export function hasNativeToolchain(): boolean {
-  return tryFindCompiler() !== null;
+  return tryFindCompilerToolchain() !== null;
 }
 
 /** Run the full Doof pipeline and return the generated C++ string. */
@@ -83,17 +89,19 @@ function emitArtifacts(source: string, entry = "/main.do"): { code: string; runt
  */
 export class E2EContext {
   tmpDir = "";
-  cppCompiler = "";
-  nlohmannInclude = "";
+  cppToolchain: CompilerToolchain | null = null;
 
   setup(): void {
-    const compiler = tryFindCompiler();
+    let compiler: CompilerToolchain | null = null;
+    try {
+      compiler = resolveCompilerToolchain(null);
+    } catch {
+      compiler = null;
+    }
     if (!compiler) {
       console.warn("No C++ compiler found — skipping end-to-end tests");
     }
-    this.cppCompiler = compiler ?? "";
-    const includeDir = findNlohmannInclude();
-    this.nlohmannInclude = includeDir ? `-I${includeDir}` : "";
+    this.cppToolchain = compiler;
     this.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-e2e-"));
   }
 
@@ -107,11 +115,11 @@ export class E2EContext {
    * Compile and run a Doof source program. Returns the program's output.
    */
   compileAndRun(doofSource: string): RunResult {
-    if (!this.cppCompiler) {
+    if (!this.cppToolchain) {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        stderr: missingCompilerMessage(),
       };
     }
 
@@ -131,42 +139,45 @@ export class E2EContext {
 
     const cppFile = path.join(this.tmpDir, "main.cpp");
     const runtimeFile = path.join(this.tmpDir, "doof_runtime.hpp");
-    const outFile = path.join(this.tmpDir, "a.out");
 
     fs.writeFileSync(cppFile, cppCode);
     fs.writeFileSync(runtimeFile, runtimeCode);
 
     // Compile
+    let outBinary = "";
     try {
-      const compileArgs = [
-        "-std=c++17",
-        "-o",
-        outFile,
-        cppFile,
-        `-I${this.tmpDir}`,
-        ...(this.nlohmannInclude ? [this.nlohmannInclude] : []),
-      ];
-      execFileSync(this.cppCompiler, compileArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
+      const nativeBuild = createNativeBuildOptions();
+      const compileResult = buildCompileArgs(this.tmpDir, createSingleFileProject("main.cpp"), nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(nativeBuild, [cppCode, runtimeCode]),
+        toolchain: this.cppToolchain,
+      });
+      outBinary = compileResult.outBinary;
+      execFileSync(this.cppToolchain.command, compileResult.args, {
+        stdio: "pipe",
+        cwd: this.tmpDir,
+        timeout: 15000,
+        env: this.cppToolchain.env ?? process.env,
+      });
     } catch (e: any) {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: `Compilation failed:\n${e.stderr?.toString() ?? e.message}\n\nGenerated C++:\n${cppCode}`,
+        stderr: `${formatCompilationFailure(e)}\n\nGenerated C++:\n${cppCode}`,
       };
     }
 
-    // Run
     try {
-      const stdout = execFileSync(outFile, [], {
+      const stdout = execFileSync(outBinary, [], {
         stdio: "pipe",
         timeout: 5000,
+        env: this.cppToolchain.env ?? process.env,
       }).toString();
-      return { exitCode: 0, stdout, stderr: "" };
+      return { exitCode: 0, stdout: normalizeProcessOutput(stdout), stderr: "" };
     } catch (e: any) {
       return {
         exitCode: e.status ?? 1,
-        stdout: e.stdout?.toString() ?? "",
-        stderr: e.stderr?.toString() ?? "",
+        stdout: normalizeProcessOutput(e.stdout?.toString() ?? ""),
+        stderr: normalizeProcessOutput(e.stderr?.toString() ?? ""),
       };
     }
   }
@@ -175,10 +186,10 @@ export class E2EContext {
    * Just compile (syntax check) without running. Returns true if compilation succeeds.
    */
   compileOnly(doofSource: string): { success: boolean; error: string; code: string } {
-    if (!this.cppCompiler) {
+    if (!this.cppToolchain) {
       return {
         success: false,
-        error: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        error: missingCompilerMessage(),
         code: "",
       };
     }
@@ -204,14 +215,18 @@ export class E2EContext {
     fs.writeFileSync(runtimeFile, runtimeCode);
 
     try {
-      const compileArgs = [
-        "-std=c++17",
-        "-fsyntax-only",
-        cppFile,
-        `-I${this.tmpDir}`,
-        ...(this.nlohmannInclude ? [this.nlohmannInclude] : []),
-      ];
-      execFileSync(this.cppCompiler, compileArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
+      const nativeBuild = createNativeBuildOptions();
+      const { args } = buildCompileArgs(this.tmpDir, createSingleFileProject("check.cpp"), nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(nativeBuild, [cppCode, runtimeCode]),
+        mode: "syntax-only",
+        toolchain: this.cppToolchain,
+      });
+      execFileSync(this.cppToolchain.command, args, {
+        stdio: "pipe",
+        cwd: this.tmpDir,
+        timeout: 15000,
+        env: this.cppToolchain.env ?? process.env,
+      });
       return { success: true, error: "", code: cppCode };
     } catch (e: any) {
       return {
@@ -230,11 +245,11 @@ export class E2EContext {
     entry: string,
     nativeBuildOptions: Partial<NativeBuildOptions> = {},
   ): RunResult {
-    if (!this.cppCompiler) {
+    if (!this.cppToolchain) {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        stderr: missingCompilerMessage(),
       };
     }
 
@@ -272,11 +287,18 @@ export class E2EContext {
       cppFiles.push(cppFile);
     }
 
-    const { outBinary, args } = buildCompileArgs(this.tmpDir, project, nativeBuild);
+    const { outBinary, args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+      extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
+      toolchain: this.cppToolchain,
+    });
 
     try {
-      const allArgs = this.nlohmannInclude ? [...args, this.nlohmannInclude] : args;
-      execFileSync(this.cppCompiler, allArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
+      execFileSync(this.cppToolchain.command, args, {
+        stdio: "pipe",
+        cwd: this.tmpDir,
+        timeout: 15000,
+        env: this.cppToolchain.env ?? process.env,
+      });
     } catch (e: any) {
       const allCode = project.modules.map(m =>
         `--- ${m.hppPath} ---\n${m.hppCode}\n--- ${m.cppPath} ---\n${m.cppCode}`
@@ -284,7 +306,7 @@ export class E2EContext {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: `Compilation failed:\n${e.stderr?.toString() ?? e.message}\n\nGenerated C++:\n${allCode}`,
+        stderr: `${formatCompilationFailure(e)}\n\nGenerated C++:\n${allCode}`,
       };
     }
 
@@ -293,13 +315,14 @@ export class E2EContext {
       const stdout = execFileSync(outBinary, [], {
         stdio: "pipe",
         timeout: 5000,
+        env: this.cppToolchain.env ?? process.env,
       }).toString();
-      return { exitCode: 0, stdout, stderr: "" };
+      return { exitCode: 0, stdout: normalizeProcessOutput(stdout), stderr: "" };
     } catch (e: any) {
       return {
         exitCode: e.status ?? 1,
-        stdout: e.stdout?.toString() ?? "",
-        stderr: e.stderr?.toString() ?? "",
+        stdout: normalizeProcessOutput(e.stdout?.toString() ?? ""),
+        stderr: normalizeProcessOutput(e.stderr?.toString() ?? ""),
       };
     }
   }
@@ -312,10 +335,10 @@ export class E2EContext {
     entry: string,
     nativeBuildOptions: Partial<NativeBuildOptions> = {},
   ): { success: boolean; error: string; codes: string } {
-    if (!this.cppCompiler) {
+    if (!this.cppToolchain) {
       return {
         success: false,
-        error: "No C++ compiler found. Install clang++, g++, or set CXX.",
+        error: missingCompilerMessage(),
         codes: "",
       };
     }
@@ -359,13 +382,17 @@ export class E2EContext {
     ).join("\n\n");
 
     try {
-      const { args } = buildCompileArgs(this.tmpDir, project, nativeBuild);
-      const syntaxArgs = [
-        ...args.filter((arg) => arg !== "-o" && arg !== path.join(this.tmpDir, "a.out")),
-        "-fsyntax-only",
-      ];
-      const allArgs = this.nlohmannInclude ? [...syntaxArgs, this.nlohmannInclude] : syntaxArgs;
-      execFileSync(this.cppCompiler, allArgs, { stdio: "pipe", cwd: this.tmpDir, timeout: 15000 });
+      const { args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
+        mode: "syntax-only",
+        toolchain: this.cppToolchain,
+      });
+      execFileSync(this.cppToolchain.command, args, {
+        stdio: "pipe",
+        cwd: this.tmpDir,
+        timeout: 15000,
+        env: this.cppToolchain.env ?? process.env,
+      });
       return { success: true, error: "", codes: allCode };
     } catch (e: any) {
       return {
@@ -390,4 +417,44 @@ function createResolverForEntry(vfs: VirtualFS, entry: string) {
       dependencies: pkg.dependencyRoots,
     })),
   });
+}
+
+function createSingleFileProject(cppPath: string) {
+  return {
+    modules: [
+      {
+        modulePath: "/main.do",
+        hppPath: "main.hpp",
+        cppPath,
+        hppCode: "",
+        cppCode: "",
+      },
+    ],
+    runtime: "",
+    cmake: "",
+  };
+}
+
+function missingCompilerMessage(): string {
+  return process.platform === "win32"
+    ? "No C++ compiler found. Install Visual Studio with MSVC tools, or set CXX."
+    : "No C++ compiler found. Install clang++, g++, or set CXX.";
+}
+
+function getExtraIncludePaths(nativeBuild: NativeBuildOptions, generatedArtifacts: string[]): string[] {
+  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, { allowProvision: true });
+  return nlohmannInclude ? [nlohmannInclude] : [];
+}
+
+function formatCompilationFailure(error: any): string {
+  const stdout = error?.stdout?.toString()?.trim();
+  const stderr = error?.stderr?.toString()?.trim();
+  const details = [stdout, stderr].filter((value): value is string => Boolean(value && value.length > 0));
+  return details.length > 0
+    ? `Compilation failed:\n${details.join("\n")}`
+    : `Compilation failed:\n${error?.message ?? String(error)}`;
+}
+
+function normalizeProcessOutput(output: string): string {
+  return output.replace(/\r\n/g, "\n");
 }

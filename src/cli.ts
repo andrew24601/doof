@@ -5,7 +5,7 @@
  *
  * Usage:
  *   doof emit <entry.do>       — Emit C++ source files to an output directory
- *   doof build <entry.do>      — Emit + compile with clang++/g++
+ *   doof build <entry.do>      — Emit + compile with an auto-detected native C++ compiler
  *   doof run <entry.do>        — Emit + compile + run the program
  *   doof check <entry.do>      — Type-check only (no C++ output)
  *
@@ -26,9 +26,10 @@ import type { NativeBuildOptions } from "./emitter-module.js";
 import {
   buildCompileArgs,
   compileCpp,
-  findCompiler,
+  findCompilerToolchain,
   printDiagnostic,
   RealFS,
+  resolveCompilerToolchain,
   resolveNativeBuildOptions,
   runPipelineWithFs,
   writeProject,
@@ -68,7 +69,7 @@ Commands:
 
 Options:
   -o, --outdir <dir>   Output directory (default: ./build)
-  --compiler <path>    C++ compiler (default: auto-detect clang++ or g++)
+  --compiler <path>    C++ compiler (default: auto-detect clang++/g++, or Visual Studio cl.exe on Windows)
   --std <standard>     C++ standard (default: c++17)
   --include-path <dir> Additional header search path (repeatable)
   --lib-path <dir>     Additional library search path (repeatable)
@@ -241,11 +242,11 @@ function cmdEmit(entry: string, outDir: string, verbose: boolean, nativeBuild: N
 }
 
 function cmdBuildOrRun(args: CliArgs, run: boolean): void {
-  const compiler = args.compiler ?? findCompiler();
+  const toolchain = resolveCompilerToolchain(args.compiler);
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
   const { project, outputBinaryName, provenance, buildManifest } = runPipeline(args.entry, args.verbose, nativeBuild);
   writeProject(project, args.outDir, args.verbose, log, provenance, buildManifest);
-  const binary = compileCpp(args.outDir, project, compiler, nativeBuild, args.verbose, log, outputBinaryName);
+  const binary = compileCpp(args.outDir, project, toolchain, nativeBuild, args.verbose, log, outputBinaryName);
 
   if (!run) {
     log(`Build complete: ${binary}`);
@@ -254,14 +255,18 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
 
   if (args.verbose) log(`Running: ${binary}`);
   try {
-    execFileSync(binary, [], { stdio: "inherit", timeout: 30000 });
+    execFileSync(binary, [], {
+      stdio: "inherit",
+      timeout: 30000,
+      env: toolchain.env ?? process.env,
+    });
   } catch (e: any) {
     process.exit(e.status ?? 1);
   }
 }
 
 function cmdTest(args: CliArgs): void {
-  const compiler = args.compiler ?? findCompiler();
+  const compiler = args.compiler ? resolveCompilerToolchain(args.compiler) : findCompilerToolchain();
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
   const result = runTestCommand({
     targetPath: args.entry,
