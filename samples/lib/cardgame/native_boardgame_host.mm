@@ -156,6 +156,8 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     int32_t width,
     int32_t height
 ) {
+    SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
+
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(SDL_GetError());
     }
@@ -222,7 +224,7 @@ bool NativeBoardgameHost::isOpen() const {
     return impl_ != nullptr && impl_->open;
 }
 
-std::shared_ptr<std::vector<std::shared_ptr<NativeBoardgameEvent>>> NativeBoardgameHost::pollEvents() {
+std::shared_ptr<std::vector<std::shared_ptr<NativeBoardgameEvent>>> NativeBoardgameHost::pollEvents(bool canNap) {
     auto events = std::make_shared<std::vector<std::shared_ptr<NativeBoardgameEvent>>>();
     if (impl_ == nullptr || !impl_->open) {
         return events;
@@ -233,7 +235,8 @@ std::shared_ptr<std::vector<std::shared_ptr<NativeBoardgameEvent>>> NativeBoardg
     impl_->lastTicks = currentTicks;
 
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
+    while (canNap ? SDL_WaitEvent(&event) : SDL_PollEvent(&event)) {
+        canNap = false;
         switch (event.type) {
             case SDL_EVENT_QUIT:
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -442,10 +445,6 @@ void NativeBoardgameHost::render(
         pixelWidth(),
         pixelHeight()
     );
-}
-
-void NativeBoardgameHost::delay(int32_t ms) {
-    SDL_Delay(ms);
 }
 
 void NativeBoardgameHost::close() {

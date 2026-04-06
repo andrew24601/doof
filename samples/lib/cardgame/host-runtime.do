@@ -16,7 +16,7 @@ export import class NativeBoardgameEvent from "./native_boardgame_host.hpp" as d
 export import class NativeBoardgameHost from "./native_boardgame_host.hpp" as doof_boardgame_host::NativeBoardgameHost {
   static create(title: string, width: int, height: int): Result<NativeBoardgameHost, string>
   isOpen(): bool
-  pollEvents(): NativeBoardgameEvent[]
+  pollEvents(canNap: bool): NativeBoardgameEvent[]
   frameDeltaSeconds(): float
   windowWidth(): int
   windowHeight(): int
@@ -28,7 +28,6 @@ export import class NativeBoardgameHost from "./native_boardgame_host.hpp" as do
   createSolidColorTexture(r: int, g: int, b: int, a: int): int
   ticks(): int
   render(world: WorldRenderPlan, worldMvp: Mat4, ui: WorldRenderPlan, uiMvp: Mat4): void
-  delay(ms: int): void
   close(): void
 }
 

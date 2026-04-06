@@ -8,11 +8,11 @@ import { PI } from "cardgame/math"
 import { buildWorldRenderPlan } from "./render"
 import { HostInput, debugMoveX, debugMoveZ, debugZoomDirection, hostCancelInteraction, hostMouseDown, hostMouseMove, hostMouseUp, hostUpdate, initCamera, setDebugKeyState } from "./host"
 
-function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppState, fovY: float): bool {
+function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppState, fovY: float, canNap: bool): bool {
   cameraMoveSpeed := 5.0f
   cameraZoomSpeed := 10.0f
   let needsRender = false
-  events := host.pollEvents()
+  events := host.pollEvents(canNap)
   for event of events {
     case event.kind() {
       .CloseRequested => {}
@@ -105,18 +105,17 @@ function runSolitaire(): Result<void, string> {
     else 1.0f
   initCamera(app, input, initialAspect, fovY)
 
+  let canNap = false
+
   while host.isOpen() {
-    inputNeedsRender := handleHostEvents(host, input, app, fovY)
+    inputNeedsRender := handleHostEvents(host, input, app, fovY, canNap)
     if !host.isOpen() {
       break
     }
     deltaTime := host.frameDeltaSeconds()
     needsRender := hostUpdate(input, app, deltaTime, host.pixelWidth(), host.pixelHeight(), fovY) || inputNeedsRender
 
-    if !needsRender {
-      host.delay(frameDelayMs)
-      continue
-    }
+    canNap = !needsRender
 
     worldPlan := buildWorldRenderPlan(app.state, app.cardLibrary)
     aspect := if float(host.pixelWidth()) > 0.0f && float(host.pixelHeight()) > 0.0f

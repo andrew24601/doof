@@ -46,7 +46,7 @@ public:
     ~NativeBoardgameHost();
 
     bool isOpen() const;
-    std::shared_ptr<std::vector<std::shared_ptr<NativeBoardgameEvent>>> pollEvents();
+    std::shared_ptr<std::vector<std::shared_ptr<NativeBoardgameEvent>>> pollEvents(bool canNap);
     float frameDeltaSeconds() const;
     int32_t windowWidth() const;
     int32_t windowHeight() const;
@@ -63,7 +63,6 @@ public:
         std::shared_ptr<WorldRenderPlan> ui,
         std::shared_ptr<doof_boardgame::Mat4> uiMvp
     );
-    void delay(int32_t ms);
     void close();
 
 private:
