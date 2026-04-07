@@ -128,24 +128,6 @@ for name of names {
 }
 ```
 
-### For-Of with Index
-
-Use `.enumerate()` to get both index and value. Returns `Entry<T>` with `index` and `value` fields:
-
-```javascript
-items := ["a", "b", "c"]
-
-// Positional destructuring
-for index, value of items.enumerate() {
-    print("${index}: ${value}")
-}
-
-// Explicit access
-for entry of items.enumerate() {
-    print("${entry.index}: ${entry.value}")
-}
-```
-
 ### For-Of with Maps
 
 ```javascript

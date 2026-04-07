@@ -130,7 +130,7 @@ numbers := [1, 2, 3]                 // int[]
 names: string[] = ["Alice", "Bob"]
 ```
 
-Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sort()`, `.enumerate()`.
+Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sort()`.
 
 **Strings:** `string` — immutable text with built-in methods.
 
@@ -515,9 +515,6 @@ for item of items { println(item) }
 // Range-based
 for i of 0..<10 { println(i) }       // exclusive: 0..9
 for i of 1..5 { println(i) }         // inclusive: 1..5
-
-// For-of with index
-for index, value of items.enumerate() { println("${index}: ${value}") }
 
 // For-of over Map (yields key, value)
 for suit, pile of foundations { println("${suit.name}: ${pile.cards.length}") }
