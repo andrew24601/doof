@@ -525,10 +525,10 @@ while condition { doWork() }
 // Traditional for
 for let i = 0; i < 10; i += 1 { println(i) }
 
-// Loop else (runs when loop completes without break)
+// Loop then (runs when loop completes normally)
 for item of items {
     if item == target { break }
-} else {
+} then {
     println("Not found")
 }
 

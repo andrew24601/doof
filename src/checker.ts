@@ -157,17 +157,18 @@ export function validateEmitReadyDeclarations(
 
       case "while-statement":
         visitBlock(stmt.body);
-        if (stmt.else_) visitBlock(stmt.else_);
+        if (stmt.then_) visitBlock(stmt.then_);
         break;
 
       case "for-statement":
         if (stmt.init) visitStatement(stmt.init);
         visitBlock(stmt.body);
+        if (stmt.then_) visitBlock(stmt.then_);
         break;
 
       case "for-of-statement":
         visitBlock(stmt.body);
-        if (stmt.else_) visitBlock(stmt.else_);
+        if (stmt.then_) visitBlock(stmt.then_);
         break;
 
       case "with-statement":

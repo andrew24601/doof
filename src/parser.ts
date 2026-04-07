@@ -1481,17 +1481,12 @@ export class Parser {
     const condition = this.parseExpression();
     const body = this.parseBlock();
 
-    let else_: Block | null = null;
-    if (this.match(TokenType.Else)) {
-      else_ = this.parseBlock();
-    }
-
     return {
       kind: "while-statement",
       condition,
       body,
       label,
-      else_,
+      then_: this.parseLoopThenClause("while"),
       span: this.span(startLoc),
     };
   }
@@ -1536,6 +1531,7 @@ export class Parser {
       update,
       body,
       label,
+      then_: this.parseLoopThenClause("for"),
       span: this.span(startLoc),
     };
   }
@@ -1663,20 +1659,25 @@ export class Parser {
     const iterable = this.parseExpression();
     const body = this.parseBlock();
 
-    let else_: Block | null = null;
-    if (this.match(TokenType.Else)) {
-      else_ = this.parseBlock();
-    }
-
     return {
       kind: "for-of-statement",
       bindings,
       iterable,
       body,
       label,
-      else_,
+      then_: this.parseLoopThenClause("for"),
       span: this.span(startLoc),
     };
+  }
+
+  private parseLoopThenClause(loopKind: "for" | "while"): Block | null {
+    if (this.match(TokenType.Then)) {
+      return this.parseBlock();
+    }
+    if (this.check(TokenType.Else)) {
+      throw this.error(`${loopKind} loop follow-up clause uses 'then', not 'else'`);
+    }
+    return null;
   }
 
   private parseWithStatement(): Statement {

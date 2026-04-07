@@ -536,7 +536,7 @@ export interface WhileStatement {
   condition: Expression;
   body: Block;
   label: string | null;
-  else_: Block | null;
+  then_: Block | null;
   span: SourceSpan;
 }
 
@@ -547,6 +547,7 @@ export interface ForStatement {
   update: Expression[];
   body: Block;
   label: string | null;
+  then_: Block | null;
   span: SourceSpan;
 }
 
@@ -556,7 +557,7 @@ export interface ForOfStatement {
   iterable: Expression;
   body: Block;
   label: string | null;
-  else_: Block | null;
+  then_: Block | null;
   span: SourceSpan;
 }
 

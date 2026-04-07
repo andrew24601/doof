@@ -207,7 +207,7 @@ export function checkStatement(
       const condType = host.inferExprType(stmt.condition, scope, table, info);
       host.checkConditionIsBool(condType, stmt.condition, table, info);
       host.checkBlock(stmt.body, scope, table, info);
-      if (stmt.else_) host.checkBlock(stmt.else_, scope, table, info);
+      if (stmt.then_) host.checkBlock(stmt.then_, scope, table, info);
       break;
     }
 
@@ -217,6 +217,7 @@ export function checkStatement(
       if (stmt.condition) host.inferExprType(stmt.condition, forScope, table, info);
       for (const upd of stmt.update) host.inferExprType(upd, forScope, table, info);
       host.checkBlock(stmt.body, forScope, table, info);
+      if (stmt.then_) host.checkBlock(stmt.then_, scope, table, info);
       break;
     }
 
@@ -272,7 +273,7 @@ export function checkStatement(
       }
 
       host.checkBlock(stmt.body, forScope, table, info);
-      if (stmt.else_) host.checkBlock(stmt.else_, forScope, table, info);
+      if (stmt.then_) host.checkBlock(stmt.then_, scope, table, info);
       break;
     }
 

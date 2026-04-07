@@ -129,6 +129,10 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
 
     case "break-statement": {
       const ind = indent(ctx);
+      const loopControl = findLoopControl(ctx, stmt.label);
+      if (loopControl?.naturalCompletionFlag) {
+        ctx.sourceLines.push(`${ind}${loopControl.naturalCompletionFlag} = false;`);
+      }
       if (stmt.label) {
         ctx.sourceLines.push(`${ind}goto ${stmt.label}_break;`);
       } else {
@@ -237,6 +241,22 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
     default:
       ctx.sourceLines.push(`${indent(ctx)}/* unhandled statement: ${(stmt as Statement).kind} */`);
   }
+}
+
+function findLoopControl(
+  ctx: EmitContext,
+  label: string | null,
+): { label: string | null; naturalCompletionFlag: string | null } | null {
+  const loopControls = ctx.loopControls ?? [];
+  if (label === null) {
+    return loopControls[loopControls.length - 1] ?? null;
+  }
+  for (let index = loopControls.length - 1; index >= 0; index--) {
+    if (loopControls[index].label === label) {
+      return loopControls[index];
+    }
+  }
+  return null;
 }
 
 // ============================================================================
@@ -1023,32 +1043,32 @@ function emitWhileStatement(
 ): void {
   const ind = indent(ctx);
   const cond = emitExpression(stmt.condition, ctx);
+  const naturalCompletionFlag = stmt.then_ ? `_loop_completed_${ctx.tempCounter++}` : null;
 
   if (stmt.label) {
     ctx.sourceLines.push(`${ind}${stmt.label}_continue:;`);
   }
 
-  if (stmt.else_) {
-    // while/else pattern: track whether loop body ever executed
-    const flagName = `_loop_ran_${ctx.tempCounter++}`;
-    ctx.sourceLines.push(`${ind}bool ${flagName} = false;`);
-    ctx.sourceLines.push(`${ind}while (${cond}) {`);
-    ctx.sourceLines.push(`${ind}    ${flagName} = true;`);
-    emitBlockStatements(stmt.body, { ...ctx, indent: ctx.indent + 1 });
+  if (naturalCompletionFlag) {
+    ctx.sourceLines.push(`${ind}bool ${naturalCompletionFlag} = true;`);
+  }
+
+  const loopCtx = {
+    ...ctx,
+    indent: ctx.indent + 1,
+    loopControls: [...(ctx.loopControls ?? []), { label: stmt.label, naturalCompletionFlag }],
+  };
+
+  ctx.sourceLines.push(`${ind}while (${cond}) {`);
+  emitBlockStatements(stmt.body, loopCtx);
+  ctx.sourceLines.push(`${ind}}`);
+  if (stmt.label) {
+    ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
+  }
+  if (naturalCompletionFlag && stmt.then_) {
+    ctx.sourceLines.push(`${ind}if (${naturalCompletionFlag}) {`);
+    emitBlockStatements(stmt.then_, { ...ctx, indent: ctx.indent + 1 });
     ctx.sourceLines.push(`${ind}}`);
-    if (stmt.label) {
-      ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
-    }
-    ctx.sourceLines.push(`${ind}if (!${flagName}) {`);
-    emitBlockStatements(stmt.else_, { ...ctx, indent: ctx.indent + 1 });
-    ctx.sourceLines.push(`${ind}}`);
-  } else {
-    ctx.sourceLines.push(`${ind}while (${cond}) {`);
-    emitBlockStatements(stmt.body, { ...ctx, indent: ctx.indent + 1 });
-    ctx.sourceLines.push(`${ind}}`);
-    if (stmt.label) {
-      ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
-    }
   }
 }
 
@@ -1057,9 +1077,14 @@ function emitForStatement(
   ctx: EmitContext,
 ): void {
   const ind = indent(ctx);
+  const naturalCompletionFlag = stmt.then_ ? `_loop_completed_${ctx.tempCounter++}` : null;
 
   if (stmt.label) {
     ctx.sourceLines.push(`${ind}${stmt.label}_continue:;`);
+  }
+
+  if (naturalCompletionFlag) {
+    ctx.sourceLines.push(`${ind}bool ${naturalCompletionFlag} = true;`);
   }
 
   // Emit C-style for: for (init; cond; update)
@@ -1075,13 +1100,23 @@ function emitForStatement(
 
   const condStr = stmt.condition ? emitExpression(stmt.condition, ctx) : "";
   const updateStr = stmt.update.map((u) => emitExpression(u, ctx)).join(", ");
+  const loopCtx = {
+    ...ctx,
+    indent: ctx.indent + 1,
+    loopControls: [...(ctx.loopControls ?? []), { label: stmt.label, naturalCompletionFlag }],
+  };
 
   ctx.sourceLines.push(`${ind}for (${initStr}; ${condStr}; ${updateStr}) {`);
-  emitBlockStatements(stmt.body, { ...ctx, indent: ctx.indent + 1 });
+  emitBlockStatements(stmt.body, loopCtx);
   ctx.sourceLines.push(`${ind}}`);
 
   if (stmt.label) {
     ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
+  }
+  if (naturalCompletionFlag && stmt.then_) {
+    ctx.sourceLines.push(`${ind}if (${naturalCompletionFlag}) {`);
+    emitBlockStatements(stmt.then_, { ...ctx, indent: ctx.indent + 1 });
+    ctx.sourceLines.push(`${ind}}`);
   }
 }
 
@@ -1090,9 +1125,14 @@ function emitForOfStatement(
   ctx: EmitContext,
 ): void {
   const ind = indent(ctx);
+  const naturalCompletionFlag = stmt.then_ ? `_loop_completed_${ctx.tempCounter++}` : null;
 
   if (stmt.label) {
     ctx.sourceLines.push(`${ind}${stmt.label}_continue:;`);
+  }
+
+  if (naturalCompletionFlag) {
+    ctx.sourceLines.push(`${ind}bool ${naturalCompletionFlag} = true;`);
   }
 
   const iterable = emitExpression(stmt.iterable, ctx);
@@ -1100,6 +1140,11 @@ function emitForOfStatement(
   const iterableType = stmt.iterable.resolvedType;
   const needsDeref = iterableType && (iterableType.kind === "array" || iterableType.kind === "map" || iterableType.kind === "set");
   const iterExpr = needsDeref ? `*${iterable}` : iterable;
+  const loopCtx = {
+    ...ctx,
+    indent: ctx.indent + 1,
+    loopControls: [...(ctx.loopControls ?? []), { label: stmt.label, naturalCompletionFlag }],
+  };
 
   if (iterableType?.kind === "map" && stmt.bindings.length === 2) {
     // Map iteration: for (key, value) of map → for (const auto& [k, v] : *map)
@@ -1113,27 +1158,15 @@ function emitForOfStatement(
     ctx.sourceLines.push(`${ind}for (const auto& [${bindings}] : ${iterExpr}) {`);
   }
 
-  if (stmt.else_) {
-    // for-of/else: check if iterable was empty
-    const flagName = `_loop_ran_${ctx.tempCounter++}`;
-    // Actually for for-of/else, we need to check emptiness differently
-    // Simpler: wrap with size check
-    ctx.sourceLines.push(`${ind}    // for-of body`);
-    emitBlockStatements(stmt.body, { ...ctx, indent: ctx.indent + 1 });
+  emitBlockStatements(stmt.body, loopCtx);
+  ctx.sourceLines.push(`${ind}}`);
+  if (stmt.label) {
+    ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
+  }
+  if (naturalCompletionFlag && stmt.then_) {
+    ctx.sourceLines.push(`${ind}if (${naturalCompletionFlag}) {`);
+    emitBlockStatements(stmt.then_, { ...ctx, indent: ctx.indent + 1 });
     ctx.sourceLines.push(`${ind}}`);
-    if (stmt.label) {
-      ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
-    }
-    const emptyExpr = needsDeref ? `${iterable}->empty()` : `${iterable}.empty()`;
-    ctx.sourceLines.push(`${ind}if (${emptyExpr}) {`);
-    emitBlockStatements(stmt.else_, { ...ctx, indent: ctx.indent + 1 });
-    ctx.sourceLines.push(`${ind}}`);
-  } else {
-    emitBlockStatements(stmt.body, { ...ctx, indent: ctx.indent + 1 });
-    ctx.sourceLines.push(`${ind}}`);
-    if (stmt.label) {
-      ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
-    }
   }
 }
 

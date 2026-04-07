@@ -91,17 +91,18 @@ export function collectExprs(program: Program): Expression[] {
         break;
       case "while-statement":
         walkExpr(s.condition); walkBlock(s.body);
-        if (s.else_) walkBlock(s.else_);
+        if (s.then_) walkBlock(s.then_);
         break;
       case "for-statement":
         if (s.init) walkStmt(s.init);
         if (s.condition) walkExpr(s.condition);
         s.update.forEach(walkExpr);
         walkBlock(s.body);
+        if (s.then_) walkBlock(s.then_);
         break;
       case "for-of-statement":
         walkExpr(s.iterable); walkBlock(s.body);
-        if (s.else_) walkBlock(s.else_);
+        if (s.then_) walkBlock(s.then_);
         break;
       case "with-statement":
         s.bindings.forEach((b) => walkExpr(b.value));

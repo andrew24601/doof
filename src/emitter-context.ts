@@ -49,6 +49,8 @@ export interface EmitContext {
   catchVarName?: string;
   /** Expected result type when emitting yield statements inside case-expression arm blocks. */
   caseExpressionYieldType?: ResolvedType;
+  /** Active loop controls, used to suppress loop `then` blocks on `break`. */
+  loopControls?: { label: string | null; naturalCompletionFlag: string | null }[];
   /**
    * Set of `let` variable names that are captured by any lambda within the
    * current function body.  These variables are heap-boxed via

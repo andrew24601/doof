@@ -258,9 +258,10 @@ outer: for row of rows {
 
 ---
 
-## Loop Else Clause
+## Loop Then Clause
 
-The `else` clause executes when a loop completes **without** `break`:
+The `then` clause executes when a loop completes normally, meaning control
+leaves the loop without `break` or another non-local exit such as `return`:
 
 ```javascript
 for item of items {
@@ -268,12 +269,12 @@ for item of items {
         print("Found!")
         break
     }
-} else {
+} then {
     print("Not found")
 }
 ```
 
-Works with `while` loops too:
+This applies even when the loop body ran; natural completion still counts:
 
 ```javascript
 while hasMoreData() {
@@ -283,8 +284,18 @@ while hasMoreData() {
         break
     }
     process(data)
-} else {
+} then {
     print("All data processed successfully")
+}
+```
+
+Traditional `for` loops support the same follow-up clause:
+
+```javascript
+for let i = 0; i < 3; i += 1 {
+    print(i)
+} then {
+    print("loop completed")
 }
 ```
 

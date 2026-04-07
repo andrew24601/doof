@@ -304,10 +304,25 @@ function collectCapturesFromStatement(
     case "while-statement":
       collectCaptures(stmt.condition, paramNames, captures, ctx);
       for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      }
+      break;
+    case "for-statement":
+      if (stmt.init) collectCapturesFromStatement(stmt.init, paramNames, captures, ctx);
+      if (stmt.condition) collectCaptures(stmt.condition, paramNames, captures, ctx);
+      for (const update of stmt.update) collectCaptures(update, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      }
       break;
     case "for-of-statement":
       collectCaptures(stmt.iterable, paramNames, captures, ctx);
       for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      }
       break;
     case "with-statement":
       for (const b of stmt.bindings) collectCaptures(b.value, paramNames, captures, ctx);
@@ -391,10 +406,27 @@ function scanStatementForLambdaCaptures(
     case "while-statement":
       scanExprForLambdaCaptures(stmt.condition, outerNames, result);
       scanStatementsForLambdaCaptures(stmt.body.statements, outerNames, result);
+      if (stmt.then_) {
+        scanStatementsForLambdaCaptures(stmt.then_.statements, outerNames, result);
+      }
+      break;
+    case "for-statement":
+      if (stmt.init) scanStatementForLambdaCaptures(stmt.init, outerNames, result);
+      if (stmt.condition) scanExprForLambdaCaptures(stmt.condition, outerNames, result);
+      for (const update of stmt.update) {
+        scanExprForLambdaCaptures(update, outerNames, result);
+      }
+      scanStatementsForLambdaCaptures(stmt.body.statements, outerNames, result);
+      if (stmt.then_) {
+        scanStatementsForLambdaCaptures(stmt.then_.statements, outerNames, result);
+      }
       break;
     case "for-of-statement":
       scanExprForLambdaCaptures(stmt.iterable, outerNames, result);
       scanStatementsForLambdaCaptures(stmt.body.statements, outerNames, result);
+      if (stmt.then_) {
+        scanStatementsForLambdaCaptures(stmt.then_.statements, outerNames, result);
+      }
       break;
     case "with-statement":
       for (const b of stmt.bindings) scanExprForLambdaCaptures(b.value, outerNames, result);
@@ -671,10 +703,27 @@ function collectMutableCaptureNamesFromStmt(
     case "while-statement":
       collectMutableCaptureNames(stmt.condition, lambdaParams, outerNames, result);
       for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      }
+      break;
+    case "for-statement":
+      if (stmt.init) collectMutableCaptureNamesFromStmt(stmt.init, lambdaParams, outerNames, result);
+      if (stmt.condition) collectMutableCaptureNames(stmt.condition, lambdaParams, outerNames, result);
+      for (const update of stmt.update) {
+        collectMutableCaptureNames(update, lambdaParams, outerNames, result);
+      }
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      }
       break;
     case "for-of-statement":
       collectMutableCaptureNames(stmt.iterable, lambdaParams, outerNames, result);
       for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      if (stmt.then_) {
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      }
       break;
     case "with-statement":
       for (const b of stmt.bindings) collectMutableCaptureNames(b.value, lambdaParams, outerNames, result);

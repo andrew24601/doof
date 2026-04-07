@@ -1,7 +1,7 @@
 /**
  * End-to-end C++ compilation tests (part 5).
  *
- * Covers: feature combinations, boundary conditions, loop-else clause,
+ * Covers: feature combinations, boundary conditions, loop-then clause,
  * multi-module feature combinations.
  */
 
@@ -1581,17 +1581,17 @@ describe("e2e — boundary conditions", () => {
   });
 });
 
-describe("e2e — loop-else clause", () => {
+describe("e2e — loop-then clause", () => {
 
-  it("while/else runs else when condition is initially false", () => {
+  it("while/then runs when condition is initially false", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         let x = 0
         while x > 10 {
           println("loop")
           x += 1
-        } else {
-          println("never ran")
+        } then {
+          println("completed")
         }
         return 0
       }
@@ -1599,17 +1599,17 @@ describe("e2e — loop-else clause", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toBe("never ran");
+    expect(result.stdout.trim()).toBe("completed");
   });
 
-  it("while/else skips else when loop body executes", () => {
+  it("while/then runs after natural completion", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         let x = 0
         while x < 3 {
           x += 1
-        } else {
-          println("never ran")
+        } then {
+          println("completed")
         }
         println(x)
         return 0
@@ -1618,18 +1618,40 @@ describe("e2e — loop-else clause", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toBe("3");
+    expect(result.stdout.trim()).toBe("completed\n3");
+  });
+
+  it("while/then skips then on break", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let x = 0
+        while x < 5 {
+          x += 1
+          if x == 2 {
+            break
+          }
+        } then {
+          println("completed")
+        }
+        println(x)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("2");
   });
 
   // BUG: empty array [] with type annotation still emits std::vector<auto>{} (auto not allowed in templates)
-  it("for-of/else runs else for empty iterable", () => {
+  it("for-of/then runs for empty iterable", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         const empty: int[] = []
         for x of empty {
           println("loop")
-        } else {
-          println("empty collection")
+        } then {
+          println("completed")
         }
         return 0
       }
@@ -1637,17 +1659,17 @@ describe("e2e — loop-else clause", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toBe("empty collection");
+    expect(result.stdout.trim()).toBe("completed");
   });
 
-  it("for-of/else skips else for non-empty iterable", () => {
+  it("for-of/then runs after iterating non-empty iterable", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         const nums: int[] = [1, 2, 3]
         for x of nums {
           println(x)
-        } else {
-          println("empty")
+        } then {
+          println("completed")
         }
         return 0
       }
@@ -1655,7 +1677,47 @@ describe("e2e — loop-else clause", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toBe("1\n2\n3");
+    expect(result.stdout.trim()).toBe("1\n2\n3\ncompleted");
+  });
+
+  it("labeled break suppresses outer then", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        const nums: int[] = [1, 2, 3]
+        outer: for x of nums {
+          for y of nums {
+            println(x * 10 + y)
+            break outer
+          }
+        } then {
+          println("completed")
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("11");
+  });
+
+  it("traditional for/then runs after natural completion", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let sum = 0
+        for let i = 0; i < 3; i += 1 {
+          sum += i
+        } then {
+          println("completed")
+        }
+        println(sum)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("completed\n3");
   });
 });
 

@@ -145,15 +145,45 @@ describe("Parser — control flow", () => {
     }
   });
 
-  it("parses loop else clause", () => {
+  it("parses while then clause", () => {
+    const stmt = firstStmt(`while count < 3 {
+      count += 1
+    } then {
+      print("done")
+    }`);
+    if (stmt.kind === "while-statement") {
+      expect(stmt.then_).not.toBeNull();
+    }
+  });
+
+  it("parses for-of then clause", () => {
     const stmt = firstStmt(`for item of items {
       break
-    } else {
+    } then {
       print("done")
     }`);
     if (stmt.kind === "for-of-statement") {
-      expect(stmt.else_).not.toBeNull();
+      expect(stmt.then_).not.toBeNull();
     }
+  });
+
+  it("parses traditional for then clause", () => {
+    const stmt = firstStmt(`for let i = 0; i < 3; i += 1 {
+      print(i)
+    } then {
+      print("done")
+    }`);
+    if (stmt.kind === "for-statement") {
+      expect(stmt.then_).not.toBeNull();
+    }
+  });
+
+  it("rejects legacy loop else clause", () => {
+    expect(() => parse(`while false {
+      print("nope")
+    } else {
+      print("done")
+    }`)).toThrow("while loop follow-up clause uses 'then', not 'else'");
   });
 });
 
