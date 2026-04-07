@@ -1008,4 +1008,21 @@ describe("e2e — non-null assertion", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
   });
+
+  it("prints nullable ints without C++ compile errors", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        a: int | null := 12
+        b: int | null := null
+        println(a)
+        println(b)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("12\nnull");
+  });
 });

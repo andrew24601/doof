@@ -225,6 +225,11 @@ inline std::string to_string(const T& val) {
     }
 }
 
+template <typename T>
+inline std::string to_string(const std::optional<T>& val) {
+    return val.has_value() ? to_string(*val) : std::string("null");
+}
+
 inline std::string to_string(ParseError val) {
     return ParseError_name(val);
 }
