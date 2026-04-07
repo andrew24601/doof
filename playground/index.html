@@ -10,6 +10,9 @@
   <div id="app">
     <header id="toolbar">
       <h1>Doof Playground</h1>
+      <div id="toolbar-actions">
+        <button id="run-button" type="button">Run</button>
+      </div>
       <span id="status">Ready</span>
     </header>
     <main id="editors">
@@ -20,6 +23,14 @@
       <div id="editor-right">
         <div class="editor-label">C++ Output</div>
         <div id="cpp-editor" class="editor-container"></div>
+        <section id="run-panel" class="output-panel is-hidden" aria-hidden="true">
+          <div class="panel-header">
+            <span class="panel-title">Run Output</span>
+            <span id="run-status" class="panel-status"></span>
+            <button id="run-panel-close" type="button" class="panel-close" aria-label="Close run output">Close</button>
+          </div>
+          <div id="run-output"></div>
+        </section>
       </div>
     </main>
     <footer id="error-panel">

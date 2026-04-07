@@ -64,6 +64,34 @@ body {
   color: var(--text-primary);
 }
 
+#toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#run-button {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1f5f92 0%, #184d76 100%);
+  color: #f3f8fd;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+}
+
+#run-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2770ab 0%, #1e5e8f 100%);
+}
+
+#run-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 #status {
   font-size: 12px;
   color: var(--text-secondary);
@@ -106,6 +134,109 @@ body {
 .editor-container {
   flex: 1;
   min-height: 0;
+}
+
+.output-panel {
+  height: clamp(180px, 28vh, 320px);
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+}
+
+.output-panel.is-hidden {
+  display: none;
+}
+
+.panel-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.panel-status.succeeded {
+  color: #89d185;
+}
+
+.panel-status.build-failed,
+.panel-status.compile-failed,
+.panel-status.run-failed {
+  color: var(--error-color);
+}
+
+.panel-close {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+}
+
+.panel-close:hover {
+  color: var(--text-primary);
+}
+
+#run-output {
+  flex: 1;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#run-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+#run-output::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+#run-output::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.output-section {
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.output-section:first-child {
+  border-top: 0;
+}
+
+.output-section-title {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.output-section pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+.output-section.command pre {
+  color: #9cdcfe;
+}
+
+.output-section.stderr pre {
+  color: #f7b3b3;
+}
+
+.empty-output {
+  padding: 10px 12px 12px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* ---- Error Panel ---- */
