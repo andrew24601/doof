@@ -236,12 +236,12 @@ The `Result<string, any>` returned by `.invoke` supports:
 - **Generic classes** cannot use `.metadata` (compile error)
 - All public method parameters must be **JSON-serializable** (compile error otherwise)
 - Public method return types must either be JSON-serializable, or be `Result<S, F>` where `S` is JSON-serializable (or `void`) and `F` is any-carriable
-- `"metadata"`, `"toJSON"`, and `"fromJSON"` are **reserved** — classes cannot define methods or fields with these names
+- `"metadata"`, `"toJsonValue"`, and `"fromJsonValue"` are **reserved** — classes cannot define methods or fields with these names
 - Private and static methods are excluded from metadata and invoke dispatch
 
 ### On-demand Generation
 
-Metadata code is only generated when user code accesses `ClassName.metadata`. Classes referenced in method signatures automatically get JSON serialization support (`toJSON`/`fromJSON`) generated as well.
+Metadata code is only generated when user code accesses `ClassName.metadata`. Classes referenced in method signatures automatically get JSON serialization support (`toJsonValue`/`fromJsonValue`) generated as well.
 
 ## Future Use
 

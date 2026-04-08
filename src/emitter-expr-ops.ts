@@ -30,8 +30,8 @@ function getNamedClassStaticAccess(expr: MemberExpression): string | null {
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }
-  if (expr.property === "fromJSON") {
-    return `${className}::fromJSON`;
+  if (expr.property === "fromJsonValue") {
+    return `${className}::fromJsonValue`;
   }
   const field = objectType.symbol.declaration.fields.find(
     (f) => f.names.includes(expr.property) && f.static_,
@@ -55,8 +55,8 @@ function getNamedInterfaceStaticAccess(expr: MemberExpression): string | null {
   const objectType = expr.object.resolvedType;
   if (!objectType || objectType.kind !== "interface") return null;
   if (binding?.kind !== "interface") return null;
-  if (expr.property !== "fromJSON") return null;
-  return `${objectType.symbol.name}_fromJSON`;
+  if (expr.property !== "fromJsonValue") return null;
+  return `${objectType.symbol.name}_fromJsonValue`;
 }
 
 function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string | null {
@@ -66,8 +66,8 @@ function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string 
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }
-  if (expr.property === "fromJSON") {
-    return `${className}::fromJSON`;
+  if (expr.property === "fromJsonValue") {
+    return `${className}::fromJsonValue`;
   }
   const field = objectType.symbol.declaration.fields.find(
     (f) => f.names.includes(expr.property) && f.static_,

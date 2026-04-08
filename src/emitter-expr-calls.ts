@@ -315,15 +315,15 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "values") return `doof::set_values(${obj})`;
     }
 
-    // JSON serialization: Class.fromJSON(str) → Class::fromJSON(str) (static)
-    if (objType && objType.kind === "class" && memberExpr.property === "fromJSON") {
+    // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)
+    if (objType && objType.kind === "class" && memberExpr.property === "fromJsonValue") {
       const className = objType.symbol.extern_?.cppName ?? objType.symbol.name;
-      return `${className}::fromJSON(${args})`;
+      return `${className}::fromJsonValue(${args})`;
     }
 
-    // JSON serialization: Interface.fromJSON(str) → Interface_fromJSON(str) (free function)
-    if (objType && objType.kind === "interface" && memberExpr.property === "fromJSON") {
-      return `${objType.symbol.name}_fromJSON(${args})`;
+    // JSON serialization: Interface.fromJsonValue(value) → Interface_fromJsonValue(value) (free function)
+    if (objType && objType.kind === "interface" && memberExpr.property === "fromJsonValue") {
+      return `${objType.symbol.name}_fromJsonValue(${args})`;
     }
 
     // Enum static methods: .fromName() → EnumName_fromName(), .fromValue() → EnumName_fromValue()

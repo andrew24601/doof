@@ -1113,13 +1113,13 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe('{"red":5}');
   });
 
-  it("round-trips a simple class through toJSON/fromJSON", () => {
+  it("round-trips a simple class through toJsonValue/fromJsonValue", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {
         const p = Point { x: 10, y: 20 }
-        const json = p.toJSON()
-        const p2 = Point.fromJSON(json)
+        const json = p.toJsonValue()
+        const p2 = Point.fromJsonValue(json)
         case p2 {
           s: Success => {
             println(s.value.x)
@@ -1141,7 +1141,7 @@ describe("E2E — JSON serialization", () => {
       class User { name: string; active: bool }
       function main(): int {
         const u = User { name: "Alice", active: true }
-        const json = u.toJSON()
+        const json = u.toJsonValue()
         println(json)
         return 0
       }
@@ -1159,7 +1159,7 @@ describe("E2E — JSON serialization", () => {
     const result = ctx.compileAndRun(`
       class Config { host: string = "localhost"; port: int = 8080 }
       function main(): int {
-        const r = Config.fromJSON("{}")
+        const r = Config.fromJsonValue({})
         case r {
           s: Success => {
             println(s.value.host)
@@ -1180,7 +1180,7 @@ describe("E2E — JSON serialization", () => {
     const result = ctx.compileAndRun(`
       class Config { name: string; notes: string | null = null }
       function main(): int {
-        const r = Config.fromJSON("{\\\"name\\\":\\\"Shopping\\\"}")
+        const r = Config.fromJsonValue({ name: "Shopping" })
         case r {
           s: Success => {
             if s.value.notes == null {
@@ -1209,8 +1209,8 @@ describe("E2E — JSON serialization", () => {
           start: Point { x: 1, y: 2 },
           end: Point { x: 3, y: 4 }
         }
-        const json = line.toJSON()
-        const r = Line.fromJSON(json)
+        const json = line.toJsonValue()
+        const r = Line.fromJsonValue(json)
         case r {
           s: Success => {
             println(s.value.start.x)
@@ -1234,8 +1234,8 @@ describe("E2E — JSON serialization", () => {
       class Numbers { values: int[] }
       function main(): int {
         const n = Numbers { values: [10, 20, 30] }
-        const json = n.toJSON()
-        const r = Numbers.fromJSON(json)
+        const json = n.toJsonValue()
+        const r = Numbers.fromJsonValue(json)
         case r {
           s: Success => {
             println(s.value.values[0])
@@ -1258,7 +1258,7 @@ describe("E2E — JSON serialization", () => {
       class MaybeNamed { name: string | null }
       function main(): int {
         const a = MaybeNamed { name: "hello" }
-        println(a.toJSON())
+        println(a.toJsonValue())
         return 0
       }
     `);
@@ -1275,8 +1275,8 @@ describe("E2E — JSON serialization", () => {
       class Palette { primary: Color; secondary: Color }
       function main(): int {
         const p = Palette { primary: Color.Red, secondary: Color.Blue }
-        const json = p.toJSON()
-        const r = Palette.fromJSON(json)
+        const json = p.toJsonValue()
+        const r = Palette.fromJsonValue(json)
         case r {
           s: Success => {
             println(s.value.primary == Color.Red)
@@ -1298,7 +1298,7 @@ describe("E2E — JSON serialization", () => {
       class Dog { const kind: string = "dog"; name: string }
       function main(): int {
         const d = Dog { name: "Rex" }
-        println(d.toJSON())
+        println(d.toJsonValue())
         return 0
       }
     `);
@@ -1310,11 +1310,11 @@ describe("E2E — JSON serialization", () => {
     expect(parsed.name).toBe("Rex");
   });
 
-  it("returns error for invalid JSON input", () => {
+  it("returns error for non-object JSONValue input", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {
-        const r = Point.fromJSON("not valid json")
+        const r = Point.fromJsonValue("not valid json")
         case r {
           s: Success => println("unexpected success")
           f: Failure => println("got error")
@@ -1332,7 +1332,7 @@ describe("E2E — JSON serialization", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {
-        const r = Point.fromJSON("{\\\"x\\\": 10}")
+        const r = Point.fromJsonValue({ x: 10 })
         case r {
           s: Success => println("unexpected success")
           f: Failure => println("got error")
@@ -1350,7 +1350,7 @@ describe("E2E — JSON serialization", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {
-        const r = Point.fromJSON("{\\\"x\\\": 10, \\\"y\\\": \\\"hello\\\"}")
+        const r = Point.fromJsonValue({ x: 10, y: "hello" })
         case r {
           s: Success => println("unexpected success")
           f: Failure => println("got error")
@@ -1369,8 +1369,8 @@ describe("E2E — JSON serialization", () => {
       class Coords { lat: double; lng: double }
       function main(): int {
         const c = Coords { lat: 51.5074, lng: -0.1278 }
-        const json = c.toJSON()
-        const r = Coords.fromJSON(json)
+        const json = c.toJsonValue()
+        const r = Coords.fromJsonValue(json)
         case r {
           s: Success => {
             println(s.value.lat == 51.5074)
@@ -1397,10 +1397,9 @@ describe("E2E — JSON serialization", () => {
         return 0
       }
     `);
-    // Should compile fine — no toJSON/fromJSON generated for class with weak fields
+    // Should compile fine — no toJsonValue/fromJsonValue generated for class with weak fields
     expect(r.success).toBe(true);
-    // Verify the generated code does NOT contain toJSON
-    expect(r.code).not.toContain("toJSON");
+    expect(r.code).not.toContain("toJsonValue");
   });
 
   it("round-trips interface via shared discriminator", () => {
@@ -1410,8 +1409,8 @@ describe("E2E — JSON serialization", () => {
       interface Shape {}
       function main(): int {
         const c = Circle { radius: 5.0 }
-        const json = c.toJSON()
-        const r = Shape.fromJSON(json)
+        const json = c.toJsonValue()
+        const r = Shape.fromJsonValue(json)
         case r {
           s: Success => {
             case s.value {
@@ -1438,8 +1437,8 @@ describe("E2E — JSON serialization", () => {
         const inv = Inventory {
           items: [Item { name: "sword" }, Item { name: "shield" }]
         }
-        const json = inv.toJSON()
-        const r = Inventory.fromJSON(json)
+        const json = inv.toJsonValue()
+        const r = Inventory.fromJsonValue(json)
         case r {
           s: Success => {
             println(s.value.items[0].name)

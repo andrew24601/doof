@@ -15,11 +15,14 @@ import type { AnalysisResult } from "./analyzer.js";
 import type { Statement } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { emitWrapAnyValue } from "./emitter-any.js";
+import { emitDefaultExpression } from "./emitter-defaults.js";
+import { indent, emitIdentifierSafe } from "./emitter-expr.js";
 import { emitType } from "./emitter-types.js";
-import { indent, emitIdentifierSafe, emitExpression } from "./emitter-expr.js";
 import {
   emitSerializeExpr,
   emitDeserializeExpr,
+  emitJsonTypeCheck,
+  jsonTypeName,
   markReferencedClasses,
 } from "./emitter-json.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -155,8 +158,8 @@ export function emitMetadataDefinition(
 
     // Invoke lambda: (std::shared_ptr<T>, const doof::JSONValue&) -> Result<JSONValue, any>
     ctx.sourceLines.push(`${ind}            [](std::shared_ptr<${cppName}> _instance, const doof::JSONValue& _params) -> doof::Result<doof::JSONValue, doof::Any> {`);
-    ctx.sourceLines.push(`${ind}                nlohmann::json _p = doof::json_to_nlohmann(_params);`);
-    ctx.sourceLines.push(`${ind}                if (!_p.is_object()) {`);
+    ctx.sourceLines.push(`${ind}                const auto* _p = doof::json_as_object(_params);`);
+    ctx.sourceLines.push(`${ind}                if (_p == nullptr) {`);
     ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{std::string("Invalid JSON params: expected object")});`);
     ctx.sourceLines.push(`${ind}                }`);
 
@@ -165,8 +168,28 @@ export function emitMetadataDefinition(
       const paramType = param.resolvedType;
       if (!paramType) continue;
       const safeParamName = emitIdentifierSafe(param.name);
-      const deserExpr = emitDeserializeExpr(`_p["${param.name}"]`, paramType, ctx);
-      ctx.sourceLines.push(`${ind}                auto ${safeParamName} = ${deserExpr};`);
+      const iterName = `_it_${safeParamName}`;
+      if (param.defaultValue) {
+        const defaultValue = emitDefaultExpression(param.defaultValue, paramType);
+        ctx.sourceLines.push(`${ind}                ${emitTypeForMetadata(paramType)} ${safeParamName};`);
+        ctx.sourceLines.push(`${ind}                if (auto ${iterName} = _p->find("${param.name}"); ${iterName} != _p->end()) {`);
+        ctx.sourceLines.push(`${ind}                    if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
+        ctx.sourceLines.push(`${ind}                        return doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)});`);
+        ctx.sourceLines.push(`${ind}                    }`);
+        ctx.sourceLines.push(`${ind}                    ${safeParamName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
+        ctx.sourceLines.push(`${ind}                } else {`);
+        ctx.sourceLines.push(`${ind}                    ${safeParamName} = ${defaultValue};`);
+        ctx.sourceLines.push(`${ind}                }`);
+      } else {
+        ctx.sourceLines.push(`${ind}                auto ${iterName} = _p->find("${param.name}");`);
+        ctx.sourceLines.push(`${ind}                if (${iterName} == _p->end()) {`);
+        ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{std::string("Missing required parameter \\"${param.name}\\"")});`);
+        ctx.sourceLines.push(`${ind}                }`);
+        ctx.sourceLines.push(`${ind}                if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
+        ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)});`);
+        ctx.sourceLines.push(`${ind}                }`);
+        ctx.sourceLines.push(`${ind}                auto ${safeParamName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
+      }
     }
 
     // Build arg list
@@ -191,14 +214,12 @@ export function emitMetadataDefinition(
       } else {
         ctx.sourceLines.push(`${ind}                auto _success = _result.value();`);
         const serialized = emitSerializeExpr("_success", retType.successType);
-        ctx.sourceLines.push(`${ind}                nlohmann::json _ret = ${serialized};`);
-        ctx.sourceLines.push(`${ind}                return doof::Result<doof::JSONValue, doof::Any>::success(doof::json_from_nlohmann(_ret));`);
+        ctx.sourceLines.push(`${ind}                return doof::Result<doof::JSONValue, doof::Any>::success(${serialized});`);
       }
     } else {
       ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
       const serialized = emitSerializeExpr("_result", retType);
-      ctx.sourceLines.push(`${ind}                nlohmann::json _ret = ${serialized};`);
-      ctx.sourceLines.push(`${ind}                return doof::Result<doof::JSONValue, doof::Any>::success(doof::json_from_nlohmann(_ret));`);
+      ctx.sourceLines.push(`${ind}                return doof::Result<doof::JSONValue, doof::Any>::success(${serialized});`);
     }
 
     ctx.sourceLines.push(`${ind}            }`);
@@ -219,4 +240,8 @@ export function emitMetadataDefinition(
 
 function escapeStringLiteral(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
+function emitTypeForMetadata(type: ResolvedType): string {
+  return type.kind === "void" ? "void" : emitType(type);
 }

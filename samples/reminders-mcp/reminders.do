@@ -1,4 +1,4 @@
-import { parseJsonResult, parseJsonTextOrPanic } from "./json_support"
+import { parseJsonResult } from "./json_support"
 
 export import class NativeRemindersStore from "./reminders_bridge.hpp" {
   authorizationStatus(): string
@@ -22,18 +22,18 @@ class RequestAccessResult {
 
 export class RemindersTools "Read and modify reminders in the macOS Reminders app." {
   authorizationStatus "Returns the current EventKit authorization status for reminders."(): JSONValue {
-    return parseJsonTextOrPanic(AuthorizationStatusResult {
+    return AuthorizationStatusResult {
       status: NativeRemindersStore().authorizationStatus()
-    }.toJSON())
+    }.toJsonValue()
   }
 
   requestAccess "Prompts the user to grant reminders access if the server has not already been authorized."(): Result<JSONValue, string> {
     store := NativeRemindersStore()
     return case store.requestAccess() {
-      s: Success => Success(parseJsonTextOrPanic(RequestAccessResult {
+      s: Success => Success(RequestAccessResult {
         granted: s.value,
         status: store.authorizationStatus(),
-      }.toJSON())),
+      }.toJsonValue()),
       f: Failure => Failure(f.error)
     }
   }

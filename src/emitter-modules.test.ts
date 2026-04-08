@@ -371,7 +371,7 @@ describe("emitter-module — emitProject", () => {
         "/main.do": `
           class Point { x: int; y: int }
           function main(): int {
-            const json = Point(1, 2).toJSON()
+            const json = Point(1, 2).toJsonValue()
             return 0
           }
         `,
@@ -392,7 +392,7 @@ describe("emitter-module — emitProject", () => {
   it("hpp includes nlohmann/json when JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }
-      function test(p: Point): string => p.toJSON()
+      function test(p: Point): JSONValue => p.toJsonValue()
     `);
     expect(hppCode).toContain("nlohmann/json.hpp");
   });
@@ -889,7 +889,7 @@ describe("Concurrency", () => {
     `);
     // Methods should NOT have const qualifier — mutating methods need to modify fields
     expect(cpp).toContain("void increment() {");
-    // The increment() method itself should not be const (toJSON is const, which is fine)
+    // The increment() method itself should not be const (toJsonValue is const, which is fine)
     expect(cpp).not.toContain("void increment() const {");
   });
 });

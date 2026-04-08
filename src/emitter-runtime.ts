@@ -196,6 +196,95 @@ struct JSONValue {
     bool isNull() const { return std::holds_alternative<std::monostate>(value); }
 };
 
+inline bool json_is_boolean(const JSONValue& value) {
+    return std::holds_alternative<bool>(value.value);
+}
+
+inline bool json_is_number(const JSONValue& value) {
+    return std::holds_alternative<int32_t>(value.value)
+        || std::holds_alternative<int64_t>(value.value)
+        || std::holds_alternative<float>(value.value)
+        || std::holds_alternative<double>(value.value);
+}
+
+inline bool json_is_string(const JSONValue& value) {
+    return std::holds_alternative<std::string>(value.value);
+}
+
+inline bool json_is_array(const JSONValue& value) {
+    return std::holds_alternative<JSONValue::Array>(value.value);
+}
+
+inline bool json_is_object(const JSONValue& value) {
+    return std::holds_alternative<JSONValue::Object>(value.value);
+}
+
+inline const char* json_type_name(const JSONValue& value) {
+    if (value.isNull()) return "null";
+    if (json_is_boolean(value)) return "boolean";
+    if (json_is_number(value)) return "number";
+    if (json_is_string(value)) return "string";
+    if (json_is_array(value)) return "array";
+    if (json_is_object(value)) return "object";
+    return "unknown";
+}
+
+inline const JSONValue::Array::element_type* json_as_array(const JSONValue& value) {
+    const auto* array = std::get_if<JSONValue::Array>(&value.value);
+    if (array == nullptr || !*array) return nullptr;
+    return array->get();
+}
+
+inline const JSONValue::Object::element_type* json_as_object(const JSONValue& value) {
+    const auto* object = std::get_if<JSONValue::Object>(&value.value);
+    if (object == nullptr || !*object) return nullptr;
+    return object->get();
+}
+
+inline bool json_as_bool(const JSONValue& value) {
+    const auto* result = std::get_if<bool>(&value.value);
+    if (result == nullptr) panic("Expected JSON boolean");
+    return *result;
+}
+
+inline int32_t json_as_int(const JSONValue& value) {
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<int32_t>(*result);
+    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int32_t>(*result);
+    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<int32_t>(*result);
+    panic("Expected JSON number");
+}
+
+inline int64_t json_as_long(const JSONValue& value) {
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return *result;
+    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int64_t>(*result);
+    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<int64_t>(*result);
+    panic("Expected JSON number");
+}
+
+inline float json_as_float(const JSONValue& value) {
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<float>(*result);
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<float>(*result);
+    if (const auto* result = std::get_if<float>(&value.value)) return *result;
+    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<float>(*result);
+    panic("Expected JSON number");
+}
+
+inline double json_as_double(const JSONValue& value) {
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<double>(&value.value)) return *result;
+    panic("Expected JSON number");
+}
+
+inline const std::string& json_as_string(const JSONValue& value) {
+    const auto* result = std::get_if<std::string>(&value.value);
+    if (result == nullptr) panic("Expected JSON string");
+    return *result;
+}
+
 __DOOF_JSON_SUPPORT__
 
 __DOOF_ANY_SUPPORT__

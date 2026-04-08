@@ -1119,7 +1119,7 @@ export function isJSONSerializable(
       return type.types.every((t) => isJSONSerializable(t, visited));
 
     case "interface":
-      // Interfaces are serializable if used for fromJSON (checked separately for discriminator).
+      // Interfaces are serializable if used for fromJsonValue (checked separately for discriminator).
       // Individual class variants are checked at point of use.
       return true;
 

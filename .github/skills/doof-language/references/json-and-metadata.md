@@ -2,11 +2,11 @@
 
 ## JSON Serialization
 
-Classes with all-serializable fields automatically get `.toJSON()` and `.fromJSON()`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
+Classes with all-serializable fields automatically get `.toJsonValue()` and `.fromJsonValue()`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
 
-### `.toJSON()` — Instance Method
+### `.toJsonValue()` — Instance Method
 
-Returns a JSON string representation.
+Returns a `JSONValue` representation.
 
 ```doof
 class User {
@@ -15,7 +15,7 @@ class User {
     private email: string
 }
 
-println(User("Alice", 30, "a@b.com").toJSON())
+println(JSON.stringify(User("Alice", 30, "a@b.com").toJsonValue()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
 
@@ -43,10 +43,10 @@ Rules:
 
 **Not serializable:** function types, `weak` references, `Actor<T>`, `Promise<T>`, `Result<T,E>`, `void`.
 
-### `.fromJSON()` — Static Method
+### `.fromJsonValue()` — Static Method
 
 ```doof
-const result = Point.fromJSON('{"x": 1.5, "y": 2.5}')  // Result<Point, string>
+const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })  // Result<Point, string>
 ```
 
 Rules:
@@ -55,7 +55,7 @@ Rules:
 - `const` fields are auto-filled; if present in JSON, value must match
 - Extra JSON fields are silently ignored
 - Type mismatches produce `Failure`
-- Invalid JSON produces `Failure`
+- Non-object JSONValue input produces `Failure`
 
 ### Interface Deserialization
 
@@ -76,14 +76,14 @@ class Rect implements Shape {
     function area(): float => width * height
 }
 
-Shape.fromJSON('{"kind": "circle", "radius": 5.0}')  // Result<Shape, string>
+Shape.fromJsonValue({ kind: "circle", radius: 5.0 })  // Result<Shape, string>
 ```
 
 Compile error if implementing classes lack a shared const discriminator.
 
 ### Reserved Names
 
-`toJSON` and `fromJSON` are reserved — user-defined methods with these names produce a compile error.
+`toJsonValue` and `fromJsonValue` are reserved — user-defined methods with these names produce a compile error.
 
 ## Description Metadata
 
@@ -118,9 +118,9 @@ meta.description        // "A simple calculator."
 meta.methods            // MethodReflection[]
 meta.methods[0].name            // "add"
 meta.methods[0].description     // "Adds two numbers."
-meta.methods[0].inputSchema     // JSON Schema Draft 7 string
-meta.methods[0].outputSchema    // JSON Schema Draft 7 string
-meta.methods[0].invoke(instance, '{"a": 1, "b": 2}')  // Result<string, string>
+meta.methods[0].inputSchema     // JSONValue JSON Schema Draft 7 object
+meta.methods[0].outputSchema    // JSONValue JSON Schema Draft 7 object
+meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JSONValue, any>
 ```
 
 ### JSON Schema Type Mappings

@@ -189,7 +189,7 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     ctx.sourceLines.push(`${memberInd}}`);
   }
 
-  // JSON serialization methods (toJSON / fromJSON)
+  // JSON serialization methods (toJsonValue / fromJsonValue)
   // Only generate if the class was marked as needing JSON (on-demand)
   // AND all fields are JSON-serializable
   if (decl.needsJson) {
@@ -292,7 +292,7 @@ export function emitInterfaceDecl(decl: InterfaceDeclaration, ctx: EmitContext):
       .join(", ");
     ctx.sourceLines.push(`${ind}using ${name} = std::variant<${variants}>;`);
 
-    // Generate fromJSON dispatcher if the interface was marked as needing JSON (on-demand)
+    // Generate fromJsonValue dispatcher if the interface was marked as needing JSON (on-demand)
     // AND all implementors are JSON-serializable and have a shared discriminator
     if (decl.needsJson) {
       const allSerializable = impls.every((cls) =>

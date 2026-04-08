@@ -613,7 +613,7 @@ export interface ClassDeclaration {
   destructor: Block | null;
   exported: boolean;
   private_: boolean;
-  /** Set by the checker when user code accesses .toJSON() or .fromJSON() */
+  /** Set by the checker when user code accesses .toJsonValue() or .fromJsonValue() */
   needsJson?: boolean;
   /** Set by the checker when user code accesses .metadata or .invoke() */
   needsMetadata?: boolean;
@@ -642,7 +642,7 @@ export interface InterfaceDeclaration {
   fields: InterfaceField[];
   methods: InterfaceMethod[];
   exported: boolean;
-  /** Set by the checker when user code accesses .fromJSON() */
+  /** Set by the checker when user code accesses .fromJsonValue() */
   needsJson?: boolean;
   span: SourceSpan;
 }

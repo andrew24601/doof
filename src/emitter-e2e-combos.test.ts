@@ -365,7 +365,7 @@ describe("e2e — feature combinations", () => {
 
   // ---- Self-referential class (linked list) ----
   // BUG: (1) emitter uses '.' instead of '->' after null-assert on shared_ptr
-  // BUG: (2) auto-generated JSON fromJSON constructor conflicts with field defaults
+  // BUG: (2) auto-generated JSON fromJsonValue constructor conflicts with field defaults
   it("self-referential class (linked list node)", () => {
     const result = ctx.compileAndRun(`
       class Node {

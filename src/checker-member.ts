@@ -141,7 +141,7 @@ function inferClassInstanceMemberType(
   return withClassTypeParams(host, classDecl, () => {
     const classSubMap = buildClassTypeSubstitution(host, objectType);
 
-    if (property === "toJSON") {
+    if (property === "toJsonValue") {
       classDecl.needsJson = true;
       const nonSerializable = collectNonSerializableFields(objectType);
       if (nonSerializable.length > 0 && info && span) {
@@ -154,10 +154,10 @@ function inferClassInstanceMemberType(
           });
         }
       }
-      return { kind: "function", params: [], returnType: STRING_TYPE };
+      return { kind: "function", params: [], returnType: JSON_VALUE_TYPE };
     }
 
-    if (property === "fromJSON" || property === "metadata") {
+    if (property === "fromJsonValue" || property === "metadata") {
       reportMemberDiagnostic(
         info,
         table,
@@ -226,7 +226,7 @@ function inferClassStaticMemberType(
   return withClassTypeParams(host, classDecl, () => {
     const classSubMap = buildClassTypeSubstitution(host, objectType);
 
-    if (property === "fromJSON") {
+    if (property === "fromJsonValue") {
       classDecl.needsJson = true;
       const nonSerializable = collectNonSerializableFields(objectType);
       if (nonSerializable.length > 0 && info && span) {
@@ -241,7 +241,7 @@ function inferClassStaticMemberType(
       }
       return {
         kind: "function",
-        params: [{ name: "json", type: STRING_TYPE }],
+        params: [{ name: "json", type: JSON_VALUE_TYPE }],
         returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
       };
     }
@@ -262,7 +262,7 @@ function inferClassStaticMemberType(
       return { kind: "class-metadata", classType: objectType };
     }
 
-    if (property === "toJSON") {
+    if (property === "toJsonValue") {
       reportMemberDiagnostic(
         info,
         table,
@@ -328,7 +328,7 @@ function inferInterfaceInstanceMemberType(
   const ifaceTable = host.analysisResult.modules.get(objectType.symbol.module);
   if (!ifaceTable) return UNKNOWN_TYPE;
 
-  if (property === "fromJSON") {
+  if (property === "fromJsonValue") {
     reportMemberDiagnostic(
       info,
       table,
@@ -385,7 +385,7 @@ function inferInterfaceStaticMemberType(
   const ifaceTable = host.analysisResult.modules.get(objectType.symbol.module);
   if (!ifaceTable) return UNKNOWN_TYPE;
 
-  if (property === "fromJSON") {
+  if (property === "fromJsonValue") {
     if (mode === "qualified-static") {
       reportMemberDiagnostic(
         info,
@@ -435,7 +435,7 @@ function inferInterfaceStaticMemberType(
     }
     return {
       kind: "function",
-      params: [{ name: "json", type: STRING_TYPE }],
+      params: [{ name: "json", type: JSON_VALUE_TYPE }],
       returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
     };
   }

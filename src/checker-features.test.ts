@@ -1884,20 +1884,20 @@ describe("Private access control", () => {
 });
 
 // ============================================================================
-// JSON serialization — toJSON / fromJSON
+// JSON serialization — toJsonValue / fromJsonValue
 // ============================================================================
 
-describe("JSON serialization — toJSON", () => {
-  it("resolves toJSON() to () → string on class instances", () => {
+describe("JSON serialization — toJsonValue", () => {
+  it("resolves toJsonValue() to () → JSONValue on class instances", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       const p = Point { x: 1.0, y: 2.0 }
-      const json = p.toJSON()
+      const json = p.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
     const stmts = info.program.statements;
     const jsonDecl = stmts[2] as ConstDeclaration;
-    expect(jsonDecl.resolvedType).toEqual(STRING_TYPE);
+    expect(jsonDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
   });
 
   it("errors for non-serializable field (function type)", () => {
@@ -1906,7 +1906,7 @@ describe("JSON serialization — toJSON", () => {
         callback: (x: int): void
       }
       const b = Bad { callback: (x: int) => { } }
-      const json = b.toJSON()
+      const json = b.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("not JSON-serializable"))).toBe(true);
     expect(info.diagnostics.some((d) => d.message.includes("callback"))).toBe(true);
@@ -1918,11 +1918,11 @@ describe("JSON serialization — toJSON", () => {
         weak parent: Node
       }
     ` }, "/main.do");
-    // No error until toJSON is actually used — the type is only checked on access
+    // No error until toJsonValue is actually used — the type is only checked on access
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJSON on class with all serializable fields", () => {
+  it("allows toJsonValue on class with all serializable fields", () => {
     const info = check({ "/main.do": `
       class Config {
         host: string
@@ -1930,34 +1930,34 @@ describe("JSON serialization — toJSON", () => {
         debug: bool
       }
       const c = Config { host: "localhost", port: 8080, debug: false }
-      const json = c.toJSON()
+      const json = c.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJSON on class with nested class fields", () => {
+  it("allows toJsonValue on class with nested class fields", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       class Line { start, end_: Point }
       const l = Line { start: Point { x: 0.0, y: 0.0 }, end_: Point { x: 1.0, y: 1.0 } }
-      const json = l.toJSON()
+      const json = l.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJSON on class with array fields", () => {
+  it("allows toJsonValue on class with array fields", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       class Polygon {
         vertices: Point[]
       }
       const p = Polygon { vertices: [Point { x: 0.0, y: 0.0 }] }
-      const json = p.toJSON()
+      const json = p.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJSON on class with enum fields", () => {
+  it("allows toJsonValue on class with enum fields", () => {
     const info = check({ "/main.do": `
       enum Color { Red, Green, Blue }
       class Pixel {
@@ -1965,17 +1965,17 @@ describe("JSON serialization — toJSON", () => {
         color: Color
       }
       const p = Pixel { x: 0, y: 0, color: Color.Red }
-      const json = p.toJSON()
+      const json = p.toJsonValue()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 });
 
-describe("JSON serialization — fromJSON", () => {
-  it("resolves fromJSON() to (string) → Result<T, string> on class name", () => {
+describe("JSON serialization — fromJsonValue", () => {
+  it("resolves fromJsonValue() to (JSONValue) → Result<T, string> on class name", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
-      const result = Point.fromJSON("{}")
+      const result = Point.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
     const stmts = info.program.statements;
@@ -1988,19 +1988,19 @@ describe("JSON serialization — fromJSON", () => {
     }
   });
 
-  it("errors for non-serializable field on fromJSON", () => {
+  it("errors for non-serializable field on fromJsonValue", () => {
     const info = check({ "/main.do": `
       class Bad {
         callback: (x: int): void
       }
-      const result = Bad.fromJSON("{}")
+      const result = Bad.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("not JSON-serializable"))).toBe(true);
   });
 });
 
-describe("JSON serialization — interface fromJSON", () => {
-  it("resolves fromJSON on interface with shared discriminator", () => {
+describe("JSON serialization — interface fromJsonValue", () => {
+  it("resolves fromJsonValue on interface with shared discriminator", () => {
     const info = check({ "/main.do": `
       interface Shape {
         area(): double
@@ -2015,7 +2015,7 @@ describe("JSON serialization — interface fromJSON", () => {
         width, height: double
         function area(): double => width * height
       }
-      const r = Shape.fromJSON("{}")
+      const r = Shape.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics.map(d => d.message)).toEqual([]);
     const stmts = info.program.statements;
@@ -2037,7 +2037,7 @@ describe("JSON serialization — interface fromJSON", () => {
       class Cat implements Animal {
         name: string
       }
-      const r = Animal.fromJSON("{}")
+      const r = Animal.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("must share a const string field"))).toBe(true);
   });
@@ -2047,7 +2047,7 @@ describe("JSON serialization — interface fromJSON", () => {
       interface Empty {
         foo(): int
       }
-      const r = Empty.fromJSON("{}")
+      const r = Empty.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("no implementing classes found"))).toBe(true);
   });
@@ -2078,26 +2078,26 @@ describe("Interface emission constraints", () => {
 });
 
 describe("JSON serialization — reserved method names", () => {
-  it("errors when user defines toJSON method on a class", () => {
+  it("errors when user defines toJsonValue method on a class", () => {
     const info = check({ "/main.do": `
       class Foo {
         x: int
-        function toJSON(): string => "custom"
+        function toJsonValue(): JSONValue => null
       }
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("reserved intrinsic method"))).toBe(true);
-    expect(info.diagnostics.some((d) => d.message.includes("toJSON"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("toJsonValue"))).toBe(true);
   });
 
-  it("errors when user defines fromJSON method on a class", () => {
+  it("errors when user defines fromJsonValue method on a class", () => {
     const info = check({ "/main.do": `
       class Foo {
         x: int
-        function fromJSON(s: string): string => s
+        function fromJsonValue(value: JSONValue): string => "nope"
       }
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("reserved intrinsic method"))).toBe(true);
-    expect(info.diagnostics.some((d) => d.message.includes("fromJSON"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("fromJsonValue"))).toBe(true);
   });
 
   it("errors when user defines metadata method on a class", () => {
