@@ -1025,4 +1025,22 @@ describe("e2e — non-null assertion", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("12\nnull");
   });
+
+  it("prints primitive unions without C++ compile errors", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        x: int | float := 4.3f
+        y: int | float := 7
+        println(x)
+        println(y)
+        println(string(x))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("4.3\n7\n4.3");
+  });
 });

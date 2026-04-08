@@ -3812,6 +3812,22 @@ describe("checker — string methods", () => {
     }
   });
 
+  it("string() converts primitive unions to string", () => {
+    const cr = check({ "/main.do": `
+      function test(value: int | float, maybe: int | null): void {
+        a := string(value)
+        b := string(maybe)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const calls = exprs.filter((e) => e.kind === "call-expression" && e.callee.kind === "identifier" && e.callee.name === "string");
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.resolvedType).toEqual({ kind: "primitive", name: "string" });
+    }
+  });
+
   it("rejects string() for non-primitive operands", () => {
     const cr = check({ "/main.do": `
       class Box { value: int }
@@ -3820,7 +3836,7 @@ describe("checker — string methods", () => {
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(1);
-    expect(cr.diagnostics[0].message).toContain("string() requires a primitive operand");
+    expect(cr.diagnostics[0].message).toContain("string() requires a primitive, null, or union of string-convertible members");
   });
 
   it("int.parse returns Result<int, ParseError>", () => {

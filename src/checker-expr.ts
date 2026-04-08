@@ -73,6 +73,19 @@ function isVoidResultType(resultType: Extract<ResolvedType, { kind: "result" }>)
   return resultType.successType.kind === "void";
 }
 
+function isStringConvertibleType(type: ResolvedType): boolean {
+  switch (type.kind) {
+    case "primitive":
+      return STRING_CONVERTIBLE_PRIMITIVE_NAMES.has(type.name);
+    case "null":
+      return true;
+    case "union":
+      return type.types.every(isStringConvertibleType);
+    default:
+      return false;
+  }
+}
+
 function isUnshadowedResultCtorCall(
   calleeName: string,
   calleeBinding: Binding | null,
@@ -625,10 +638,10 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const argType = inferExprType(host, expr.args[0].value, scope, table, info);
-        if (argType.kind !== "unknown" && !(argType.kind === "primitive" && STRING_CONVERTIBLE_PRIMITIVE_NAMES.has(argType.name))) {
+        if (argType.kind !== "unknown" && !isStringConvertibleType(argType)) {
           info.diagnostics.push({
             severity: "error",
-            message: `Cannot convert "${typeToString(argType)}" to string; string() requires a primitive operand`,
+            message: `Cannot convert "${typeToString(argType)}" to string; string() requires a primitive, null, or union of string-convertible members`,
             span: expr.span,
             module: table.path,
           });

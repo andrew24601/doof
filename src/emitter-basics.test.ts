@@ -769,6 +769,12 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("std::string concat");
     expect(header).toContain("struct Range");
   });
+
+  it("generates std::variant stringification support", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("inline std::string to_string(const std::variant<Ts...>& val)");
+    expect(header).toContain('std::is_same_v<Inner, std::monostate>');
+  });
 });
 
 describe("emitter — type mapping", () => {

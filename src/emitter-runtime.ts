@@ -230,6 +230,17 @@ inline std::string to_string(const std::optional<T>& val) {
     return val.has_value() ? to_string(*val) : std::string("null");
 }
 
+template <typename... Ts>
+inline std::string to_string(const std::variant<Ts...>& val) {
+    return std::visit([](const auto& inner) -> std::string {
+        using Inner = std::decay_t<decltype(inner)>;
+        if constexpr (std::is_same_v<Inner, std::monostate>) {
+            return std::string("null");
+        }
+        return to_string(inner);
+    }, val);
+}
+
 inline std::string to_string(ParseError val) {
     return ParseError_name(val);
 }
