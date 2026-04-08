@@ -71,6 +71,9 @@ body {
 }
 
 #run-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   height: 28px;
   padding: 0 14px;
   border: 1px solid var(--accent-dim);
@@ -90,6 +93,19 @@ body {
 #run-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.button-shortcut {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(243, 248, 253, 0.82);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 #status {

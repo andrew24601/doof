@@ -88,6 +88,40 @@ function main(): int {
 }
 `;
 
+const SOURCE_STORAGE_KEY = "doof-playground.source";
+
+function getRunShortcutLabel(): string {
+  return "F5"
+}
+
+function getRunShortcutAria(): string {
+  return "F5";
+}
+
+function loadInitialSource(): string {
+  try {
+    return window.localStorage.getItem(SOURCE_STORAGE_KEY) ?? DEFAULT_SOURCE;
+  } catch {
+    return DEFAULT_SOURCE;
+  }
+}
+
+function persistSource(source: string) {
+  try {
+    window.localStorage.setItem(SOURCE_STORAGE_KEY, source);
+  } catch {
+    // Ignore unavailable or quota-limited localStorage.
+  }
+}
+
+function isRunShortcut(event: KeyboardEvent): boolean {
+  const key = event.key.toLowerCase();
+
+  return (key == "f5");
+}
+
+const initialSource = loadInitialSource();
+
 registerDoofLanguage();
 
 const doofContainer = document.getElementById("doof-editor")!;
@@ -96,13 +130,21 @@ const errorList = document.getElementById("error-list")!;
 const errorCount = document.getElementById("error-count")!;
 const statusEl = document.getElementById("status")!;
 const runButton = document.getElementById("run-button") as HTMLButtonElement;
+const runButtonLabel = document.getElementById("run-button-label")!;
+const runShortcut = document.getElementById("run-shortcut")!;
 const runPanel = document.getElementById("run-panel")!;
 const runStatus = document.getElementById("run-status")!;
 const runOutput = document.getElementById("run-output")!;
 const runPanelCloseButton = document.getElementById("run-panel-close") as HTMLButtonElement;
 
+const runShortcutLabel = getRunShortcutLabel();
+
+runShortcut.textContent = runShortcutLabel;
+runButton.title = `Run current source (${runShortcutLabel})`;
+runButton.setAttribute("aria-keyshortcuts", getRunShortcutAria());
+
 const doofEditor = monaco.editor.create(doofContainer, {
-  value: DEFAULT_SOURCE,
+  value: initialSource,
   language: "doof",
   theme: "vs-dark",
   minimap: { enabled: false },
@@ -135,7 +177,7 @@ const cppEditor = monaco.editor.create(cppContainer, {
 let compileStatusText = "Ready";
 let sourceVersion = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-let latestCompile: CompileResult = compileDoof(DEFAULT_SOURCE);
+let latestCompile: CompileResult = compileDoof(initialSource);
 let latestRun: PlaygroundRunResult | null = null;
 let lastRunSourceVersion: number | null = null;
 let isRunning = false;
@@ -216,7 +258,7 @@ function updateToolbarStatus() {
 
 function updateRunButton() {
   runButton.disabled = isRunning || hasCompileErrors();
-  runButton.textContent = isRunning ? "Running…" : "Run";
+  runButtonLabel.textContent = isRunning ? "Running…" : "Run";
 }
 
 function openRunPanel() {
@@ -443,12 +485,23 @@ async function runCurrentSource() {
 }
 
 doofEditor.onDidChangeModelContent(() => {
+  persistSource(doofEditor.getValue());
   sourceVersion += 1;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
     compile();
   }, 300);
+});
+
+window.addEventListener("keydown", (event) => {
+  if (!isRunShortcut(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  void runCurrentSource();
 });
 
 runButton.addEventListener("click", () => {
