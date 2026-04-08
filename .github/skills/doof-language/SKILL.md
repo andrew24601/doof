@@ -60,29 +60,29 @@ Rules:
 - `any` is not supported as metadata input or success-payload JSON in v1
 - Metadata-driven `.invoke(...)` uses `Result<string, any>` for failures: framework failures produce string payloads, and methods returning `Result<S, F>` surface raw `F` values on the failure branch
 
-### `JSONValue`
+### `JsonValue`
 
-`JSONValue` is an exact recursive JSON carrier:
+`JsonValue` is an exact recursive JSON carrier:
 
 ```doof
-payload: JSONValue := { name: "Ada", scores: [1, 2, 3] }
+payload: JsonValue := { name: "Ada", scores: [1, 2, 3] }
 ```
 
 It accepts:
 
 - `null`
 - `bool`, `int`, `long`, `float`, `double`, `string`
-- `JSONValue[]`
-- `Map<string, JSONValue>`
+- `JsonValue[]`
+- `Map<string, JsonValue>`
 - unions composed from those cases
 
-Literals stay ergonomic through contextual typing, so `JSONValue := [1, 2, 3]` and `JSONValue := { ok: true }` work.
+Literals stay ergonomic through contextual typing, so `JsonValue := [1, 2, 3]` and `JsonValue := { ok: true }` work.
 
-Pre-built typed collections do not implicitly convert. For example, `int[]` and `Map<string, int>` are not assignable to `JSONValue`; build `JSONValue[]` or `Map<string, JSONValue>` instead.
+Pre-built typed collections do not implicitly convert. For example, `int[]` and `Map<string, int>` are not assignable to `JsonValue`; build `JsonValue[]` or `Map<string, JsonValue>` instead.
 
-64-bit integers are preserved as `long` inside `JSONValue`, including values parsed from JSON that exceed `int` range.
+64-bit integers are preserved as `long` inside `JsonValue`, including values parsed from JSON that exceed `int` range.
 
-Assignments from `JSONValue[]` and `Map<string, JSONValue>` into `JSONValue` preserve reference semantics for the underlying shared container.
+Assignments from `JsonValue[]` and `Map<string, JsonValue>` into `JsonValue` preserve reference semantics for the underlying shared container.
 
 ### Nullability
 
@@ -863,7 +863,7 @@ Classes with all-serializable fields get `.toJsonValue()` and `.fromJsonValue()`
 ```doof
 class Point { x, y: float }
 
-json := Point(1.5, 2.5).toJsonValue()       // JSONValue
+json := Point(1.5, 2.5).toJsonValue()       // JsonValue
 result := Point.fromJsonValue(json)         // Result<Point, string>
 ```
 

@@ -100,9 +100,9 @@ export class WeeknightKitchenTools "Structured household cooking helpers for a w
   }
 }
 
-export function openAITools(): JSONValue[] {
+export function openAITools(): JsonValue[] {
   meta := WeeknightKitchenTools.metadata
-  tools: JSONValue[] := []
+  tools: JsonValue[] := []
 
   for method of meta.methods {
     tools.push({
@@ -116,6 +116,6 @@ export function openAITools(): JSONValue[] {
   return tools
 }
 
-export function invokeWeeknightTool(instance: WeeknightKitchenTools, methodName: string, args: JSONValue): Result<JSONValue, any> {
+export function invokeWeeknightTool(instance: WeeknightKitchenTools, methodName: string, args: JsonValue): Result<JsonValue, any> {
   return WeeknightKitchenTools.metadata.invoke(instance, methodName, args)
 }

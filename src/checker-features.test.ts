@@ -1888,7 +1888,7 @@ describe("Private access control", () => {
 // ============================================================================
 
 describe("JSON serialization — toJsonValue", () => {
-  it("resolves toJsonValue() to () → JSONValue on class instances", () => {
+  it("resolves toJsonValue() to () → JsonValue on class instances", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       const p = Point { x: 1.0, y: 2.0 }
@@ -1972,7 +1972,7 @@ describe("JSON serialization — toJsonValue", () => {
 });
 
 describe("JSON serialization — fromJsonValue", () => {
-  it("resolves fromJsonValue() to (JSONValue) → Result<T, string> on class name", () => {
+  it("resolves fromJsonValue() to (JsonValue) → Result<T, string> on class name", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       const result = Point.fromJsonValue({})
@@ -2082,7 +2082,7 @@ describe("JSON serialization — reserved method names", () => {
     const info = check({ "/main.do": `
       class Foo {
         x: int
-        function toJsonValue(): JSONValue => null
+        function toJsonValue(): JsonValue => null
       }
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("reserved intrinsic method"))).toBe(true);
@@ -2093,7 +2093,7 @@ describe("JSON serialization — reserved method names", () => {
     const info = check({ "/main.do": `
       class Foo {
         x: int
-        function fromJsonValue(value: JSONValue): string => "nope"
+        function fromJsonValue(value: JsonValue): string => "nope"
       }
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("reserved intrinsic method"))).toBe(true);
@@ -3875,7 +3875,7 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[0].message).toContain("Builtin namespace \"string\" has no member \"parse\"");
   });
 
-  it("JSON.parse returns Result<JSONValue, string>", () => {
+  it("JSON.parse returns Result<JsonValue, string>", () => {
     const cr = check({ "/main.do": `
       function test(): void {
         value := JSON.parse("{\\"ok\\":true}")
@@ -3893,7 +3893,7 @@ describe("checker — string methods", () => {
 
   it("JSON.stringify returns string", () => {
     const cr = check({ "/main.do": `
-      function test(value: JSONValue): void {
+      function test(value: JsonValue): void {
         text := JSON.stringify(value)
       }
     ` }, "/main.do");
@@ -3913,14 +3913,14 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[0].message).toContain("Builtin namespace \"JSON\" cannot be used as a value");
   });
 
-  it("accepts direct JSONValue construction with primitives and nested literals", () => {
+  it("accepts direct JsonValue construction with primitives and nested literals", () => {
     const cr = check({ "/main.do": `
       function test(): void {
-        a: JSONValue := 5
-        b: JSONValue := 5L
-        c: JSONValue := [1, 2, 3]
-        d: JSONValue := { name: "Bob", age: 23, favouriteColours: ["red", "green", "blue"] }
-        e: JSONValue := [1, true, "radish", null, [5.2, a, b, c, d]]
+        a: JsonValue := 5
+        b: JsonValue := 5L
+        c: JsonValue := [1, 2, 3]
+        d: JsonValue := { name: "Bob", age: 23, favouriteColours: ["red", "green", "blue"] }
+        e: JsonValue := [1, true, "radish", null, [5.2, a, b, c, d]]
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
@@ -3938,14 +3938,14 @@ describe("checker — string methods", () => {
     expect(eDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
   });
 
-  it("accepts exact-shape JSONValue collection assignments", () => {
+  it("accepts exact-shape JsonValue collection assignments", () => {
     const cr = check({ "/main.do": `
       function test(): void {
-        entry: JSONValue := 4
-        values: JSONValue[] := [entry]
-        items: Map<string, JSONValue> := { "red": entry }
-        fromArray: JSONValue := values
-        fromMap: JSONValue := items
+        entry: JsonValue := 4
+        values: JsonValue[] := [entry]
+        items: Map<string, JsonValue> := { "red": entry }
+        fromArray: JsonValue := values
+        fromMap: JsonValue := items
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
@@ -3957,24 +3957,24 @@ describe("checker — string methods", () => {
     expect(fromMapDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
   });
 
-  it("rejects non-JSONValue collections in JSONValue positions", () => {
+  it("rejects non-JsonValue collections in JsonValue positions", () => {
     const cr = check({ "/main.do": `
       function test(): void {
         ints: int[] := [1, 2, 3]
         counts: Map<string, int> := { "red": 1 }
-        a: JSONValue := ints
-        b: JSONValue := counts
+        a: JsonValue := ints
+        b: JsonValue := counts
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(2);
-    expect(cr.diagnostics[0].message).toContain('Type "int[]" is not assignable to type "JSONValue"');
-    expect(cr.diagnostics[1].message).toContain('Type "Map<string, int>" is not assignable to type "JSONValue"');
+    expect(cr.diagnostics[0].message).toContain('Type "int[]" is not assignable to type "JsonValue"');
+    expect(cr.diagnostics[1].message).toContain('Type "Map<string, int>" is not assignable to type "JsonValue"');
   });
 
-  it("accepts long values in JSONValue positions", () => {
+  it("accepts long values in JsonValue positions", () => {
     const cr = check({ "/main.do": `
       function test(): void {
-        value: JSONValue := 5L
+        value: JsonValue := 5L
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);

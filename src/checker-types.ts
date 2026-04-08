@@ -410,7 +410,7 @@ export function typeToString(t: ResolvedType): string {
     case "any":
       return "any";
     case "json-value":
-      return "JSONValue";
+      return "JsonValue";
     case "primitive":
       return t.name;
     case "builtin-namespace":

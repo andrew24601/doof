@@ -1,1 +1,1 @@
-export function parseJsonText(text: string): Result<JSONValue, string> => JSON.parse(text)
+export function parseJsonText(text: string): Result<JsonValue, string> => JSON.parse(text)

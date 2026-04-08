@@ -1080,10 +1080,10 @@ describe("e2e — builtin parsing and formatting", () => {
 // ============================================================================
 
 describe("E2E — JSON serialization", () => {
-  it("preserves long JSONValue precision through direct assignment and parse/stringify", () => {
+  it("preserves long JsonValue precision through direct assignment and parse/stringify", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
-        direct: JSONValue := 9007199254740993L
+        direct: JsonValue := 9007199254740993L
         parsed := try! JSON.parse("9007199254740993")
         println(JSON.stringify(direct))
         println(JSON.stringify(parsed))
@@ -1096,12 +1096,12 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe("9007199254740993\n9007199254740993");
   });
 
-  it("preserves map aliasing when assigning Map<string, JSONValue> to JSONValue", () => {
+  it("preserves map aliasing when assigning Map<string, JsonValue> to JsonValue", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
-        d: JSONValue := 4
-        let m: Map<string, JSONValue> = { "red": d }
-        n: JSONValue := m
+        d: JsonValue := 4
+        let m: Map<string, JsonValue> = { "red": d }
+        n: JsonValue := m
         m["red"] = 5
         println(JSON.stringify(n))
         return 0
@@ -1310,7 +1310,7 @@ describe("E2E — JSON serialization", () => {
     expect(parsed.name).toBe("Rex");
   });
 
-  it("returns error for non-object JSONValue input", () => {
+  it("returns error for non-object JsonValue input", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {

@@ -40,15 +40,15 @@ In v1, `any` is intentionally limited:
 
 Use `any` when values must be carried across API boundaries or stored heterogeneously, then narrow before use.
 
-### The `JSONValue` Type
+### The `JsonValue` Type
 
-Doof provides a built-in `JSONValue` carrier for JSON-compatible data:
+Doof provides a built-in `JsonValue` carrier for JSON-compatible data:
 
 ```javascript
-payload: JSONValue := { name: "Ada", scores: [1, 2, 3] }
+payload: JsonValue := { name: "Ada", scores: [1, 2, 3] }
 ```
 
-`JSONValue` is an exact recursive carrier, not a general implicit conversion sink. Its shape is:
+`JsonValue` is an exact recursive carrier, not a general implicit conversion sink. Its shape is:
 
 - `null`
 - `bool`
@@ -57,18 +57,18 @@ payload: JSONValue := { name: "Ada", scores: [1, 2, 3] }
 - `float`
 - `double`
 - `string`
-- `JSONValue[]`
-- `Map<string, JSONValue>`
+- `JsonValue[]`
+- `Map<string, JsonValue>`
 - unions composed from the cases above
 
 This has two important consequences:
 
-- JSON literals remain ergonomic through contextual typing, so `value: JSONValue := [1, 2, 3]` and `value: JSONValue := { answer: 42 }` are valid.
-- Pre-built typed collections do not implicitly convert to `JSONValue`. For example, `int[]` and `Map<string, int>` are not assignable to `JSONValue`; use JSONValue-shaped collections instead.
+- JSON literals remain ergonomic through contextual typing, so `value: JsonValue := [1, 2, 3]` and `value: JsonValue := { answer: 42 }` are valid.
+- Pre-built typed collections do not implicitly convert to `JsonValue`. For example, `int[]` and `Map<string, int>` are not assignable to `JsonValue`; use JsonValue-shaped collections instead.
 
-64-bit integers are preserved as `long` inside `JSONValue`, including values parsed from JSON that do not fit in `int`.
+64-bit integers are preserved as `long` inside `JsonValue`, including values parsed from JSON that do not fit in `int`.
 
-When a `Map<string, JSONValue>` or `JSONValue[]` is assigned to `JSONValue`, the runtime preserves reference semantics for the underlying shared container rather than copying it.
+When a `Map<string, JsonValue>` or `JsonValue[]` is assigned to `JsonValue`, the runtime preserves reference semantics for the underlying shared container rather than copying it.
 
 ### Numeric Literals
 

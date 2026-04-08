@@ -45,7 +45,7 @@ export function emitType(type: ResolvedType): string {
       return "doof::Any";
 
     case "json-value":
-      return "doof::JSONValue";
+      return "doof::JsonValue";
 
     case "primitive":
       return PRIMITIVE_MAP[type.name];
@@ -219,7 +219,7 @@ export function emitDefaultValue(type: ResolvedType): string {
     case "any":
       return "{}";
     case "json-value":
-      return "doof::JSONValue(nullptr)";
+      return "doof::JsonValue(nullptr)";
     case "primitive":
       switch (type.name) {
         case "int": return "0";
@@ -294,7 +294,7 @@ export function isVariantUnionType(type: ResolvedType): boolean {
  *   - `std::shared_ptr<T>` / pointer      → `nullptr`
  */
 export function emitNullForType(type: ResolvedType): string {
-  if (type.kind === "json-value") return "doof::JSONValue(nullptr)";
+  if (type.kind === "json-value") return "doof::JsonValue(nullptr)";
   if (isVariantUnionType(type)) return "std::monostate{}";
   if (type.kind === "union") {
     const nonNull = type.types.filter((t) => t.kind !== "null");

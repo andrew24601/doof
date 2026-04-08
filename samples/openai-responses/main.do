@@ -9,7 +9,7 @@ export import class NativeEnv from "./native_env.hpp" {
 class PendingToolCall {
   callId: string
   name: string
-  args: JSONValue
+  args: JsonValue
 }
 
 function defaultModel(): string {
@@ -49,7 +49,7 @@ function main(args: string[]): int {
 
   client := createOpenAIClient(apiKey, model)
   tools := WeeknightKitchenTools { }
-  let current: JSONValue = null
+  let current: JsonValue = null
   case createResponse(client, {
     model,
     instructions: "You are a concise assistant. Use the provided tools when they are relevant, and ground any tool-backed facts in the tool outputs.",
@@ -146,7 +146,7 @@ function promptFromArgs(args: string[]): string {
   return prompt
 }
 
-function extractResponseId(response: JSONValue): string | null {
+function extractResponseId(response: JsonValue): string | null {
   if !jsonIsObject(response) {
     return null
   }
@@ -154,7 +154,7 @@ function extractResponseId(response: JSONValue): string | null {
   return jsonStringValue(jsonObjectGet(response, "id"))
 }
 
-function collectToolCalls(items: JSONValue[]): Result<PendingToolCall[], string> {
+function collectToolCalls(items: JsonValue[]): Result<PendingToolCall[], string> {
   calls: PendingToolCall[] := []
 
   for item of items {
@@ -192,7 +192,7 @@ function collectToolCalls(items: JSONValue[]): Result<PendingToolCall[], string>
   return Success(calls)
 }
 
-function extractToolCalls(response: JSONValue): Result<PendingToolCall[], string> {
+function extractToolCalls(response: JsonValue): Result<PendingToolCall[], string> {
   if !jsonIsObject(response) {
     return Failure("OpenAI response was not an object")
   }
@@ -221,8 +221,8 @@ function toolErrorText(error: any): string {
   }
 }
 
-function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]): JSONValue[] {
-  outputs: JSONValue[] := []
+function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]): JsonValue[] {
+  outputs: JsonValue[] := []
 
   for call of calls {
     println("- ${call.name}(${JSON.stringify(call.args)})")
@@ -266,7 +266,7 @@ function joinWithNewlines(parts: string[]): string {
   return text
 }
 
-function collectMessageContent(parts: string[], contentItems: JSONValue[]): void {
+function collectMessageContent(parts: string[], contentItems: JsonValue[]): void {
   for contentItem of contentItems {
     if !jsonIsObject(contentItem) {
       continue
@@ -284,7 +284,7 @@ function collectMessageContent(parts: string[], contentItems: JSONValue[]): void
   }
 }
 
-function collectAssistantText(items: JSONValue[]): string | null {
+function collectAssistantText(items: JsonValue[]): string | null {
   parts: string[] := []
 
   for item of items {
@@ -308,7 +308,7 @@ function collectAssistantText(items: JSONValue[]): string | null {
   return joinWithNewlines(parts)
 }
 
-function extractAssistantText(response: JSONValue): string | null {
+function extractAssistantText(response: JsonValue): string | null {
   if !jsonIsObject(response) {
     return null
   }

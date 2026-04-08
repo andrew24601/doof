@@ -10,7 +10,7 @@ class Point {
 }
 
 const p = Point { x: 1.5, y: 2.5 }
-const json = p.toJsonValue()                // JSONValue
+const json = p.toJsonValue()                // JsonValue
 const result = Point.fromJsonValue(json)    // Result<Point, string>
 ```
 
@@ -18,7 +18,7 @@ When you need text rather than structured JSON, use the standard JSON helpers:
 
 ```doof
 const text = JSON.stringify(p.toJsonValue())
-const parsed = JSON.parse(text)             // Result<JSONValue, string>
+const parsed = JSON.parse(text)             // Result<JsonValue, string>
 ```
 
 ## On-Demand Generation
@@ -36,7 +36,7 @@ const json = Outer { inner: Inner { value: 42 } }.toJsonValue()
 
 ## Serialization — `.toJsonValue()`
 
-Every eligible class instance has a `.toJsonValue()` method that returns a `JSONValue` object.
+Every eligible class instance has a `.toJsonValue()` method that returns a `JsonValue` object.
 
 ```doof
 class User {
@@ -73,7 +73,7 @@ println(JSON.stringify(u.toJsonValue()))
 | `Tuple<T1, T2, ...>` | JSON array |
 | Enums | JSON string (member name) |
 | `T | null` | Value or `null` |
-| `JSONValue` | Preserved as-is |
+| `JsonValue` | Preserved as-is |
 
 ### Non-Serializable Types
 
@@ -97,7 +97,7 @@ b.toJsonValue()  // compile error
 
 ## Deserialization — `.fromJsonValue()`
 
-Every eligible class has a `.fromJsonValue(json: JSONValue)` method accessible on the class name that returns `Result<ClassName, string>`.
+Every eligible class has a `.fromJsonValue(json: JsonValue)` method accessible on the class name that returns `Result<ClassName, string>`.
 
 ```doof
 const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })
@@ -153,7 +153,7 @@ Point.fromJsonValue({ x: 1.0, y: 2.0, z: 3.0 })
 
 ### Non-Object Inputs
 
-`.fromJsonValue()` expects a JSON object. Passing a non-object `JSONValue` fails:
+`.fromJsonValue()` expects a JSON object. Passing a non-object `JsonValue` fails:
 
 ```doof
 Point.fromJsonValue("not an object")
@@ -282,7 +282,7 @@ println(JSON.stringify(Pixel { x: 10, y: 20, color: Color.Green }.toJsonValue())
 class Foo {
   x: int
 
-  function toJsonValue(): JSONValue {
+  function toJsonValue(): JsonValue {
     return null
   }
 }

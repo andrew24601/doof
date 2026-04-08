@@ -6,7 +6,7 @@ Classes with all-serializable fields automatically get `.toJsonValue()` and `.fr
 
 ### `.toJsonValue()` — Instance Method
 
-Returns a `JSONValue` representation.
+Returns a `JsonValue` representation.
 
 ```doof
 class User {
@@ -55,7 +55,7 @@ Rules:
 - `const` fields are auto-filled; if present in JSON, value must match
 - Extra JSON fields are silently ignored
 - Type mismatches produce `Failure`
-- Non-object JSONValue input produces `Failure`
+- Non-object JsonValue input produces `Failure`
 
 ### Interface Deserialization
 
@@ -118,9 +118,9 @@ meta.description        // "A simple calculator."
 meta.methods            // MethodReflection[]
 meta.methods[0].name            // "add"
 meta.methods[0].description     // "Adds two numbers."
-meta.methods[0].inputSchema     // JSONValue JSON Schema Draft 7 object
-meta.methods[0].outputSchema    // JSONValue JSON Schema Draft 7 object
-meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JSONValue, any>
+meta.methods[0].inputSchema     // JsonValue JSON Schema Draft 7 object
+meta.methods[0].outputSchema    // JsonValue JSON Schema Draft 7 object
+meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JsonValue, any>
 ```
 
 ### JSON Schema Type Mappings

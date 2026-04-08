@@ -474,7 +474,7 @@ export class TypeChecker {
       case "named-type": {
         const name = ann.name;
         if (name === "any") return ANY_TYPE;
-        if (name === "JSONValue") return JSON_VALUE_TYPE;
+        if (name === "JsonValue") return JSON_VALUE_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
         if (name === "void") return VOID_TYPE;
         if (name === "null") return NULL_TYPE;

@@ -1,7 +1,7 @@
 /**
  * C++ JSON serialization code generation — toJsonValue / fromJsonValue methods.
  *
- * Generates doof::JSONValue-based serialization and deserialization code
+ * Generates doof::JsonValue-based serialization and deserialization code
  * for classes and interface variant types. Handles nested classes, arrays,
  * tuples, enums, nullable types, and const discriminator fields.
  */
@@ -137,7 +137,7 @@ function unwrapExport(stmt: Statement): Statement {
 
 /**
  * Emit C++ code that serializes a value of the given ResolvedType to
- * a doof::JSONValue. Returns a C++ expression string.
+ * a doof::JsonValue. Returns a C++ expression string.
  */
 export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string {
   switch (type.kind) {
@@ -149,28 +149,28 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
 
     case "primitive":
       if (type.name === "char") {
-        return `doof::JSONValue(std::string(1, static_cast<char>(${fieldExpr})))`;
+        return `doof::JsonValue(std::string(1, static_cast<char>(${fieldExpr})))`;
       }
-      return `doof::JSONValue(${fieldExpr})`;
+      return `doof::JsonValue(${fieldExpr})`;
 
     case "class":
       return `${fieldExpr}->toJsonValue()`;
 
     case "array":
-      return `[&]() { auto _arr = std::make_shared<std::vector<doof::JSONValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::JSONValue(_arr); }()`;
+      return `[&]() { auto _arr = std::make_shared<std::vector<doof::JsonValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::JsonValue(_arr); }()`;
 
     case "tuple": {
       const parts = type.elements.map((element, index) =>
         emitSerializeExpr(`std::get<${index}>(${fieldExpr})`, element),
       );
-      return `doof::JSONValue(std::make_shared<std::vector<doof::JSONValue>>(std::initializer_list<doof::JSONValue>{${parts.join(", ")}}))`;
+      return `doof::JsonValue(std::make_shared<std::vector<doof::JsonValue>>(std::initializer_list<doof::JsonValue>{${parts.join(", ")}}))`;
     }
 
     case "enum":
-      return `doof::JSONValue(${type.symbol.name}_name(${fieldExpr}))`;
+      return `doof::JsonValue(${type.symbol.name}_name(${fieldExpr}))`;
 
     case "null":
-      return "doof::JSONValue(nullptr)";
+      return "doof::JsonValue(nullptr)";
 
     case "union": {
       const nonNull = type.types.filter((inner) => inner.kind !== "null");
@@ -178,9 +178,9 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "class") {
-          return `(${fieldExpr} ? ${emitSerializeExpr(fieldExpr, inner)} : doof::JSONValue(nullptr))`;
+          return `(${fieldExpr} ? ${emitSerializeExpr(fieldExpr, inner)} : doof::JsonValue(nullptr))`;
         }
-        return `(${fieldExpr}.has_value() ? ${emitSerializeExpr(`${fieldExpr}.value()`, inner)} : doof::JSONValue(nullptr))`;
+        return `(${fieldExpr}.has_value() ? ${emitSerializeExpr(`${fieldExpr}.value()`, inner)} : doof::JsonValue(nullptr))`;
       }
       throw new Error("General union JSON serialization is not supported");
     }
@@ -191,8 +191,8 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
 }
 
 /**
- * Emit C++ code that deserializes a doof::JSONValue into the
- * given ResolvedType. `jsonExpr` is a C++ expression of type doof::JSONValue.
+ * Emit C++ code that deserializes a doof::JsonValue into the
+ * given ResolvedType. `jsonExpr` is a C++ expression of type doof::JsonValue.
  * Returns a C++ expression string that produces the target type.
  */
 export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: EmitContext): string {
@@ -258,7 +258,7 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
 // JSON type checking and naming
 // ============================================================================
 
-/** Emit the expected JSONValue type check for a field type. */
+/** Emit the expected JsonValue type check for a field type. */
 export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string {
   switch (type.kind) {
     case "any":
@@ -350,8 +350,8 @@ export function emitToJSON(
   const bodyInd = indent({ indent: ctx.indent + 2 });
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${memberInd}doof::JSONValue toJsonValue() const {`);
-  ctx.sourceLines.push(`${bodyInd}auto _j = std::make_shared<std::unordered_map<std::string, doof::JSONValue>>();`);
+  ctx.sourceLines.push(`${memberInd}doof::JsonValue toJsonValue() const {`);
+  ctx.sourceLines.push(`${bodyInd}auto _j = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();`);
 
   for (const field of decl.fields) {
     if (field.static_) continue;
@@ -367,7 +367,7 @@ export function emitToJSON(
     }
   }
 
-  ctx.sourceLines.push(`${bodyInd}return doof::JSONValue(_j);`);
+  ctx.sourceLines.push(`${bodyInd}return doof::JsonValue(_j);`);
   ctx.sourceLines.push(`${memberInd}}`);
 }
 
@@ -382,7 +382,7 @@ export function emitFromJSON(
   const resultType = `doof::Result<std::shared_ptr<${cppName}>, std::string>`;
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JSONValue& _j) {`);
+  ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JsonValue& _j) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
@@ -460,7 +460,7 @@ export function emitFromJSON(
 // Interface-level fromJsonValue dispatcher
 // ============================================================================
 
-/** Generate a free-function JSONValue dispatcher for interface deserialization. */
+/** Generate a free-function JsonValue dispatcher for interface deserialization. */
 export function emitInterfaceFromJSON(
   ifaceName: string,
   _impls: ClassSymbol[],
@@ -472,7 +472,7 @@ export function emitInterfaceFromJSON(
   const resultType = `doof::Result<${ifaceName}, std::string>`;
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${ind}inline ${resultType} ${ifaceName}_fromJsonValue(const doof::JSONValue& _j) {`);
+  ctx.sourceLines.push(`${ind}inline ${resultType} ${ifaceName}_fromJsonValue(const doof::JsonValue& _j) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);

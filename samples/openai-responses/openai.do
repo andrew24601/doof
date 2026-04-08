@@ -17,7 +17,7 @@ export function createOpenAIClient(apiKey: string, model: string): OpenAIClient 
   }
 }
 
-export function createResponse(client: OpenAIClient, body: JSONValue): Result<JSONValue, string> {
+export function createResponse(client: OpenAIClient, body: JsonValue): Result<JsonValue, string> {
   headers := buildHeaders(client.apiKey)
   request := HttpRequest {
     method: "POST",
@@ -48,7 +48,7 @@ function buildHeaders(apiKey: string): HttpHeader[] {
   return headers
 }
 
-function parseHttpResponse(response: HttpResponse): Result<JSONValue, string> {
+function parseHttpResponse(response: HttpResponse): Result<JsonValue, string> {
   if !response.ok() {
     return Failure("OpenAI returned ${response.status} ${response.statusText}: ${response.body}")
   }

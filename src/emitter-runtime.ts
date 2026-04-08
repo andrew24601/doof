@@ -168,58 +168,58 @@ inline std::optional<ParseError> ParseError_fromValue(int32_t value) {
 }
 
 // ============================================================================
-// JSONValue — first-class JSON runtime value
+// JsonValue — first-class JSON runtime value
 // ============================================================================
 
-struct JSONValue {
-    using Array = std::shared_ptr<std::vector<JSONValue>>;
-    using Object = std::shared_ptr<std::unordered_map<std::string, JSONValue>>;
+struct JsonValue {
+    using Array = std::shared_ptr<std::vector<JsonValue>>;
+    using Object = std::shared_ptr<std::unordered_map<std::string, JsonValue>>;
     using Storage = std::variant<std::monostate, bool, int32_t, int64_t, float, double, std::string, Array, Object>;
 
     Storage value;
 
-    JSONValue() : value(std::monostate{}) {}
-    JSONValue(std::nullptr_t) : value(std::monostate{}) {}
-    JSONValue(bool v) : value(v) {}
-    JSONValue(int32_t v) : value(v) {}
-    JSONValue(int64_t v) : value(v) {}
-    JSONValue(float v) : value(v) {}
-    JSONValue(double v) : value(v) {}
-    JSONValue(const std::string& v) : value(v) {}
-    JSONValue(std::string&& v) : value(std::move(v)) {}
-    JSONValue(const char* v) : value(std::string(v)) {}
-    JSONValue(const Array& v) : value(v) {}
-    JSONValue(Array&& v) : value(std::move(v)) {}
-    JSONValue(const Object& v) : value(v) {}
-    JSONValue(Object&& v) : value(std::move(v)) {}
+    JsonValue() : value(std::monostate{}) {}
+    JsonValue(std::nullptr_t) : value(std::monostate{}) {}
+    JsonValue(bool v) : value(v) {}
+    JsonValue(int32_t v) : value(v) {}
+    JsonValue(int64_t v) : value(v) {}
+    JsonValue(float v) : value(v) {}
+    JsonValue(double v) : value(v) {}
+    JsonValue(const std::string& v) : value(v) {}
+    JsonValue(std::string&& v) : value(std::move(v)) {}
+    JsonValue(const char* v) : value(std::string(v)) {}
+    JsonValue(const Array& v) : value(v) {}
+    JsonValue(Array&& v) : value(std::move(v)) {}
+    JsonValue(const Object& v) : value(v) {}
+    JsonValue(Object&& v) : value(std::move(v)) {}
 
     bool isNull() const { return std::holds_alternative<std::monostate>(value); }
 };
 
-inline bool json_is_boolean(const JSONValue& value) {
+inline bool json_is_boolean(const JsonValue& value) {
     return std::holds_alternative<bool>(value.value);
 }
 
-inline bool json_is_number(const JSONValue& value) {
+inline bool json_is_number(const JsonValue& value) {
     return std::holds_alternative<int32_t>(value.value)
         || std::holds_alternative<int64_t>(value.value)
         || std::holds_alternative<float>(value.value)
         || std::holds_alternative<double>(value.value);
 }
 
-inline bool json_is_string(const JSONValue& value) {
+inline bool json_is_string(const JsonValue& value) {
     return std::holds_alternative<std::string>(value.value);
 }
 
-inline bool json_is_array(const JSONValue& value) {
-    return std::holds_alternative<JSONValue::Array>(value.value);
+inline bool json_is_array(const JsonValue& value) {
+    return std::holds_alternative<JsonValue::Array>(value.value);
 }
 
-inline bool json_is_object(const JSONValue& value) {
-    return std::holds_alternative<JSONValue::Object>(value.value);
+inline bool json_is_object(const JsonValue& value) {
+    return std::holds_alternative<JsonValue::Object>(value.value);
 }
 
-inline const char* json_type_name(const JSONValue& value) {
+inline const char* json_type_name(const JsonValue& value) {
     if (value.isNull()) return "null";
     if (json_is_boolean(value)) return "boolean";
     if (json_is_number(value)) return "number";
@@ -229,25 +229,25 @@ inline const char* json_type_name(const JSONValue& value) {
     return "unknown";
 }
 
-inline const JSONValue::Array::element_type* json_as_array(const JSONValue& value) {
-    const auto* array = std::get_if<JSONValue::Array>(&value.value);
+inline const JsonValue::Array::element_type* json_as_array(const JsonValue& value) {
+    const auto* array = std::get_if<JsonValue::Array>(&value.value);
     if (array == nullptr || !*array) return nullptr;
     return array->get();
 }
 
-inline const JSONValue::Object::element_type* json_as_object(const JSONValue& value) {
-    const auto* object = std::get_if<JSONValue::Object>(&value.value);
+inline const JsonValue::Object::element_type* json_as_object(const JsonValue& value) {
+    const auto* object = std::get_if<JsonValue::Object>(&value.value);
     if (object == nullptr || !*object) return nullptr;
     return object->get();
 }
 
-inline bool json_as_bool(const JSONValue& value) {
+inline bool json_as_bool(const JsonValue& value) {
     const auto* result = std::get_if<bool>(&value.value);
     if (result == nullptr) panic("Expected JSON boolean");
     return *result;
 }
 
-inline int32_t json_as_int(const JSONValue& value) {
+inline int32_t json_as_int(const JsonValue& value) {
     if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
     if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<int32_t>(*result);
     if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int32_t>(*result);
@@ -255,7 +255,7 @@ inline int32_t json_as_int(const JSONValue& value) {
     panic("Expected JSON number");
 }
 
-inline int64_t json_as_long(const JSONValue& value) {
+inline int64_t json_as_long(const JsonValue& value) {
     if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
     if (const auto* result = std::get_if<int64_t>(&value.value)) return *result;
     if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int64_t>(*result);
@@ -263,7 +263,7 @@ inline int64_t json_as_long(const JSONValue& value) {
     panic("Expected JSON number");
 }
 
-inline float json_as_float(const JSONValue& value) {
+inline float json_as_float(const JsonValue& value) {
     if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<float>(*result);
     if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<float>(*result);
     if (const auto* result = std::get_if<float>(&value.value)) return *result;
@@ -271,7 +271,7 @@ inline float json_as_float(const JSONValue& value) {
     panic("Expected JSON number");
 }
 
-inline double json_as_double(const JSONValue& value) {
+inline double json_as_double(const JsonValue& value) {
     if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<double>(*result);
     if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<double>(*result);
     if (const auto* result = std::get_if<float>(&value.value)) return static_cast<double>(*result);
@@ -279,7 +279,7 @@ inline double json_as_double(const JSONValue& value) {
     panic("Expected JSON number");
 }
 
-inline const std::string& json_as_string(const JSONValue& value) {
+inline const std::string& json_as_string(const JsonValue& value) {
     const auto* result = std::get_if<std::string>(&value.value);
     if (result == nullptr) panic("Expected JSON string");
     return *result;
@@ -921,9 +921,9 @@ template <typename T>
 struct MethodReflection {
     std::string name;
     std::string description;
-    doof::JSONValue inputSchema;
-    doof::JSONValue outputSchema;
-    std::function<doof::Result<doof::JSONValue, doof::Any>(std::shared_ptr<T>, const doof::JSONValue&)> invoke;
+    doof::JsonValue inputSchema;
+    doof::JsonValue outputSchema;
+    std::function<doof::Result<doof::JsonValue, doof::Any>(std::shared_ptr<T>, const doof::JsonValue&)> invoke;
 };
 
 /** Structured metadata for a class — contains name, description, methods, and schema $defs. */
@@ -932,12 +932,12 @@ struct ClassMetadata {
     std::string name;
     std::string description;
     std::shared_ptr<std::vector<doof::MethodReflection<T>>> methods;
-    std::optional<doof::JSONValue> defs;
+    std::optional<doof::JsonValue> defs;
 
-    doof::Result<doof::JSONValue, doof::Any> invoke(
+    doof::Result<doof::JsonValue, doof::Any> invoke(
         std::shared_ptr<T> instance,
         const std::string& methodName,
-        const doof::JSONValue& params
+        const doof::JsonValue& params
     ) const {
         if (methods != nullptr) {
             for (const auto& method : *methods) {
@@ -946,63 +946,63 @@ struct ClassMetadata {
                 }
             }
         }
-        return doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{std::string("Unknown method: ") + methodName});
+        return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Unknown method: ") + methodName});
     }
 };
 
 } // namespace doof
 `;
 
-const JSON_TO_STRING_OVERLOAD = `inline std::string to_string(const JSONValue& value) {
+const JSON_TO_STRING_OVERLOAD = `inline std::string to_string(const JsonValue& value) {
     return JSON::stringify(value);
 }`;
 
-const JSON_RUNTIME_SUPPORT = `inline JSONValue json_from_nlohmann(const nlohmann::json& value) {
+const JSON_RUNTIME_SUPPORT = `inline JsonValue json_from_nlohmann(const nlohmann::json& value) {
     if (value.is_null()) {
-        return JSONValue(nullptr);
+        return JsonValue(nullptr);
     }
     if (value.is_boolean()) {
-        return JSONValue(value.get<bool>());
+        return JsonValue(value.get<bool>());
     }
     if (value.is_number_integer()) {
         const auto number = value.get<int64_t>();
         if (number >= std::numeric_limits<int32_t>::min() && number <= std::numeric_limits<int32_t>::max()) {
-            return JSONValue(static_cast<int32_t>(number));
+            return JsonValue(static_cast<int32_t>(number));
         }
-        return JSONValue(number);
+        return JsonValue(number);
     }
     if (value.is_number_unsigned()) {
         const auto number = value.get<uint64_t>();
         if (number <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
-            return JSONValue(static_cast<int32_t>(number));
+            return JsonValue(static_cast<int32_t>(number));
         }
         if (number <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-            return JSONValue(static_cast<int64_t>(number));
+            return JsonValue(static_cast<int64_t>(number));
         }
-        return JSONValue(static_cast<double>(number));
+        return JsonValue(static_cast<double>(number));
     }
     if (value.is_number_float()) {
-        return JSONValue(value.get<double>());
+        return JsonValue(value.get<double>());
     }
     if (value.is_string()) {
-        return JSONValue(value.get<std::string>());
+        return JsonValue(value.get<std::string>());
     }
     if (value.is_array()) {
-        auto result = std::make_shared<std::vector<JSONValue>>();
+        auto result = std::make_shared<std::vector<JsonValue>>();
         result->reserve(value.size());
         for (const auto& item : value) {
             result->push_back(json_from_nlohmann(item));
         }
-        return JSONValue(std::move(result));
+        return JsonValue(std::move(result));
     }
-    auto result = std::make_shared<std::unordered_map<std::string, JSONValue>>();
+    auto result = std::make_shared<std::unordered_map<std::string, JsonValue>>();
     for (auto it = value.begin(); it != value.end(); ++it) {
         (*result)[it.key()] = json_from_nlohmann(it.value());
     }
-    return JSONValue(std::move(result));
+    return JsonValue(std::move(result));
 }
 
-inline nlohmann::json json_to_nlohmann(const JSONValue& value) {
+inline nlohmann::json json_to_nlohmann(const JsonValue& value) {
     return std::visit([](const auto& inner) -> nlohmann::json {
         using T = std::decay_t<decltype(inner)>;
         if constexpr (std::is_same_v<T, std::monostate>) {
@@ -1014,7 +1014,7 @@ inline nlohmann::json json_to_nlohmann(const JSONValue& value) {
             || std::is_same_v<T, double>
             || std::is_same_v<T, std::string>) {
             return inner;
-        } else if constexpr (std::is_same_v<T, JSONValue::Array>) {
+        } else if constexpr (std::is_same_v<T, JsonValue::Array>) {
             auto result = nlohmann::json::array();
             if (inner != nullptr) {
                 for (const auto& item : *inner) {
@@ -1035,20 +1035,20 @@ inline nlohmann::json json_to_nlohmann(const JSONValue& value) {
 }
 
 struct JSON {
-    static Result<JSONValue, std::string> parse(const std::string& text) {
+    static Result<JsonValue, std::string> parse(const std::string& text) {
         try {
-            return Result<JSONValue, std::string>::success(json_from_nlohmann(nlohmann::json::parse(text)));
+            return Result<JsonValue, std::string>::success(json_from_nlohmann(nlohmann::json::parse(text)));
         } catch (const std::exception& error) {
-            return Result<JSONValue, std::string>::failure(error.what());
+            return Result<JsonValue, std::string>::failure(error.what());
         }
     }
 
-    static std::string stringify(const JSONValue& value) {
+    static std::string stringify(const JsonValue& value) {
         return json_to_nlohmann(value).dump();
     }
 };
 
-inline JSONValue json_parse_or_panic(const std::string& text) {
+inline JsonValue json_parse_or_panic(const std::string& text) {
     auto result = JSON::parse(text);
     if (result.isFailure()) {
         panic("Invalid embedded JSON: " + result.error());

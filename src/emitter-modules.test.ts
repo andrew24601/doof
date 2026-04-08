@@ -392,7 +392,7 @@ describe("emitter-module — emitProject", () => {
   it("hpp includes nlohmann/json when JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }
-      function test(p: Point): JSONValue => p.toJsonValue()
+      function test(p: Point): JsonValue => p.toJsonValue()
     `);
     expect(hppCode).toContain("nlohmann/json.hpp");
   });

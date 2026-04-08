@@ -2,7 +2,7 @@
  * Emitter tests — structured metadata and per-method invoke generation.
  *
  * Tests C++ code generation for structured doof::ClassMetadata with
- * per-method invoke lambdas returning doof::Result<doof::JSONValue, any>.
+ * per-method invoke lambdas returning doof::Result<doof::JsonValue, any>.
  */
 
 import { describe, it, expect } from "vitest";
@@ -47,7 +47,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    // inputSchema and outputSchema are embedded JSON constants parsed to JSONValue
+    // inputSchema and outputSchema are embedded JSON constants parsed to JsonValue
     expect(cpp).toContain("_doof_schema_");
     expect(cpp).toContain('"input"');
   });
@@ -91,7 +91,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("doof::Result<doof::JSONValue, doof::Any>");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>");
     expect(cpp).toContain("_instance->run(");
     expect(cpp).toContain("::success(");
   });
@@ -115,7 +115,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("::success(doof::JSONValue(nullptr))");
+    expect(cpp).toContain("::success(doof::JsonValue(nullptr))");
   });
 
   it("unwraps Result-returning methods into invoke success or any failure", () => {
@@ -129,7 +129,7 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("if (_result.isFailure()) {");
-    expect(cpp).toContain("doof::Result<doof::JSONValue, doof::Any>::failure(doof::Any{_result.error()})");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{_result.error()})");
     expect(cpp).toContain("auto _success = _result.value();");
     expect(cpp).toContain('"type":"string"');
   });
@@ -142,7 +142,7 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("_result.value();");
-    expect(cpp).toContain("doof::Result<doof::JSONValue, doof::Any>::success(doof::JSONValue(nullptr))");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>::success(doof::JsonValue(nullptr))");
     expect(cpp).toContain('"type":"null"');
   });
 

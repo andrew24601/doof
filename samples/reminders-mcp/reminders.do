@@ -21,13 +21,13 @@ class RequestAccessResult {
 }
 
 export class RemindersTools "Read and modify reminders in the macOS Reminders app." {
-  authorizationStatus "Returns the current EventKit authorization status for reminders."(): JSONValue {
+  authorizationStatus "Returns the current EventKit authorization status for reminders."(): JsonValue {
     return AuthorizationStatusResult {
       status: NativeRemindersStore().authorizationStatus()
     }.toJsonValue()
   }
 
-  requestAccess "Prompts the user to grant reminders access if the server has not already been authorized."(): Result<JSONValue, string> {
+  requestAccess "Prompts the user to grant reminders access if the server has not already been authorized."(): Result<JsonValue, string> {
     store := NativeRemindersStore()
     return case store.requestAccess() {
       s: Success => Success(RequestAccessResult {
@@ -38,19 +38,19 @@ export class RemindersTools "Read and modify reminders in the macOS Reminders ap
     }
   }
 
-  listLists "Lists the available reminder lists."(): Result<JSONValue, string> => parseJsonResult(NativeRemindersStore().listListsJSON())
+  listLists "Lists the available reminder lists."(): Result<JsonValue, string> => parseJsonResult(NativeRemindersStore().listListsJSON())
 
   listReminders "Lists reminders in a specific reminder list."(
     listId "Reminder list identifier.": string,
     includeCompleted "Whether completed reminders should be included.": bool = false
-  ): Result<JSONValue, string> => parseJsonResult(NativeRemindersStore().listRemindersJSON(listId, includeCompleted))
+  ): Result<JsonValue, string> => parseJsonResult(NativeRemindersStore().listRemindersJSON(listId, includeCompleted))
 
   createReminder "Creates a reminder in a specific reminder list."(
     listId "Reminder list identifier.": string,
     title "Reminder title.": string,
     notes "Optional reminder notes.": string | null = null,
     dueDateIso "Optional due date in ISO-8601 format.": string | null = null
-  ): Result<JSONValue, string> {
+  ): Result<JsonValue, string> {
     notesText := notes ?? ""
     dueDateText := dueDateIso ?? ""
 
@@ -62,7 +62,7 @@ export class RemindersTools "Read and modify reminders in the macOS Reminders ap
     title "Updated reminder title.": string,
     notes "Updated reminder notes, or null to clear.": string | null = null,
     dueDateIso "Updated due date in ISO-8601 format, or null to clear.": string | null = null
-  ): Result<JSONValue, string> {
+  ): Result<JsonValue, string> {
     notesText := notes ?? ""
     dueDateText := dueDateIso ?? ""
 
@@ -72,16 +72,16 @@ export class RemindersTools "Read and modify reminders in the macOS Reminders ap
   completeReminder "Marks a reminder complete or incomplete by identifier."(
     reminderId "Reminder identifier.": string,
     completed "Whether the reminder should be completed.": bool = true
-  ): Result<JSONValue, string> => parseJsonResult(NativeRemindersStore().completeReminderJSON(reminderId, completed))
+  ): Result<JsonValue, string> => parseJsonResult(NativeRemindersStore().completeReminderJSON(reminderId, completed))
 
   deleteReminder "Deletes a reminder by identifier."(
     reminderId "Reminder identifier.": string
-  ): Result<JSONValue, string> => parseJsonResult(NativeRemindersStore().deleteReminderJSON(reminderId))
+  ): Result<JsonValue, string> => parseJsonResult(NativeRemindersStore().deleteReminderJSON(reminderId))
 }
 
 export function toolsListResultJson(): string {
   meta := RemindersTools.metadata
-  tools: JSONValue[] := []
+  tools: JsonValue[] := []
 
   for method of meta.methods {
     tools.push({

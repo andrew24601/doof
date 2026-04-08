@@ -1039,51 +1039,51 @@ describe("emitter — contextual typing", () => {
     expect(args).toBe("1.0f, 2.0f, 3.0f, 4.0f");
   });
 
-  it("emits direct JSONValue object literal construction without copy lambdas", () => {
+  it("emits direct JsonValue object literal construction without copy lambdas", () => {
     const cpp = emit(`
       function main(): int {
-        c: JSONValue := { red: "Red", blue: 2 }
+        c: JsonValue := { red: "Red", blue: 2 }
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JSONValue(std::make_shared<std::unordered_map<std::string, doof::JSONValue>>");
+    expect(cpp).toContain("doof::JsonValue(std::make_shared<std::unordered_map<std::string, doof::JsonValue>>");
     expect(cpp).not.toContain("_json_obj_src_");
   });
 
-  it("aliases Map<string, JSONValue> assignments into JSONValue", () => {
+  it("aliases Map<string, JsonValue> assignments into JsonValue", () => {
     const cpp = emit(`
       function main(): int {
-        d: JSONValue := 4
-        let m: Map<string, JSONValue> = { "red": d }
-        n: JSONValue := m
+        d: JsonValue := 4
+        let m: Map<string, JsonValue> = { "red": d }
+        n: JsonValue := m
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JSONValue(m)");
+    expect(cpp).toContain("doof::JsonValue(m)");
     expect(cpp).not.toContain("_json_obj_src_");
   });
 
-  it("aliases JSONValue[] assignments into JSONValue", () => {
+  it("aliases JsonValue[] assignments into JsonValue", () => {
     const cpp = emit(`
       function main(): int {
-        item: JSONValue := 4
-        let values: JSONValue[] = [item]
-        payload: JSONValue := values
+        item: JsonValue := 4
+        let values: JsonValue[] = [item]
+        payload: JsonValue := values
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JSONValue(values)");
+    expect(cpp).toContain("doof::JsonValue(values)");
     expect(cpp).not.toContain("_json_arr_src_");
   });
 
-  it("emits long JSONValue primitives without widening to double", () => {
+  it("emits long JsonValue primitives without widening to double", () => {
     const cpp = emit(`
       function main(): int {
-        value: JSONValue := 9007199254740993L
+        value: JsonValue := 9007199254740993L
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JSONValue(9007199254740993LL)");
+    expect(cpp).toContain("doof::JsonValue(9007199254740993LL)");
   });
 });
 

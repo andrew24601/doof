@@ -99,7 +99,7 @@ describe("emitter — Result type", () => {
     const header = generateRuntimeHeader();
     expect(header).toContain("nlohmann/json.hpp");
     expect(header).toContain("json_from_nlohmann");
-    expect(header).toContain("struct JSONValue");
+    expect(header).toContain("struct JsonValue");
   });
 });
 
@@ -657,12 +657,12 @@ describe("emitter — JSON serialization", () => {
         x: int
         y: int
       }
-      function test(p: Point): JSONValue => p.toJsonValue()
+      function test(p: Point): JsonValue => p.toJsonValue()
     `);
-    expect(cpp).toContain("doof::JSONValue toJsonValue() const {");
-    expect(cpp).toContain("std::make_shared<std::unordered_map<std::string, doof::JSONValue>>()");
-    expect(cpp).toContain('(*_j)["x"] = doof::JSONValue(this->x);');
-    expect(cpp).toContain('(*_j)["y"] = doof::JSONValue(this->y);');
+    expect(cpp).toContain("doof::JsonValue toJsonValue() const {");
+    expect(cpp).toContain("std::make_shared<std::unordered_map<std::string, doof::JsonValue>>()");
+    expect(cpp).toContain('(*_j)["x"] = doof::JsonValue(this->x);');
+    expect(cpp).toContain('(*_j)["y"] = doof::JsonValue(this->y);');
   });
 
   it("emits fromJsonValue method for simple class", () => {
@@ -671,9 +671,9 @@ describe("emitter — JSON serialization", () => {
         x: int
         y: int
       }
-      function test(json: JSONValue): Result<Point, string> => Point.fromJsonValue(json)
+      function test(json: JsonValue): Result<Point, string> => Point.fromJsonValue(json)
     `);
-    expect(cpp).toContain("static doof::Result<std::shared_ptr<Point>, std::string> fromJsonValue(const doof::JSONValue& _j) {");
+    expect(cpp).toContain("static doof::Result<std::shared_ptr<Point>, std::string> fromJsonValue(const doof::JsonValue& _j) {");
     expect(cpp).toContain('auto _it_x = _obj->find("x");');
     expect(cpp).toContain('auto _it_y = _obj->find("y");');
     expect(cpp).toContain('doof::json_as_int(_it_x->second)');
@@ -687,10 +687,10 @@ describe("emitter — JSON serialization", () => {
         name: string
         enabled: bool
       }
-      function test(c: Config): JSONValue => c.toJsonValue()
+      function test(c: Config): JsonValue => c.toJsonValue()
     `);
-    expect(cpp).toContain('(*_j)["name"] = doof::JSONValue(this->name);');
-    expect(cpp).toContain('(*_j)["enabled"] = doof::JSONValue(this->enabled);');
+    expect(cpp).toContain('(*_j)["name"] = doof::JsonValue(this->name);');
+    expect(cpp).toContain('(*_j)["enabled"] = doof::JsonValue(this->enabled);');
   });
 
   it("emits fromJsonValue with default value handling", () => {
@@ -699,7 +699,7 @@ describe("emitter — JSON serialization", () => {
         name: string
         count: int = 10
       }
-      function test(json: JSONValue): Result<Config, string> => Config.fromJsonValue(json)
+      function test(json: JsonValue): Result<Config, string> => Config.fromJsonValue(json)
     `);
     expect(cpp).toContain('Missing required field \\"name\\"');
     expect(cpp).toContain('_obj->find("count")');
@@ -712,7 +712,7 @@ describe("emitter — JSON serialization", () => {
         name: string
         notes: string | null = null
       }
-      function test(json: JSONValue): Result<Config, string> => Config.fromJsonValue(json)
+      function test(json: JsonValue): Result<Config, string> => Config.fromJsonValue(json)
     `);
     expect(cpp).toContain("_f_notes = std::nullopt;");
     expect(cpp).not.toContain("_f_notes = nullptr;");
@@ -724,7 +724,7 @@ describe("emitter — JSON serialization", () => {
         const kind = "dog"
         name: string
       }
-      function test(d: Dog): JSONValue => d.toJsonValue()
+      function test(d: Dog): JsonValue => d.toJsonValue()
     `);
     expect(cpp).toContain('(*_j)["kind"]');
     expect(cpp).toContain('"dog"');
@@ -738,7 +738,7 @@ describe("emitter — JSON serialization", () => {
       class Outer {
         inner: Inner
       }
-      function test(o: Outer): JSONValue => o.toJsonValue()
+      function test(o: Outer): JsonValue => o.toJsonValue()
     `);
     expect(cpp).toContain("this->inner->toJsonValue()");
   });
@@ -751,7 +751,7 @@ describe("emitter — JSON serialization", () => {
       class Outer {
         inner: Inner
       }
-      function test(json: JSONValue): Result<Outer, string> => Outer.fromJsonValue(json)
+      function test(json: JsonValue): Result<Outer, string> => Outer.fromJsonValue(json)
     `);
     expect(cpp).toContain("Inner::fromJsonValue");
   });
@@ -761,7 +761,7 @@ describe("emitter — JSON serialization", () => {
       class Numbers {
         values: int[]
       }
-      function test(n: Numbers): JSONValue => n.toJsonValue()
+      function test(n: Numbers): JsonValue => n.toJsonValue()
     `);
     expect(cpp).toContain("_arr->push_back");
   });
@@ -771,7 +771,7 @@ describe("emitter — JSON serialization", () => {
       class Container {
         label: string | null
       }
-      function test(c: Container): JSONValue => c.toJsonValue()
+      function test(c: Container): JsonValue => c.toJsonValue()
     `);
     expect(cpp).toContain("isNull()");
   });
@@ -791,7 +791,7 @@ describe("emitter — JSON serialization", () => {
       class User {
         name: string
       }
-      function parse(json: JSONValue): Result<User, string> {
+      function parse(json: JsonValue): Result<User, string> {
         return User.fromJsonValue(json)
       }
     `);
@@ -803,7 +803,7 @@ describe("emitter — JSON serialization", () => {
       class User {
         name: string
       }
-      function serialize(u: User): JSONValue {
+      function serialize(u: User): JsonValue {
         return u.toJsonValue()
       }
     `);
@@ -825,7 +825,7 @@ describe("emitter — JSON serialization", () => {
         side: double
         area(): double => side * side
       }
-      function test(json: JSONValue): Result<Shape, string> => Shape.fromJsonValue(json)
+      function test(json: JsonValue): Result<Shape, string> => Shape.fromJsonValue(json)
     `);
     expect(cpp).toContain("Shape_fromJsonValue");
     expect(cpp).toContain('_disc == "circle"');
@@ -849,7 +849,7 @@ describe("emitter — JSON serialization", () => {
         side: double
         area(): double => side * side
       }
-      function parse(json: JSONValue): Result<Shape, string> {
+      function parse(json: JsonValue): Result<Shape, string> {
         return Shape.fromJsonValue(json)
       }
     `);
@@ -864,7 +864,7 @@ describe("emitter — JSON serialization", () => {
         x: int
         y: int
       }
-      function test(p: Pixel): JSONValue => p.toJsonValue()
+      function test(p: Pixel): JsonValue => p.toJsonValue()
     `);
     expect(cpp).toContain("Color_name(");
     expect(cpp).toContain("Color_fromName(");
@@ -901,7 +901,7 @@ describe("emitter — JSON serialization", () => {
         x: int
         y: int
       }
-      function test(p: Point): JSONValue => p.toJsonValue()
+      function test(p: Point): JsonValue => p.toJsonValue()
     `);
     expect(cpp).toContain("#include <nlohmann/json.hpp>");
   });
@@ -910,7 +910,7 @@ describe("emitter — JSON serialization", () => {
     const cpp = emit(`
       class Inner { value: int }
       class Outer { inner: Inner }
-      function test(o: Outer): JSONValue => o.toJsonValue()
+      function test(o: Outer): JsonValue => o.toJsonValue()
     `);
     expect(cpp).toContain("this->inner->toJsonValue()");
     expect(cpp).toContain("Inner::fromJsonValue");
