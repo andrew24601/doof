@@ -274,7 +274,7 @@ function inferClassStaticMemberType(
 
     for (const field of classDecl.fields) {
       if (!field.names.includes(property)) continue;
-      if (!field.static_ && !field.const_) {
+      if (!field.static_) {
         reportMemberDiagnostic(
           info,
           table,

@@ -532,15 +532,16 @@ describe("emitter — classes", () => {
     expect(cpp).toContain("std::shared_ptr<std::unordered_set<int32_t>> colours = std::make_shared<std::unordered_set<int32_t>>()");
   });
 
-  it("emits const fields as static constexpr or inline const", () => {
+  it("emits const fields as instance const members", () => {
     const cpp = emit(`
       class Circle {
         radius: float
         const kind = "circle"
       }
     `);
-    // String const fields use static inline const (std::string is not a literal type for constexpr)
-    expect(cpp).toContain("static inline const std::string kind = std::string(\"circle\")");
+    expect(cpp).toContain("const std::string kind = std::string(\"circle\")");
+    expect(cpp).toContain("Circle(float radius)");
+    expect(cpp).not.toContain("static inline const std::string kind");
     expect(cpp).toContain('"circle"');
   });
 

@@ -406,6 +406,39 @@ describe("Class field and method types", () => {
     );
     expect(info.diagnostics.some((d) => d.message.includes("instance") && d.message.includes("doIt"))).toBe(true);
   });
+
+  it("errors on class dot access to const field", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Rectangle {
+            const kind = "Rect"
+          }
+          function bad(): string {
+            return Rectangle.kind
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes("instance") && d.message.includes("kind"))).toBe(true);
+  });
+
+  it("errors on qualified access to const field", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Rectangle {
+            width: float
+            const kind = "Rect"
+          }
+          function bad(rect: Rectangle): string => rect::kind
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes("instance") && d.message.includes("kind"))).toBe(true);
+  });
 });
 
 // ============================================================================

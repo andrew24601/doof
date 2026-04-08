@@ -229,15 +229,12 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
     }
 
     if (field.const_) {
-      // const field → static constexpr (numeric), static inline const (string)
+      const fType = field.resolvedType ? emitType(field.resolvedType) : "auto";
       if (field.defaultValue) {
         const val = emitExpression(field.defaultValue, ctx, field.resolvedType ?? undefined);
-        if (field.resolvedType && field.resolvedType.kind === "primitive" && field.resolvedType.name === "string") {
-          // std::string is not a literal type, so can't be constexpr
-          ctx.sourceLines.push(`${ind}static inline const std::string ${safeName} = ${val};`);
-        } else {
-          ctx.sourceLines.push(`${ind}static constexpr auto ${safeName} = ${val};`);
-        }
+        ctx.sourceLines.push(`${ind}const ${fType} ${safeName} = ${val};`);
+      } else {
+        ctx.sourceLines.push(`${ind}const ${fType} ${safeName};`);
       }
     } else if (field.static_) {
       const fType = field.resolvedType ? emitType(field.resolvedType) : "auto";

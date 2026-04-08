@@ -34,7 +34,7 @@ function getNamedClassStaticAccess(expr: MemberExpression): string | null {
     return `${className}::fromJSON`;
   }
   const field = objectType.symbol.declaration.fields.find(
-    (f) => f.names.includes(expr.property) && (f.static_ || f.const_),
+    (f) => f.names.includes(expr.property) && f.static_,
   );
   if (field) {
     return `${className}::${emitIdentifierSafe(expr.property)}`;
@@ -69,7 +69,21 @@ function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string 
   if (expr.property === "fromJSON") {
     return `${className}::fromJSON`;
   }
-  return `${className}::${emitIdentifierSafe(expr.property)}`;
+  const field = objectType.symbol.declaration.fields.find(
+    (f) => f.names.includes(expr.property) && f.static_,
+  );
+  if (field) {
+    return `${className}::${emitIdentifierSafe(expr.property)}`;
+  }
+
+  const method = objectType.symbol.declaration.methods.find(
+    (m) => m.name === expr.property && m.static_,
+  );
+  if (method) {
+    return `${className}::${emitIdentifierSafe(expr.property)}`;
+  }
+
+  return null;
 }
 
 function isClassMetadataUnion(type: ResolvedType | undefined): type is Extract<ResolvedType, { kind: "union" }> {
