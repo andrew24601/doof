@@ -867,6 +867,40 @@ describe("Numeric widening in expressions", () => {
   });
 });
 
+describe("Binary operator union operand validation", () => {
+  it("rejects nullable union operands in arithmetic", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function main(): int {
+            x: int | null := null
+            println(x + 3)
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes('Operator "+" cannot be applied to union type "int | null"'))).toBe(true);
+  });
+
+  it("rejects mixed union operands even when one member is numeric", () => {
+    const info = check(
+      { "/main.do": `function test(x: int | float): float => x + 1.0f` },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes('Operator "+" cannot be applied to union type "int | float"'))).toBe(true);
+  });
+
+  it("rejects string concatenation when the non-string side is a union", () => {
+    const info = check(
+      { "/main.do": `function test(x: int | string): string => x + "!"` },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes('Operator "+" cannot be applied to union type "int | string"'))).toBe(true);
+  });
+});
+
 // ============================================================================
 // Integer division and modulo operator validation
 // ============================================================================

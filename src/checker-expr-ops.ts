@@ -12,6 +12,10 @@ import {
 } from "./checker-types.js";
 import type { ModuleSymbolTable } from "./types.js";
 
+const NUMERIC_BINARY_OPS = new Set(["+", "-", "*", "/", "\\", "%", "**", "&", "|", "^", "<<", ">>", ">>>"]);
+const NUMERIC_PRIMITIVES = new Set(["int", "long", "float", "double"]);
+const INTEGER_PRIMITIVES = new Set(["int", "long"]);
+
 export function inferBinaryType(
   op: string,
   left: ResolvedType,
@@ -41,6 +45,17 @@ export function inferBinaryType(
     return BOOL_TYPE;
   }
   if (op === "??") return inferNullCoalescingType(left, right);
+  if (NUMERIC_BINARY_OPS.has(op)) {
+    const hasInvalidOperand = validateBinaryPrimitiveOperands(op, left, right, info, table, span);
+
+    if (op === "+" && isStringConcatenation(left, right)) {
+      return hasInvalidOperand ? UNKNOWN_TYPE : STRING_TYPE;
+    }
+
+    if (hasInvalidOperand || left.kind !== "primitive" || right.kind !== "primitive") {
+      return UNKNOWN_TYPE;
+    }
+  }
   if (
     op === "+" &&
     ((left.kind === "primitive" && left.name === "string") ||
@@ -49,11 +64,8 @@ export function inferBinaryType(
     return STRING_TYPE;
   }
   if (left.kind === "primitive" && right.kind === "primitive") {
-    const numOps = ["+", "-", "*", "/", "\\", "%", "**", "&", "|", "^", "<<", ">>", ">>>"];
-    if (numOps.includes(op)) {
-      const numericTypes = new Set(["int", "long", "float", "double"]);
-      const integerTypes = new Set(["int", "long"]);
-      if (!numericTypes.has(left.name)) {
+    if (NUMERIC_BINARY_OPS.has(op)) {
+      if (!NUMERIC_PRIMITIVES.has(left.name)) {
         info.diagnostics.push({
           severity: "error",
           message: `Operator "${op}" cannot be applied to type "${typeToString(left)}"`,
@@ -61,7 +73,7 @@ export function inferBinaryType(
           module: table.path,
         });
       }
-      if (!numericTypes.has(right.name)) {
+      if (!NUMERIC_PRIMITIVES.has(right.name)) {
         info.diagnostics.push({
           severity: "error",
           message: `Operator "${op}" cannot be applied to type "${typeToString(right)}"`,
@@ -69,7 +81,7 @@ export function inferBinaryType(
           module: table.path,
         });
       }
-      if (op === "/" && integerTypes.has(left.name) && integerTypes.has(right.name)) {
+      if (op === "/" && INTEGER_PRIMITIVES.has(left.name) && INTEGER_PRIMITIVES.has(right.name)) {
         info.diagnostics.push({
           severity: "error",
           message: "Operator \"/\" cannot be applied to two integer operands; use \"\\\" for integer division or cast to float/double",
@@ -77,8 +89,8 @@ export function inferBinaryType(
           module: table.path,
         });
       }
-      if (op === "\\" && numericTypes.has(left.name) && numericTypes.has(right.name)) {
-        if (!integerTypes.has(left.name) || !integerTypes.has(right.name)) {
+      if (op === "\\" && NUMERIC_PRIMITIVES.has(left.name) && NUMERIC_PRIMITIVES.has(right.name)) {
+        if (!INTEGER_PRIMITIVES.has(left.name) || !INTEGER_PRIMITIVES.has(right.name)) {
           info.diagnostics.push({
             severity: "error",
             message: `Operator "\\" requires integer operands, got "${typeToString(left)}" and "${typeToString(right)}"`,
@@ -87,8 +99,8 @@ export function inferBinaryType(
           });
         }
       }
-      if (op === "%" && numericTypes.has(left.name) && numericTypes.has(right.name)) {
-        if (!integerTypes.has(left.name) || !integerTypes.has(right.name)) {
+      if (op === "%" && NUMERIC_PRIMITIVES.has(left.name) && NUMERIC_PRIMITIVES.has(right.name)) {
+        if (!INTEGER_PRIMITIVES.has(left.name) || !INTEGER_PRIMITIVES.has(right.name)) {
           info.diagnostics.push({
             severity: "error",
             message: `Operator "%" requires integer operands, got "${typeToString(left)}" and "${typeToString(right)}"`,
@@ -189,4 +201,58 @@ export function inferNullCoalescingType(left: ResolvedType, right: ResolvedType)
   }
 
   return combinedTypes.length === 1 ? combinedTypes[0] : { kind: "union", types: combinedTypes };
+}
+
+function validateBinaryPrimitiveOperands(
+  op: string,
+  left: ResolvedType,
+  right: ResolvedType,
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+): boolean {
+  let hasInvalidOperand = false;
+
+  if (left.kind === "union") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Operator "${op}" cannot be applied to union type "${typeToString(left)}"`,
+      span,
+      module: table.path,
+    });
+    hasInvalidOperand = true;
+  } else if (left.kind !== "primitive" && left.kind !== "unknown") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Operator "${op}" cannot be applied to type "${typeToString(left)}"`,
+      span,
+      module: table.path,
+    });
+    hasInvalidOperand = true;
+  }
+
+  if (right.kind === "union") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Operator "${op}" cannot be applied to union type "${typeToString(right)}"`,
+      span,
+      module: table.path,
+    });
+    hasInvalidOperand = true;
+  } else if (right.kind !== "primitive" && right.kind !== "unknown") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Operator "${op}" cannot be applied to type "${typeToString(right)}"`,
+      span,
+      module: table.path,
+    });
+    hasInvalidOperand = true;
+  }
+
+  return hasInvalidOperand;
+}
+
+function isStringConcatenation(left: ResolvedType, right: ResolvedType): boolean {
+  return (left.kind === "primitive" && left.name === "string")
+    || (right.kind === "primitive" && right.name === "string");
 }
