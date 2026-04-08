@@ -57,4 +57,36 @@ describe("pipeline diagnostics", () => {
     const diagnostics = collectSemanticDiagnostics(result);
     expect(() => throwIfErrorDiagnostics(diagnostics)).not.toThrow();
   });
+
+  it("surfaces ambiguous union object literals before emission", () => {
+    const source = [
+      'class Box {',
+      '  const kind = "box"',
+      '  width: float',
+      '  height: float',
+      '  color: string',
+      '}',
+      '',
+      'class Toy {',
+      '  const kind = "toy"',
+      '  color: string',
+      '}',
+      '',
+      'type Thing = Box | Toy',
+      '',
+      'function main(): int {',
+      '  t: Thing := { color: "red" }',
+      '  return 0',
+      '}',
+    ].join("\n");
+
+    const result = analyze({ "/main.do": source }, "/main.do");
+    const diagnostics = collectSemanticDiagnostics(result);
+    const diagnostic = diagnostics.find((entry) => entry.message.includes('Object literal is ambiguous for union type "Box | Toy"'));
+
+    expect(diagnostic).toBeTruthy();
+    expect(diagnostic?.span.start.line).toBe(16);
+    expect(() => throwIfErrorDiagnostics(diagnostics)).toThrow('/main.do:16:');
+    expect(() => throwIfErrorDiagnostics(diagnostics)).toThrow('Object literal is ambiguous for union type "Box | Toy"');
+  });
 });

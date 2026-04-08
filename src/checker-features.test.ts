@@ -2840,6 +2840,35 @@ describe("checker — contextual typing", () => {
     expect(info.diagnostics.length).toBeGreaterThan(0);
     expect(info.diagnostics[0].message).toContain('Missing required field "y"');
   });
+
+  it("reports ambiguous object literal for class union without discriminator", () => {
+    const source = [
+      'class Box {',
+      '  const kind = "box"',
+      '  width: float',
+      '  height: float',
+      '  color: string',
+      '}',
+      '',
+      'class Toy {',
+      '  const kind = "toy"',
+      '  color: string',
+      '}',
+      '',
+      'type Thing = Box | Toy',
+      '',
+      'function main(): int {',
+      '  t: Thing := { color: "red" }',
+      '  return 0',
+      '}',
+    ].join("\n");
+
+    const info = check({ "/main.do": source }, "/main.do");
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain('Object literal is ambiguous for union type "Box | Toy"');
+    expect(info.diagnostics[0].message).toContain('add "kind" to disambiguate');
+    expect(info.diagnostics[0].span.start.line).toBe(16);
+  });
 });
 
 // ============================================================================

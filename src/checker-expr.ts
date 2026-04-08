@@ -12,6 +12,7 @@ import {
   BOOL_TYPE,
   CHAR_TYPE,
   DOUBLE_TYPE,
+  findSharedDiscriminator,
   formatUnsupportedHashCollectionConstraintMessage,
   FLOAT_TYPE,
   isSupportedHashCollectionElementType,
@@ -71,6 +72,35 @@ function reportMissingResultContext(
 
 function isVoidResultType(resultType: Extract<ResolvedType, { kind: "result" }>): boolean {
   return resultType.successType.kind === "void";
+}
+
+function inferObjectLiteralProperties(
+  host: CheckerHost,
+  expr: ObjectLiteral,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  getExpectedType?: (propName: string) => ResolvedType | undefined,
+): void {
+  for (const prop of expr.properties) {
+    if (prop.value) {
+      inferExprType(host, prop.value, scope, table, info, getExpectedType?.(prop.name));
+      continue;
+    }
+
+    const binding = host.lookupBinding(prop.name, scope);
+    if (binding) {
+      (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+      continue;
+    }
+
+    info.diagnostics.push({
+      severity: "error",
+      message: `Undefined identifier "${prop.name}"`,
+      span: prop.span,
+      module: table.path,
+    });
+  }
 }
 
 function isStringConvertibleType(type: ResolvedType): boolean {
@@ -1059,23 +1089,7 @@ function inferExprTypeInner(
 
     case "object-literal": {
       if (expectedType?.kind === "json-value") {
-        for (const prop of expr.properties) {
-          if (prop.value) {
-            inferExprType(host, prop.value, scope, table, info, JSON_VALUE_TYPE);
-          } else {
-            const binding = host.lookupBinding(prop.name, scope);
-            if (binding) {
-              (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
-            } else {
-              info.diagnostics.push({
-                severity: "error",
-                message: `Undefined identifier "${prop.name}"`,
-                span: prop.span,
-                module: table.path,
-              });
-            }
-          }
-        }
+        inferObjectLiteralProperties(host, expr, scope, table, info, () => JSON_VALUE_TYPE);
         return { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE };
       }
       if (expectedType?.kind === "map" && expr.properties.length === 0 && !expr.spread) {
@@ -1083,35 +1097,27 @@ function inferExprTypeInner(
       }
       if (expectedType?.kind === "class") {
         const sym = expectedType.symbol;
-        for (const prop of expr.properties) {
-          const fieldParams = getConstructorParams(host, sym, table, false);
-          const fieldParam = fieldParams.find((p) => p.name === prop.name);
-          if (prop.value) {
-            inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
-          } else {
-            const binding = host.lookupBinding(prop.name, scope);
-            if (binding) {
-              (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
-            } else {
-              info.diagnostics.push({
-                severity: "error",
-                message: `Undefined identifier "${prop.name}"`,
-                span: prop.span,
-                module: table.path,
-              });
-            }
-          }
-        }
+        const fieldParams = getConstructorParams(host, sym, table, false);
+        inferObjectLiteralProperties(host, expr, scope, table, info, (propName) =>
+          fieldParams.find((p) => p.name === propName)?.type,
+        );
         validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
         return expectedType;
       }
       if (expectedType?.kind === "union") {
-        const classTarget = resolveUnionForObjectLiteral(host, expectedType, expr, scope, table, info);
-        if (classTarget) return classTarget;
+        const resolution = resolveUnionForObjectLiteral(host, expectedType, expr, scope, table, info);
+        if (resolution.resolvedType) return resolution.resolvedType;
+
+        inferObjectLiteralProperties(host, expr, scope, table, info);
+        info.diagnostics.push({
+          severity: "error",
+          message: resolution.diagnostic ?? `Object literal is not compatible with union type "${typeToString(expectedType)}"`,
+          span: expr.span,
+          module: table.path,
+        });
+        return UNKNOWN_TYPE;
       }
-      for (const prop of expr.properties) {
-        if (prop.value) inferExprType(host, prop.value, scope, table, info);
-      }
+      inferObjectLiteralProperties(host, expr, scope, table, info);
       if (!expectedType) {
         info.diagnostics.push({
           severity: "error",
@@ -1575,11 +1581,21 @@ function resolveUnionForObjectLiteral(
   scope: Scope,
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
-): ResolvedType | null {
+): { resolvedType: ResolvedType | null; diagnostic?: string } {
   const candidates = unionType.types.filter(
     (t): t is Extract<ResolvedType, { kind: "class" }> => t.kind === "class",
   );
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    return {
+      resolvedType: null,
+      diagnostic: `Object literal is not compatible with union type "${typeToString(unionType)}"`,
+    };
+  }
+
+  const sharedDiscriminator = findSharedDiscriminator(candidates.map((candidate) => candidate.symbol));
+  const disambiguationHint = sharedDiscriminator
+    ? `; add "${sharedDiscriminator.fieldName}" to disambiguate`
+    : "";
 
   const propNames = new Set(expr.properties.map((p) => p.name));
 
@@ -1609,14 +1625,18 @@ function resolveUnionForObjectLiteral(
 
       if (matching.length === 1) {
         const sym = matching[0].symbol;
-        for (const prop of expr.properties) {
-          const fieldParams = getConstructorParams(host, sym, table, false);
-          const fieldParam = fieldParams.find((p) => p.name === prop.name);
-          if (prop.value) inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
-        }
+        const fieldParams = getConstructorParams(host, sym, table, false);
+        inferObjectLiteralProperties(host, expr, scope, table, info, (propName) =>
+          fieldParams.find((p) => p.name === propName)?.type,
+        );
         validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
-        return matching[0];
+        return { resolvedType: matching[0] };
       }
+
+      return {
+        resolvedType: null,
+        diagnostic: `Object literal discriminator "${constDiscriminatorProp.name}" value "${discValue}" does not match any class in union type "${typeToString(unionType)}"`,
+      };
     }
   }
 
@@ -1628,16 +1648,27 @@ function resolveUnionForObjectLiteral(
     return [...propNames].every((n) => allFieldNames.has(n));
   });
 
-  if (matching.length !== 1) return null;
+  if (matching.length === 0) {
+    return {
+      resolvedType: null,
+      diagnostic: `Object literal does not match any class in union type "${typeToString(unionType)}"${disambiguationHint}`,
+    };
+  }
+
+  if (matching.length > 1) {
+    return {
+      resolvedType: null,
+      diagnostic: `Object literal is ambiguous for union type "${typeToString(unionType)}"${disambiguationHint}`,
+    };
+  }
 
   const sym = matching[0].symbol;
-  for (const prop of expr.properties) {
-    const fieldParams = getConstructorParams(host, sym, table, false);
-    const fieldParam = fieldParams.find((p) => p.name === prop.name);
-    if (prop.value) inferExprType(host, prop.value, scope, table, info, fieldParam?.type);
-  }
+  const fieldParams = getConstructorParams(host, sym, table, false);
+  inferObjectLiteralProperties(host, expr, scope, table, info, (propName) =>
+    fieldParams.find((p) => p.name === propName)?.type,
+  );
   validateNamedConstructorArgs(host, sym, expr.properties, false, table, info, expr.span);
-  return matching[0];
+  return { resolvedType: matching[0] };
 }
 
 // ============================================================================
