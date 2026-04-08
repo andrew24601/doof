@@ -647,6 +647,21 @@ describe("Interface structural checking", () => {
 // ============================================================================
 
 describe("Class field validation", () => {
+  it("rejects field without type annotation or default value", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Point {
+            z
+            x, y: float
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes('Class field "z" must have a type annotation or a default value'))).toBe(true);
+  });
+
   it("accepts compatible field default value", () => {
     const info = check(
       {

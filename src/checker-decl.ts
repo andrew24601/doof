@@ -178,6 +178,19 @@ export function checkClass(
     : UNKNOWN_TYPE;
 
   for (const field of decl.fields) {
+    if (!field.type && !field.defaultValue) {
+      const quotedNames = field.names.map((name) => `"${name}"`).join(", ");
+      info.diagnostics.push({
+        severity: "error",
+        message: field.names.length === 1
+          ? `Class field ${quotedNames} must have a type annotation or a default value`
+          : `Class fields ${quotedNames} must have a type annotation or a default value`,
+        span: field.span,
+        module: table.path,
+      });
+      continue;
+    }
+
     if (field.type) {
       validateCollectionTypeAnnotation(field.type, field.type.span, table, info, {
         allowOmittedTypeArgs: field.defaultValue !== null,

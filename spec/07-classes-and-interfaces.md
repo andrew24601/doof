@@ -6,6 +6,8 @@ Classes define **nominal types** — two classes with identical structure are di
 
 ### Field Declarations
 
+Each field declaration must provide either a type annotation or a default value so the field's type is known at compile time.
+
 ```javascript
 class Point {
     x, y, z: float           // Multiple fields of same type

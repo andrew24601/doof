@@ -138,6 +138,11 @@ export function validateEmitReadyDeclarations(
         break;
 
       case "class-declaration":
+        for (const field of stmt.fields) {
+          for (const fieldName of field.names) {
+            validateNamedValue("declaration", fieldName, field.resolvedType, field.span);
+          }
+        }
         for (const method of stmt.methods) {
           if (method.body.kind === "block") visitBlock(method.body);
         }

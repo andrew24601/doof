@@ -436,6 +436,8 @@ user := User { id, name }
 user := User(1, "Alice")
 ```
 
+Each class field must provide either a type annotation or a default value so its type is known at compile time.
+
 ### Key Features
 
 - `readonly` fields: set once at construction
