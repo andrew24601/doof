@@ -12,21 +12,21 @@ import {
   BOOL_TYPE,
   CHAR_TYPE,
   DOUBLE_TYPE,
+  FLOAT_TYPE,
   findSharedDiscriminator,
   formatUnsupportedHashCollectionConstraintMessage,
-  FLOAT_TYPE,
-  isSupportedHashCollectionElementType,
-  isSupportedMapKeyType,
   INT_TYPE,
   isAssignableTo,
+  isSupportedHashCollectionElementType,
+  isSupportedMapKeyType,
   JSON_VALUE_TYPE,
   LONG_TYPE,
   NULL_TYPE,
+  STRING_TYPE,
+  substituteTypeParams,
   type Binding,
   type FunctionResolvedParam,
   type ModuleTypeInfo,
-  STRING_TYPE,
-  substituteTypeParams,
   type ResolvedType,
   type Scope,
   typeToString,
@@ -576,19 +576,25 @@ function inferExprTypeInner(
         }
       }
 
+      const isTypeAliasStatic = !!binding && (
+        binding.kind === "type-alias"
+        || binding.symbol?.symbolKind === "type-alias"
+      );
       const lookupMode = binding && (
         (binding.kind === "class" || binding.kind === "import") && objectType.kind === "class"
         || binding.kind === "interface" && objectType.kind === "interface"
+        || isTypeAliasStatic
       )
         ? "named-static"
         : "instance";
-      return inferMemberType(host, objectType, expr.property, table, lookupMode, info, expr.span);
+      return inferMemberType(host, objectType, expr.property, table, lookupMode, info, expr.span, binding ?? undefined);
     }
 
     case "qualified-member-expression": {
       let objectType: ResolvedType;
+      let binding: Binding | null = null;
       if (expr.object.kind === "identifier") {
-        const binding = host.lookupBinding(expr.object.name, scope);
+        binding = host.lookupBinding(expr.object.name, scope);
         if (binding) {
           expr.object.resolvedBinding = binding;
           expr.object.resolvedType = binding.type;
@@ -605,7 +611,7 @@ function inferExprTypeInner(
       } else {
         objectType = inferExprType(host, expr.object, scope, table, info);
       }
-      return inferMemberType(host, objectType, expr.property, table, "qualified-static", info, expr.span);
+      return inferMemberType(host, objectType, expr.property, table, "qualified-static", info, expr.span, binding ?? undefined);
     }
 
     case "index-expression": {

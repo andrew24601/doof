@@ -717,6 +717,7 @@ export class TypeChecker {
     return {
       name: sym.name,
       kind,
+      symbol: sym,
       type,
       mutable: false,
       span: sym.declaration.span,
@@ -1019,8 +1020,9 @@ export class TypeChecker {
     mode: "instance" | "named-static" | "qualified-static" = "instance",
     info?: ModuleTypeInfo,
     span?: SourceSpan,
+    binding?: Binding,
   ): ResolvedType {
-    return inferMemberType(this.host, objectType, property, table, mode, info, span);
+    return inferMemberType(this.host, objectType, property, table, mode, info, span, binding);
   }
 
   /** Look up the type of a single field by name on a class type. */

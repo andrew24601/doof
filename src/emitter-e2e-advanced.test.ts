@@ -1429,6 +1429,33 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe("5");
   });
 
+  it("round-trips union alias via shared discriminator", () => {
+    const result = ctx.compileAndRun(`
+      class Circle { const kind: string = "circle"; radius: double }
+      class Rect { const kind: string = "rect"; width: double; height: double }
+      type Shape = Circle | Rect
+      function main(): int {
+        const c = Circle { radius: 5.0 }
+        const json = c.toJsonValue()
+        const r = Shape.fromJsonValue(json)
+        case r {
+          s: Success => {
+            case s.value {
+              c: Circle => println(c.radius)
+              r: Rect => println("unexpected rect")
+            }
+          }
+          f: Failure => println("ERROR: " + f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("5");
+  });
+
   it("round-trips class with array of classes", () => {
     const result = ctx.compileAndRun(`
       class Item { name: string }

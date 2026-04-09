@@ -4,6 +4,7 @@ import {
   isAssignableTo,
   isJSONSerializable,
   buildMockCallMetadata,
+  type Binding,
   type ModuleTypeInfo,
   type ResolvedType,
   JSON_VALUE_TYPE,
@@ -17,7 +18,7 @@ import {
   VOID_TYPE,
 } from "./checker-types.js";
 import type { ClassDeclaration, SourceSpan } from "./ast.js";
-import type { ClassSymbol, InterfaceSymbol, ModuleSymbolTable } from "./types.js";
+import type { ClassSymbol, InterfaceSymbol, ModuleSymbolTable, TypeAliasSymbol } from "./types.js";
 import { BUILTIN_PARSE_ERROR_TYPE, type CheckerHost } from "./checker-internal.js";
 
 export type MemberLookupMode = "instance" | "named-static" | "qualified-static";
@@ -536,6 +537,94 @@ function inferInterfaceStaticMemberType(
   return UNKNOWN_TYPE;
 }
 
+function inferTypeAliasStaticMemberType(
+  aliasSymbol: TypeAliasSymbol,
+  objectType: ResolvedType,
+  property: string,
+  table: ModuleSymbolTable,
+  info?: ModuleTypeInfo,
+  span?: SourceSpan,
+): ResolvedType {
+  const aliasDecl = aliasSymbol.declaration;
+
+  if (property !== "fromJsonValue") {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Property "${property}" does not exist on type alias "${aliasSymbol.name}"`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  if (aliasDecl.typeParams.length > 0) {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `"fromJsonValue" is not available on generic type alias "${aliasSymbol.name}"`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  if (objectType.kind !== "union") {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Cannot deserialize type alias "${aliasSymbol.name}": fromJsonValue requires a union of classes`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  const classMembers = objectType.types.filter(
+    (inner): inner is Extract<ResolvedType, { kind: "class" }> => inner.kind === "class",
+  );
+  if (classMembers.length !== objectType.types.length || classMembers.length === 0) {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Cannot deserialize type alias "${aliasSymbol.name}": fromJsonValue requires a union of classes`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  aliasDecl.needsJson = true;
+
+  const classSymbols = classMembers.map((member) => member.symbol);
+  for (const cls of classSymbols) {
+    cls.declaration.needsJson = true;
+    const nonSerializable = collectNonSerializableFields({ kind: "class", symbol: cls });
+    if (nonSerializable.length > 0 && info && span) {
+      for (const { fieldName, typeStr } of nonSerializable) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Field "${fieldName}" of type "${typeStr}" in class "${cls.name}" is not JSON-serializable`,
+          span,
+          module: table.path,
+        });
+      }
+    }
+  }
+
+  const discriminator = findSharedDiscriminator(classSymbols);
+  if (!discriminator && info && span) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Cannot deserialize type alias "${aliasSymbol.name}": all member classes must share a const string field with distinct values (e.g., const kind = "variant")`,
+      span,
+      module: table.path,
+    });
+  }
+
+  return {
+    kind: "function",
+    params: [{ name: "json", type: JSON_VALUE_TYPE }],
+    returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+  };
+}
+
 export function inferMemberType(
   host: CheckerHost,
   objectType: ResolvedType,
@@ -544,6 +633,7 @@ export function inferMemberType(
   mode: MemberLookupMode = "instance",
   info?: ModuleTypeInfo,
   span?: SourceSpan,
+  binding?: Binding,
 ): ResolvedType {
   if (objectType.kind === "function" && property === "calls") {
     if (objectType.mockCall) {
@@ -592,6 +682,10 @@ export function inferMemberType(
       });
     }
     return UNKNOWN_TYPE;
+  }
+
+  if (mode !== "instance" && binding?.symbol?.symbolKind === "type-alias") {
+    return inferTypeAliasStaticMemberType(binding.symbol, objectType, property, table, info, span);
   }
 
   if (objectType.kind === "class") {

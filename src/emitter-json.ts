@@ -2,7 +2,7 @@
  * C++ JSON serialization code generation — toJsonValue / fromJsonValue methods.
  *
  * Generates doof::JsonValue-based serialization and deserialization code
- * for classes and interface variant types. Handles nested classes, arrays,
+ * for classes, interface variant types, and discriminated class-union aliases. Handles nested classes, arrays,
  * tuples, enums, nullable types, and const discriminator fields.
  */
 
@@ -492,6 +492,46 @@ export function emitInterfaceFromJSON(
   }
   ctx.sourceLines.push(`${bodyInd}} else {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Unknown ${disc.fieldName}: \\"" + _disc + "\\"");`);
+  ctx.sourceLines.push(`${bodyInd}}`);
+  ctx.sourceLines.push(`${ind}}`);
+}
+
+/** Generate a free-function JsonValue dispatcher for type alias deserialization. */
+export function emitTypeAliasFromJSON(
+  aliasName: string,
+  disc: { fieldName: string; valueMap: Map<string, ClassSymbol> },
+  ctx: EmitContext,
+): void {
+  const ind = indent(ctx);
+  const bodyInd = indent({ indent: ctx.indent + 1 });
+  const resultType = `doof::Result<${aliasName}, std::string>`;
+
+  ctx.sourceLines.push("");
+  ctx.sourceLines.push(`${ind}inline ${resultType} ${aliasName}_fromJsonValue(const doof::JsonValue& _j) {`);
+  ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
+  ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
+  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
+  ctx.sourceLines.push(`${bodyInd}}`);
+  ctx.sourceLines.push(`${bodyInd}auto _disc_it = _obj->find("${disc.fieldName}");`);
+  ctx.sourceLines.push(`${bodyInd}if (_disc_it == _obj->end() || !doof::json_is_string(_disc_it->second)) {`);
+  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Missing or invalid discriminator field \\\"${disc.fieldName}\\\"");`);
+  ctx.sourceLines.push(`${bodyInd}}`);
+  ctx.sourceLines.push(`${bodyInd}auto _disc = doof::json_as_string(_disc_it->second);`);
+
+  let first = true;
+  for (const [value, cls] of disc.valueMap.entries()) {
+    const keyword = first ? "if" : "} else if";
+    first = false;
+    ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j);`);
+    ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
+    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${aliasName}(_r.value()));`);
+    ctx.sourceLines.push(`${bodyInd}    } else {`);
+    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure(_r.error());`);
+    ctx.sourceLines.push(`${bodyInd}    }`);
+  }
+  ctx.sourceLines.push(`${bodyInd}} else {`);
+  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Unknown ${disc.fieldName}: \\\"" + _disc + "\\\"");`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${ind}}`);
 }

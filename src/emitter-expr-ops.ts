@@ -59,6 +59,15 @@ function getNamedInterfaceStaticAccess(expr: MemberExpression): string | null {
   return `${objectType.symbol.name}_fromJsonValue`;
 }
 
+function getNamedTypeAliasStaticAccess(expr: MemberExpression): string | null {
+  if (expr.object.kind !== "identifier") return null;
+
+  const binding = expr.object.resolvedBinding;
+  if (expr.property !== "fromJsonValue") return null;
+  if (binding?.symbol?.symbolKind !== "type-alias") return null;
+  return `${binding.symbol.name}_fromJsonValue`;
+}
+
 function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string | null {
   const objectType = expr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
@@ -84,6 +93,15 @@ function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string 
   }
 
   return null;
+}
+
+function getQualifiedTypeAliasStaticAccess(expr: QualifiedMemberExpression): string | null {
+  if (expr.object.kind !== "identifier") return null;
+
+  const binding = expr.object.resolvedBinding;
+  if (expr.property !== "fromJsonValue") return null;
+  if (binding?.symbol?.symbolKind !== "type-alias") return null;
+  return `${binding.symbol.name}_fromJsonValue`;
 }
 
 function isClassMetadataUnion(type: ResolvedType | undefined): type is Extract<ResolvedType, { kind: "union" }> {
@@ -405,6 +423,11 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     return staticInterfaceAccess;
   }
 
+  const staticTypeAliasAccess = getNamedTypeAliasStaticAccess(expr);
+  if (staticTypeAliasAccess) {
+    return staticTypeAliasAccess;
+  }
+
   // ClassMetadata member access
   if (objType && objType.kind === "class-metadata") {
     const prop = expr.property;
@@ -513,6 +536,11 @@ export function emitQualifiedMemberExpression(expr: QualifiedMemberExpression, c
   const classStaticAccess = getQualifiedClassStaticAccess(expr);
   if (classStaticAccess) {
     return classStaticAccess;
+  }
+
+  const typeAliasStaticAccess = getQualifiedTypeAliasStaticAccess(expr);
+  if (typeAliasStaticAccess) {
+    return typeAliasStaticAccess;
   }
 
   const objType = expr.object.resolvedType;

@@ -10,9 +10,11 @@ import type {
   ClassDeclaration,
   InterfaceDeclaration,
   EnumDeclaration,
+  TypeAliasDeclaration,
   Parameter,
   ClassField,
   Expression,
+  TypeAnnotation,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
@@ -20,9 +22,10 @@ import { emitType, emitInnerType } from "./emitter-types.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitBlockStatements } from "./emitter-stmt.js";
-import { emitToJSON, emitFromJSON, emitInterfaceFromJSON } from "./emitter-json.js";
+import { emitToJSON, emitFromJSON, emitInterfaceFromJSON, emitTypeAliasFromJSON } from "./emitter-json.js";
 import { emitMetadataDeclaration, emitMetadataDefinition } from "./emitter-metadata.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
+import type { ClassSymbol } from "./types.js";
 
 // ============================================================================
 // Template helpers
@@ -33,6 +36,32 @@ function emitTemplatePrefix(typeParams: string[], ind: string): string | null {
   if (typeParams.length === 0) return null;
   const parts = typeParams.map((p) => `typename ${p}`).join(", ");
   return `${ind}template<${parts}>`;
+}
+
+function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | null {
+  if (typeAnn.kind === "named-type") {
+    const sym = typeAnn.resolvedSymbol;
+    if (!sym) return null;
+    if (sym.symbolKind === "class") return [sym];
+    if (sym.symbolKind === "type-alias") return collectTypeAliasClassSymbols(sym.declaration.type);
+    return null;
+  }
+
+  if (typeAnn.kind !== "union-type") return null;
+
+  const members: ClassSymbol[] = [];
+  const seen = new Set<string>();
+  for (const inner of typeAnn.types) {
+    const innerMembers = collectTypeAliasClassSymbols(inner);
+    if (!innerMembers || innerMembers.length === 0) return null;
+    for (const member of innerMembers) {
+      const key = `${member.module}:${member.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      members.push(member);
+    }
+  }
+  return members;
 }
 
 // ============================================================================
@@ -425,7 +454,7 @@ export function emitEnumDecl(decl: EnumDeclaration, ctx: EmitContext): void {
 // ============================================================================
 
 export function emitTypeAlias(
-  stmt: import("./ast.js").TypeAliasDeclaration,
+  stmt: TypeAliasDeclaration,
   ctx: EmitContext,
 ): void {
   const ind = indent(ctx);
@@ -442,6 +471,19 @@ export function emitTypeAlias(
 
   const cppType = emitTypeAnnotation(stmt.type, ctx);
   ctx.sourceLines.push(`${ind}using ${name} = ${cppType};`);
+
+  if (stmt.needsJson) {
+    const members = collectTypeAliasClassSymbols(stmt.type);
+    const allSerializable = members && members.length > 0 && members.every((cls) =>
+      cls.declaration.fields.every((f) => !f.resolvedType || isJSONSerializable(f.resolvedType)),
+    );
+    if (allSerializable) {
+      const disc = findSharedDiscriminator(members);
+      if (disc) {
+        emitTypeAliasFromJSON(name, disc, ctx);
+      }
+    }
+  }
 }
 
 /**

@@ -695,6 +695,8 @@ export interface TypeAliasDeclaration {
   typeParams: string[];
   type: TypeAnnotation;
   exported: boolean;
+  /** Set by the checker when user code accesses .fromJsonValue() */
+  needsJson?: boolean;
   span: SourceSpan;
 }
 

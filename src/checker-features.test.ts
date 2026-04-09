@@ -2052,6 +2052,67 @@ describe("JSON serialization — interface fromJsonValue", () => {
   });
 });
 
+describe("JSON serialization — union alias fromJsonValue", () => {
+  it("resolves fromJsonValue on discriminated class union alias", () => {
+    const info = check({ "/main.do": `
+      class Circle {
+        const kind = "circle"
+        radius: double
+      }
+      class Rect {
+        const kind = "rect"
+        width, height: double
+      }
+      type Shape = Circle | Rect
+      const r = Shape.fromJsonValue({})
+    ` }, "/main.do");
+    expect(info.diagnostics.map((d) => d.message)).toEqual([]);
+    const stmts = info.program.statements;
+    const resultDecl = stmts[3] as ConstDeclaration;
+    const rt = resultDecl.resolvedType;
+    expect(rt?.kind).toBe("result");
+    if (rt?.kind === "result") {
+      expect(rt.successType.kind).toBe("union");
+      expect(rt.errorType).toEqual(STRING_TYPE);
+    }
+  });
+
+  it("errors when alias members lack a shared discriminator", () => {
+    const info = check({ "/main.do": `
+      class Circle {
+        radius: double
+      }
+      class Rect {
+        width, height: double
+      }
+      type Shape = Circle | Rect
+      const r = Shape.fromJsonValue({})
+    ` }, "/main.do");
+    expect(info.diagnostics.some((d) => d.message.includes("must share a const string field"))).toBe(true);
+  });
+
+  it("resolves fromJsonValue on imported discriminated class union alias", () => {
+    const info = check({
+      "/shapes.do": `
+        export class Circle {
+          const kind = "circle"
+          radius: double
+        }
+        export class Rect {
+          const kind = "rect"
+          width, height: double
+        }
+        export type Shape = Circle | Rect
+      `,
+      "/main.do": `
+        import { Shape } from "./shapes"
+        const r = Shape.fromJsonValue({})
+      `,
+    }, "/main.do");
+    expect(info.diagnostics.map((d) => d.message)).toEqual([]);
+  });
+});
+
 describe("Interface emission constraints", () => {
   it("errors when interface has no implementing classes", () => {
     const info = check({ "/main.do": `

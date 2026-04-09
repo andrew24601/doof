@@ -7,7 +7,7 @@
  */
 
 import type { Expression, SourceSpan } from "./ast.js";
-import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic } from "./types.js";
+import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic, ModuleSymbol } from "./types.js";
 
 // ============================================================================
 // Resolved types
@@ -274,6 +274,8 @@ export interface Binding {
   name: string;
   /** How this binding entered the current scope. */
   kind: BindingKind;
+  /** The originating module symbol for type/value namespace lookups when available. */
+  symbol?: ModuleSymbol;
   /** The resolved type. */
   type: ResolvedType;
   /** Whether the binding can be reassigned. */

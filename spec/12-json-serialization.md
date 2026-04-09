@@ -216,6 +216,35 @@ Shape.fromJsonValue({ kind: "triangle", base: 3.0 })
 // Failure: "Unknown kind: \"triangle\""
 ```
 
+## Named Union Alias Deserialization
+
+Named union aliases over classes can also be deserialized when they follow the same discriminator rule as interfaces.
+
+```doof
+class Circle {
+  const kind = "circle"
+  radius: double
+}
+
+class Rect {
+  const kind = "rect"
+  width, height: double
+}
+
+type Shape = Circle | Rect
+
+const result = Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
+```
+
+### Alias Requirements
+
+- `.fromJsonValue()` is available only on named type aliases, not on bare union expressions.
+- The alias must resolve to a union of classes.
+- All member classes must be JSON-serializable.
+- All member classes must share a `const` string discriminator field with distinct values, the same as interface deserialization.
+
+If these requirements are not met, using `.fromJsonValue()` on the alias is a compile-time error.
+
 ## Nested Serialization
 
 Serialization and deserialization are fully recursive:

@@ -856,6 +856,44 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain("Shape_fromJsonValue(json)");
   });
 
+  it("emits union alias fromJsonValue dispatcher with discriminator", () => {
+    const cpp = emit(`
+      class Circle {
+        const kind = "circle"
+        radius: double
+      }
+      class Square {
+        const kind = "square"
+        side: double
+      }
+      type Shape = Circle | Square
+      function test(json: JsonValue): Result<Shape, string> => Shape.fromJsonValue(json)
+    `);
+    expect(cpp).toContain("using Shape = std::variant<std::shared_ptr<Circle>, std::shared_ptr<Square>>;");
+    expect(cpp).toContain("Shape_fromJsonValue");
+    expect(cpp).toContain('_disc == "circle"');
+    expect(cpp).toContain('_disc == "square"');
+    expect(cpp).toContain("return doof::Result<Shape, std::string>::success(Shape(_r.value()));");
+  });
+
+  it("emits union alias fromJsonValue() as free function call", () => {
+    const cpp = emit(`
+      class Circle {
+        const kind = "circle"
+        radius: double
+      }
+      class Square {
+        const kind = "square"
+        side: double
+      }
+      type Shape = Circle | Square
+      function parse(json: JsonValue): Result<Shape, string> {
+        return Shape.fromJsonValue(json)
+      }
+    `);
+    expect(cpp).toContain("Shape_fromJsonValue(json)");
+  });
+
   it("emits enum field serialization", () => {
     const cpp = emit(`
       enum Color { Red, Green, Blue }
