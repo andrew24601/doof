@@ -11,7 +11,6 @@ import type {
   Block,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitAnyTypeCheck, emitExtractAnyValue } from "./emitter-any.js";
 import { emitType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression, emitBlockBody, indent } from "./emitter-expr.js";
@@ -42,10 +41,6 @@ export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext): stri
     return emitCaseAsResultMatch(expr, subject, ctx);
   }
 
-  if (subjectType && subjectType.kind === "any") {
-    return emitCaseAsAnyMatch(expr, subject, ctx);
-  }
-
   // For union/variant types → use std::visit
   if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
     return emitCaseAsVisit(expr, subject, ctx);
@@ -61,62 +56,6 @@ function yieldCtx(ctx: EmitContext, indentLevel: number, resultType: ResolvedTyp
     indent: indentLevel,
     caseExpressionYieldType: resultType,
   };
-}
-
-function emitCaseAsAnyMatch(expr: CaseExpression, subject: string, ctx: EmitContext): string {
-  const retType = expr.resolvedType ? emitType(expr.resolvedType) : "auto";
-  const resultType = expr.resolvedType;
-  const ind = indent(ctx);
-  const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
-  const tmpVar = "_case_any";
-
-  let result = `[&]() -> ${retType} {\n`;
-  result += `${innerInd}auto ${tmpVar} = ${subject};\n`;
-
-  for (const arm of expr.arms) {
-    for (const pattern of arm.patterns) {
-      if (pattern.kind === "wildcard-pattern") {
-        if (arm.body.kind === "block") {
-          result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 1, resultType));
-          result += `\n`;
-        } else {
-          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx)};\n`;
-        }
-        continue;
-      }
-
-      if (pattern.kind === "type-pattern") {
-        const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
-        const condition = emitAnyTypeCheck(tmpVar, resolvedType, ctx);
-        result += `${innerInd}if (${condition}) {\n`;
-        if (pattern.name !== "_") {
-          result += `${innerInd}    auto ${emitIdentifierSafe(pattern.name)} = ${emitExtractAnyValue(tmpVar, resolvedType, ctx)};\n`;
-        }
-        if (arm.body.kind === "block") {
-          result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 2, resultType));
-        } else {
-          result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx)};\n`;
-        }
-        result += `${innerInd}}\n`;
-        continue;
-      }
-
-      if (pattern.kind === "value-pattern") {
-        const valueExpr = emitExpression(pattern.value, ctx, { kind: "any" });
-        result += `${innerInd}if (${tmpVar} == ${valueExpr}) {\n`;
-        if (arm.body.kind === "block") {
-          result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 2, resultType));
-        } else {
-          result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx)};\n`;
-        }
-        result += `${innerInd}}\n`;
-      }
-    }
-  }
-
-  result += `${innerInd}doof::unreachable();\n`;
-  result += `${ind}}()`;
-  return result;
 }
 
 /**

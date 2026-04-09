@@ -8,7 +8,6 @@ import {
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
   isAssignableTo,
-  recordAnyTypeUsage,
   type Binding,
   type ModuleTypeInfo,
   type ResolvedType,
@@ -76,7 +75,6 @@ export function checkStatement(
         info,
       );
       stmt.resolvedType = type;
-      recordAnyTypeUsage(info.anyUsage, type);
 
       if (declaredType && !isAssignableTo(inferredType, declaredType)) {
         info.diagnostics.push({
@@ -112,7 +110,6 @@ export function checkStatement(
         info,
       );
       stmt.resolvedType = type;
-      recordAnyTypeUsage(info.anyUsage, type);
 
       if (declaredType && !isAssignableTo(inferredType, declaredType)) {
         info.diagnostics.push({
@@ -148,7 +145,6 @@ export function checkStatement(
         info,
       );
       stmt.resolvedType = type;
-      recordAnyTypeUsage(info.anyUsage, type);
 
       if (declaredType && !isAssignableTo(inferredType, declaredType)) {
         info.diagnostics.push({
@@ -289,7 +285,6 @@ export function checkStatement(
         const inferredType = host.inferExprType(binding.value, withScope, table, info, declaredType ?? undefined);
         const type = declaredType ?? inferredType;
         binding.resolvedType = type;
-        recordAnyTypeUsage(info.anyUsage, type);
 
         if (declaredType && !isAssignableTo(inferredType, declaredType)) {
           info.diagnostics.push({
@@ -560,7 +555,6 @@ export function checkStatement(
       }
 
       stmt.resolvedType = narrowedType;
-      recordAnyTypeUsage(info.anyUsage, narrowedType);
       scope.bindings.set(stmt.name, {
         name: stmt.name,
         kind: "immutable-binding",

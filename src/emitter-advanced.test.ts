@@ -1379,24 +1379,6 @@ describe("emitter — else-narrow statement", () => {
 // ============================================================================
 
 describe("emitter — as expression", () => {
-  it("emits any→string narrowing as IIFE returning Result", () => {
-    const cpp = emit(`
-      function test(x: any): Result<string, string> => x as string
-    `);
-    expect(cpp).toContain("doof::Result<std::string, std::string>");
-    expect(cpp).toContain("doof::any_is<std::string>");
-    expect(cpp).toContain("::success(");
-    expect(cpp).toContain("::failure(");
-  });
-
-  it("emits any→int narrowing with correct carrier type", () => {
-    const cpp = emit(`
-      function test(x: any): Result<int, string> => x as int
-    `);
-    expect(cpp).toContain("doof::any_is<int32_t>");
-    expect(cpp).toContain("doof::any_cast<int32_t>");
-  });
-
   it("emits identity narrowing as unconditional success", () => {
     const cpp = emit(`
       function test(x: string): Result<string, string> => x as string
@@ -1441,34 +1423,25 @@ describe("emitter — as expression", () => {
     expect(cpp).toContain("std::get<std::shared_ptr<Circle>>");
   });
 
-  it("emits any→class narrowing using any_is with shared_ptr carrier", () => {
-    const cpp = emit(`
-      class Foo { x: int }
-      function test(v: any): Result<Foo, string> => v as Foo
-    `);
-    expect(cpp).toContain("doof::any_is<std::shared_ptr<Foo>>");
-    expect(cpp).toContain("doof::any_cast<std::shared_ptr<Foo>>");
-  });
-
   it("works with try binding on as expression", () => {
     const cpp = emit(`
-      function test(x: any): Result<string, string> {
+      function test(x: int | string): Result<string, string> {
         try s := x as string
         return Success { value: s }
       }
     `);
-    expect(cpp).toContain("doof::any_is<std::string>");
+    expect(cpp).toContain("std::holds_alternative<std::string>");
     expect(cpp).toContain("isFailure()");
   });
 
   it("works with try! on as expression", () => {
     const cpp = emit(`
-      function test(x: any): string {
+      function test(x: int | string): string {
         s := try! x as string
         return s
       }
     `);
-    expect(cpp).toContain("doof::any_is<std::string>");
+    expect(cpp).toContain("std::holds_alternative<std::string>");
     expect(cpp).toContain("doof::panic");
   });
 });

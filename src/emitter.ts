@@ -11,7 +11,6 @@
  */
 
 import type { AnalysisResult } from "./analyzer.js";
-import { buildAnyRuntimePlan } from "./any-runtime.js";
 import type { Block, Statement, ClassDeclaration, InterfaceDeclaration } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol, InterfaceSymbol } from "./types.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
@@ -85,7 +84,6 @@ function emitModule(
 ): string {
   // Pre-compute interface implementations across all modules
   const interfaceImpls = buildInterfaceImplMap(analysisResult);
-  const anyPlan = buildAnyRuntimePlan(analysisResult);
 
   const ctx: EmitContext = {
     indent: 0,
@@ -94,7 +92,6 @@ function emitModule(
     headerLines: [],
     sourceLines: [],
     interfaceImpls,
-    anyPlan,
     tempCounter: 0,
     inClass: false,
     emitBlock: blockToString,

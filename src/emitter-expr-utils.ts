@@ -3,7 +3,7 @@
  */
 
 import type { Expression, ObjectProperty, TypeAnnotation } from "./ast.js";
-import { ANY_TYPE, isPrimitiveName, type ResolvedType } from "./checker-types.js";
+import { isPrimitiveName, type ResolvedType } from "./checker-types.js";
 import type { ClassSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
 
@@ -28,9 +28,6 @@ export function resolveTypeAnnotation(
 
   if (typeAnn.kind === "named-type" && ctx) {
     const name = typeAnn.name;
-    if (name === "any") {
-      return ANY_TYPE;
-    }
     if (isPrimitiveName(name)) {
       return { kind: "primitive", name };
     }

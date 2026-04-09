@@ -22,7 +22,6 @@ import {
   JSON_VALUE_TYPE,
   LONG_TYPE,
   NULL_TYPE,
-  recordAnyTypeUsage,
   type Binding,
   type FunctionResolvedParam,
   type ModuleTypeInfo,
@@ -357,7 +356,6 @@ export function inferExprType(
 ): ResolvedType {
   const type = inferExprTypeInner(host, expr, scope, table, info, expectedType);
   expr.resolvedType = type;
-  recordAnyTypeUsage(info.anyUsage, type);
   return type;
 }
 
@@ -558,7 +556,6 @@ function inferExprTypeInner(
         if (binding) {
           expr.object.resolvedBinding = binding;
           expr.object.resolvedType = binding.type;
-          recordAnyTypeUsage(info.anyUsage, binding.type);
           objectType = binding.type;
         } else {
           info.diagnostics.push({
@@ -595,7 +592,6 @@ function inferExprTypeInner(
         if (binding) {
           expr.object.resolvedBinding = binding;
           expr.object.resolvedType = binding.type;
-          recordAnyTypeUsage(info.anyUsage, binding.type);
           objectType = binding.type;
         } else {
           info.diagnostics.push({
@@ -615,15 +611,6 @@ function inferExprTypeInner(
     case "index-expression": {
       const objectType = inferExprType(host, expr.object, scope, table, info);
       inferExprType(host, expr.index, scope, table, info);
-      if (objectType.kind === "any") {
-        info.diagnostics.push({
-          severity: "error",
-          message: 'Cannot index value of type "any" before narrowing',
-          span: expr.span,
-          module: table.path,
-        });
-        return UNKNOWN_TYPE;
-      }
       if (objectType.kind === "array") return objectType.elementType;
       if (objectType.kind === "map") return objectType.valueType;
       return UNKNOWN_TYPE;
@@ -732,19 +719,6 @@ function inferExprTypeInner(
       }
 
       const calleeType = inferExprType(host, expr.callee, scope, table, info);
-
-      if (calleeType.kind === "any") {
-        for (const arg of expr.args) {
-          inferExprType(host, arg.value, scope, table, info);
-        }
-        info.diagnostics.push({
-          severity: "error",
-          message: 'Cannot call value of type "any" before narrowing',
-          span: expr.span,
-          module: table.path,
-        });
-        return UNKNOWN_TYPE;
-      }
 
       if (calleeType.kind === "function") {
         let effectiveCalleeType = calleeType;
@@ -1682,7 +1656,6 @@ function resolveUnionForObjectLiteral(
  * Validate an `expr as T` narrowing and return `Result<T, string>`.
  *
  * v1 support matrix:
- * - `any -> T` — any concrete non-any target
  * - `U1 | U2 | ... -> T` — T must be an exact union member
  * - `Interface -> ConcreteClass` — interface lowers to closed-world variant
  * - `T | null -> T` — nullable narrowing
@@ -1702,7 +1675,7 @@ function inferAsNarrowType(
   if (!isValidAsNarrow(sourceType, targetType)) {
     info.diagnostics.push({
       severity: "error",
-      message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be any, a union, an interface, or nullable`,
+      message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be a union, an interface, or nullable`,
       span,
       module: table.path,
     });
@@ -1714,7 +1687,6 @@ function inferAsNarrowType(
     successType: targetType,
     errorType: STRING_TYPE,
   };
-  recordAnyTypeUsage(info.anyUsage, resultType);
   return resultType;
 }
 
@@ -1724,9 +1696,6 @@ function inferAsNarrowType(
 function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {
   // Identity: T -> T is always valid
   if (typesEqual(sourceType, targetType)) return true;
-
-  // any -> T (any concrete non-any target)
-  if (sourceType.kind === "any" && targetType.kind !== "any") return true;
 
   // T | null -> T (nullable narrowing: target is the non-null part)
   if (sourceType.kind === "union") {

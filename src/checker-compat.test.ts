@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ResolvedType } from "./checker-types.js";
 import {
-  ANY_TYPE,
   typeToString,
   isAssignableTo,
   typesEqual,
@@ -271,17 +270,6 @@ describe("isAssignableTo", () => {
   it("unknown is assignable to anything", () => {
     expect(isAssignableTo(UNKNOWN_TYPE, INT_TYPE)).toBe(true);
     expect(isAssignableTo(INT_TYPE, UNKNOWN_TYPE)).toBe(true);
-  });
-
-  it("concrete values are assignable to any", () => {
-    expect(isAssignableTo(INT_TYPE, ANY_TYPE)).toBe(true);
-    expect(isAssignableTo(STRING_TYPE, ANY_TYPE)).toBe(true);
-    expect(isAssignableTo(NULL_TYPE, ANY_TYPE)).toBe(true);
-  });
-
-  it("any is not implicitly assignable to concrete types", () => {
-    expect(isAssignableTo(ANY_TYPE, INT_TYPE)).toBe(false);
-    expect(isAssignableTo(ANY_TYPE, STRING_TYPE)).toBe(false);
   });
 
   it("void is only assignable to void", () => {

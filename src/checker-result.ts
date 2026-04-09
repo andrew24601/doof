@@ -2,7 +2,6 @@ import type { CaseArm, CatchExpression, Expression, SourceSpan, TryBinding } fro
 import {
   isAssignableTo,
   NULL_TYPE,
-  recordAnyTypeUsage,
   type ModuleTypeInfo,
   type ResolvedType,
   type ResultResolvedType,
@@ -129,13 +128,11 @@ export function checkCatchExpression(
   if (uniqueErrors.length === 1) {
     const resultType: ResolvedType = { kind: "union", types: [uniqueErrors[0], NULL_TYPE] };
     expr.resolvedType = resultType;
-    recordAnyTypeUsage(info.anyUsage, resultType);
     return resultType;
   }
 
   const resultType: ResolvedType = { kind: "union", types: [...uniqueErrors, NULL_TYPE] };
   expr.resolvedType = resultType;
-  recordAnyTypeUsage(info.anyUsage, resultType);
   return resultType;
 }
 

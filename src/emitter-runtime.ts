@@ -5,9 +5,6 @@
  * providing foundational types and utilities for transpiled Doof code.
  */
 
-import type { AnyRuntimePlan } from "./any-runtime.js";
-import { renderAnyRuntimeSupport } from "./any-runtime.js";
-
 // ============================================================================
 // Public API
 // ============================================================================
@@ -15,18 +12,11 @@ import { renderAnyRuntimeSupport } from "./any-runtime.js";
 /**
  * Return the full contents of the doof_runtime.hpp header.
  */
-export function generateRuntimeHeader(plan?: AnyRuntimePlan): string {
-    const anySupport = renderAnyRuntimeSupport(plan ?? {
-        usesAny: false,
-        carriers: [],
-        carrierByKey: new Map(),
-        interfaceImpls: new Map(),
-    });
+export function generateRuntimeHeader(): string {
     return RUNTIME_HEADER
         .replace("__DOOF_JSON_INCLUDE__", "#include <nlohmann/json.hpp>")
         .replace("__DOOF_JSON_SUPPORT__", JSON_RUNTIME_SUPPORT)
-        .replace("__DOOF_JSON_TO_STRING_OVERLOAD__", JSON_TO_STRING_OVERLOAD)
-        .replace("__DOOF_ANY_SUPPORT__", anySupport);
+        .replace("__DOOF_JSON_TO_STRING_OVERLOAD__", JSON_TO_STRING_OVERLOAD);
 }
 
 // ============================================================================
@@ -293,8 +283,6 @@ inline const std::string& json_as_string(const JsonValue& value) {
 }
 
 __DOOF_JSON_SUPPORT__
-
-__DOOF_ANY_SUPPORT__
 
 // ============================================================================
 // String utilities

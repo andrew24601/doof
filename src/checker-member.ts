@@ -530,16 +530,6 @@ export function inferMemberType(
   info?: ModuleTypeInfo,
   span?: SourceSpan,
 ): ResolvedType {
-  if (objectType.kind === "any") {
-    reportMemberDiagnostic(
-      info,
-      table,
-      span,
-      `Property "${property}" is not available on type "any"; narrow the value first`,
-    );
-    return UNKNOWN_TYPE;
-  }
-
   if (objectType.kind === "namespace") {
     const sourceTable = host.analysisResult.modules.get(objectType.sourceModule);
     if (!sourceTable) return UNKNOWN_TYPE;

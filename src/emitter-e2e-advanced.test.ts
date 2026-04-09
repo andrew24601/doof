@@ -231,15 +231,15 @@ describe("e2e — Concurrency", () => {
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
-  it("compiles and runs any transport with case narrowing", () => {
+  it("compiles and runs union case narrowing", () => {
     const result = ctx.compileAndRun(`
-      function sizeOf(x: any): int => case x {
+      function sizeOf(x: int | string): int => case x {
         s: string => s.length,
         _ => 0
       }
 
       function main(): int {
-        value: any := "hello"
+        value: int | string := "hello"
         println(sizeOf(value))
         return 0
       }
@@ -1996,13 +1996,13 @@ describe("e2e — else-narrow statement", () => {
 // ============================================================================
 
 describe("e2e — as expression", () => {
-  it("narrows any to string — success path", () => {
+  it("narrows union to string — success path", () => {
     const result = ctx.compileAndRun(`
-      function narrow(x: any): Result<string, string> {
+      function narrow(x: int | string): Result<string, string> {
         return x as string
       }
       function main(): int {
-        x: any := "hello"
+        x: int | string := "hello"
         const s = try! narrow(x)
         return s.length
       }
@@ -2013,13 +2013,13 @@ describe("e2e — as expression", () => {
     expect(result.exitCode).toBe(5);
   });
 
-  it("narrows any to string — failure path", () => {
+  it("narrows union to string — failure path", () => {
     const result = ctx.compileAndRun(`
-      function narrow(x: any): Result<string, string> {
+      function narrow(x: int | string): Result<string, string> {
         return x as string
       }
       function main(): int {
-        x: any := 42
+        x: int | string := 42
         const r = narrow(x)
         const v = case r {
           s: Success => s.value.length,
@@ -2034,13 +2034,13 @@ describe("e2e — as expression", () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it("narrows any to int — success path", () => {
+  it("narrows union to int — success path", () => {
     const result = ctx.compileAndRun(`
-      function narrow(x: any): Result<int, string> {
+      function narrow(x: int | string): Result<int, string> {
         return x as int
       }
       function main(): int {
-        x: any := 42
+        x: int | string := 42
         return try! narrow(x)
       }
     `);

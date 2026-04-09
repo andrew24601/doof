@@ -499,12 +499,12 @@ describe("Parser — lambda expressions", () => {
     }
   });
 
-  it("parses any in lambda annotations", () => {
-    const expr = parseExpr("(x: any): any => x");
+  it("parses named types in lambda annotations", () => {
+    const expr = parseExpr("(x: Custom): Custom => x");
     expect(expr.kind).toBe("lambda-expression");
     if (expr.kind === "lambda-expression") {
-      expect(expr.params[0].type).toMatchObject({ kind: "named-type", name: "any" });
-      expect(expr.returnType).toMatchObject({ kind: "named-type", name: "any" });
+      expect(expr.params[0].type).toMatchObject({ kind: "named-type", name: "Custom" });
+      expect(expr.returnType).toMatchObject({ kind: "named-type", name: "Custom" });
     }
   });
 

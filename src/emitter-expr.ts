@@ -14,7 +14,7 @@
 
 import type { Expression, Block, ArrayLiteral, MapLiteral, TupleLiteral } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitWrapAnyValue, emitAsNarrowExpression } from "./emitter-any.js";
+import { emitAsNarrowExpression } from "./emitter-narrowing.js";
 import { emitWrapJsonValue } from "./emitter-json-value.js";
 import { emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
@@ -52,9 +52,6 @@ import {
 export function emitExpression(expr: Expression, ctx: EmitContext, targetType?: ResolvedType): string {
   const raw = emitExpressionInner(expr, ctx, targetType);
   const sourceType = expr.resolvedType;
-  if (targetType?.kind === "any" && sourceType && sourceType.kind !== "any") {
-    return emitWrapAnyValue(raw, sourceType, ctx);
-  }
   if (targetType?.kind === "json-value" && sourceType && sourceType.kind !== "json-value") {
     return emitWrapJsonValue(raw, sourceType);
   }

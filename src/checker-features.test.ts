@@ -7,7 +7,6 @@ import {
   isAssignableTo,
   typesEqual,
   type ResolvedType,
-  ANY_TYPE,
   JSON_VALUE_TYPE,
   INT_TYPE,
   LONG_TYPE,
@@ -3889,8 +3888,8 @@ describe("checker — string methods", () => {
   it("contextually narrows integer literals to byte and byte[]", () => {
     const cr = check({ "/main.do": `
       function test(): void {
-        value: byte = 42
-        data: byte[] = [1, 2, 255]
+        value: byte := 42
+        data: byte[] := [1, 2, 255]
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
@@ -4209,56 +4208,15 @@ describe("checker — null narrowing", () => {
 });
 
 // ============================================================================
-// any
+// removed any type
 // ============================================================================
 
-describe("checker — any", () => {
-  it("allows assigning concrete values to any", () => {
+describe("checker — removed any type", () => {
+  it("reports unknown type any in annotations", () => {
     const cr = check({ "/main.do": `
-      function box(x: int): any => x
+      function test(x: any): any => x
     ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
-  });
-
-  it("rejects assigning any to a concrete type", () => {
-    const cr = check({ "/main.do": `
-      function test(x: any): int {
-        y: int := x
-        return y
-      }
-    ` }, "/main.do");
-    expect(cr.diagnostics.some((d) => d.message.includes('Type "any" is not assignable to type "int"'))).toBe(true);
-  });
-
-  it("rejects member access on raw any", () => {
-    const cr = check({ "/main.do": `
-      function test(x: any): int => x.length
-    ` }, "/main.do");
-    expect(cr.diagnostics.some((d) => d.message.includes('Property "length" is not available on type "any"'))).toBe(true);
-  });
-
-  it("rejects indexing raw any", () => {
-    const cr = check({ "/main.do": `
-      function test(x: any): any => x[0]
-    ` }, "/main.do");
-    expect(cr.diagnostics.some((d) => d.message.includes('Cannot index value of type "any"'))).toBe(true);
-  });
-
-  it("rejects calling raw any", () => {
-    const cr = check({ "/main.do": `
-      function test(f: any): any => f()
-    ` }, "/main.do");
-    expect(cr.diagnostics.some((d) => d.message.includes('Cannot call value of type "any"'))).toBe(true);
-  });
-
-  it("narrows any inside case type pattern", () => {
-    const cr = check({ "/main.do": `
-      function test(x: any): int => case x {
-        s: string => s.length,
-        _ => 0
-      }
-    ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
+    expect(cr.diagnostics.some((d) => d.message.includes('Unknown type "any"'))).toBe(true);
   });
 });
 
@@ -4403,20 +4361,6 @@ describe("checker — else-narrow statement", () => {
 // ============================================================================
 
 describe("checker — as expression", () => {
-  it("narrows any to concrete type yielding Result<T, string>", () => {
-    const cr = check({ "/main.do": `
-      function test(x: any): void {
-        r := x as string
-      }
-    ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
-    const types = findTypes(cr, t => t.kind === "result");
-    expect(types.length).toBeGreaterThan(0);
-    const rt = types[0] as { kind: "result"; successType: ResolvedType; errorType: ResolvedType };
-    expect(rt.successType).toEqual({ kind: "primitive", name: "string" });
-    expect(rt.errorType).toEqual({ kind: "primitive", name: "string" });
-  });
-
   it("narrows union member yielding Result<T, string>", () => {
     const cr = check({ "/main.do": `
       function test(x: int | string): void {
@@ -4464,7 +4408,7 @@ describe("checker — as expression", () => {
 
   it("works with try binding to unwrap Result", () => {
     const cr = check({ "/main.do": `
-      function test(x: any): Result<string, string> {
+      function test(x: int | string): Result<string, string> {
         try s := x as string
         return Success { value: s }
       }
@@ -4474,7 +4418,7 @@ describe("checker — as expression", () => {
 
   it("works with else-narrow to unwrap Result", () => {
     const cr = check({ "/main.do": `
-      function test(x: any): string {
+      function test(x: int | string): string {
         s := x as string else { return "" }
         return s
       }
@@ -4484,7 +4428,7 @@ describe("checker — as expression", () => {
 
   it("works with try! to panic-unwrap", () => {
     const cr = check({ "/main.do": `
-      function test(x: any): string {
+      function test(x: int | string): string {
         s := try! x as string
         return s
       }

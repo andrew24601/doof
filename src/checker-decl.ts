@@ -8,7 +8,6 @@ import {
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
   isAssignableTo,
-  recordAnyTypeUsage,
   type ModuleTypeInfo,
   type ResolvedType,
   type Scope,
@@ -73,7 +72,6 @@ export function checkFunction(
       reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
     }
     param.resolvedType = paramType;
-    recordAnyTypeUsage(info.anyUsage, paramType);
     fnScope.bindings.set(param.name, {
       name: param.name,
       kind: "parameter",
@@ -105,7 +103,6 @@ export function checkFunction(
           span: param.span,
           module: table.path,
         });
-        recordAnyTypeUsage(info.anyUsage, resolvedParamType);
       }
       if (param.type && !isAssignableTo(assignabilityType, paramType)) {
         info.diagnostics.push({
@@ -154,7 +151,6 @@ export function checkFunction(
     returnType: inferredReturnType,
     typeParams: decl.typeParams.length > 0 ? decl.typeParams : undefined,
   };
-  recordAnyTypeUsage(info.anyUsage, decl.resolvedType);
 
   if (decl.typeParams.length > 0) {
     host.typeParamStack.pop();
@@ -197,7 +193,6 @@ export function checkClass(
       });
       field.resolvedType = host.resolveTypeAnnotation(field.type, table);
       reportUnsupportedHashCollectionConstraint(field.resolvedType, field.type.span, table, info);
-      recordAnyTypeUsage(info.anyUsage, field.resolvedType);
     }
     if (field.defaultValue) {
       const collectionAnnotation = getCollectionTypeAnnotationInfo(field.type);
@@ -229,10 +224,8 @@ export function checkClass(
           });
         }
         field.resolvedType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : fieldType;
-        recordAnyTypeUsage(info.anyUsage, field.resolvedType);
       } else if (!field.resolvedType && finalizedDefaultType.kind !== "unknown") {
         field.resolvedType = finalizedDefaultType;
-        recordAnyTypeUsage(info.anyUsage, field.resolvedType);
       }
       addUnsupportedDefaultDiagnostic(info, table, "field", field.defaultValue, field.resolvedType ?? undefined);
     }
@@ -352,7 +345,6 @@ export function checkMethod(
       reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
     }
     param.resolvedType = paramType;
-    recordAnyTypeUsage(info.anyUsage, paramType);
     methodScope.bindings.set(param.name, {
       name: param.name,
       kind: "parameter",
@@ -384,7 +376,6 @@ export function checkMethod(
           span: param.span,
           module: table.path,
         });
-        recordAnyTypeUsage(info.anyUsage, resolvedParamType);
       }
       if (param.type && !isAssignableTo(assignabilityType, paramType)) {
         info.diagnostics.push({
@@ -423,7 +414,6 @@ export function checkMethod(
     returnType: returnType ?? VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
   };
-  recordAnyTypeUsage(info.anyUsage, method.resolvedType);
 
   if (method.typeParams.length > 0) {
     host.typeParamStack.pop();

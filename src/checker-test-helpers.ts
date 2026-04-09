@@ -147,7 +147,12 @@ export function check(files: Record<string, string>, entry: string): CheckResult
   const result = analyzer.analyzeModule(entry);
   const checker = new TypeChecker(result);
   const info = checker.checkModule(entry);
-  return { program: result.modules.get(entry)!.program, diagnostics: info.diagnostics, result };
+  const table = result.modules.get(entry);
+  if (!table) {
+    const messages = result.diagnostics.map((diagnostic) => diagnostic.message).join("; ");
+    throw new Error(messages.length > 0 ? messages : `Module not analyzed: ${entry}`);
+  }
+  return { program: table.program, diagnostics: [...result.diagnostics, ...info.diagnostics], result };
 }
 
 /** Get all identifier bindings whose name matches, by walking the decorated AST. */

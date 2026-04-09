@@ -7,7 +7,6 @@
  */
 
 import type { Block } from "./ast.js";
-import type { AnyRuntimePlan } from "./any-runtime.js";
 import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
 import type { ResolvedType } from "./checker-types.js";
 
@@ -28,8 +27,6 @@ export interface EmitContext {
   sourceLines: string[];
   /** Interface → implementing classes map (computed once). */
   interfaceImpls: Map<string, ClassSymbol[]>;
-  /** Whole-program closed-world `any` carrier plan. */
-  anyPlan: AnyRuntimePlan;
   /** Counter for generating unique temp names. */
   tempCounter: number;
   /** Whether we're currently inside a class declaration. */

@@ -330,18 +330,6 @@ describe("emitter — lambda captures", () => {
   });
 });
 
-describe("emitter — any case matching", () => {
-  it("emits any case matching with doof::any_is", () => {
-    const cpp = emit(`
-      function test(x: any): int => case x {
-        s: string => s.length,
-        _ => 0
-      }
-    `);
-    expect(cpp).toContain("doof::any_is<std::string>(_case_any)");
-    expect(cpp).toContain("auto s = doof::any_cast<std::string>(_case_any);");
-  });
-});
 
 // ============================================================================
 // Phase 4: Interface method calls via std::visit

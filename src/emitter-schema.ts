@@ -112,7 +112,6 @@ export function typeToJsonSchema(
     case "unknown":
     case "namespace":
     case "interface":
-    case "any":
     case "success-wrapper":
     case "failure-wrapper":
     case "typevar":

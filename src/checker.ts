@@ -41,7 +41,6 @@ import {
   type Scope,
   type ScopeKind,
   type ModuleTypeInfo,
-  createModuleAnyUsage,
   findUnsupportedHashCollectionConstraint,
   INT_TYPE,
   LONG_TYPE,
@@ -51,7 +50,6 @@ import {
   STRING_TYPE,
   CHAR_TYPE,
   BOOL_TYPE,
-  ANY_TYPE,
   JSON_VALUE_TYPE,
   VOID_TYPE,
   NULL_TYPE,
@@ -297,13 +295,11 @@ export class TypeChecker {
           span: { start: { line: 0, column: 0, offset: 0 }, end: { line: 0, column: 0, offset: 0 } },
           module: modulePath,
         }],
-        anyUsage: createModuleAnyUsage(),
       };
     }
 
     const info: ModuleTypeInfo = {
       diagnostics: [],
-      anyUsage: createModuleAnyUsage(),
     };
 
     const moduleScope = this.buildModuleScope(table);
@@ -311,7 +307,6 @@ export class TypeChecker {
     this.validateTypeDeclarations(table, info);
     validateEmitReadyDeclarations(table, info);
     this.validateInterfacesHaveImplementors(table, info);
-    this.analysisResult.anyUsageByModule.set(modulePath, info.anyUsage);
 
     return info;
   }
@@ -473,7 +468,6 @@ export class TypeChecker {
     switch (ann.kind) {
       case "named-type": {
         const name = ann.name;
-        if (name === "any") return ANY_TYPE;
         if (name === "JsonValue") return JSON_VALUE_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
         if (name === "void") return VOID_TYPE;

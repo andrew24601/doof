@@ -13,7 +13,6 @@
  */
 
 import * as nodePath from "node:path";
-import { buildAnyRuntimePlan } from "./any-runtime.js";
 import type { AnalysisResult } from "./analyzer.js";
 import type {
   Statement,
@@ -161,11 +160,9 @@ export function emitProject(
     modules.push(emitModuleSplit(modPath, analysisResult, baseDir));
   }
 
-  const anyPlan = buildAnyRuntimePlan(analysisResult);
-
   return {
     modules,
-    runtime: generateRuntimeHeader(anyPlan),
+    runtime: generateRuntimeHeader(),
     cmake: generateCMakeLists(modules, entryPath, baseDir, analysisResult, nativeBuild),
   };
 }
@@ -1108,7 +1105,6 @@ function makeHeaderCtx(
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
 ): EmitContext {
-  const anyPlan = buildAnyRuntimePlan(analysisResult);
   return {
     indent: 0,
     module: table,
@@ -1116,7 +1112,6 @@ function makeHeaderCtx(
     headerLines: [],
     sourceLines: [],
     interfaceImpls,
-    anyPlan,
     tempCounter: 0,
     inClass: false,
     emitParameterDefaults: true,
@@ -1129,7 +1124,6 @@ function makeCppCtx(
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
 ): EmitContext {
-  const anyPlan = buildAnyRuntimePlan(analysisResult);
   return {
     indent: 0,
     module: table,
@@ -1137,7 +1131,6 @@ function makeCppCtx(
     headerLines: [],
     sourceLines: [],
     interfaceImpls,
-    anyPlan,
     tempCounter: 0,
     inClass: false,
     emitParameterDefaults: true,

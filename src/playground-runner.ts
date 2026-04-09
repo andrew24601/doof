@@ -7,7 +7,6 @@ import {
   type SpawnSyncReturns,
 } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
-import { buildAnyRuntimePlan } from "./any-runtime.js";
 import {
   buildCompileArgs,
   resolveCompilerToolchain,
@@ -246,7 +245,7 @@ function emitPlaygroundArtifacts(source: string): EmittedArtifacts {
 
   return {
     cpp: emitCpp(ENTRY_PATH, analysisResult),
-    runtime: generateRuntimeHeader(buildAnyRuntimePlan(analysisResult)),
+    runtime: generateRuntimeHeader(),
   };
 }
 

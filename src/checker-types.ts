@@ -28,10 +28,6 @@ export interface PrimitiveType {
   name: PrimitiveName;
 }
 
-export interface AnyResolvedType {
-  kind: "any";
-}
-
 export interface JsonValueResolvedType {
   kind: "json-value";
 }
@@ -186,7 +182,6 @@ export interface MethodReflectionType {
 
 /** A fully-resolved semantic type. */
 export type ResolvedType =
-  | AnyResolvedType
   | JsonValueResolvedType
   | PrimitiveType
   | BuiltinNamespaceType
@@ -225,7 +220,6 @@ export const DOUBLE_TYPE: PrimitiveType = { kind: "primitive", name: "double" };
 export const STRING_TYPE: PrimitiveType = { kind: "primitive", name: "string" };
 export const CHAR_TYPE: PrimitiveType = { kind: "primitive", name: "char" };
 export const BOOL_TYPE: PrimitiveType = { kind: "primitive", name: "bool" };
-export const ANY_TYPE: AnyResolvedType = { kind: "any" };
 export const JSON_VALUE_TYPE: JsonValueResolvedType = { kind: "json-value" };
 export const VOID_TYPE: VoidType = { kind: "void" };
 export const NULL_TYPE: NullType = { kind: "null" };
@@ -316,90 +310,6 @@ export interface Scope {
 export interface ModuleTypeInfo {
   /** Diagnostics produced during type checking. */
   diagnostics: Diagnostic[];
-  /** Closed-world `any` usage recorded while resolving this module. */
-  anyUsage: ModuleAnyUsage;
-}
-
-export interface ModuleAnyUsage {
-  usesAny: boolean;
-  observedTypes: Map<string, ResolvedType>;
-}
-
-export function createModuleAnyUsage(): ModuleAnyUsage {
-  return {
-    usesAny: false,
-    observedTypes: new Map(),
-  };
-}
-
-export function recordAnyTypeUsage(
-  usage: ModuleAnyUsage,
-  type: ResolvedType | undefined,
-): void {
-  if (!type) return;
-  if (type.kind === "any") {
-    usage.usesAny = true;
-    return;
-  }
-
-  const key = typeToString(type);
-  if (!usage.observedTypes.has(key)) {
-    usage.observedTypes.set(key, type);
-  }
-
-  switch (type.kind) {
-    case "class":
-    case "interface":
-      for (const arg of type.typeArgs ?? []) recordAnyTypeUsage(usage, arg);
-      break;
-    case "array":
-      recordAnyTypeUsage(usage, type.elementType);
-      break;
-    case "map":
-      recordAnyTypeUsage(usage, type.keyType);
-      recordAnyTypeUsage(usage, type.valueType);
-      break;
-    case "set":
-      recordAnyTypeUsage(usage, type.elementType);
-      break;
-    case "union":
-      for (const member of type.types) recordAnyTypeUsage(usage, member);
-      break;
-    case "tuple":
-      for (const element of type.elements) recordAnyTypeUsage(usage, element);
-      break;
-    case "weak":
-      recordAnyTypeUsage(usage, type.inner);
-      break;
-    case "function":
-      for (const param of type.params) recordAnyTypeUsage(usage, param.type);
-      recordAnyTypeUsage(usage, type.returnType);
-      break;
-    case "actor":
-      recordAnyTypeUsage(usage, type.innerClass);
-      break;
-    case "promise":
-      recordAnyTypeUsage(usage, type.valueType);
-      break;
-    case "result":
-      recordAnyTypeUsage(usage, type.successType);
-      recordAnyTypeUsage(usage, type.errorType);
-      break;
-    case "success-wrapper":
-      recordAnyTypeUsage(usage, type.valueType);
-      break;
-    case "failure-wrapper":
-      recordAnyTypeUsage(usage, type.errorType);
-      break;
-    case "json-value":
-      break;
-    case "class-metadata":
-    case "method-reflection":
-      recordAnyTypeUsage(usage, type.classType);
-      break;
-    default:
-      break;
-  }
 }
 
 // ============================================================================
@@ -409,8 +319,6 @@ export function recordAnyTypeUsage(
 /** Human-readable string for a ResolvedType (useful for tests/diagnostics). */
 export function typeToString(t: ResolvedType): string {
   switch (t.kind) {
-    case "any":
-      return "any";
     case "json-value":
       return "JsonValue";
     case "primitive":
@@ -661,11 +569,6 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
   // Unknown is a wildcard (inference not complete).
   if (source.kind === "unknown" || target.kind === "unknown") return true;
 
-  // `any` is a storage/transport sink. Values can flow into `any`, but not
-  // back out without an explicit narrowing step.
-  if (target.kind === "any") return true;
-  if (source.kind === "any") return false;
-
   if (target.kind === "json-value") return isAssignableToJsonValue(source);
   if (source.kind === "json-value") return false;
 
@@ -827,8 +730,6 @@ function classImplementsInterface(source: ClassType, target: InterfaceType): boo
 export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
-    case "any":
-      return true;
     case "json-value":
       return true;
     case "primitive":
@@ -980,8 +881,6 @@ export function substituteTypeParams(
   paramMap: Map<string, ResolvedType>,
 ): ResolvedType {
   switch (type.kind) {
-    case "any":
-      return type;
     case "typevar":
       return paramMap.get(type.name) ?? type;
     case "array":
@@ -1080,8 +979,6 @@ export function isJSONSerializable(
   visited: Set<string> = new Set(),
 ): boolean {
   switch (type.kind) {
-    case "any":
-      return false;
     case "json-value":
       return true;
     case "primitive":
@@ -1141,72 +1038,6 @@ export function isJSONSerializable(
     case "typevar":
     case "class-metadata":
     case "method-reflection":
-      return false;
-  }
-}
-
-/**
- * Whether a type can flow through the closed-world `any` runtime.
- *
- * This is intentionally broader than a concrete Any carrier check: `any`
- * itself is allowed, and interfaces are allowed because they lower to
- * variant-backed implementing classes.
- */
-export function isAnyCarriable(type: ResolvedType): boolean {
-  switch (type.kind) {
-    case "any":
-    case "json-value":
-    case "primitive":
-    case "null":
-    case "enum":
-      return true;
-
-    case "class":
-    case "interface":
-      return (type.typeArgs ?? []).every(isAnyCarriable);
-
-    case "array":
-      return isAnyCarriable(type.elementType);
-
-    case "map":
-      return isAnyCarriable(type.keyType) && isAnyCarriable(type.valueType);
-
-    case "set":
-      return false;
-
-    case "union":
-      return type.types.every(isAnyCarriable);
-
-    case "tuple":
-      return type.elements.every(isAnyCarriable);
-
-    case "weak":
-      return isAnyCarriable(type.inner);
-
-    case "function":
-      return type.params.every((param) => isAnyCarriable(param.type))
-        && isAnyCarriable(type.returnType);
-
-    case "actor":
-      return isAnyCarriable(type.innerClass);
-
-    case "promise":
-      return isAnyCarriable(type.valueType);
-
-    case "result":
-      return isAnyCarriable(type.successType) && isAnyCarriable(type.errorType);
-
-    case "class-metadata":
-    case "method-reflection":
-      return isAnyCarriable(type.classType);
-
-    case "void":
-    case "unknown":
-    case "builtin-namespace":
-    case "namespace":
-    case "success-wrapper":
-    case "failure-wrapper":
-    case "typevar":
       return false;
   }
 }

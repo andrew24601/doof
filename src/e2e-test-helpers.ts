@@ -10,7 +10,6 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
-import { buildAnyRuntimePlan } from "./any-runtime.js";
 import {
   buildCompileArgs,
   type CompilerToolchain,
@@ -75,7 +74,7 @@ function emitArtifacts(source: string, entry = "/main.do"): { code: string; runt
   throwIfErrorDiagnostics(diagnostics);
   return {
     code: emitCpp(entry, result),
-    runtime: generateRuntimeHeader(buildAnyRuntimePlan(result)),
+    runtime: generateRuntimeHeader(),
   };
 }
 

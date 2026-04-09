@@ -2159,7 +2159,7 @@ export class Parser {
 
     // Tuple type: Tuple<T1, T2, ...>
     // Named type with generics: Identifier<T, U>
-    if (this.check(TokenType.Identifier) || this.check(TokenType.Void) || this.check(TokenType.Any)) {
+    if (this.check(TokenType.Identifier) || this.check(TokenType.Void)) {
       const name = this.advance().value;
 
       let typeArgs: TypeAnnotation[] = [];

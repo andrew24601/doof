@@ -92,7 +92,6 @@ export function markReferencedClasses(
   worklist: ClassDeclaration[],
 ): void {
   switch (type.kind) {
-    case "any":
     case "json-value":
       break;
     case "class": {
@@ -141,9 +140,6 @@ function unwrapExport(stmt: Statement): Statement {
  */
 export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string {
   switch (type.kind) {
-    case "any":
-      throw new Error("any is not supported for JSON serialization");
-
     case "json-value":
       return fieldExpr;
 
@@ -234,9 +230,6 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
     case "enum":
       return `${type.symbol.name}_fromName(doof::json_as_string(${jsonExpr})).value()`;
 
-    case "any":
-      throw new Error("any is not supported for JSON serialization");
-
     case "null":
       return "nullptr";
 
@@ -265,8 +258,6 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
 /** Emit the expected JsonValue type check for a field type. */
 export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string {
   switch (type.kind) {
-    case "any":
-      return "false";
     case "json-value":
       return "true";
     case "primitive":
@@ -309,8 +300,6 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string 
 /** Descriptive name for a JSON type, used in error messages. */
 export function jsonTypeName(type: ResolvedType): string {
   switch (type.kind) {
-    case "any":
-      return "unsupported any";
     case "json-value":
       return "json";
     case "primitive":

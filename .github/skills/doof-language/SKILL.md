@@ -31,7 +31,7 @@ A module with a `main()` function is executable. `main()` can return `void` or `
 
 ### Primitives
 
-`byte` (8-bit unsigned), `int` (32-bit), `long` (64-bit), `float` (32-bit), `double` (64-bit), `string`, `char`, `bool`, `void`, `any`.
+`byte` (8-bit unsigned), `int` (32-bit), `long` (64-bit), `float` (32-bit), `double` (64-bit), `string`, `char`, `bool`, `void`.
 
 Integer literals default to `int`, decimal literals to `double`. Use `L` suffix for `long`, `f` for `float`. Contextual narrowing applies when the expected type is known:
 
@@ -40,26 +40,6 @@ x: float := 3.14        // narrowed to float from context
 b: byte := 42           // narrowed to byte from context
 n: long := 42           // widened to long from context
 ```
-
-### `any`
-
-`any` is a closed-world dynamic carrier computed after whole-program analysis. It is meant for storage and transport across Doof code and C++ bridge boundaries, then narrowed before concrete use.
-
-```doof
-function sizeOf(value: any): int => case value {
-    s: string => s.length,
-    _ => 0
-}
-```
-
-Rules:
-
-- Concrete values can be assigned to `any`
-- `any` does not implicitly assign back to concrete types
-- Member access, indexing, and calls on raw `any` are rejected until narrowed
-- `case` type patterns are the intended way to recover concrete types
-- `any` is not supported as metadata input or success-payload JSON in v1
-- Metadata-driven `.invoke(...)` uses `Result<JsonValue, JsonValue>`: framework failures produce `{ code, message }` objects, methods returning `Result<S, JsonValue>` surface raw `JsonValue` failures, and other failure types are redacted to `{ code: 500, message: "An error occurred" }`
 
 ### `JsonValue`
 
@@ -673,14 +653,11 @@ Result values **must be used** — silently discarding a `Result` is a compile e
 The `as` operator performs runtime type narrowing, yielding `Result<T, string>`:
 
 ```doof
-// Narrow from any
-x: any := "hello"
+// Narrow from union
+x: int | string := "hello"
 try s := x as string          // s is string (in Result-returning fn)
 s := try! x as string         // panics on failure
 s := x as string else { return "" }  // else-narrow
-
-// Narrow from union
-x: int | string := "hello"
 r := x as string              // Result<string, string>
 
 // Narrow nullable
@@ -692,7 +669,7 @@ s: Shape := Circle { radius: 5.0 }
 r := s as Circle              // Result<Circle, string>
 ```
 
-Supported sources: `any`, unions, nullable types, interfaces. Invalid narrowing is a compile error.
+Supported sources: unions, nullable types, interfaces. Invalid narrowing is a compile error.
 
 ### Catch Expression
 

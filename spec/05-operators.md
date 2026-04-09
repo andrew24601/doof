@@ -426,7 +426,7 @@ msg := "Hello, ${name}!"
 The `as` operator performs runtime type narrowing, yielding `Result<T, string>`:
 
 ```javascript
-value: any := "hello"
+value: int | string := "hello"
 r := value as string   // Result<string, string>
 ```
 
@@ -434,7 +434,6 @@ r := value as string   // Result<string, string>
 
 | Source Type      | Target Type    | Runtime Check                          |
 |-----------------|----------------|----------------------------------------|
-| `any`           | Any concrete T | `doof::any_is<T>` runtime check       |
 | `T \| null`     | `T`            | Null check                            |
 | `U1 \| U2`      | `Ui`           | `std::holds_alternative<Ui>` variant check |
 | Interface       | Class          | `std::holds_alternative<Class>` variant check |

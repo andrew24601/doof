@@ -214,7 +214,7 @@ function extractToolCalls(response: JsonValue): Result<PendingToolCall[], string
   return collectToolCalls(jsonArrayValues(output))
 }
 
-function toolErrorText(error: any): string {
+function toolErrorText(error: JsonValue): string {
   return case error {
     value: string => value,
     _ => "Tool call failed"

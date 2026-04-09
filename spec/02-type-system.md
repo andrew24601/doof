@@ -20,27 +20,6 @@ Doof features a strong, static type system with bidirectional type inference, st
 | `bool` | — | Boolean (`true` / `false`) |
 | `void` | — | Unit type (functions with no return value) |
 
-### The `any` Type
-
-Doof provides a built-in `any` type for closed-world storage and transport of values whose concrete type varies across a program:
-
-```javascript
-function echo(value: any): any => value
-
-payload: any := "hello"
-```
-
-`any` is not an open-ended dynamic type. Its runtime representation is computed after whole-program analysis as a closed-world carrier over the concrete value types used by that program. This makes it safe to pass between generated Doof code and handwritten C++ bridge code without falling back to stringly-typed JSON.
-
-In v1, `any` is intentionally limited:
-
-- Any concrete value type may be assigned to `any`
-- `any` does not implicitly assign back to concrete types
-- Raw member access, indexing, and calls on `any` are rejected until the value is narrowed
-- `any` is not supported by metadata generation or JSON serialization/deserialization
-
-Use `any` when values must be carried across API boundaries or stored heterogeneously, then narrow before use.
-
 ### The `JsonValue` Type
 
 Doof provides a built-in `JsonValue` carrier for JSON-compatible data:
@@ -1269,7 +1248,7 @@ function handle(r: Result): void {
 }
 ```
 
-**Simple rule:** "If checks for null narrow. For type discrimination, including `any`, use `case`."
+**Simple rule:** "If checks for null narrow. For type discrimination across unions and enums, use `case`."
 
 ---
 
@@ -1284,6 +1263,6 @@ function handle(r: Result): void {
 | Immutability | Deep/transitive readonly |
 | Generics | Built-in collections and Tuple (user-defined planned) |
 | Function types | Named parameters in signatures |
-| Type narrowing | Flow-sensitive for null; `case` for unions, enums, and `any` |
+| Type narrowing | Flow-sensitive for null; `case` for unions and enums |
 | Weak references | `weak T` — non-owning reference, access yields Result |
 | Widening | Implicit for safe numeric conversions |

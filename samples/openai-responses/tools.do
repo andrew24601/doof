@@ -116,6 +116,6 @@ export function openAITools(): JsonValue[] {
   return tools
 }
 
-export function invokeWeeknightTool(instance: WeeknightKitchenTools, methodName: string, args: JsonValue): Result<JsonValue, any> {
+export function invokeWeeknightTool(instance: WeeknightKitchenTools, methodName: string, args: JsonValue): Result<JsonValue, JsonValue> {
   return WeeknightKitchenTools.metadata.invoke(instance, methodName, args)
 }

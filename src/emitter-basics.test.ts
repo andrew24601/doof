@@ -60,11 +60,6 @@ describe("emitter — primitive types", () => {
     expect(emitType(t)).toBe("void");
   });
 
-  it("maps any to doof::Any", () => {
-    const t: ResolvedType = { kind: "any" };
-    expect(emitType(t)).toBe("doof::Any");
-  });
-
   it("throws on unknown types", () => {
     const t: ResolvedType = { kind: "unknown" };
     expect(() => emitType(t)).toThrow("Cannot emit unresolved unknown type");

@@ -55,7 +55,7 @@ function callToolResultJson(isError: bool, text: string): string {
   })
 }
 
-function toolErrorText(error: any): string {
+function toolErrorText(error: JsonValue): string {
   return case error {
     value: string => value,
     _ => "Tool call failed"

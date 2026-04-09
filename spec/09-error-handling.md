@@ -310,7 +310,7 @@ result := foo()?.bar()   // Result<B, E1 | E2>
 The `as` operator performs runtime type narrowing and returns a `Result<T, string>`:
 
 ```javascript
-value: any := "hello"
+value: int | string := "hello"
 r := value as string       // Result<string, string>
 ```
 
@@ -318,7 +318,7 @@ This integrates naturally with all Result handling patterns:
 
 ```javascript
 // Propagate failure (in Result-returning function):
-function extractName(data: any): Result<string, string> {
+function extractName(data: int | string): Result<string, string> {
     try name := data as string
     return Success { value: name }
 }
@@ -336,7 +336,7 @@ const len = case value as string {
 }
 ```
 
-Supported narrowing sources: `any`, unions (`A | B`), nullable types (`T | null`), and interfaces (to implementing classes). See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full support matrix.
+Supported narrowing sources: unions (`A | B`), nullable types (`T | null`), and interfaces (to implementing classes). See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full support matrix.
 
 ---
 

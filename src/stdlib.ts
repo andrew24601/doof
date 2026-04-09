@@ -9,7 +9,7 @@ const BUNDLED_MODULES = new Map<string, string>([
     nodePath.posix.join(BUNDLED_STDLIB_ROOT, "std", "assert.do"),
     [
       "export class Assert {",
-      "    static equal(actual: any, expected: any, message: string | null = null): void {",
+      "    static equal<T>(actual: T, expected: T, message: string | null = null): void {",
       "        if actual == expected {",
       "            return",
       "        }",
@@ -20,7 +20,7 @@ const BUNDLED_MODULES = new Map<string, string>([
       "        }",
       "    }",
       "",
-      "    static notEqual(actual: any, expected: any, message: string | null = null): void {",
+      "    static notEqual<T>(actual: T, expected: T, message: string | null = null): void {",
       "        if !(actual == expected) {",
       "            return",
       "        }",

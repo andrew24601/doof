@@ -4,7 +4,7 @@ import type {
   ConstDeclaration, LetDeclaration, ClassDeclaration,
 } from "./ast.js";
 import { validateEmitReadyDeclarations } from "./checker.js";
-import { createModuleAnyUsage, UNKNOWN_TYPE, typeToString } from "./checker-types.js";
+import { UNKNOWN_TYPE, typeToString } from "./checker-types.js";
 import { check, findId, findTypes } from "./checker-test-helpers.js";
 
 // ============================================================================
@@ -388,7 +388,6 @@ describe("Declaration validation", () => {
     decl.resolvedType = UNKNOWN_TYPE;
     const validationInfo = {
       diagnostics: [] as typeof info.diagnostics,
-      anyUsage: createModuleAnyUsage(),
     };
     validateEmitReadyDeclarations(table, validationInfo);
 

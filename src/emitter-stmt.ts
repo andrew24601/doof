@@ -20,7 +20,7 @@ import type { ResolvedType } from "./checker-types.js";
 import { emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
-import { emitAnyTypeCheck, emitExtractAnyValue, emitExtractNarrowedValue } from "./emitter-any.js";
+import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { resolveTypeAnnotation } from "./emitter-expr-utils.js";
 import {
   emitFunctionDecl,
@@ -844,8 +844,6 @@ function emitIfStatement(
   }
 }
 
-const ANY_EXPECTED_TYPE = { kind: "any" } as ResolvedType;
-
 function emitCaseStatement(
   stmt: import("./ast.js").CaseStatement,
   ctx: EmitContext,
@@ -862,8 +860,6 @@ function emitCaseStatement(
 
   if (subjectType?.kind === "result") {
     emitResultCaseStatementBranches(stmt.arms, tmp, innerCtx);
-  } else if (subjectType?.kind === "any") {
-    emitAnyCaseStatementBranches(stmt.arms, tmp, innerCtx);
   } else if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
     emitVariantCaseStatementBranches(stmt.arms, tmp, subjectType, innerCtx);
   } else {
@@ -935,34 +931,6 @@ function emitResultCaseStatementBranches(
         if (pattern.name !== "_") {
           bindingPrelude = `auto& ${emitIdentifierSafe(pattern.name)} = ${tmp};`;
         }
-      }
-
-      hasPreviousBranch = emitCaseStatementBranch(condition, bindingPrelude, arm.body, ctx, hasPreviousBranch);
-      if (pattern.kind === "wildcard-pattern") return;
-    }
-  }
-}
-
-function emitAnyCaseStatementBranches(
-  arms: readonly import("./ast.js").CaseArm[],
-  tmp: string,
-  ctx: EmitContext,
-): void {
-  let hasPreviousBranch = false;
-
-  for (const arm of arms) {
-    for (const pattern of arm.patterns) {
-      let condition: string | null = null;
-      let bindingPrelude: string | null = null;
-
-      if (pattern.kind === "type-pattern") {
-        const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
-        condition = emitAnyTypeCheck(tmp, resolvedType, ctx);
-        if (pattern.name !== "_") {
-          bindingPrelude = `auto ${emitIdentifierSafe(pattern.name)} = ${emitExtractAnyValue(tmp, resolvedType, ctx)};`;
-        }
-      } else if (pattern.kind === "value-pattern") {
-        condition = `${tmp} == ${emitExpression(pattern.value, ctx, ANY_EXPECTED_TYPE)}`;
       }
 
       hasPreviousBranch = emitCaseStatementBranch(condition, bindingPrelude, arm.body, ctx, hasPreviousBranch);

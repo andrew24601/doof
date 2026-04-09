@@ -49,9 +49,9 @@ describe("Lexer", () => {
   });
 
   describe("keywords", () => {
-    it("lexes any as a keyword", () => {
+    it("lexes any as an identifier", () => {
       const tokens = new Lexer("any").tokenize();
-      expect(tokens[0].type).toBe(TokenType.Any);
+      expect(tokens[0].type).toBe(TokenType.Identifier);
       expect(tokens[0].value).toBe("any");
     });
   });

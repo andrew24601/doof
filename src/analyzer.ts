@@ -15,7 +15,6 @@
  */
 
 import { parse, parseWithDiagnostics, ParseError } from "./parser.js";
-import type { ModuleAnyUsage } from "./checker-types.js";
 import type {
   Program,
   Statement,
@@ -53,8 +52,6 @@ export interface AnalysisResult {
   modules: Map<string, ModuleSymbolTable>;
   /** All diagnostics across every module. */
   diagnostics: Diagnostic[];
-  /** Per-module `any` carrier usage recorded during type checking. */
-  anyUsageByModule: Map<string, ModuleAnyUsage>;
 }
 
 // ============================================================================
@@ -97,7 +94,6 @@ export class ModuleAnalyzer {
     return {
       modules: this.modules,
       diagnostics: [...this.diagnostics],
-      anyUsageByModule: new Map(),
     };
   }
 

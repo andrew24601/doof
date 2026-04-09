@@ -42,9 +42,6 @@ const PRIMITIVE_MAP: Record<PrimitiveName, string> = {
  */
 export function emitType(type: ResolvedType): string {
   switch (type.kind) {
-    case "any":
-      return "doof::Any";
-
     case "json-value":
       return "doof::JsonValue";
 
@@ -217,8 +214,6 @@ function emitUnionType(types: ResolvedType[]): string {
  */
 export function emitDefaultValue(type: ResolvedType): string {
   switch (type.kind) {
-    case "any":
-      return "{}";
     case "json-value":
       return "doof::JsonValue(nullptr)";
     case "primitive":
