@@ -12,7 +12,6 @@ export {
   createBundledModuleResolver,
   withBundledStdlib,
 } from "./stdlib.js";
-export { emitCpp, emitAllModules, type EmitContext, type EmitResult } from "./emitter.js";
 export { emitType, emitInnerType, emitDefaultValue } from "./emitter-types.js";
 export { generateRuntimeHeader } from "./emitter-runtime.js";
 export {

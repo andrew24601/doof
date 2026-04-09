@@ -374,7 +374,7 @@ describe("emitter — catch expression", () => {
     expect(cpp).toContain("isFailure()");
     expect(cpp).toContain("break;");
     // Should NOT contain return ...::failure (that's the non-catch try behavior)
-    const mainBody = cpp.slice(cpp.indexOf("void main()"));
+    const mainBody = cpp.slice(cpp.indexOf("void doof_main()"));
     expect(mainBody).not.toContain("::failure(");
   });
 
@@ -398,7 +398,7 @@ describe("emitter — catch expression", () => {
     expect(cpp).toContain("do {");
     expect(cpp).toContain("} while (false);");
     // Two try statements → two isFailure checks + breaks
-    const mainBody = cpp.slice(cpp.indexOf("void main()"));
+    const mainBody = cpp.slice(cpp.indexOf("void doof_main()"));
     const failureChecks = (mainBody.match(/isFailure\(\)/g) || []).length;
     expect(failureChecks).toBe(2);
     const breakCount = (mainBody.match(/break;/g) || []).length;
@@ -1224,8 +1224,10 @@ describe("emitter — Map methods", () => {
 
   it("emits .set() as doof::map_index(...)=value", () => {
     const cpp = emit(`
-      let m: Map<string, int> = { "a": 1 }
-      m.set("b", 2)
+      function main(): void {
+        let m: Map<string, int> = { "a": 1 }
+        m.set("b", 2)
+      }
     `);
     expect(cpp).toContain("doof::map_index(");
     expect(cpp).toContain(") = 2");
@@ -1233,8 +1235,10 @@ describe("emitter — Map methods", () => {
 
   it("emits .delete() as ->erase()", () => {
     const cpp = emit(`
-      let m: Map<string, int> = { "a": 1 }
-      m.delete("a")
+      function main(): void {
+        let m: Map<string, int> = { "a": 1 }
+        m.delete("a")
+      }
     `);
     expect(cpp).toContain("->erase(");
   });
@@ -1257,12 +1261,14 @@ describe("emitter — Map methods", () => {
 
   it("emits Set members with unordered_set operations", () => {
     const cpp = emit(`
-      let unique: Set<int> = [1, 2, 3]
-      hasTwo := unique.has(2)
-      unique.add(4)
-      unique.delete(1)
-      values := unique.values()
-      count := unique.size
+      function main(): void {
+        let unique: Set<int> = [1, 2, 3]
+        hasTwo := unique.has(2)
+        unique.add(4)
+        unique.delete(1)
+        values := unique.values()
+        count := unique.size
+      }
     `);
     expect(cpp).toContain("->count(2) > 0");
     expect(cpp).toContain("->insert(4)");

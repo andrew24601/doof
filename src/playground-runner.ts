@@ -13,9 +13,8 @@ import {
   resolveNlohmannInclude,
   type CompilerToolchain,
 } from "./cli-core.js";
-import { emitCpp } from "./emitter.js";
+import { emitProject } from "./emitter-module.js";
 import type { NativeBuildOptions, ProjectEmitResult } from "./emitter-module.js";
-import { generateRuntimeHeader } from "./emitter-runtime.js";
 import {
   collectSemanticDiagnostics,
   throwIfErrorDiagnostics,
@@ -64,8 +63,8 @@ export interface RunPlaygroundSourceOptions {
 }
 
 interface EmittedArtifacts {
+  project: ProjectEmitResult;
   cpp: string;
-  runtime: string;
 }
 
 interface ProcessResult {
@@ -125,10 +124,12 @@ export function runPlaygroundSource(
   const tempDir = host.createTempDir();
 
   try {
-    const cppFilePath = path.join(tempDir, "main.cpp");
     const runtimeFilePath = path.join(tempDir, "doof_runtime.hpp");
-    host.writeFile(cppFilePath, artifacts.cpp);
-    host.writeFile(runtimeFilePath, artifacts.runtime);
+    host.writeFile(runtimeFilePath, artifacts.project.runtime);
+    for (const module of artifacts.project.modules) {
+      host.writeFile(path.join(tempDir, module.hppPath), module.hppCode);
+      host.writeFile(path.join(tempDir, module.cppPath), module.cppCode);
+    }
 
     const nativeBuild = createNativeBuildOptions();
     const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
@@ -136,7 +137,7 @@ export function runPlaygroundSource(
     });
     const { outBinary, args } = buildCompileArgs(
       tempDir,
-      createSingleFileProject("main.cpp"),
+      artifacts.project,
       nativeBuild,
       {
         toolchain,
@@ -223,6 +224,7 @@ function createDefaultHost(): PlaygroundRunnerHost {
       fs.rmSync(dirPath, { recursive: true, force: true });
     },
     writeFile(filePath: string, contents: string) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, contents);
     },
     spawnFile(command, args, options) {
@@ -243,9 +245,15 @@ function emitPlaygroundArtifacts(source: string): EmittedArtifacts {
 
   throwIfErrorDiagnostics(diagnostics);
 
+  const project = emitProject(ENTRY_PATH, analysisResult);
+  const entryModule = project.modules.find((module) => module.modulePath === ENTRY_PATH);
+  if (!entryModule) {
+    throw new Error(`Entry module was not emitted: ${ENTRY_PATH}`);
+  }
+
   return {
-    cpp: emitCpp(ENTRY_PATH, analysisResult),
-    runtime: generateRuntimeHeader(),
+    project,
+    cpp: entryModule.cppCode,
   };
 }
 
@@ -305,22 +313,6 @@ function createNativeBuildOptions(): NativeBuildOptions {
     compilerFlags: [],
     linkerFlags: [],
     defines: [],
-  };
-}
-
-function createSingleFileProject(cppPath: string): ProjectEmitResult {
-  return {
-    modules: [
-      {
-        modulePath: ENTRY_PATH,
-        hppPath: "main.hpp",
-        cppPath,
-        hppCode: "",
-        cppCode: "",
-      },
-    ],
-    runtime: "",
-    cmake: "",
   };
 }
 

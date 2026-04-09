@@ -52,10 +52,46 @@ describe("playground runner", () => {
     expect(result.buildStderr).toBe("warning: test warning\n");
     expect(result.runStdout).toBe("Hello from Doof\n");
     expect(result.exitCode).toBe(0);
-    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("main() {");
+    expect(writes.get("/tmp/doof-playground-test/main.hpp")).toBeTruthy();
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain('#include "main.hpp"');
     expect(writes.get("/tmp/doof-playground-test/doof_runtime.hpp")).toContain("#pragma once");
     expect(calls).toHaveLength(2);
     expect(calls[1]?.command).toBe("/tmp/doof-playground-test/a.out");
+  });
+
+  it("builds inferred-void main through a valid C++ wrapper", () => {
+    const writes = new Map<string, string>();
+    const host = createHost({
+      writeFile(filePath, contents) {
+        writes.set(filePath, contents);
+      },
+      spawnFile(command) {
+        if (command === "clang++") {
+          return createSpawnResult({
+            stdout: Buffer.from("build ok\n"),
+            stderr: Buffer.from(""),
+            status: 0,
+          });
+        }
+
+        return createSpawnResult({
+          stdout: Buffer.from("Hello world\n"),
+          stderr: Buffer.from(""),
+          status: 0,
+        });
+      },
+    });
+
+    const result = runPlaygroundSource(`
+      function main() {
+        println("Hello world")
+      }
+    `, { host });
+
+    expect(result.status).toBe("succeeded");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("void doof_main()");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("int main(int argc, char** argv)");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).not.toContain("void main()");
   });
 
   it("returns compiler failures with captured stderr", () => {

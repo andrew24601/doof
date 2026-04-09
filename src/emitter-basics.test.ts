@@ -177,6 +177,20 @@ describe("emitter — functions", () => {
     const cpp = emit(`function square(x: int): int => x * x`);
     expect(cpp).toContain("return x * x;");
   });
+
+  it("wraps inferred-void top-level main in a valid C++ entrypoint", () => {
+    const cpp = emit(`
+      function main() {
+        println("Hello world")
+      }
+    `);
+
+    expect(cpp).toContain("void doof_main()");
+    expect(cpp).toContain("int main(int argc, char** argv)");
+    expect(cpp).toContain("doof_main();");
+    expect(cpp).toContain("return 0;");
+    expect(cpp).not.toContain("void main()");
+  });
 });
 
 describe("emitter — expressions", () => {

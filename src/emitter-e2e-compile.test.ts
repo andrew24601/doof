@@ -614,9 +614,9 @@ describe("e2e — case expressions", () => {
 describe("e2e — if expressions", () => {
   it("compiles if-expression as ternary", () => {
     const { success, error, code } = ctx.compileOnly(`
-      function abs(x: int): int => if x < 0 then -x else x
+      function magnitude(x: int): int => if x < 0 then -x else x
       function main(): int {
-        return abs(-7)
+        return magnitude(-7)
       }
     `);
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
@@ -624,9 +624,9 @@ describe("e2e — if expressions", () => {
 
   it("runs if-expression correctly", () => {
     const result = ctx.compileAndRun(`
-      function abs(x: int): int => if x < 0 then -x else x
+      function magnitude(x: int): int => if x < 0 then -x else x
       function main(): int {
-        return abs(-7)
+        return magnitude(-7)
       }
     `);
     if (result.exitCode !== -1) {

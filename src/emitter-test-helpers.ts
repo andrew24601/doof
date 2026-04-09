@@ -5,7 +5,6 @@
  */
 
 import { ModuleAnalyzer } from "./analyzer.js";
-import { emitCpp } from "./emitter.js";
 import {
   emitModuleSplit,
   emitProject,
@@ -32,14 +31,7 @@ export function emitMulti(
   files: Record<string, string>,
   entry: string,
 ): string {
-  const fs = new VirtualFS(files);
-  const resolver = createBundledModuleResolver(fs);
-  const analyzer = new ModuleAnalyzer(withBundledStdlib(fs), resolver);
-  const result = analyzer.analyzeModule(entry);
-  const diagnostics = collectSemanticDiagnostics(result);
-  throwIfErrorDiagnostics(diagnostics);
-
-  return emitCpp(entry, result);
+  return combineModuleOutput(emitSplitMulti(files, entry));
 }
 
 /**
@@ -83,4 +75,8 @@ export function emitProjectHelper(
   throwIfErrorDiagnostics(diagnostics);
 
   return emitProject(entry, result, nativeBuildOptions);
+}
+
+function combineModuleOutput(module: ModuleEmitResult): string {
+  return [module.hppCode, module.cppCode].filter((part) => part.length > 0).join("\n");
 }

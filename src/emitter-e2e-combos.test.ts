@@ -1544,11 +1544,11 @@ describe("e2e — boundary conditions", () => {
   // ---- If-expression in various contexts ----
   it("if-expression used in different contexts", () => {
     const result = ctx.compileAndRun(`
-      function abs(n: int): int => if n < 0 then -n else n
+      function magnitude(n: int): int => if n < 0 then -n else n
 
       function main(): int {
-        println(abs(-5))
-        println(abs(3))
+        println(magnitude(-5))
+        println(magnitude(3))
         msg := if true then "yes" else "no"
         println(msg)
         return 0

@@ -17,8 +17,6 @@ import {
   resolveCompilerToolchain,
   tryFindCompilerToolchain,
 } from "./cli-core.js";
-import { emitCpp } from "./emitter.js";
-import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitProject, type NativeBuildOptions } from "./emitter-module.js";
 import { findDoofManifestPath, loadPackageGraph } from "./package-manifest.js";
 import { collectSemanticDiagnostics, throwIfErrorDiagnostics } from "./pipeline-diagnostics.js";
@@ -65,16 +63,21 @@ export function emitToString(source: string, entry = "/main.do"): string {
   return emitArtifacts(source, entry).code;
 }
 
-function emitArtifacts(source: string, entry = "/main.do"): { code: string; runtime: string } {
+function emitArtifacts(source: string, entry = "/main.do"): { code: string; project: ReturnType<typeof emitProject> } {
   const vfs = new VirtualFS({ [entry]: source });
   const resolver = createBundledModuleResolver(vfs);
   const analyzer = new ModuleAnalyzer(withBundledStdlib(vfs), resolver);
   const result = analyzer.analyzeModule(entry);
   const diagnostics = collectSemanticDiagnostics(result);
   throwIfErrorDiagnostics(diagnostics);
+  const project = emitProject(entry, result);
+  const entryModule = project.modules.find((module) => module.modulePath === entry);
+  if (!entryModule) {
+    throw new Error(`Entry module was not emitted: ${entry}`);
+  }
   return {
-    code: emitCpp(entry, result),
-    runtime: generateRuntimeHeader(),
+    code: [entryModule.hppCode, entryModule.cppCode].filter((part) => part.length > 0).join("\n"),
+    project,
   };
 }
 
@@ -123,11 +126,11 @@ export class E2EContext {
     }
 
     let cppCode: string;
-    let runtimeCode: string;
+    let project: ReturnType<typeof emitProject>;
     try {
       const artifacts = emitArtifacts(doofSource);
       cppCode = artifacts.code;
-      runtimeCode = artifacts.runtime;
+      project = artifacts.project;
     } catch (e: any) {
       return {
         exitCode: -1,
@@ -136,18 +139,14 @@ export class E2EContext {
       };
     }
 
-    const cppFile = path.join(this.tmpDir, "main.cpp");
-    const runtimeFile = path.join(this.tmpDir, "doof_runtime.hpp");
-
-    fs.writeFileSync(cppFile, cppCode);
-    fs.writeFileSync(runtimeFile, runtimeCode);
+    writeProjectArtifacts(this.tmpDir, project);
 
     // Compile
     let outBinary = "";
     try {
       const nativeBuild = createNativeBuildOptions();
-      const compileResult = buildCompileArgs(this.tmpDir, createSingleFileProject("main.cpp"), nativeBuild, {
-        extraIncludePaths: getExtraIncludePaths(nativeBuild, [cppCode, runtimeCode]),
+      const compileResult = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
         toolchain: this.cppToolchain,
       });
       outBinary = compileResult.outBinary;
@@ -194,11 +193,11 @@ export class E2EContext {
     }
 
     let cppCode: string;
-    let runtimeCode: string;
+    let project: ReturnType<typeof emitProject>;
     try {
       const artifacts = emitArtifacts(doofSource);
       cppCode = artifacts.code;
-      runtimeCode = artifacts.runtime;
+      project = artifacts.project;
     } catch (e: any) {
       return {
         success: false,
@@ -207,16 +206,12 @@ export class E2EContext {
       };
     }
 
-    const cppFile = path.join(this.tmpDir, "check.cpp");
-    const runtimeFile = path.join(this.tmpDir, "doof_runtime.hpp");
-
-    fs.writeFileSync(cppFile, cppCode);
-    fs.writeFileSync(runtimeFile, runtimeCode);
+    writeProjectArtifacts(this.tmpDir, project);
 
     try {
       const nativeBuild = createNativeBuildOptions();
-      const { args } = buildCompileArgs(this.tmpDir, createSingleFileProject("check.cpp"), nativeBuild, {
-        extraIncludePaths: getExtraIncludePaths(nativeBuild, [cppCode, runtimeCode]),
+      const { args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
         mode: "syntax-only",
         toolchain: this.cppToolchain,
       });
@@ -418,20 +413,16 @@ function createResolverForEntry(vfs: VirtualFS, entry: string) {
   });
 }
 
-function createSingleFileProject(cppPath: string) {
-  return {
-    modules: [
-      {
-        modulePath: "/main.do",
-        hppPath: "main.hpp",
-        cppPath,
-        hppCode: "",
-        cppCode: "",
-      },
-    ],
-    runtime: "",
-    cmake: "",
-  };
+function writeProjectArtifacts(tmpDir: string, project: ReturnType<typeof emitProject>): void {
+  fs.writeFileSync(path.join(tmpDir, "doof_runtime.hpp"), project.runtime);
+  for (const mod of project.modules) {
+    const hppFile = path.join(tmpDir, mod.hppPath);
+    const cppFile = path.join(tmpDir, mod.cppPath);
+    fs.mkdirSync(path.dirname(hppFile), { recursive: true });
+    fs.mkdirSync(path.dirname(cppFile), { recursive: true });
+    fs.writeFileSync(hppFile, mod.hppCode);
+    fs.writeFileSync(cppFile, mod.cppCode);
+  }
 }
 
 function missingCompilerMessage(): string {

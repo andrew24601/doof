@@ -887,8 +887,10 @@ describe("Concurrency", () => {
         count: int
         increment(): void { }
       }
-      const a = Actor<Counter>(0)
-      a.increment()
+      function main(): void {
+        const a = Actor<Counter>(0)
+        a.increment()
+      }
     `);
     expect(cpp).toContain("call_sync");
     expect(cpp).toContain("Counter& _self");
@@ -898,8 +900,10 @@ describe("Concurrency", () => {
   it("emits actor.stop() directly", () => {
     const cpp = emit(`
       class Worker { value: int }
-      const w = Actor<Worker>(0)
-      w.stop()
+      function main(): void {
+        const w = Actor<Worker>(0)
+        w.stop()
+      }
     `);
     expect(cpp).toContain("->stop()");
   });

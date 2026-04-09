@@ -21,6 +21,7 @@ import type {
   InterfaceDeclaration,
   EnumDeclaration,
   TypeAliasDeclaration,
+  TypeAnnotation,
   ConstDeclaration,
   ReadonlyDeclaration,
   ImmutableBinding,
@@ -29,14 +30,14 @@ import type {
   Parameter,
 } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
-import type { ResolvedType } from "./checker-types.js";
+import { findSharedDiscriminator, isJSONSerializable, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
-import { emitExpression, indent, emitIdentifierSafe } from "./emitter-expr.js";
+import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import { emitType, emitInnerType } from "./emitter-types.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
-import { propagateJsonDemand } from "./emitter-json.js";
+import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
@@ -318,7 +319,7 @@ function emitHpp(
   // Type aliases
   for (const alias of classified.typeAliases) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls);
-    emitStatement(alias.decl as Statement, ctx);
+    emitStatement({ ...alias.decl, needsJson: false } as TypeAliasDeclaration as Statement, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
   }
@@ -336,6 +337,36 @@ function emitHpp(
   for (const cls of nativeClasses) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls);
     emitStatement(cls.decl as Statement, ctx);
+    lines.push(...ctx.sourceLines);
+    lines.push("");
+  }
+
+  for (const iface of classified.interfaces) {
+    const impls = interfaceImpls.get(iface.decl.name);
+    if (!impls || !iface.decl.needsJson) continue;
+    const allSerializable = impls.every((cls) =>
+      cls.declaration.fields.every((field) => !field.resolvedType || isJSONSerializable(field.resolvedType)),
+    );
+    if (!allSerializable) continue;
+    const disc = findSharedDiscriminator(impls);
+    if (!disc) continue;
+    const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls);
+    emitInterfaceFromJSON(emitIdentifierSafe(iface.decl.name), impls, disc, ctx);
+    lines.push(...ctx.sourceLines);
+    lines.push("");
+  }
+
+  for (const alias of classified.typeAliases) {
+    if (!alias.decl.needsJson) continue;
+    const members = collectTypeAliasClassSymbols(alias.decl.type);
+    const allSerializable = members && members.length > 0 && members.every((cls) =>
+      cls.declaration.fields.every((field) => !field.resolvedType || isJSONSerializable(field.resolvedType)),
+    );
+    if (!allSerializable) continue;
+    const disc = findSharedDiscriminator(members);
+    if (!disc) continue;
+    const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls);
+    emitTypeAliasFromJSON(emitIdentifierSafe(alias.decl.name), disc, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
   }
@@ -547,7 +578,16 @@ function emitMainWrapper(
   // Emit doof_main function body
   if (mainDecl.body.kind === "block") {
     lines.push(`${retType} doof_main(${params}) {`);
-    emitBlockStatements(mainDecl.body, { ...ctx, indent: 1 });
+    const paramNameSet = new Set(mainDecl.params.map((p) => p.name));
+    const capturedMutables = scanCapturedMutables(mainDecl.body, paramNameSet);
+    emitBlockStatements(mainDecl.body, {
+      ...ctx,
+      indent: 1,
+      currentFunctionReturnType: mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
+        ? mainDecl.resolvedType.returnType
+        : undefined,
+      capturedMutables: capturedMutables.size > 0 ? capturedMutables : undefined,
+    });
     lines.push(...ctx.sourceLines);
     lines.push("}");
   } else {
@@ -730,6 +770,32 @@ function emitParamSignature(param: Parameter): string {
     return `${pType} ${name} = ${defaultVal}`;
   }
   return `${pType} ${name}`;
+}
+
+function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | null {
+  if (typeAnn.kind === "named-type") {
+    const sym = typeAnn.resolvedSymbol;
+    if (!sym) return null;
+    if (sym.symbolKind === "class") return [sym];
+    if (sym.symbolKind === "type-alias") return collectTypeAliasClassSymbols(sym.declaration.type);
+    return null;
+  }
+
+  if (typeAnn.kind !== "union-type") return null;
+
+  const members: ClassSymbol[] = [];
+  const seen = new Set<string>();
+  for (const inner of typeAnn.types) {
+    const innerMembers = collectTypeAliasClassSymbols(inner);
+    if (!innerMembers || innerMembers.length === 0) return null;
+    for (const member of innerMembers) {
+      const key = `${member.module}:${member.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      members.push(member);
+    }
+  }
+  return members;
 }
 
 // ============================================================================
