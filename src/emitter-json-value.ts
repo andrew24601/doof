@@ -6,6 +6,9 @@ export function emitWrapJsonValue(sourceExpr: string, sourceType: ResolvedType):
       return "doof::JsonValue(nullptr)";
 
     case "primitive":
+      if (sourceType.name === "byte") {
+        return `doof::JsonValue(static_cast<int32_t>(${sourceExpr}))`;
+      }
       if (sourceType.name === "bool"
         || sourceType.name === "int"
         || sourceType.name === "long"

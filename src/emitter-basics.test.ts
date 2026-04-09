@@ -15,6 +15,11 @@ import type { ResolvedType } from "./checker-types.js";
 // ============================================================================
 
 describe("emitter — primitive types", () => {
+  it("maps byte to uint8_t", () => {
+    const t: ResolvedType = { kind: "primitive", name: "byte" };
+    expect(emitType(t)).toBe("uint8_t");
+  });
+
   it("maps int to int32_t", () => {
     const t: ResolvedType = { kind: "primitive", name: "int" };
     expect(emitType(t)).toBe("int32_t");
@@ -250,6 +255,11 @@ describe("emitter — expressions", () => {
     expect(cpp).toContain("return static_cast<int64_t>(x);");
   });
 
+  it("emits byte cast to static_cast<uint8_t>", () => {
+    const cpp = emit(`function f(x: int): byte => byte(x)`);
+    expect(cpp).toContain("return static_cast<uint8_t>(x);");
+  });
+
   it("emits numeric cast in division expression", () => {
     const cpp = emit(`function f(a: int, b: int): float => float(a) / float(b)`);
     expect(cpp).toContain("static_cast<float>(a) / static_cast<float>(b)");
@@ -272,6 +282,11 @@ describe("emitter — expressions", () => {
   it("emits int.parse as doof::parse_int", () => {
     const cpp = emit(`function f(): Result<int, ParseError> => int.parse("42")`);
     expect(cpp).toContain("return doof::parse_int(std::string(\"42\"));");
+  });
+
+  it("emits byte.parse as doof::parse_byte", () => {
+    const cpp = emit(`function f(): Result<byte, ParseError> => byte.parse("255")`);
+    expect(cpp).toContain("return doof::parse_byte(std::string(\"255\"));");
   });
 });
 

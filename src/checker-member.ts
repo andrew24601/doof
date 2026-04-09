@@ -672,8 +672,8 @@ export function inferMemberType(
         };
       }
     }
-    if (property === "parse" && ["int", "long", "float", "double"].includes(objectType.name)) {
-      const primitiveName = objectType.name as "int" | "long" | "float" | "double";
+    if (property === "parse" && ["byte", "int", "long", "float", "double"].includes(objectType.name)) {
+      const primitiveName = objectType.name as "byte" | "int" | "long" | "float" | "double";
       return {
         kind: "function",
         params: [{ name: "value", type: STRING_TYPE }],

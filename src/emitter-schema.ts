@@ -36,6 +36,8 @@ export function typeToJsonSchema(
 
     case "primitive":
       switch (type.name) {
+        case "byte":
+          return { type: "integer", minimum: 0, maximum: 255 };
         case "int":
           return { type: "integer", format: "int32" };
         case "long":

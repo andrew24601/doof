@@ -14,6 +14,24 @@ const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
 beforeAll(() => ctx.setup());
 afterAll(() => ctx.cleanup());
 
+describe("e2e — byte", () => {
+  it("runs byte arrays as shared uint8_t vectors", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        payload: byte[] = [1, 2, 255]
+        println(payload)
+        return payload.length
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.stdout.trim()).toBe("[1, 2, 255]");
+      expect(result.exitCode).toBe(3);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+});
+
 // ============================================================================
 // Tests: Named destructuring
 // ============================================================================

@@ -13,8 +13,8 @@ import {
 import type { ModuleSymbolTable } from "./types.js";
 
 const NUMERIC_BINARY_OPS = new Set(["+", "-", "*", "/", "\\", "%", "**", "&", "|", "^", "<<", ">>", ">>>"]);
-const NUMERIC_PRIMITIVES = new Set(["int", "long", "float", "double"]);
-const INTEGER_PRIMITIVES = new Set(["int", "long"]);
+const NUMERIC_PRIMITIVES = new Set(["byte", "int", "long", "float", "double"]);
+const INTEGER_PRIMITIVES = new Set(["byte", "int", "long"]);
 
 export function inferBinaryType(
   op: string,
@@ -111,12 +111,12 @@ export function inferBinaryType(
       }
     }
     if (op === "\\") {
-      const intOrder = ["int", "long"];
+      const intOrder = ["byte", "int", "long"];
       const ai = intOrder.indexOf(left.name);
       const bi = intOrder.indexOf(right.name);
       if (ai >= 0 && bi >= 0) {
         const wider = intOrder[Math.max(ai, bi)];
-        return { kind: "primitive", name: wider as "int" | "long" };
+        return { kind: "primitive", name: wider as "byte" | "int" | "long" };
       }
       return UNKNOWN_TYPE;
     }
@@ -160,12 +160,12 @@ export function inferUnaryType(
 }
 
 export function widenNumeric(a: string, b: string): ResolvedType {
-  const order = ["int", "long", "float", "double"];
+  const order = ["byte", "int", "long", "float", "double"];
   const ai = order.indexOf(a);
   const bi = order.indexOf(b);
   if (ai < 0 || bi < 0) return UNKNOWN_TYPE;
   const wider = order[Math.max(ai, bi)];
-  return { kind: "primitive", name: wider as "int" | "long" | "float" | "double" };
+  return { kind: "primitive", name: wider as "byte" | "int" | "long" | "float" | "double" };
 }
 
 export function resolveExpectedEnumType(type?: ResolvedType): EnumType | undefined {

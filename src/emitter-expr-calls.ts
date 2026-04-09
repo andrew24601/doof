@@ -121,6 +121,7 @@ function emitIdentifierCallByName(name: string, args: string[], ctx: EmitContext
   }
 
   const NUMERIC_CAST_MAP: Record<string, string> = {
+    byte: "uint8_t",
     int: "int32_t",
     long: "int64_t",
     float: "float",
@@ -197,6 +198,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Numeric casts: int(x) → static_cast<int32_t>(x), float(x) → static_cast<float>(x), etc.
   const NUMERIC_CAST_MAP: Record<string, string> = {
+    byte: "uint8_t",
     int: "int32_t",
     long: "int64_t",
     float: "float",
@@ -587,7 +589,7 @@ function resolveFunctionParams(
   if (expr.type === "string") {
     return [{ name: "value", type: { kind: "unknown" } }];
   }
-  if (["int", "long", "float", "double"].includes(expr.type)) {
+  if (["byte", "int", "long", "float", "double"].includes(expr.type)) {
     return [{ name: "value", type: { kind: "unknown" } }];
   }
   if (expr.type === "assert") {

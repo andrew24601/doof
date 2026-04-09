@@ -10,6 +10,7 @@ Doof features a strong, static type system with bidirectional type inference, st
 
 | Type | Size | Description |
 |------|------|-------------|
+| `byte` | 8-bit | Unsigned byte (`0`-`255`) |
 | `int` | 32-bit | Integer (default for integer literals) |
 | `long` | 64-bit | Large integer |
 | `float` | 32-bit | Single-precision floating point |
@@ -52,6 +53,7 @@ payload: JsonValue := { name: "Ada", scores: [1, 2, 3] }
 
 - `null`
 - `bool`
+- `byte`
 - `int`
 - `long`
 - `float`
@@ -79,6 +81,7 @@ let c = 3.14     // double (default for decimal literals)
 let d = 3.14f    // float (explicit suffix)
 
 // Context can influence literal interpretation
+let b: byte = 42    // Literal interpreted as byte
 let x: long = 42    // Literal interpreted as long
 let y: float = 3.14 // Literal interpreted as float
 ```
@@ -88,6 +91,9 @@ let y: float = 3.14 // Literal interpreted as float
 Numeric types can be implicitly widened to larger types. Narrowing requires explicit conversion.
 
 ```javascript
+let b: byte = 42
+let i: int = b       // ✅ Implicit widening byte → int
+
 let i: int = 42
 let l: long = i      // ✅ Implicit widening int → long
 
@@ -96,6 +102,9 @@ let d: double = f    // ✅ Implicit widening float → double
 
 let l: long = 1000L
 let i: int = l       // ❌ Error: potential data loss
+
+let i: int = 255
+let b: byte = i      // ❌ Error: potential data loss
 ```
 
 **Rationale:** Widening is always safe (no precision/range loss), while narrowing can lose data and should be explicit.
@@ -106,6 +115,7 @@ To convert between numeric types explicitly, use function-call syntax with the t
 
 ```javascript
 let x: int = 42
+let b: byte = byte(x)       // int → byte
 let f: float = float(x)      // int → float (explicit cast)
 let d: double = double(x)    // int → double
 let n: int = int(3.14)       // double → int (truncates)
@@ -117,7 +127,7 @@ b := 2
 result := float(a) / float(b)  // 3.5
 ```
 
-Numeric casts accept exactly one numeric argument and return the target type. Casting from a wider type to a narrower type (e.g., `double` → `int`) truncates the value.
+Numeric casts accept exactly one numeric argument and return the target type. Casting to `byte` lowers to `uint8_t` in generated C++. Casting from a wider type to a narrower type (e.g., `double` → `int`) truncates the value.
 
 ### Safe String Conversion
 
@@ -129,7 +139,7 @@ let ok: string = string(true)
 let ratio: string = string(3.5)
 ```
 
-`string(...)` accepts exactly one primitive argument of type `int`, `long`, `float`, `double`, `string`, `char`, or `bool` and returns a `string`.
+`string(...)` accepts exactly one primitive argument of type `byte`, `int`, `long`, `float`, `double`, `string`, `char`, or `bool` and returns a `string`.
 
 ### Numeric Parse Methods
 
@@ -137,6 +147,7 @@ Numeric types expose a static `.parse()` method for fallible string parsing:
 
 ```javascript
 let count: Result<int, ParseError> = int.parse("42")
+let channel: Result<byte, ParseError> = byte.parse("255")
 let total: Result<long, ParseError> = long.parse("9007199254740991")
 let ratio: Result<double, ParseError> = double.parse("3.14159")
 ```

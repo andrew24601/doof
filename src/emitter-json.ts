@@ -151,6 +151,9 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
       if (type.name === "char") {
         return `doof::JsonValue(std::string(1, static_cast<char>(${fieldExpr})))`;
       }
+      if (type.name === "byte") {
+        return `doof::JsonValue(static_cast<int32_t>(${fieldExpr}))`;
+      }
       return `doof::JsonValue(${fieldExpr})`;
 
     case "class":
@@ -202,6 +205,7 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
 
     case "primitive":
       switch (type.name) {
+        case "byte": return `static_cast<uint8_t>(doof::json_as_int(${jsonExpr}))`;
         case "int": return `doof::json_as_int(${jsonExpr})`;
         case "long": return `doof::json_as_long(${jsonExpr})`;
         case "float": return `doof::json_as_float(${jsonExpr})`;
@@ -267,6 +271,7 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string 
       return "true";
     case "primitive":
       switch (type.name) {
+        case "byte":
         case "int":
         case "long":
         case "float":
@@ -310,6 +315,7 @@ export function jsonTypeName(type: ResolvedType): string {
       return "json";
     case "primitive":
       switch (type.name) {
+        case "byte":
         case "int":
         case "long":
         case "float":

@@ -20,6 +20,7 @@ import type { ResolvedType, PrimitiveName } from "./checker-types.js";
 // ============================================================================
 
 const PRIMITIVE_MAP: Record<PrimitiveName, string> = {
+  byte: "uint8_t",
   int: "int32_t",
   long: "int64_t",
   float: "float",
@@ -222,6 +223,7 @@ export function emitDefaultValue(type: ResolvedType): string {
       return "doof::JsonValue(nullptr)";
     case "primitive":
       switch (type.name) {
+        case "byte": return "static_cast<uint8_t>(0)";
         case "int": return "0";
         case "long": return "0LL";
         case "float": return "0.0f";

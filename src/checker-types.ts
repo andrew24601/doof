@@ -14,6 +14,7 @@ import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic } from "./typ
 // ============================================================================
 
 export type PrimitiveName =
+  | "byte"
   | "int"
   | "long"
   | "float"
@@ -216,6 +217,7 @@ export type ResolvedType =
 // Singleton type constants
 // ============================================================================
 
+export const BYTE_TYPE: PrimitiveType = { kind: "primitive", name: "byte" };
 export const INT_TYPE: PrimitiveType = { kind: "primitive", name: "int" };
 export const LONG_TYPE: PrimitiveType = { kind: "primitive", name: "long" };
 export const FLOAT_TYPE: PrimitiveType = { kind: "primitive", name: "float" };
@@ -482,10 +484,11 @@ export function typeToString(t: ResolvedType): string {
 }
 
 const PRIMITIVE_NAMES = new Set<string>([
-  "int", "long", "float", "double", "string", "char", "bool",
+  "byte", "int", "long", "float", "double", "string", "char", "bool",
 ]);
 
 const SUPPORTED_HASH_COLLECTION_PRIMITIVE_NAMES = new Set<PrimitiveName>([
+  "byte",
   "string",
   "int",
   "long",
@@ -504,7 +507,7 @@ export function isPrimitiveName(name: string): name is PrimitiveName {
 }
 
 export function describeSupportedHashCollectionElementTypes(): string {
-  return "string, int, long, char, bool, or enum";
+  return "byte, string, int, long, char, bool, or enum";
 }
 
 export function isSupportedHashCollectionElementType(type: ResolvedType): boolean {
@@ -788,6 +791,7 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
 function isNumericWidening(source: PrimitiveName, target: PrimitiveName): boolean {
   if (source === target) return true;
   const widenings: Record<string, Set<string>> = {
+    byte:   new Set(["int", "long", "float", "double"]),
     int:    new Set(["long", "float", "double"]),
     long:   new Set(["double"]),
     float:  new Set(["double"]),
@@ -1215,6 +1219,7 @@ function isAssignableToJsonValue(source: ResolvedType): boolean {
 
     case "primitive":
       return source.name === "bool"
+        || source.name === "byte"
         || source.name === "int"
         || source.name === "long"
         || source.name === "float"

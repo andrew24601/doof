@@ -45,6 +45,11 @@ function getClassType(source: string, className = "Test"): ClassType {
 // Primitive types
 // ============================================================================
 describe("typeToJsonSchema — primitives", () => {
+  it("maps byte to bounded integer", () => {
+    const schema = typeToJsonSchema({ kind: "primitive", name: "byte" }, new Map());
+    expect(schema).toEqual({ type: "integer", minimum: 0, maximum: 255 });
+  });
+
   it("maps int to integer/int32", () => {
     const schema = typeToJsonSchema({ kind: "primitive", name: "int" }, new Map());
     expect(schema).toEqual({ type: "integer", format: "int32" });

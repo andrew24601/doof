@@ -3884,6 +3884,44 @@ describe("checker — string methods", () => {
     });
   });
 
+  it("contextually narrows integer literals to byte and byte[]", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        value: byte = 42
+        data: byte[] = [1, 2, 255]
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const array = exprs.find((e) => e.kind === "array-literal");
+    expect(array?.resolvedType).toEqual({
+      kind: "array",
+      elementType: { kind: "primitive", name: "byte" },
+      readonly_: false,
+    });
+    if (array?.kind === "array-literal") {
+      for (const element of array.elements) {
+        expect(element.resolvedType).toEqual({ kind: "primitive", name: "byte" });
+      }
+    }
+  });
+
+  it("byte.parse returns Result<byte, ParseError>", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        value := byte.parse("255")
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "parse");
+    expect(call?.resolvedType).toEqual({
+      kind: "result",
+      successType: { kind: "primitive", name: "byte" },
+      errorType: { kind: "enum", symbol: expect.objectContaining({ name: "ParseError", module: "<builtin>" }) },
+    });
+  });
+
   it("rejects using a builtin namespace as a value", () => {
     const cr = check({ "/main.do": `
       function test(): void {

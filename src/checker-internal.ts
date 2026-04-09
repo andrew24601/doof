@@ -54,8 +54,8 @@ export const BUILTIN_PARSE_ERROR_TYPE: EnumType = {
   symbol: BUILTIN_PARSE_ERROR_SYMBOL,
 };
 
-export const NUMERIC_PRIMITIVE_NAMES = new Set(["int", "long", "float", "double"]);
-export const STRING_CONVERTIBLE_PRIMITIVE_NAMES = new Set(["int", "long", "float", "double", "string", "char", "bool"]);
+export const NUMERIC_PRIMITIVE_NAMES = new Set(["byte", "int", "long", "float", "double"]);
+export const STRING_CONVERTIBLE_PRIMITIVE_NAMES = new Set(["byte", "int", "long", "float", "double", "string", "char", "bool"]);
 
 export interface CheckerHost {
   readonly analysisResult: AnalysisResult;

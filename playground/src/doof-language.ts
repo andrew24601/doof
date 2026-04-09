@@ -73,7 +73,7 @@ export function registerDoofLanguage() {
     builtinConstants: ["true", "false", "null"],
 
     builtinTypes: [
-      "int", "long", "float", "double", "string", "char", "bool",
+      "byte", "int", "long", "float", "double", "string", "char", "bool",
       "Array", "ReadonlyArray", "Map", "ReadonlyMap",
       "Set", "ReadonlySet", "Tuple", "Result", "ParseError",
     ],

@@ -76,7 +76,7 @@ const STORAGE_MODIFIERS = new Set([
 ]);
 
 const PRIMITIVE_TYPES = new Set([
-  "int", "long", "float", "double", "string", "char", "bool", "void",
+  "byte", "int", "long", "float", "double", "string", "char", "bool", "void",
 ]);
 
 const BUILTIN_TYPES = new Set([

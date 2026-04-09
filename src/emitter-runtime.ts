@@ -302,6 +302,8 @@ inline std::string to_string(const T& val) {
         return std::string(val);
     } else if constexpr (std::is_same_v<T, bool>) {
         return val ? "true" : "false";
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        return std::to_string(static_cast<uint32_t>(val));
     } else if constexpr (std::is_same_v<T, char32_t>) {
         // Simple ASCII conversion for now
         std::string result;
@@ -423,6 +425,23 @@ inline Result<int32_t, ParseError> parse_int(const std::string& s) {
         return Result<int32_t, ParseError>::failure(ParseError::Underflow);
     }
     return Result<int32_t, ParseError>::success(static_cast<int32_t>(value));
+}
+
+inline Result<uint8_t, ParseError> parse_byte(const std::string& s) {
+    const auto parsed = parse_int(s);
+    if (parsed.isFailure()) {
+        return Result<uint8_t, ParseError>::failure(parsed.error());
+    }
+
+    const int32_t value = parsed.value();
+    if (value < 0) {
+        return Result<uint8_t, ParseError>::failure(ParseError::Underflow);
+    }
+    if (value > 255) {
+        return Result<uint8_t, ParseError>::failure(ParseError::Overflow);
+    }
+
+    return Result<uint8_t, ParseError>::success(static_cast<uint8_t>(value));
 }
 
 inline Result<int64_t, ParseError> parse_long(const std::string& s) {

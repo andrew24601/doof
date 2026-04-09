@@ -31,13 +31,14 @@ A module with a `main()` function is executable. `main()` can return `void` or `
 
 ### Primitives
 
-`int` (32-bit), `long` (64-bit), `float` (32-bit), `double` (64-bit), `string`, `char`, `bool`, `void`, `any`.
+`byte` (8-bit unsigned), `int` (32-bit), `long` (64-bit), `float` (32-bit), `double` (64-bit), `string`, `char`, `bool`, `void`, `any`.
 
 Integer literals default to `int`, decimal literals to `double`. Use `L` suffix for `long`, `f` for `float`. Contextual narrowing applies when the expected type is known:
 
 ```doof
 x: float := 3.14        // narrowed to float from context
-n: long := 42            // widened to long from context
+b: byte := 42           // narrowed to byte from context
+n: long := 42           // widened to long from context
 ```
 
 ### `any`
@@ -71,7 +72,7 @@ payload: JsonValue := { name: "Ada", scores: [1, 2, 3] }
 It accepts:
 
 - `null`
-- `bool`, `int`, `long`, `float`, `double`, `string`
+- `bool`, `byte`, `int`, `long`, `float`, `double`, `string`
 - `JsonValue[]`
 - `Map<string, JsonValue>`
 - unions composed from those cases
@@ -119,7 +120,7 @@ Dot-shorthand when the type is known from context: `let d: Direction = .East`
 
 Enums have `.name`, `.value` (if valued), `.values()`, `.fromName()`, `.fromValue()`.
 
-Numeric types also expose static parse helpers: `int.parse(s)`, `long.parse(s)`, `float.parse(s)`, `double.parse(s)` returning `Result<T, ParseError>`.
+Numeric types also expose static parse helpers: `byte.parse(s)`, `int.parse(s)`, `long.parse(s)`, `float.parse(s)`, `double.parse(s)` returning `Result<T, ParseError>`.
 
 ### Collections
 
@@ -134,7 +135,7 @@ Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.
 
 **Strings:** `string` — immutable text with built-in methods.
 
-`string(value)` performs explicit, safe formatting for primitive values (`int`, `long`, `float`, `double`, `string`, `char`, `bool`).
+`string(value)` performs explicit, safe formatting for primitive values (`byte`, `int`, `long`, `float`, `double`, `string`, `char`, `bool`).
 
 ```doof
 s := "Hello, World!"

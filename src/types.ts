@@ -202,6 +202,7 @@ export interface Diagnostic {
  * Names that are always in scope as types without needing an import.
  */
 export const BUILTIN_TYPE_NAMES = new Set([
+  "byte",
   "int",
   "long",
   "float",

@@ -418,6 +418,7 @@ export function emitTypeAnnotation(
     case "named-type": {
       // Check for primitive names first
       const PRIMITIVE_NAMES: Record<string, string> = {
+        byte: "uint8_t",
         int: "int32_t",
         long: "int64_t",
         float: "float",

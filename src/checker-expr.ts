@@ -372,7 +372,10 @@ function inferExprTypeInner(
   switch (expr.kind) {
     case "int-literal":
       if (expectedType?.kind === "primitive" &&
-          (expectedType.name === "long" || expectedType.name === "float" || expectedType.name === "double")) {
+          (expectedType.name === "byte"
+            || expectedType.name === "long"
+            || expectedType.name === "float"
+            || expectedType.name === "double")) {
         return expectedType;
       }
       return INT_TYPE;
@@ -652,7 +655,7 @@ function inferExprTypeInner(
           });
           return UNKNOWN_TYPE;
         }
-        return { kind: "primitive", name: expr.callee.name as "int" | "long" | "float" | "double" };
+        return { kind: "primitive", name: expr.callee.name as "byte" | "int" | "long" | "float" | "double" };
       }
 
       if (expr.callee.kind === "identifier"
