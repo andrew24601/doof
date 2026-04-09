@@ -775,7 +775,7 @@ doof test --list src
 doof test --filter math src
 ```
 
-Discovery is static rather than reflective. The runner discovers exported test functions at build time, generates a temporary harness per test file, compiles each .test.do module separately, and runs each test in its own process.
+Discovery is static rather than reflective. The runner discovers exported test functions at build time, generates a temporary harness per test file, compiles each `.test.do` module separately, and runs each test in its own process.
 
 Practical implications:
 
@@ -786,28 +786,71 @@ Practical implications:
 
 Prefer simple assertions in the MVP. If you need reusable setup, keep it in ordinary library helpers and call them from exported test functions.
 
-Mocking is compile-time and intended for tests:
+### Testing with Mocks
 
-- Use mock import in the root .test.do file to substitute dependencies for a specific import site
-- Use mock function and mock class to declare call-recording stand-ins
-- Mock callables expose .calls with typed capture entries, so sendPayment.calls[0].targetId and gateway.sendPayment.calls.length are checked statically
+Doof mocks are compile-time substitutions. Reach for them when the module under test imports a dependency you want to replace with a deterministic stand-in.
+
+Core pieces:
+
+- `mock import` rewrites a dependency for a specific import site
+- `mock function` declares a recorded stand-in for a free function
+- `mock class` declares a recorded stand-in for a class with methods
+- Mock callables expose `.calls`, a statically typed array of captured argument objects
+
+Important rules:
+
+- Put `mock import` directives at the top of the root `.test.do` file
+- `mock import` only applies inside that test file's module graph
+- Each `.test.do` file is compiled separately, so one test file's mock substitutions do not affect another file
+- `.calls` entries use the original parameter names as fields
 - Generic mock functions, generic mock classes or methods, and static mock methods are currently rejected
 
-Example:
+Mock import example:
 
 ```doof
+// checkout.test.do
 mock import for "./checkout" {
     "./payments" => "./payments.mock"
 }
 
-mock function sendPayment(targetId: string, amount: int): bool => true
+import { Assert } from "std/assert"
+import { checkout } from "./checkout"
+import { sendPayment } from "./payments.mock"
 
-export function testCheckout(): void {
-    sendPayment("acct-1", 7)
+export function testCheckoutUsesMockPayment(): void {
+    Assert.isTrue(checkout("acct-1", 7))
     Assert.equal(sendPayment.calls.length, 1)
     Assert.equal(sendPayment.calls[0].targetId, "acct-1")
+    Assert.equal(sendPayment.calls[0].amount, 7)
 }
 ```
+
+Mock class example:
+
+```doof
+import { Assert } from "std/assert"
+
+mock class PaymentGateway {
+    sendPayment(targetId: string, amount: int): bool => true
+}
+
+export function testGatewayTracksCallsPerInstance(): void {
+    let gateway = PaymentGateway()
+    gateway.sendPayment("acct-1", 7)
+
+    Assert.equal(gateway.sendPayment.calls.length, 1)
+    Assert.equal(gateway.sendPayment.calls[0].targetId, "acct-1")
+    Assert.equal(gateway.sendPayment.calls[0].amount, 7)
+}
+```
+
+Bodyless mocks are useful when a call should be forbidden in the scenario under test:
+
+```doof
+mock function unexpectedNetworkCall(url: string): void
+```
+
+If execution reaches a bodyless mock, the emitted program panics immediately.
 
 ### Extern C++ Interop
 

@@ -53,7 +53,7 @@ doof <command> [options] <entry.do | path>
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus `CMakeLists.txt`; native build flags are written into the generated build metadata
 - `build` — emits the project and compiles it to a native executable in the output directory
 - `run` — same as `build`, then executes the produced binary
-- `test` — discovers exported test functions in `.test.do` files, builds a temporary test harness, compiles once, and runs each discovered test in its own process
+- `test` — discovers exported test functions in `.test.do` files, builds a temporary harness per test file, compiles each test module separately, and runs each discovered test in its own process
 
 `doof emit` writes:
 
