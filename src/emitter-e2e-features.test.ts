@@ -521,6 +521,33 @@ describe("e2e — map safety", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("20");
   });
+
+  it("prints maps arrays and enums readably", () => {
+    const result = ctx.compileAndRun(`
+      enum Color { Red, Green, Blue }
+
+      function main(): int {
+        config: Map<string, string> := { "kind": "toy", "color": "red" }
+        numbers := [1, 2, 3, 4]
+        c: Color := .Green
+
+        println(config)
+        println(numbers)
+        println(c)
+
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "{color: red, kind: toy}",
+      "[1, 2, 3, 4]",
+      "Green",
+    ]);
+  });
 });
 
 // ============================================================================

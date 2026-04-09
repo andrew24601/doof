@@ -663,6 +663,14 @@ describe("emitter — enums", () => {
     expect(cpp).toContain("return std::nullopt;");
   });
 
+  it("emits ostream operator for enum printing", () => {
+    const cpp = emit(`
+      enum Color { Red, Green, Blue }
+    `);
+    expect(cpp).toContain("inline std::ostream& operator<<(std::ostream& _os, Color _v)");
+    expect(cpp).toContain("return _os << Color_name(_v);");
+  });
+
   it("emits contextually typed dot shorthand as scoped enum variants", () => {
     const cpp = emit(`
       enum Suit { Spades, Hearts, Diamonds, Clubs }

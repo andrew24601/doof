@@ -315,6 +315,56 @@ inline std::string to_string(const T& val) {
 }
 
 template <typename T>
+inline std::string to_string(const std::shared_ptr<std::vector<T>>& val) {
+    if (!val) return "null";
+    std::string result = "[";
+    for (size_t i = 0; i < val->size(); ++i) {
+        if (i > 0) result += ", ";
+        result += to_string((*val)[i]);
+    }
+    result += "]";
+    return result;
+}
+
+template <typename K, typename V>
+inline std::string to_string(const std::shared_ptr<std::unordered_map<K, V>>& val) {
+    if (!val) return "null";
+    std::vector<std::string> entries;
+    entries.reserve(val->size());
+    for (const auto& entry : *val) {
+        entries.push_back(to_string(entry.first) + ": " + to_string(entry.second));
+    }
+    std::sort(entries.begin(), entries.end());
+
+    std::string result = "{";
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0) result += ", ";
+        result += entries[i];
+    }
+    result += "}";
+    return result;
+}
+
+template <typename T>
+inline std::string to_string(const std::shared_ptr<std::unordered_set<T>>& val) {
+    if (!val) return "null";
+    std::vector<std::string> items;
+    items.reserve(val->size());
+    for (const auto& item : *val) {
+        items.push_back(to_string(item));
+    }
+    std::sort(items.begin(), items.end());
+
+    std::string result = "{";
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i > 0) result += ", ";
+        result += items[i];
+    }
+    result += "}";
+    return result;
+}
+
+template <typename T>
 inline std::string to_string(const std::optional<T>& val) {
     return val.has_value() ? to_string(*val) : std::string("null");
 }

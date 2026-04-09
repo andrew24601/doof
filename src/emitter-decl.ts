@@ -371,6 +371,11 @@ export function emitEnumDecl(decl: EnumDeclaration, ctx: EmitContext): void {
   ctx.sourceLines.push(`${ind}    }`);
   ctx.sourceLines.push(`${ind}}`);
 
+  ctx.sourceLines.push("");
+  ctx.sourceLines.push(`${ind}inline std::ostream& operator<<(std::ostream& _os, ${name} _v) {`);
+  ctx.sourceLines.push(`${ind}    return _os << ${name}_name(_v);`);
+  ctx.sourceLines.push(`${ind}}`);
+
   // Emit std::hash specialization so enums can be used as Map keys
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`namespace std { template<> struct hash<${name}> { size_t operator()(${name} v) const noexcept { return hash<int>{}(static_cast<int>(v)); } }; }`);
