@@ -241,6 +241,13 @@ inline const JsonValue::Object::element_type* json_as_object(const JsonValue& va
     return object->get();
 }
 
+inline JsonValue json_error(int32_t code, std::string message) {
+    auto object = std::make_shared<std::unordered_map<std::string, JsonValue>>();
+    (*object)["code"] = JsonValue(code);
+    (*object)["message"] = JsonValue(std::move(message));
+    return JsonValue(std::move(object));
+}
+
 inline bool json_as_bool(const JsonValue& value) {
     const auto* result = std::get_if<bool>(&value.value);
     if (result == nullptr) panic("Expected JSON boolean");
@@ -992,7 +999,7 @@ struct MethodReflection {
     std::string description;
     doof::JsonValue inputSchema;
     doof::JsonValue outputSchema;
-    std::function<doof::Result<doof::JsonValue, doof::Any>(std::shared_ptr<T>, const doof::JsonValue&)> invoke;
+    std::function<doof::Result<doof::JsonValue, doof::JsonValue>(std::shared_ptr<T>, const doof::JsonValue&)> invoke;
 };
 
 /** Structured metadata for a class — contains name, description, methods, and schema $defs. */
@@ -1003,7 +1010,7 @@ struct ClassMetadata {
     std::shared_ptr<std::vector<doof::MethodReflection<T>>> methods;
     std::optional<doof::JsonValue> defs;
 
-    doof::Result<doof::JsonValue, doof::Any> invoke(
+    doof::Result<doof::JsonValue, doof::JsonValue> invoke(
         std::shared_ptr<T> instance,
         const std::string& methodName,
         const doof::JsonValue& params
@@ -1015,7 +1022,7 @@ struct ClassMetadata {
                 }
             }
         }
-        return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Unknown method: ") + methodName});
+        return doof::Result<doof::JsonValue, doof::JsonValue>::failure(doof::json_error(400, std::string("Unknown method: ") + methodName));
     }
 };
 

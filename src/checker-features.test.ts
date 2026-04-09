@@ -2212,7 +2212,7 @@ describe("Metadata — .metadata access", () => {
     expect(info.diagnostics.some((d) => d.message.includes("run"))).toBe(true);
   });
 
-  it("allows Result-returning methods with JSON success and any-carriable failure", () => {
+  it("allows Result-returning methods with JSON success and non-JsonValue failure", () => {
     const info = check({ "/main.do": `
       class Tool {
         function run(input: string): Result<string, int> => Success(input)
@@ -2233,15 +2233,17 @@ describe("Metadata — .metadata access", () => {
     expect(info.diagnostics.some((d) => d.message.includes("run"))).toBe(true);
   });
 
-  it("errors when Result failure type is not any-carriable", () => {
+  it("allows Result failure types that are not JsonValue", () => {
     const info = check({ "/main.do": `
-      class Bad {
-        function run<T>(): Result<string, T> => Success("ok")
+      class ToolError {
+        message: string
       }
-      const m = Bad.metadata
+      class Tool {
+        function run(): Result<string, ToolError> => Success("ok")
+      }
+      const m = Tool.metadata
     ` }, "/main.do");
-    expect(info.diagnostics.some((d) => d.message.includes("Failure type"))).toBe(true);
-    expect(info.diagnostics.some((d) => d.message.includes("run"))).toBe(true);
+    expect(info.diagnostics).toHaveLength(0);
   });
 
   it("allows void return methods", () => {
@@ -2301,7 +2303,7 @@ describe("Metadata — .methods[i].invoke access", () => {
     expect(resultDecl.resolvedType).toEqual({
       kind: "result",
       successType: JSON_VALUE_TYPE,
-      errorType: ANY_TYPE,
+      errorType: JSON_VALUE_TYPE,
     });
   });
 

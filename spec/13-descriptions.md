@@ -151,9 +151,9 @@ Each entry in `.methods` is a `MethodReflection` with:
 |---|---|---|
 | `.name` | `string` | The method name |
 | `.description` | `string` | The method description (empty string if none) |
-| `.inputSchema` | `string` | JSON Schema (Draft 7) for the input parameters |
-| `.outputSchema` | `string` | JSON Schema for the success return payload |
-| `.invoke` | `(instance, params) → Result<string, any>` | Invoke the method with JSON params |
+| `.inputSchema` | `JsonValue` | JSON Schema (Draft 7) for the input parameters |
+| `.outputSchema` | `JsonValue` | JSON Schema for the success return payload |
+| `.invoke` | `(instance, params) → Result<JsonValue, JsonValue>` | Invoke the method with JSON params |
 
 ### `ClassMetadata.invoke`
 
@@ -162,40 +162,40 @@ The metadata object itself also exposes an `.invoke` helper for name-based dispa
 ```doof
 const meta = Calculator.metadata
 const calc = Calculator { }
-const result = meta.invoke(calc, "add", '{"a": 1, "b": 2}')
+const result = meta.invoke(calc, "add", { a: 1, b: 2 })
 if result.isSuccess() {
-    println(result.value)  // "3"
+    println(result.value)  // 3
 }
 ```
 
-**Signature:** `(instance: ClassName, methodName: string, params: string) → Result<string, any>`
+**Signature:** `(instance: ClassName, methodName: string, params: JsonValue) → Result<JsonValue, JsonValue>`
 
 - `instance` — the object to call the method on
 - `methodName` — the public instance method name to invoke
 - `params` — a JSON object with parameter names as keys
-- On **success**: returns the method's return value serialized as a JSON string, or `"null"` for void methods
-- On **failure**: returns an `any` value. Framework failures such as invalid JSON parameters or unknown method names use a string payload. If the method itself returns `Result<S, F>`, then a method failure is surfaced as the original `F` value in the invoke failure path.
+- On **success**: returns the method's return value as `JsonValue`, or `null` for void methods
+- On **failure**: returns a `JsonValue`. Framework failures such as invalid parameters or unknown method names return `{ code: 400, message: string }`. If the method itself returns `Result<S, JsonValue>`, then the `JsonValue` failure is passed through unchanged. For any other `Result<S, F>` failure type, invoke returns `{ code: 500, message: "An error occurred" }`.
 
 ### `.invoke`
 
-Each method reflection has an `.invoke` member that dispatches a method call using JSON strings, returning a `Result<string, any>`:
+Each method reflection has an `.invoke` member that dispatches a method call using `JsonValue` parameters, returning a `Result<JsonValue, JsonValue>`:
 
 ```doof
 const meta = Calculator.metadata
 const method = meta.methods[0]
 const calc = Calculator { }
-const result = method.invoke(calc, '{"a": 1, "b": 2}')
+const result = method.invoke(calc, { a: 1, b: 2 })
 if result.isSuccess() {
-    println(result.value)  // "3"
+    println(result.value)  // 3
 }
 ```
 
-**Signature:** `(instance: ClassName, params: string) → Result<string, any>`
+**Signature:** `(instance: ClassName, params: JsonValue) → Result<JsonValue, JsonValue>`
 
 - `instance` — the object to call the method on
 - `params` — a JSON object with parameter names as keys
-- On **success**: returns the method's return value serialized as a JSON string, or `"null"` for void methods
-- On **failure**: returns an `any` value. Framework failures use string payloads. Method failures from `Result<S, F>` methods use the original `F` value.
+- On **success**: returns the method's return value as `JsonValue`, or `null` for void methods
+- On **failure**: returns a `JsonValue` using the same failure rules as `ClassMetadata.invoke`
 
 ### JSON Schema
 
@@ -222,12 +222,12 @@ When a method parameter or return type references another class, that class's sc
 
 ### Result Members
 
-The `Result<string, any>` returned by `.invoke` supports:
+The `Result<JsonValue, JsonValue>` returned by `.invoke` supports:
 
 | Member | Type | Description |
 |---|---|---|
-| `.value` | `string` | The success value (only valid when `isSuccess()` is true) |
-| `.error` | `any` | The failure payload (only valid when `isFailure()` is true) |
+| `.value` | `JsonValue` | The success value (only valid when `isSuccess()` is true) |
+| `.error` | `JsonValue` | The failure payload (only valid when `isFailure()` is true) |
 | `.isSuccess()` | `bool` | Whether the invocation succeeded |
 | `.isFailure()` | `bool` | Whether the invocation failed |
 
@@ -235,7 +235,7 @@ The `Result<string, any>` returned by `.invoke` supports:
 
 - **Generic classes** cannot use `.metadata` (compile error)
 - All public method parameters must be **JSON-serializable** (compile error otherwise)
-- Public method return types must either be JSON-serializable, or be `Result<S, F>` where `S` is JSON-serializable (or `void`) and `F` is any-carriable
+- Public method return types must either be JSON-serializable, or be `Result<S, F>` where `S` is JSON-serializable (or `void`). Failure types do not need to be JSON-serializable; invoke only passes them through when `F` is exactly `JsonValue`.
 - `"metadata"`, `"toJsonValue"`, and `"fromJsonValue"` are **reserved** — classes cannot define methods or fields with these names
 - Private and static methods are excluded from metadata and invoke dispatch
 

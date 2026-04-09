@@ -3,7 +3,6 @@ import type { AnalysisResult } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import {
   type ResolvedType,
-  STRING_TYPE,
   typeToString,
 } from "./checker-types.js";
 import { emitType } from "./emitter-types.js";
@@ -68,8 +67,6 @@ export function buildAnyRuntimePlan(analysisResult: AnalysisResult): AnyRuntimeP
     }
   }
 
-  usesAny = collectMetadataInvokeTypes(analysisResult, addCarrier) || usesAny;
-
   if (!usesAny) {
     const plan = {
       usesAny: false,
@@ -115,35 +112,6 @@ function ensureAnyUsageByModule(analysisResult: AnalysisResult): void {
     if (analysisResult.anyUsageByModule.has(modulePath)) continue;
     checker.checkModule(modulePath);
   }
-}
-
-function collectMetadataInvokeTypes(
-  analysisResult: AnalysisResult,
-  addCarrier: (type: ResolvedType) => void,
-): boolean {
-  let needsAny = false;
-
-  for (const [, table] of analysisResult.modules) {
-    for (const stmt of table.program.statements) {
-      const decl = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
-      if (decl.kind !== "class-declaration" || !decl.needsMetadata) continue;
-
-      needsAny = true;
-      addCarrier(STRING_TYPE);
-
-      for (const method of decl.methods) {
-        if (method.private_ || method.static_ || !method.resolvedType || method.resolvedType.kind !== "function") {
-          continue;
-        }
-        const retType = method.resolvedType.returnType;
-        if (retType.kind === "result") {
-          addCarrier(retType.errorType);
-        }
-      }
-    }
-  }
-
-  return needsAny;
 }
 
 export function renderAnyRuntimeSupport(plan: AnyRuntimePlan): string {

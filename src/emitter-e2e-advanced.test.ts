@@ -1624,10 +1624,7 @@ describe("E2E — Metadata", () => {
         const calc = Calculator { }
         const result = meta.invoke(calc, "subtract", { })
         if result.isFailure() {
-          println(case result.error {
-            msg: string => msg,
-            _ => "other"
-          })
+          println(JSON.stringify(result.error))
         }
         return 0
       }
@@ -1635,7 +1632,10 @@ describe("E2E — Metadata", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toBe("Unknown method: subtract");
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      code: 400,
+      message: "Unknown method: subtract",
+    });
   });
 
   it("invoke returns JSON null for void methods", () => {
@@ -1693,10 +1693,7 @@ describe("E2E — Metadata", () => {
         const t = Tool { }
         const result = meta.methods[0].invoke(t, "not json")
         if result.isFailure() {
-          println(case result.error {
-            msg: string => msg,
-            _ => "other"
-          })
+          println(JSON.stringify(result.error))
         }
         return 0
       }
@@ -1704,10 +1701,13 @@ describe("E2E — Metadata", () => {
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.stdout.trim()).toContain("Invalid JSON params: expected object");
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      code: 400,
+      message: "Invalid JSON params: expected object",
+    });
   });
 
-  it("invoke folds Result failures into any while keeping success JSON", () => {
+  it("invoke redacts non-JsonValue Result failures while keeping success JSON", () => {
     const result = ctx.compileAndRun(`
       class ToolError {
         message: string
@@ -1731,10 +1731,7 @@ describe("E2E — Metadata", () => {
 
         const failure = meta.invoke(tool, "run", { flag: false })
         if failure.isFailure() {
-          println(case failure.error {
-            err: ToolError => err.message,
-            _ => "other"
-          })
+          println(JSON.stringify(failure.error))
         }
 
         return 0
@@ -1745,7 +1742,49 @@ describe("E2E — Metadata", () => {
     }
     const lines = result.stdout.trim().split("\n");
     expect(JSON.parse(lines[0])).toBe("ok");
-    expect(lines[1]).toBe("bad");
+    expect(JSON.parse(lines[1])).toEqual({
+      code: 500,
+      message: "An error occurred",
+    });
+  });
+
+  it("invoke passes through JsonValue Result failures", () => {
+    const result = ctx.compileAndRun(`
+      class Tool {
+        function run(flag: bool): Result<string, JsonValue> {
+          if flag {
+            return Success("ok")
+          }
+          error: JsonValue := { code: 422, message: "bad" }
+          return Failure(error)
+        }
+      }
+      function main(): int {
+        const meta = Tool.metadata
+        const tool = Tool { }
+
+        const success = meta.invoke(tool, "run", { flag: true })
+        if success.isSuccess() {
+          println(success.value)
+        }
+
+        const failure = meta.invoke(tool, "run", { flag: false })
+        if failure.isFailure() {
+          println(JSON.stringify(failure.error))
+        }
+
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    const lines = result.stdout.trim().split("\n");
+    expect(JSON.parse(lines[0])).toBe("ok");
+    expect(JSON.parse(lines[1])).toEqual({
+      code: 422,
+      message: "bad",
+    });
   });
 
   it("invoke returns JSON null for Result<void, E> success", () => {
@@ -1769,10 +1808,7 @@ describe("E2E — Metadata", () => {
 
         const failure = meta.invoke(tool, "reset", { flag: false })
         if failure.isFailure() {
-          println(case failure.error {
-            msg: string => msg,
-            _ => "other"
-          })
+          println(JSON.stringify(failure.error))
         }
         return 0
       }
@@ -1782,7 +1818,10 @@ describe("E2E — Metadata", () => {
     }
     const lines = result.stdout.trim().split("\n");
     expect(lines[0]).toBe("null");
-    expect(lines[1]).toBe("bad");
+    expect(JSON.parse(lines[1])).toEqual({
+      code: 500,
+      message: "An error occurred",
+    });
   });
 
   it("metadata includes defs string for class-typed parameters", () => {

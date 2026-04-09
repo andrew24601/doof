@@ -2,11 +2,9 @@ import {
   collectNonSerializableFields,
   findSharedDiscriminator,
   isAssignableTo,
-  isAnyCarriable,
   isJSONSerializable,
   type ModuleTypeInfo,
   type ResolvedType,
-  ANY_TYPE,
   JSON_VALUE_TYPE,
   STRING_TYPE,
   BOOL_TYPE,
@@ -804,7 +802,7 @@ export function inferMemberType(
           { name: "methodName", type: STRING_TYPE },
           { name: "params", type: JSON_VALUE_TYPE },
         ],
-        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: ANY_TYPE },
+        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: JSON_VALUE_TYPE },
       };
     }
     if (property === "methods") {
@@ -826,7 +824,7 @@ export function inferMemberType(
           { name: "instance", type: objectType.classType },
           { name: "params", type: JSON_VALUE_TYPE },
         ],
-        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: ANY_TYPE },
+        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: JSON_VALUE_TYPE },
       };
     }
   }
@@ -920,14 +918,6 @@ function validateMetadataSerializability(
           info.diagnostics.push({
             severity: "error",
             message: `Success type "${typeToString(successType)}" of Result-returning method "${method.name}" is not JSON-serializable (required for metadata)`,
-            span,
-            module: table.path,
-          });
-        }
-        if (!isAnyCarriable(retType.errorType)) {
-          info.diagnostics.push({
-            severity: "error",
-            message: `Failure type "${typeToString(retType.errorType)}" of Result-returning method "${method.name}" is not any-carriable (required for metadata invoke)`,
             span,
             module: table.path,
           });

@@ -4,7 +4,7 @@
  * Generates:
  *   - `static inline const doof::ClassMetadata<ClassName> _metadata` — structured
  *     metadata object containing class name, description, method reflections with
- *     per-method `invoke` lambdas returning `doof::Result<doof::JsonValue, doof::Any>`.
+ *     per-method `invoke` lambdas returning `doof::Result<doof::JsonValue, doof::JsonValue>`.
  *
  * On-demand: only emitted when `needsMetadata` is set on a ClassDeclaration
  * (triggered by user code accessing `MyClass.metadata`).
@@ -14,7 +14,6 @@ import type { ClassDeclaration } from "./ast.js";
 import type { AnalysisResult } from "./analyzer.js";
 import type { Statement } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitWrapAnyValue } from "./emitter-any.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
 import { emitType } from "./emitter-types.js";
@@ -27,6 +26,16 @@ import {
 } from "./emitter-json.js";
 import type { EmitContext } from "./emitter-context.js";
 import { buildClassMetadata } from "./emitter-schema.js";
+
+const METADATA_RESULT_TYPE = "doof::Result<doof::JsonValue, doof::JsonValue>";
+
+function emitMetadataFailure(code: 400 | 500, messageExpr: string): string {
+  return `${METADATA_RESULT_TYPE}::failure(doof::json_error(${code}, ${messageExpr}))`;
+}
+
+function emitMetadataSuccess(valueExpr: string): string {
+  return `${METADATA_RESULT_TYPE}::success(${valueExpr})`;
+}
 
 // ============================================================================
 // On-demand metadata propagation
@@ -156,11 +165,11 @@ export function emitMetadataDefinition(
     ctx.sourceLines.push(`${ind}            doof::json_parse_or_panic(R"_doof_schema_(${inputSchemaJson})_doof_schema_"),`);
     ctx.sourceLines.push(`${ind}            doof::json_parse_or_panic(R"_doof_schema_(${outputSchemaJson})_doof_schema_"),`);
 
-    // Invoke lambda: (std::shared_ptr<T>, const doof::JsonValue&) -> Result<JsonValue, any>
-    ctx.sourceLines.push(`${ind}            [](std::shared_ptr<${cppName}> _instance, const doof::JsonValue& _params) -> doof::Result<doof::JsonValue, doof::Any> {`);
+    // Invoke lambda: (std::shared_ptr<T>, const doof::JsonValue&) -> Result<JsonValue, JsonValue>
+    ctx.sourceLines.push(`${ind}            [](std::shared_ptr<${cppName}> _instance, const doof::JsonValue& _params) -> ${METADATA_RESULT_TYPE} {`);
     ctx.sourceLines.push(`${ind}                const auto* _p = doof::json_as_object(_params);`);
     ctx.sourceLines.push(`${ind}                if (_p == nullptr) {`);
-    ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Invalid JSON params: expected object")});`);
+    ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(400, 'std::string("Invalid JSON params: expected object")')};`);
     ctx.sourceLines.push(`${ind}                }`);
 
     // Deserialize parameters
@@ -174,7 +183,7 @@ export function emitMetadataDefinition(
         ctx.sourceLines.push(`${ind}                ${emitTypeForMetadata(paramType)} ${safeParamName};`);
         ctx.sourceLines.push(`${ind}                if (auto ${iterName} = _p->find("${param.name}"); ${iterName} != _p->end()) {`);
         ctx.sourceLines.push(`${ind}                    if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
-        ctx.sourceLines.push(`${ind}                        return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)});`);
+        ctx.sourceLines.push(`${ind}                        return ${emitMetadataFailure(400, `std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)`) };`);
         ctx.sourceLines.push(`${ind}                    }`);
         ctx.sourceLines.push(`${ind}                    ${safeParamName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
         ctx.sourceLines.push(`${ind}                } else {`);
@@ -183,10 +192,10 @@ export function emitMetadataDefinition(
       } else {
         ctx.sourceLines.push(`${ind}                auto ${iterName} = _p->find("${param.name}");`);
         ctx.sourceLines.push(`${ind}                if (${iterName} == _p->end()) {`);
-        ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Missing required parameter \\"${param.name}\\"")});`);
+        ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(400, `std::string("Missing required parameter \\"${param.name}\\"")`) };`);
         ctx.sourceLines.push(`${ind}                }`);
         ctx.sourceLines.push(`${ind}                if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
-        ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)});`);
+        ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(400, `std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)`) };`);
         ctx.sourceLines.push(`${ind}                }`);
         ctx.sourceLines.push(`${ind}                auto ${safeParamName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
       }
@@ -202,24 +211,28 @@ export function emitMetadataDefinition(
 
     if (!retType || retType.kind === "void") {
       ctx.sourceLines.push(`${ind}                _instance->${safeName}(${args});`);
-      ctx.sourceLines.push(`${ind}                return doof::Result<doof::JsonValue, doof::Any>::success(doof::JsonValue(nullptr));`);
+      ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::JsonValue(nullptr)")};`);
     } else if (retType.kind === "result") {
       ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
       ctx.sourceLines.push(`${ind}                if (_result.isFailure()) {`);
-      ctx.sourceLines.push(`${ind}                    return doof::Result<doof::JsonValue, doof::Any>::failure(${emitWrapAnyValue("_result.error()", retType.errorType, ctx)});`);
+      if (retType.errorType.kind === "json-value") {
+        ctx.sourceLines.push(`${ind}                    return ${METADATA_RESULT_TYPE}::failure(_result.error());`);
+      } else {
+        ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(500, '"An error occurred"')};`);
+      }
       ctx.sourceLines.push(`${ind}                }`);
       if (retType.successType.kind === "void") {
         ctx.sourceLines.push(`${ind}                _result.value();`);
-        ctx.sourceLines.push(`${ind}                return doof::Result<doof::JsonValue, doof::Any>::success(doof::JsonValue(nullptr));`);
+        ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::JsonValue(nullptr)")};`);
       } else {
         ctx.sourceLines.push(`${ind}                auto _success = _result.value();`);
         const serialized = emitSerializeExpr("_success", retType.successType);
-        ctx.sourceLines.push(`${ind}                return doof::Result<doof::JsonValue, doof::Any>::success(${serialized});`);
+        ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess(serialized)};`);
       }
     } else {
       ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
       const serialized = emitSerializeExpr("_result", retType);
-      ctx.sourceLines.push(`${ind}                return doof::Result<doof::JsonValue, doof::Any>::success(${serialized});`);
+      ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess(serialized)};`);
     }
 
     ctx.sourceLines.push(`${ind}            }`);

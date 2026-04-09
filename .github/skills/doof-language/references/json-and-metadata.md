@@ -120,7 +120,7 @@ meta.methods[0].name            // "add"
 meta.methods[0].description     // "Adds two numbers."
 meta.methods[0].inputSchema     // JsonValue JSON Schema Draft 7 object
 meta.methods[0].outputSchema    // JsonValue JSON Schema Draft 7 object
-meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JsonValue, any>
+meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JsonValue, JsonValue>
 ```
 
 ### JSON Schema Type Mappings

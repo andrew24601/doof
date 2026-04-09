@@ -59,7 +59,7 @@ Rules:
 - Member access, indexing, and calls on raw `any` are rejected until narrowed
 - `case` type patterns are the intended way to recover concrete types
 - `any` is not supported as metadata input or success-payload JSON in v1
-- Metadata-driven `.invoke(...)` uses `Result<string, any>` for failures: framework failures produce string payloads, and methods returning `Result<S, F>` surface raw `F` values on the failure branch
+- Metadata-driven `.invoke(...)` uses `Result<JsonValue, JsonValue>`: framework failures produce `{ code, message }` objects, methods returning `Result<S, JsonValue>` surface raw `JsonValue` failures, and other failure types are redacted to `{ code: 500, message: "An error occurred" }`
 
 ### `JsonValue`
 
@@ -899,7 +899,7 @@ class Calculator "A simple calculator." {
 }
 ```
 
-Access generated metadata with `ClassName.metadata`. Each entry in `.methods` carries schema strings plus `.invoke(instance, params)`. The metadata object itself also supports name-based dispatch with `.invoke(instance, methodName, params)` returning `Result<string, any>`. For methods declared as `Result<S, F>`, invoke serializes `S` on success, surfaces raw `F` on failure, and keeps `outputSchema` focused on `S`.
+Access generated metadata with `ClassName.metadata`. Each entry in `.methods` carries schema `JsonValue`s plus `.invoke(instance, params)`. The metadata object itself also supports name-based dispatch with `.invoke(instance, methodName, params)` returning `Result<JsonValue, JsonValue>`. For methods declared as `Result<S, JsonValue>`, invoke serializes `S` on success and passes through the `JsonValue` failure. Other failure types are redacted to `{ code: 500, message: "An error occurred" }`, and `outputSchema` stays focused on `S`.
 
 ## Memory Management
 

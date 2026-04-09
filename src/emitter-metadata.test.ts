@@ -2,7 +2,7 @@
  * Emitter tests — structured metadata and per-method invoke generation.
  *
  * Tests C++ code generation for structured doof::ClassMetadata with
- * per-method invoke lambdas returning doof::Result<doof::JsonValue, any>.
+ * per-method invoke lambdas returning doof::Result<doof::JsonValue, doof::JsonValue>.
  */
 
 import { describe, it, expect } from "vitest";
@@ -91,7 +91,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>");
     expect(cpp).toContain("_instance->run(");
     expect(cpp).toContain("::success(");
   });
@@ -105,7 +105,18 @@ describe("emitter — structured metadata", () => {
     `);
     expect(cpp).toContain("::failure(");
     expect(cpp).toContain("Invalid JSON params");
-    expect(cpp).toContain("doof::Any{std::string(\"Invalid JSON params: expected object\")}");
+    expect(cpp).toContain("doof::json_error(400, std::string(\"Invalid JSON params: expected object\"))");
+  });
+
+  it("wraps parameter validation failures in 400 JSON errors", () => {
+    const cpp = emit(`
+      class Tool {
+        function run(input: string): string => input
+      }
+      const m = Tool.metadata
+    `);
+    expect(cpp).toContain('doof::json_error(400, std::string("Missing required parameter \\"input\\""))');
+    expect(cpp).toContain('doof::json_error(400, std::string("Parameter \\"input\\" expected string but got ") + doof::json_type_name(_it_input->second))');
   });
 
   it("void return methods produce success(\"null\")", () => {
@@ -118,7 +129,23 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain("::success(doof::JsonValue(nullptr))");
   });
 
-  it("unwraps Result-returning methods into invoke success or any failure", () => {
+  it("passes through JsonValue Result failures", () => {
+    const cpp = emit(`
+      class Tool {
+        function run(input: string): Result<string, JsonValue> {
+          error: JsonValue := { code: 422, message: input }
+          return Failure(error)
+        }
+      }
+      const m = Tool.metadata
+    `);
+    expect(cpp).toContain("if (_result.isFailure()) {");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::failure(_result.error())");
+    expect(cpp).toContain("auto _success = _result.value();");
+    expect(cpp).toContain('"type":"string"');
+  });
+
+  it("redacts non-JsonValue Result failures to a generic 500 JSON error", () => {
     const cpp = emit(`
       class ToolError {
         message: string
@@ -129,7 +156,7 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("if (_result.isFailure()) {");
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>::failure(doof::Any{_result.error()})");
+    expect(cpp).toContain('doof::json_error(500, "An error occurred")');
     expect(cpp).toContain("auto _success = _result.value();");
     expect(cpp).toContain('"type":"string"');
   });
@@ -142,7 +169,7 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("_result.value();");
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::Any>::success(doof::JsonValue(nullptr))");
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::success(doof::JsonValue(nullptr))");
     expect(cpp).toContain('"type":"null"');
   });
 
