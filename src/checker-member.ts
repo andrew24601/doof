@@ -3,6 +3,7 @@ import {
   findSharedDiscriminator,
   isAssignableTo,
   isJSONSerializable,
+  buildMockCallMetadata,
   type ModuleTypeInfo,
   type ResolvedType,
   JSON_VALUE_TYPE,
@@ -72,6 +73,7 @@ function resolveClassMethodType(
   host: CheckerHost,
   classTable: ModuleSymbolTable,
   method: ClassDeclaration["methods"][number],
+  classDecl: ClassDeclaration,
   classSubMap?: Map<string, ResolvedType>,
 ): ResolvedType {
   let methodType: ResolvedType = {
@@ -86,6 +88,19 @@ function resolveClassMethodType(
       ? host.resolveTypeAnnotation(method.returnType, classTable)
       : VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+    mockCall: method.mock_
+      ? buildMockCallMetadata(
+          classTable.path,
+          method.name,
+          method.params.map((p) => ({
+            name: p.name,
+            type: p.type ? host.resolveTypeAnnotation(p.type, classTable) : UNKNOWN_TYPE,
+            hasDefault: p.defaultValue !== null,
+            defaultValue: p.defaultValue,
+          })),
+          classDecl.name,
+        )
+      : undefined,
   };
   if (classSubMap) {
     methodType = substituteTypeParams(methodType, classSubMap);
@@ -196,7 +211,7 @@ function inferClassInstanceMemberType(
       if (method.private_ && objectType.symbol.module !== table.path) {
         reportPrivateDiagnostic(table, info, span, "Method", property, objectType.symbol.module);
       }
-      return resolveClassMethodType(host, classTable, method, classSubMap);
+      return resolveClassMethodType(host, classTable, method, classDecl, classSubMap);
     }
 
     reportMemberDiagnostic(
@@ -301,7 +316,7 @@ function inferClassStaticMemberType(
       if (method.private_ && objectType.symbol.module !== table.path) {
         reportPrivateDiagnostic(table, info, span, "Method", property, objectType.symbol.module);
       }
-      return resolveClassMethodType(host, classTable, method, classSubMap);
+      return resolveClassMethodType(host, classTable, method, classDecl, classSubMap);
     }
 
     reportMemberDiagnostic(
@@ -530,6 +545,37 @@ export function inferMemberType(
   info?: ModuleTypeInfo,
   span?: SourceSpan,
 ): ResolvedType {
+  if (objectType.kind === "function" && property === "calls") {
+    if (objectType.mockCall) {
+      return {
+        kind: "array",
+        elementType: objectType.mockCall.captureType,
+        readonly_: false,
+      };
+    }
+
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Property "calls" is only available on mock functions and mock methods`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  if (objectType.kind === "mock-capture") {
+    const field = objectType.fields.find((entry) => entry.name === property);
+    if (field) return field.type;
+
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Property "${property}" does not exist on type "${objectType.typeName}"`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
   if (objectType.kind === "namespace") {
     const sourceTable = host.analysisResult.modules.get(objectType.sourceModule);
     if (!sourceTable) return UNKNOWN_TYPE;

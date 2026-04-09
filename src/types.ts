@@ -18,6 +18,7 @@ import type {
   ConstDeclaration,
   ReadonlyDeclaration,
   Program,
+  MockImportDirective,
 } from "./ast.js";
 
 // ============================================================================
@@ -169,6 +170,10 @@ export interface ModuleSymbolTable {
   path: string;
   /** The parsed AST. */
   program: Program;
+  /** Mock import directives declared in this module. */
+  mockImportDirectives: MockImportDirective[];
+  /** Root test module whose mock environment applies to this module, if any. */
+  mockRootPath: string | null;
   /** All top-level symbols declared in this module (private + exported). */
   symbols: Map<string, ModuleSymbol>;
   /** Only the exported symbols (subset of symbols). */

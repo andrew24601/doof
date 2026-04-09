@@ -30,6 +30,12 @@ export interface DiscoveredTest {
   moduleDisplayPath: string;
 }
 
+export interface TestModuleGroup {
+  modulePath: string;
+  moduleDisplayPath: string;
+  tests: DiscoveredTest[];
+}
+
 export interface TestReporter {
   log(message: string): void;
   error(message: string): void;
@@ -175,6 +181,26 @@ export function generateTestHarnessSource(
   ].join("\n");
 }
 
+export function groupTestsByModule(tests: readonly DiscoveredTest[]): TestModuleGroup[] {
+  const groups = new Map<string, TestModuleGroup>();
+
+  for (const test of tests) {
+    const existing = groups.get(test.modulePath);
+    if (existing) {
+      existing.tests.push(test);
+      continue;
+    }
+
+    groups.set(test.modulePath, {
+      modulePath: test.modulePath,
+      moduleDisplayPath: test.moduleDisplayPath,
+      tests: [test],
+    });
+  }
+
+  return [...groups.values()].sort((left, right) => left.moduleDisplayPath.localeCompare(right.moduleDisplayPath));
+}
+
 export function runTestCommand(options: RunTestCommandOptions): RunTestCommandResult {
   const absoluteTargetPath = path.resolve(options.targetPath);
   const rootDir = determineRootDir(absoluteTargetPath);
@@ -200,67 +226,70 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
     };
   }
 
-  const harnessPath = path.join(rootDir, HARNESS_FILENAME);
-  const harnessSource = generateTestHarnessSource(harnessPath, selected);
-  const overlay = new Map<string, string>([[harnessPath, harnessSource]]);
-  const fileSystem = new OverlayFS(overlay, new RealFS());
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-test-"));
+  const groups = groupTestsByModule(selected);
+  let passed = 0;
+  let failed = 0;
 
-  try {
-    const { project, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
-      fileSystem,
-      harnessPath,
-      options.verbose,
-      options.nativeBuild,
-      options.reporter.log,
-      (diagnostic) => options.reporter.error(formatDiagnostic(diagnostic)),
-    );
+  for (const group of groups) {
+    const harnessPath = buildHarnessPath(rootDir, group.moduleDisplayPath);
+    const harnessSource = generateTestHarnessSource(harnessPath, group.tests);
+    const overlay = new Map<string, string>([[harnessPath, harnessSource]]);
+    const fileSystem = new OverlayFS(overlay, new RealFS());
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-test-"));
 
-    writeProject(project, outDir, options.verbose, options.reporter.log, provenance, buildManifest);
-    const binary = compileCpp(
-      outDir,
-      project,
-      options.compiler,
-      options.nativeBuild,
-      options.verbose,
-      options.reporter.log,
-      outputBinaryName,
-    );
+    try {
+      const { project, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
+        fileSystem,
+        harnessPath,
+        options.verbose,
+        options.nativeBuild,
+        options.reporter.log,
+        (diagnostic) => options.reporter.error(formatDiagnostic(diagnostic)),
+      );
 
-    let passed = 0;
-    let failed = 0;
+      writeProject(project, outDir, options.verbose, options.reporter.log, provenance, buildManifest);
+      const binary = compileCpp(
+        outDir,
+        project,
+        options.compiler,
+        options.nativeBuild,
+        options.verbose,
+        options.reporter.log,
+        outputBinaryName,
+      );
 
-    for (const test of selected) {
-      if (options.verbose) options.reporter.log(`Running ${test.id}`);
+      for (const test of group.tests) {
+        if (options.verbose) options.reporter.log(`Running ${test.id}`);
 
-      try {
-        execFileSync(binary, [test.id], {
-          stdio: "pipe",
-          timeout: 30000,
-          env: options.compiler.env ?? process.env,
-        });
-        passed++;
-        options.reporter.log(`PASS ${test.id}`);
-      } catch (e: any) {
-        failed++;
-        options.reporter.error(`FAIL ${test.id}`);
-        const stdout = e.stdout?.toString()?.trimEnd() ?? "";
-        const stderr = e.stderr?.toString()?.trimEnd() ?? "";
-        if (stdout) options.reporter.error(`stdout:\n${indentBlock(stdout)}`);
-        if (stderr) options.reporter.error(`stderr:\n${indentBlock(stderr)}`);
+        try {
+          execFileSync(binary, [test.id], {
+            stdio: "pipe",
+            timeout: 30000,
+            env: options.compiler.env ?? process.env,
+          });
+          passed++;
+          options.reporter.log(`PASS ${test.id}`);
+        } catch (e: any) {
+          failed++;
+          options.reporter.error(`FAIL ${test.id}`);
+          const stdout = e.stdout?.toString()?.trimEnd() ?? "";
+          const stderr = e.stderr?.toString()?.trimEnd() ?? "";
+          if (stdout) options.reporter.error(`stdout:\n${indentBlock(stdout)}`);
+          if (stderr) options.reporter.error(`stderr:\n${indentBlock(stderr)}`);
+        }
       }
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
     }
-
-    options.reporter.log(`Tests finished: ${passed} passed, ${failed} failed`);
-    return {
-      discovered: selected.length,
-      executed: selected.length,
-      passed,
-      failed,
-    };
-  } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
   }
+
+  options.reporter.log(`Tests finished: ${passed} passed, ${failed} failed`);
+  return {
+    discovered: selected.length,
+    executed: selected.length,
+    passed,
+    failed,
+  };
 }
 
 function collectTestFiles(dirPath: string, results: string[]): void {
@@ -332,6 +361,11 @@ function renderDiscoveryFailure(testFile: string, diagnostics: readonly Diagnost
 function determineRootDir(targetPath: string): string {
   const stat = fs.statSync(targetPath);
   return stat.isDirectory() ? targetPath : path.dirname(targetPath);
+}
+
+function buildHarnessPath(rootDir: string, moduleDisplayPath: string): string {
+  const safeModulePath = moduleDisplayPath.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return path.join(rootDir, `.doof-tests`, `${HARNESS_FILENAME.replace(/\.do$/, "")}_${safeModulePath}.do`);
 }
 
 function toImportSpecifier(fromPath: string, toPath: string): string {

@@ -35,6 +35,7 @@ import type {
 import { validateCollectionTypeAnnotation } from "./checker-collection-annotations.js";
 import type { ModuleSymbolTable, ModuleSymbol } from "./types.js";
 import {
+  buildMockCallMetadata,
   type FunctionResolvedParam,
   type ResolvedType,
   type Binding,
@@ -194,6 +195,7 @@ export function validateEmitReadyDeclarations(
         break;
 
       case "import-declaration":
+      case "mock-import-directive":
       case "extern-class-declaration":
       case "extern-function-declaration":
       case "export-list":
@@ -356,6 +358,9 @@ export class TypeChecker {
 
         case "type-alias-declaration":
           this.validateTypeAliasDeclaration(stmt, table, info);
+          break;
+
+        case "mock-import-directive":
           break;
 
         case "export-declaration":
@@ -781,6 +786,9 @@ export class TypeChecker {
           params,
           returnType,
           typeParams: declTypeParams.length > 0 ? declTypeParams : undefined,
+          mockCall: sym.declaration.mock_
+            ? buildMockCallMetadata(sym.module, sym.declaration.name, params)
+            : undefined,
         };
       }
       case "const":

@@ -29,6 +29,7 @@ import type {
   Parameter,
 } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
+import type { ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe } from "./emitter-expr.js";
@@ -300,6 +301,12 @@ function emitHpp(
     lines.push("");
   }
 
+  const mockCaptureTypes = collectMockCaptureTypes(classified);
+  for (const captureType of mockCaptureTypes) {
+    emitMockCaptureStruct(lines, captureType);
+    lines.push("");
+  }
+
   // Interface aliases (use forward-declared class names via shared_ptr)
   for (const iface of classified.interfaces) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls);
@@ -342,6 +349,17 @@ function emitHpp(
     lines.push(emitFunctionSignature(fn.decl, interfaceImpls) + ";");
   }
   if (nonGenericExported.length > 0) {
+    lines.push("");
+  }
+
+  const exportedMockFunctions = exportedFunctions.filter((fn) => hasMockCall(fn.decl));
+  for (const fn of exportedMockFunctions) {
+    const resolvedType = fn.decl.resolvedType;
+    if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
+    const mockCall = resolvedType.mockCall;
+    lines.push(`extern std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName};`);
+  }
+  if (exportedMockFunctions.length > 0) {
     lines.push("");
   }
 
@@ -409,14 +427,25 @@ function emitCppFile(
   lines.push("");
 
   const classified = classifyStatements(table);
+  const nonExportedMockFunctions = classified.functions.filter((fn) => !fn.exported && hasMockCall(fn.decl));
+  const exportedMockFunctions = classified.functions.filter((fn) => fn.exported && hasMockCall(fn.decl));
 
   // Anonymous namespace for non-exported functions (skip generics — they're in .hpp)
   const nonExportedFns = classified.functions.filter(
     (fn) => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length === 0,
   );
-  if (nonExportedFns.length > 0) {
+  if (nonExportedFns.length > 0 || nonExportedMockFunctions.length > 0) {
     lines.push("namespace {");
     lines.push("");
+    for (const fn of nonExportedMockFunctions) {
+      const resolvedType = fn.decl.resolvedType;
+      if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
+      const mockCall = resolvedType.mockCall;
+      lines.push(`std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
+    }
+    if (nonExportedMockFunctions.length > 0) {
+      lines.push("");
+    }
     for (const fn of nonExportedFns) {
       const ctx = makeCppCtx(table, analysisResult, interfaceImpls);
       emitStatement(fn.decl as Statement, ctx);
@@ -424,6 +453,16 @@ function emitCppFile(
       lines.push("");
     }
     lines.push("} // anonymous namespace");
+    lines.push("");
+  }
+
+  for (const fn of exportedMockFunctions) {
+    const resolvedType = fn.decl.resolvedType;
+    if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
+    const mockCall = resolvedType.mockCall;
+    lines.push(`std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
+  }
+  if (exportedMockFunctions.length > 0) {
     lines.push("");
   }
 
@@ -561,6 +600,8 @@ interface ClassifiedDecl<T> {
   exported: boolean;
 }
 
+type MockCaptureType = Extract<ResolvedType, { kind: "mock-capture" }>;
+
 interface ClassifiedStatements {
   classes: ClassifiedDecl<ClassDeclaration>[];
   interfaces: ClassifiedDecl<InterfaceDeclaration>[];
@@ -606,6 +647,7 @@ function classifyStatements(table: ModuleSymbolTable): ClassifiedStatements {
       case "let-declaration":
         result.variables.push({ stmt: inner, exported });
         break;
+      case "mock-import-directive":
       case "import-declaration":
       case "extern-class-declaration":
       case "extern-function-declaration":
@@ -617,6 +659,38 @@ function classifyStatements(table: ModuleSymbolTable): ClassifiedStatements {
   }
 
   return result;
+}
+
+function hasMockCall(
+  decl: FunctionDeclaration,
+): decl is FunctionDeclaration & { resolvedType: Extract<ResolvedType, { kind: "function" }> } {
+  return !!(decl.resolvedType && decl.resolvedType.kind === "function" && decl.resolvedType.mockCall);
+}
+
+function collectMockCaptureTypes(classified: ClassifiedStatements): MockCaptureType[] {
+  const captures = new Map<string, MockCaptureType>();
+
+  for (const fn of classified.functions) {
+    if (!hasMockCall(fn.decl)) continue;
+    captures.set(fn.decl.resolvedType.mockCall!.captureType.typeName, fn.decl.resolvedType.mockCall!.captureType);
+  }
+
+  for (const cls of classified.classes) {
+    for (const method of cls.decl.methods) {
+      if (!hasMockCall(method)) continue;
+      captures.set(method.resolvedType.mockCall!.captureType.typeName, method.resolvedType.mockCall!.captureType);
+    }
+  }
+
+  return [...captures.values()].sort((left, right) => left.typeName.localeCompare(right.typeName));
+}
+
+function emitMockCaptureStruct(lines: string[], captureType: MockCaptureType): void {
+  lines.push(`struct ${captureType.typeName} {`);
+  for (const field of captureType.fields) {
+    lines.push(`    ${emitType(field.type)} ${emitIdentifierSafe(field.name)};`);
+  }
+  lines.push("};");
 }
 
 /**

@@ -40,6 +40,9 @@ import {
  */
 export function emitStatement(stmt: Statement, ctx: EmitContext): void {
   switch (stmt.kind) {
+    case "mock-import-directive":
+      break;
+
     case "const-declaration":
       emitConstDecl(stmt, ctx);
       break;

@@ -269,6 +269,54 @@ describe("Symbol table — single module", () => {
   });
 });
 
+describe("mock imports", () => {
+  it("rewrites matching imports through the root test file mock environment", () => {
+    const result = analyze(
+      {
+        "/orderProcessor.test.do": `
+          mock import for "./orderProcessor" {
+            "./paymentGateway" => "./mocks/mockPayment"
+          }
+
+          import { processOrder } from "./orderProcessor"
+        `,
+        "/orderProcessor.do": `
+          import { charge } from "./paymentGateway"
+          export function processOrder(): void {
+            charge()
+          }
+        `,
+        "/paymentGateway.do": `export function charge(): void {}`,
+        "/mocks/mockPayment.do": `export function charge(): void {}`,
+      },
+      "/orderProcessor.test.do",
+    );
+
+    expect(result.diagnostics).toHaveLength(0);
+    const processorTable = result.modules.get("/orderProcessor.do");
+    expect(processorTable).toBeDefined();
+    expect(processorTable?.imports).toHaveLength(1);
+    expect(processorTable?.imports[0].sourceModule).toBe("/mocks/mockPayment.do");
+  });
+
+  it("rejects mock import directives in non-test files", () => {
+    const result = analyze(
+      {
+        "/main.do": `
+          mock import for "./service" {
+            "./dep" => "./mockDep"
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ message: "mock import directives are only valid in .test.do files" }),
+    ]);
+  });
+});
+
 // ============================================================================
 // Import resolution
 // ============================================================================

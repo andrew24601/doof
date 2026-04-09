@@ -77,6 +77,9 @@ export function emitType(type: ResolvedType): string {
       return `std::function<${ret}(${params})>`;
     }
 
+    case "mock-capture":
+      return type.typeName;
+
     case "array": {
       const el = emitType(type.elementType);
       return `std::shared_ptr<std::vector<${el}>>`;

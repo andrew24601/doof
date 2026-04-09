@@ -64,6 +64,8 @@ export interface FunctionResolvedType {
   returnType: ResolvedType;
   /** Type parameter names for generic functions. */
   typeParams?: string[];
+  /** Present when this function is a mock callable with typed call recording. */
+  mockCall?: MockCallMetadata;
 }
 
 export interface FunctionResolvedParam {
@@ -71,6 +73,22 @@ export interface FunctionResolvedParam {
   type: ResolvedType;
   hasDefault?: boolean;
   defaultValue?: Expression | null;
+}
+
+export interface MockCaptureField {
+  name: string;
+  type: ResolvedType;
+}
+
+export interface MockCaptureResolvedType {
+  kind: "mock-capture";
+  typeName: string;
+  fields: MockCaptureField[];
+}
+
+export interface MockCallMetadata {
+  captureType: MockCaptureResolvedType;
+  storageName: string;
 }
 
 export interface ArrayResolvedType {
@@ -189,6 +207,7 @@ export type ResolvedType =
   | InterfaceType
   | EnumType
   | FunctionResolvedType
+  | MockCaptureResolvedType
   | ArrayResolvedType
   | MapResolvedType
   | SetResolvedType
@@ -346,6 +365,8 @@ export function typeToString(t: ResolvedType): string {
         .join(", ");
       return `${tpPrefix}(${params}): ${typeToString(t.returnType)}`;
     }
+    case "mock-capture":
+      return t.typeName;
     case "array": {
       const el = typeToString(t.elementType);
       return t.readonly_ ? `readonly ${el}[]` : `${el}[]`;
@@ -482,6 +503,13 @@ export function findUnsupportedHashCollectionConstraint(type: ResolvedType): Has
         if (unsupported) return unsupported;
       }
       return findUnsupportedHashCollectionConstraint(type.returnType);
+
+    case "mock-capture":
+      for (const field of type.fields) {
+        const unsupported = findUnsupportedHashCollectionConstraint(field.type);
+        if (unsupported) return unsupported;
+      }
+      return null;
 
     case "actor":
       return findUnsupportedHashCollectionConstraint(type.innerClass);
@@ -648,6 +676,10 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
     return isAssignableTo(source.returnType, target.returnType);
   }
 
+  if (source.kind === "mock-capture" && target.kind === "mock-capture") {
+    return typesEqual(source, target);
+  }
+
   // Class → class: nominal — must be same class.
   if (source.kind === "class" && target.kind === "class") {
     return source.symbol.name === target.symbol.name
@@ -761,7 +793,18 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       for (let i = 0; i < a.params.length; i++) {
         if (!typesEqual(a.params[i].type, bf.params[i].type)) return false;
       }
-      return typesEqual(a.returnType, bf.returnType);
+      if (!typesEqual(a.returnType, bf.returnType)) return false;
+      if (!!a.mockCall !== !!bf.mockCall) return false;
+      if (!a.mockCall || !bf.mockCall) return true;
+      return a.mockCall.storageName === bf.mockCall.storageName
+        && typesEqual(a.mockCall.captureType, bf.mockCall.captureType);
+    }
+    case "mock-capture": {
+      const bc = b as MockCaptureResolvedType;
+      if (a.typeName !== bc.typeName || a.fields.length !== bc.fields.length) return false;
+      return a.fields.every((field, index) =>
+        field.name === bc.fields[index].name && typesEqual(field.type, bc.fields[index].type),
+      );
     }
     case "array": {
       const ba = b as ArrayResolvedType;
@@ -916,6 +959,21 @@ export function substituteTypeParams(
         })),
         returnType: substituteTypeParams(type.returnType, paramMap),
         typeParams: type.typeParams,
+        mockCall: type.mockCall
+          ? {
+              storageName: type.mockCall.storageName,
+              captureType: substituteTypeParams(type.mockCall.captureType, paramMap) as MockCaptureResolvedType,
+            }
+          : undefined,
+      };
+    case "mock-capture":
+      return {
+        kind: "mock-capture",
+        typeName: type.typeName,
+        fields: type.fields.map((field) => ({
+          name: field.name,
+          type: substituteTypeParams(field.type, paramMap),
+        })),
       };
     case "weak":
       return { kind: "weak", inner: substituteTypeParams(type.inner, paramMap) };
@@ -1031,6 +1089,7 @@ export function isJSONSerializable(
     case "promise":
     case "result":
     case "unknown":
+    case "mock-capture":
     case "builtin-namespace":
     case "namespace":
     case "success-wrapper":
@@ -1071,6 +1130,39 @@ function isAssignableToJsonValue(source: ResolvedType): boolean {
     default:
       return false;
   }
+}
+
+function sanitizeMockNameSegment(value: string): string {
+  const sanitized = value
+    .replace(/^\/+/, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return sanitized.length > 0 ? sanitized : "module";
+}
+
+export function buildMockCallMetadata(
+  modulePath: string,
+  declName: string,
+  params: FunctionResolvedParam[],
+  ownerClassName?: string,
+): MockCallMetadata {
+  const moduleKey = sanitizeMockNameSegment(modulePath);
+  const captureBase = ownerClassName
+    ? `${sanitizeMockNameSegment(ownerClassName)}_${sanitizeMockNameSegment(declName)}`
+    : `${moduleKey}_${sanitizeMockNameSegment(declName)}`;
+  const captureType: MockCaptureResolvedType = {
+    kind: "mock-capture",
+    typeName: `__${captureBase}_Call`,
+    fields: params.map((param) => ({ name: param.name, type: param.type })),
+  };
+
+  return {
+    captureType,
+    storageName: ownerClassName
+      ? `__${sanitizeMockNameSegment(declName)}_calls`
+      : `__${moduleKey}_${sanitizeMockNameSegment(declName)}_calls`,
+  };
 }
 
 /**

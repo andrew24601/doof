@@ -18,7 +18,7 @@ describe("e2e — byte", () => {
   it("runs byte arrays as shared uint8_t vectors", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
-        payload: byte[] = [1, 2, 255]
+        payload: byte[] := [1, 2, 255]
         println(payload)
         return payload.length
       }

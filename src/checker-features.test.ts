@@ -4221,6 +4221,86 @@ describe("checker — removed any type", () => {
 });
 
 // ============================================================================
+// Mock call capture typing
+// ============================================================================
+
+describe("checker — mock call capture", () => {
+  it("types .calls on mock functions with typed capture fields", () => {
+    const cr = check({
+      "/main.do": `
+        mock function sendPayment(targetId: string, amount: int): bool => true
+
+        function main(): void {
+          sendPayment("acct-1", 7)
+          const count = sendPayment.calls.length
+          const firstTarget = sendPayment.calls[0].targetId
+          const firstAmount = sendPayment.calls[0].amount
+        }
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const exprs = collectExprs(cr.program);
+    const callsExpr = exprs.find(
+      (e) => e.kind === "member-expression" && e.property === "calls" && e.object.kind === "identifier",
+    );
+    expect(callsExpr?.resolvedType).toEqual({
+      kind: "array",
+      elementType: {
+        kind: "mock-capture",
+        typeName: "__main_sendPayment_Call",
+        fields: [
+          { name: "targetId", type: { kind: "primitive", name: "string" } },
+          { name: "amount", type: { kind: "primitive", name: "int" } },
+        ],
+      },
+      readonly_: false,
+    });
+
+    const targetExpr = exprs.find((e) => e.kind === "member-expression" && e.property === "targetId");
+    const amountExpr = exprs.find((e) => e.kind === "member-expression" && e.property === "amount");
+    expect(typeToString(targetExpr?.resolvedType!)).toBe("string");
+    expect(typeToString(amountExpr?.resolvedType!)).toBe("int");
+  });
+
+  it("types .calls on mock methods per instance", () => {
+    const cr = check({
+      "/main.do": `
+        mock class PaymentGateway {
+          sendPayment(targetId: string, amount: int): bool => true
+        }
+
+        function main(): void {
+          let gateway = PaymentGateway()
+          gateway.sendPayment("acct-1", 7)
+          const firstAmount = gateway.sendPayment.calls[0].amount
+        }
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const exprs = collectExprs(cr.program);
+    const callsExpr = exprs.find(
+      (e) => e.kind === "member-expression" && e.property === "calls" && e.object.kind === "member-expression",
+    );
+    expect(callsExpr?.resolvedType).toEqual({
+      kind: "array",
+      elementType: {
+        kind: "mock-capture",
+        typeName: "__PaymentGateway_sendPayment_Call",
+        fields: [
+          { name: "targetId", type: { kind: "primitive", name: "string" } },
+          { name: "amount", type: { kind: "primitive", name: "int" } },
+        ],
+      },
+      readonly_: false,
+    });
+  });
+});
+
+// ============================================================================
 // Else-narrow statement
 // ============================================================================
 

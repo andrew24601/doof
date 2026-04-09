@@ -172,6 +172,29 @@ describe("Parser — function declarations", () => {
       });
     }
   });
+
+  it("parses bodiless mock function", () => {
+    const stmt = firstStmt("mock function sendPayment(targetId: string): void");
+    expect(stmt).toMatchObject({
+      kind: "function-declaration",
+      name: "sendPayment",
+      mock_: true,
+      bodyless: true,
+    });
+  });
+
+  it("parses exported mock function", () => {
+    const stmt = firstStmt("export mock function sendPayment(targetId: string): void {}");
+    expect(stmt.kind).toBe("export-declaration");
+    if (stmt.kind === "export-declaration") {
+      expect(stmt.declaration).toMatchObject({
+        kind: "function-declaration",
+        name: "sendPayment",
+        exported: true,
+        mock_: true,
+      });
+    }
+  });
 });
 
 // ==========================================================================
@@ -276,6 +299,21 @@ describe("Parser — class declarations", () => {
     if (stmt.kind === "class-declaration") {
       expect(stmt.destructor).not.toBeNull();
       expect(stmt.destructor?.kind).toBe("block");
+    }
+  });
+
+  it("parses mock class with bodiless methods", () => {
+    const stmt = firstStmt(`mock class PaymentGateway {
+      sendPayment(targetId: string): void
+      refund(targetId: string, amount: float): void {
+        return
+      }
+    }`);
+    expect(stmt).toMatchObject({ kind: "class-declaration", name: "PaymentGateway", mock_: true });
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.methods).toHaveLength(2);
+      expect(stmt.methods[0]).toMatchObject({ name: "sendPayment", mock_: true, bodyless: true });
+      expect(stmt.methods[1]).toMatchObject({ name: "refund", mock_: true, bodyless: false });
     }
   });
 });
@@ -398,6 +436,23 @@ describe("Parser — type alias declarations", () => {
 // ==========================================================================
 
 describe("Parser — imports", () => {
+  it("parses mock import directives", () => {
+    const stmt = firstStmt(`mock import for "./orderProcessor" {
+      "./paymentGateway" => "./mocks/mockPayment"
+      "./inventory" => "./mocks/mockInventory"
+    }`);
+    expect(stmt).toMatchObject({
+      kind: "mock-import-directive",
+      sourcePattern: "./orderProcessor",
+    });
+    if (stmt.kind === "mock-import-directive") {
+      expect(stmt.mappings).toEqual([
+        expect.objectContaining({ dependency: "./paymentGateway", replacement: "./mocks/mockPayment" }),
+        expect.objectContaining({ dependency: "./inventory", replacement: "./mocks/mockInventory" }),
+      ]);
+    }
+  });
+
   it("parses named imports", () => {
     const stmt = firstStmt('import { Vector, add } from "math"');
     expect(stmt).toMatchObject({ kind: "import-declaration", typeOnly: false });

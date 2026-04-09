@@ -489,6 +489,8 @@ export interface FunctionDeclaration extends Typed {
   params: Parameter[];
   returnType: TypeAnnotation | null;
   body: Expression | Block;
+  mock_?: boolean;
+  bodyless?: boolean;
   exported: boolean;
   static_: boolean;
   isolated_: boolean;
@@ -611,6 +613,7 @@ export interface ClassDeclaration {
   fields: ClassField[];
   methods: FunctionDeclaration[];
   destructor: Block | null;
+  mock_?: boolean;
   exported: boolean;
   private_: boolean;
   /** Set by the checker when user code accesses .toJsonValue() or .fromJsonValue() */
@@ -704,6 +707,19 @@ export interface ImportDeclaration {
   specifiers: ImportSpecifier[];
   source: string;
   typeOnly: boolean;
+  span: SourceSpan;
+}
+
+export interface MockImportMapping {
+  dependency: string;
+  replacement: string;
+  span: SourceSpan;
+}
+
+export interface MockImportDirective {
+  kind: "mock-import-directive";
+  sourcePattern: string;
+  mappings: MockImportMapping[];
   span: SourceSpan;
 }
 
@@ -906,6 +922,7 @@ export type Statement =
   | InterfaceDeclaration
   | EnumDeclaration
   | TypeAliasDeclaration
+  | MockImportDirective
   | ImportDeclaration
   | ExternClassDeclaration
   | ExternFunctionDeclaration

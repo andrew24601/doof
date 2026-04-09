@@ -54,6 +54,9 @@ export function checkStatement(
   info: ModuleTypeInfo,
 ): void {
   switch (stmt.kind) {
+    case "mock-import-directive":
+      break;
+
     case "const-declaration":
     case "readonly-declaration": {
       if (stmt.type) {

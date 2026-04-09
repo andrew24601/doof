@@ -775,7 +775,7 @@ doof test --list src
 doof test --filter math src
 ```
 
-Discovery is static rather than reflective. The runner discovers exported test functions at build time, generates a temporary harness, compiles once, and runs each test in its own process.
+Discovery is static rather than reflective. The runner discovers exported test functions at build time, generates a temporary harness per test file, compiles each .test.do module separately, and runs each test in its own process.
 
 Practical implications:
 
@@ -785,6 +785,29 @@ Practical implications:
 - Helper functions that are not themselves tests should stay unexported or should not use the `test` prefix
 
 Prefer simple assertions in the MVP. If you need reusable setup, keep it in ordinary library helpers and call them from exported test functions.
+
+Mocking is compile-time and intended for tests:
+
+- Use mock import in the root .test.do file to substitute dependencies for a specific import site
+- Use mock function and mock class to declare call-recording stand-ins
+- Mock callables expose .calls with typed capture entries, so sendPayment.calls[0].targetId and gateway.sendPayment.calls.length are checked statically
+- Generic mock functions, generic mock classes or methods, and static mock methods are currently rejected
+
+Example:
+
+```doof
+mock import for "./checkout" {
+    "./payments" => "./payments.mock"
+}
+
+mock function sendPayment(targetId: string, amount: int): bool => true
+
+export function testCheckout(): void {
+    sendPayment("acct-1", 7)
+    Assert.equal(sendPayment.calls.length, 1)
+    Assert.equal(sendPayment.calls[0].targetId, "acct-1")
+}
+```
 
 ### Extern C++ Interop
 

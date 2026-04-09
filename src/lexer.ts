@@ -51,6 +51,7 @@ export enum TokenType {
   Isolated = "Isolated",
   Private = "Private",
   With = "With",
+  Mock = "Mock",
 
   // Operators
   Plus = "Plus",
@@ -175,6 +176,7 @@ const KEYWORDS: Record<string, TokenType> = {
   isolated: TokenType.Isolated,
   private: TokenType.Private,
   with: TokenType.With,
+  mock: TokenType.Mock,
 };
 
 export interface LexerDiagnostic {

@@ -364,6 +364,18 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
   const prop = emitIdentifierSafe(expr.property);
   const objType = expr.object.resolvedType;
 
+  if (expr.property === "calls" && objType && objType.kind === "function" && objType.mockCall) {
+    if (expr.object.kind === "identifier") {
+      return objType.mockCall.storageName;
+    }
+    if (expr.object.kind === "member-expression") {
+      const memberObject = emitExpression(expr.object.object, ctx);
+      const memberObjectType = expr.object.object.resolvedType;
+      const accessor = memberObjectType && isPointerType(memberObjectType) ? "->" : ".";
+      return `${memberObject}${accessor}${objType.mockCall.storageName}`;
+    }
+  }
+
   // Namespace import: emit just the property name
   if (objType && objType.kind === "namespace") {
     return prop;

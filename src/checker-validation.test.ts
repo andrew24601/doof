@@ -1613,3 +1613,48 @@ describe("AST decoration — end-to-end compilation readiness", () => {
     expect(typeToString(binExpr.right.resolvedType!)).toBe("double");
   });
 });
+
+describe("Mock validation", () => {
+  it("rejects .calls on non-mock functions", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function sendPayment(targetId: string, amount: int): bool => true
+
+          function main(): int {
+            return sendPayment.calls.length
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('Property "calls" is only available on mock functions and mock methods'))).toBe(true);
+  });
+
+  it("rejects unsupported generic and static mock declarations", () => {
+    const info = check(
+      {
+        "/main.do": `
+          mock function wrap<T>(value: T): T => value
+
+          mock class Gateway<T> {
+            static sendPayment(targetId: string): void {
+              return
+            }
+
+            refund<U>(targetId: U): void {
+              return
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes("Generic mock functions are not supported yet"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("Generic mock classes are not supported yet"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("Static mock methods are not supported yet"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("Generic mock methods are not supported yet"))).toBe(true);
+  });
+});

@@ -146,6 +146,11 @@ export class Parser {
       return this.parseExport();
     }
 
+    // Mock declarations and directives
+    if (this.check(TokenType.Mock)) {
+      return this.parseMockStatement();
+    }
+
     // Import
     if (this.check(TokenType.Import)) {
       return this.parseImport();
@@ -584,7 +589,23 @@ export class Parser {
     };
   }
 
-  private parseFunctionDeclaration(exported: boolean, static_: boolean, isolated_: boolean = false, private__: boolean = false): FunctionDeclaration {
+  private parseMockStatement(): Statement {
+    this.expect(TokenType.Mock);
+
+    if (this.check(TokenType.Import)) {
+      return this.parseMockImportDirective();
+    }
+    if (this.check(TokenType.Function)) {
+      return this.parseFunctionDeclaration(false, false, false, false, true);
+    }
+    if (this.check(TokenType.Class)) {
+      return this.parseClassDeclaration(false, false, true);
+    }
+
+    throw this.error(`Unexpected token after mock: ${this.current().type}`);
+  }
+
+  private parseFunctionDeclaration(exported: boolean, static_: boolean, isolated_: boolean = false, private__: boolean = false, mock_: boolean = false): FunctionDeclaration {
     const startLoc = this.loc();
     this.expect(TokenType.Function);
     const name = this.expect(TokenType.Identifier).value;
@@ -601,8 +622,17 @@ export class Parser {
     }
 
     let body: Expression | Block;
+    let bodyless = false;
     if (this.match(TokenType.Arrow)) {
       body = this.parseExpression();
+      this.consumeOptionalSemicolon();
+    } else if (mock_ && !this.check(TokenType.LeftBrace)) {
+      body = {
+        kind: "block",
+        statements: [],
+        span: this.span(startLoc),
+      };
+      bodyless = true;
       this.consumeOptionalSemicolon();
     } else {
       body = this.parseBlock();
@@ -616,6 +646,8 @@ export class Parser {
       params,
       returnType,
       body,
+      mock_,
+      bodyless,
       exported,
       static_,
       isolated_,
@@ -670,7 +702,7 @@ export class Parser {
   // Classes
   // ===========================================================================
 
-  private parseClassDeclaration(exported: boolean, private__: boolean = false): Statement {
+  private parseClassDeclaration(exported: boolean, private__: boolean = false, mock_: boolean = false): Statement {
     const startLoc = this.loc();
     this.expect(TokenType.Class);
     const name = this.expect(TokenType.Identifier).value;
@@ -704,17 +736,17 @@ export class Parser {
         destructor = this.parseBlock();
       } else if (this.check(TokenType.Isolated) && this.peek(1).type === TokenType.Function) {
         this.advance(); // consume 'isolated'
-        methods.push(this.parseFunctionDeclaration(false, false, true, memberPrivate));
+        methods.push(this.parseFunctionDeclaration(false, false, true, memberPrivate, mock_));
       } else if (this.check(TokenType.Static) && this.peek(1).type === TokenType.Function) {
         this.advance(); // static
-        methods.push(this.parseFunctionDeclaration(false, true, false, memberPrivate));
+        methods.push(this.parseFunctionDeclaration(false, true, false, memberPrivate, mock_));
       } else if (this.check(TokenType.Function)) {
-        methods.push(this.parseFunctionDeclaration(false, false, false, memberPrivate));
+        methods.push(this.parseFunctionDeclaration(false, false, false, memberPrivate, mock_));
       } else if (this.check(TokenType.Isolated) && this.looksLikeMethodAt(1)) {
         this.advance(); // consume 'isolated'
-        methods.push(this.parseShortMethodDeclaration(false, true, memberPrivate));
+        methods.push(this.parseShortMethodDeclaration(false, true, memberPrivate, mock_));
       } else if (this.looksLikeMethod()) {
-        methods.push(this.parseShortMethodDeclaration(undefined, false, memberPrivate));
+        methods.push(this.parseShortMethodDeclaration(undefined, false, memberPrivate, mock_));
       } else {
         fields.push(this.parseClassField(memberPrivate));
       }
@@ -731,6 +763,7 @@ export class Parser {
       fields,
       methods,
       destructor,
+      mock_,
       exported,
       private_: private__,
       span: this.span(startLoc),
@@ -791,7 +824,7 @@ export class Parser {
     }
   }
 
-  private parseShortMethodDeclaration(static__?: boolean, isolated_: boolean = false, private__: boolean = false): FunctionDeclaration {
+  private parseShortMethodDeclaration(static__?: boolean, isolated_: boolean = false, private__: boolean = false, mock_: boolean = false): FunctionDeclaration {
     const startLoc = this.loc();
     let static_ = static__ ?? false;
     if (!static_ && this.match(TokenType.Static)) {
@@ -811,8 +844,17 @@ export class Parser {
     }
 
     let body: Expression | Block;
+    let bodyless = false;
     if (this.match(TokenType.Arrow)) {
       body = this.parseExpression();
+      this.consumeOptionalSemicolon();
+    } else if (mock_ && !this.check(TokenType.LeftBrace)) {
+      body = {
+        kind: "block",
+        statements: [],
+        span: this.span(startLoc),
+      };
+      bodyless = true;
       this.consumeOptionalSemicolon();
     } else {
       body = this.parseBlock();
@@ -826,6 +868,8 @@ export class Parser {
       params,
       returnType,
       body,
+      mock_,
+      bodyless,
       exported: false,
       static_,
       isolated_,
@@ -1070,6 +1114,38 @@ export class Parser {
   // ===========================================================================
   // Imports & Exports
   // ===========================================================================
+
+  private parseMockImportDirective(): Statement {
+    const startLoc = this.loc();
+    this.expect(TokenType.Import);
+    this.expect(TokenType.For);
+    const sourcePattern = this.expect(TokenType.StringLiteral).value;
+    this.expect(TokenType.LeftBrace);
+
+    const mappings = [];
+    while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
+      const mappingStart = this.loc();
+      const dependency = this.expect(TokenType.StringLiteral).value;
+      this.expect(TokenType.Arrow, 'Expected => in mock import mapping');
+      const replacement = this.expect(TokenType.StringLiteral).value;
+      mappings.push({
+        dependency,
+        replacement,
+        span: this.span(mappingStart),
+      });
+      this.match(TokenType.Comma, TokenType.Semicolon);
+    }
+
+    this.expect(TokenType.RightBrace);
+    this.consumeOptionalSemicolon();
+
+    return {
+      kind: "mock-import-directive",
+      sourcePattern,
+      mappings,
+      span: this.span(startLoc),
+    };
+  }
 
   private parseImport(): Statement {
     const startLoc = this.loc();
@@ -1338,6 +1414,20 @@ export class Parser {
     switch (this.current().type) {
       case TokenType.Private:
         throw this.error(`Cannot export a private declaration`);
+      case TokenType.Mock:
+        this.advance();
+        if (this.check(TokenType.Function)) {
+          declaration = this.parseFunctionDeclaration(true, false, false, false, true);
+          break;
+        }
+        if (this.check(TokenType.Class)) {
+          declaration = this.parseClassDeclaration(true, false, true);
+          break;
+        }
+        if (this.check(TokenType.Import)) {
+          throw this.error("Cannot export a mock import directive");
+        }
+        throw this.error(`Unexpected token after export mock: ${this.current().type}`);
       case TokenType.Const:
         declaration = this.parseConstDeclaration(true);
         break;

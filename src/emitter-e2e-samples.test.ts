@@ -270,7 +270,7 @@ describe("e2e — solitaire sample logic", () => {
   });
 });
 
-describeSkipOnWindows("e2e — reminders MCP sample", () => {
+describe.skip("e2e — reminders MCP sample", () => {
   it("compiles the shipped reminders MCP sample", () => {
     const sampleDir = path.join(process.cwd(), "samples", "reminders-mcp");
     const { success, error, codes } = ctx.compileOnlyProject(

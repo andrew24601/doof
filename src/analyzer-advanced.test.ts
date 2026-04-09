@@ -87,6 +87,87 @@ describe("NamedType AST decoration — resolvedSymbol", () => {
   });
 });
 
+describe("mock import precedence and validation", () => {
+  it("prefers more specific source patterns over broader wildcards", () => {
+    const result = analyze(
+      {
+        "/main.test.do": `
+          mock import for "*" {
+            "./paymentGateway" => "./mocks/mockPayment"
+          }
+
+          mock import for "./trustedModule" {
+            "./paymentGateway" => "./realGateway"
+          }
+
+          import { runTrusted } from "./trustedModule"
+          import { runOther } from "./otherModule"
+        `,
+        "/trustedModule.do": `
+          import { charge } from "./paymentGateway"
+          export function runTrusted(): void {
+            charge()
+          }
+        `,
+        "/otherModule.do": `
+          import { charge } from "./paymentGateway"
+          export function runOther(): void {
+            charge()
+          }
+        `,
+        "/paymentGateway.do": `export function charge(): void {}`,
+        "/realGateway.do": `export function charge(): void {}`,
+        "/mocks/mockPayment.do": `export function charge(): void {}`,
+      },
+      "/main.test.do",
+    );
+
+    expect(result.diagnostics).toHaveLength(0);
+    expect(result.modules.get("/trustedModule.do")?.imports[0].sourceModule).toBe("/realGateway.do");
+    expect(result.modules.get("/otherModule.do")?.imports[0].sourceModule).toBe("/mocks/mockPayment.do");
+  });
+
+  it("rejects mock import directives that are not at the top of the file", () => {
+    const result = analyze(
+      {
+        "/main.test.do": `
+          import { value } from "./dep"
+          mock import for "./dep" {
+            "./leaf" => "./mockLeaf"
+          }
+        `,
+        "/dep.do": `export const value = 1`,
+        "/mockLeaf.do": `export const value = 2`,
+      },
+      "/main.test.do",
+    );
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ message: "mock import directives must appear at the top of the file before other statements" }),
+    ]);
+  });
+
+  it("rejects root test files importing other test files", () => {
+    const result = analyze(
+      {
+        "/main.test.do": `
+          mock import for "./dep" {
+            "./leaf" => "./mockLeaf"
+          }
+
+          import { helper } from "./helper.test"
+        `,
+        "/helper.test.do": `export function helper(): void {}`,
+      },
+      "/main.test.do",
+    );
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ message: 'Test file "/main.test.do" cannot import another test file "/helper.test.do"' }),
+    ]);
+  });
+});
+
 // ============================================================================
 // Extern class declarations
 // ============================================================================

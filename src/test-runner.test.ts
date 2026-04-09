@@ -8,6 +8,7 @@ import {
   filterTests,
   findTestFiles,
   generateTestHarnessSource,
+  groupTestsByModule,
   runTestCommand,
   type TestReporter,
 } from "./test-runner.js";
@@ -100,6 +101,20 @@ describe("test runner harness", () => {
     ], "beta");
 
     expect(filtered.map((test) => test.id)).toEqual(["beta.test.do::testBeta"]);
+  });
+
+  it("groups selected tests by source module", () => {
+    const groups = groupTestsByModule([
+      { id: "alpha.test.do::testOne", name: "testOne", modulePath: "/alpha.test.do", moduleDisplayPath: "alpha.test.do" },
+      { id: "nested/beta.test.do::testBeta", name: "testBeta", modulePath: "/nested/beta.test.do", moduleDisplayPath: "nested/beta.test.do" },
+      { id: "alpha.test.do::testTwo", name: "testTwo", modulePath: "/alpha.test.do", moduleDisplayPath: "alpha.test.do" },
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].moduleDisplayPath).toBe("alpha.test.do");
+    expect(groups[0].tests.map((test) => test.name)).toEqual(["testOne", "testTwo"]);
+    expect(groups[1].moduleDisplayPath).toBe("nested/beta.test.do");
+    expect(groups[1].tests.map((test) => test.name)).toEqual(["testBeta"]);
   });
 });
 

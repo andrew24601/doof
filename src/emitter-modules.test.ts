@@ -189,6 +189,68 @@ describe("emitter-module — non-exported symbols", () => {
   });
 });
 
+describe("emitter-module — mock call storage", () => {
+  it("emits shared call storage and panic for non-exported bodyless mock functions", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      mock function sendPayment(targetId: string, amount: int): bool
+
+      function main(): int {
+        sendPayment("acct-1", 7)
+        return sendPayment.calls.length
+      }
+    `);
+
+    expect(hppCode).toContain("struct __main_sendPayment_Call");
+    expect(cppCode).toContain("std::shared_ptr<std::vector<__main_sendPayment_Call>> __main_sendPayment_calls = std::make_shared<std::vector<__main_sendPayment_Call>>();");
+    expect(cppCode).toContain("__main_sendPayment_calls->push_back(__main_sendPayment_Call{targetId, amount});");
+    expect(cppCode).toContain('doof::panic("Unexpected mock function invoked: sendPayment")');
+    expect(cppCode).toContain("return (int32_t)__main_sendPayment_calls->size()");
+  });
+
+  it("emits extern shared storage for exported mock functions", () => {
+    const result = emitProjectHelper(
+      {
+        "/main.do": `
+          import { sendPayment } from "./payments"
+
+          function main(): int {
+            sendPayment("acct-1", 7)
+            return sendPayment.calls.length
+          }
+        `,
+        "/payments.do": `
+          export mock function sendPayment(targetId: string, amount: int): bool => true
+        `,
+      },
+      "/main.do",
+    );
+
+    const paymentsModule = result.modules.find((module) => module.modulePath === "/payments.do");
+    const mainModule = result.modules.find((module) => module.modulePath === "/main.do");
+    expect(paymentsModule?.hppCode).toContain("extern std::shared_ptr<std::vector<__payments_sendPayment_Call>> __payments_sendPayment_calls;");
+    expect(paymentsModule?.cppCode).toContain("std::shared_ptr<std::vector<__payments_sendPayment_Call>> __payments_sendPayment_calls = std::make_shared<std::vector<__payments_sendPayment_Call>>();");
+    expect(mainModule?.cppCode).toContain("return (int32_t)__payments_sendPayment_calls->size()");
+  });
+
+  it("emits per-instance shared storage for mock methods", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      mock class PaymentGateway {
+        sendPayment(targetId: string, amount: int): bool => true
+      }
+
+      function main(): int {
+        let gateway = PaymentGateway()
+        gateway.sendPayment("acct-1", 7)
+        return gateway.sendPayment.calls[0].amount
+      }
+    `);
+
+    expect(hppCode).toContain("std::shared_ptr<std::vector<__PaymentGateway_sendPayment_Call>> __sendPayment_calls = std::make_shared<std::vector<__PaymentGateway_sendPayment_Call>>();");
+    expect(hppCode).toContain("this->__sendPayment_calls->push_back(__PaymentGateway_sendPayment_Call{targetId, amount});");
+    expect(cppCode).toContain("return doof::array_at(gateway->__sendPayment_calls, 0).amount");
+  });
+});
+
 describe("emitter-module — main wrapper", () => {
   it("wraps main as doof_main with C++ main()", () => {
     const { cppCode } = emitSplit(`

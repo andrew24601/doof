@@ -2141,3 +2141,34 @@ describe("e2e — as expression", () => {
     expect(result.exitCode).toBe(5);
   });
 });
+
+describe("e2e — mock call capture", () => {
+  it("records calls for mock functions and mock methods", () => {
+    const result = ctx.compileAndRun(`
+      mock function sendPayment(targetId: string, amount: int): bool => true
+
+      mock class Gateway {
+        sendPayment(targetId: string, amount: int): bool => true
+      }
+
+      function main(): int {
+        sendPayment("acct-1", 7)
+        sendPayment("acct-2", 9)
+
+        let gateway = Gateway()
+        gateway.sendPayment("acct-3", 11)
+
+        println(sendPayment.calls.length)
+        println(sendPayment.calls[0].targetId)
+        println(sendPayment.calls[1].amount)
+        println(gateway.sendPayment.calls.length)
+        println(gateway.sendPayment.calls[0].amount)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("2\nacct-1\n9\n1\n11");
+  });
+});

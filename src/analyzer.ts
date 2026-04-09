@@ -14,6 +14,7 @@
  *   // NamedType nodes in the AST are decorated with resolvedSymbol
  */
 
+import * as nodePath from "node:path";
 import { parse, parseWithDiagnostics, ParseError } from "./parser.js";
 import type {
   Program,
@@ -32,6 +33,8 @@ import type {
   Block,
   Parameter,
   SourceSpan,
+  MockImportDirective,
+  MockImportMapping,
 } from "./ast.js";
 import type {
   ModuleSymbol,
@@ -101,7 +104,7 @@ export class ModuleAnalyzer {
   // Internal: recursive module analysis
   // --------------------------------------------------------------------------
 
-  private analyzeModuleInternal(modulePath: string, importSpan?: SourceSpan): ModuleSymbolTable | null {
+  private analyzeModuleInternal(modulePath: string, importSpan?: SourceSpan, inheritedMockRootPath?: string): ModuleSymbolTable | null {
     // Already done?
     if (this.modules.has(modulePath)) {
       return this.modules.get(modulePath)!;
@@ -156,10 +159,15 @@ export class ModuleAnalyzer {
       return null;
     }
 
+    const mockImportDirectives = collectMockImportDirectives(program);
+    const mockRootPath = this.determineMockRootPath(modulePath, inheritedMockRootPath, mockImportDirectives);
+
     // Create the initial table (symbols filled, imports pending).
     const table: ModuleSymbolTable = {
       path: modulePath,
       program,
+      mockImportDirectives,
+      mockRootPath,
       symbols: new Map(),
       exports: new Map(),
       imports: [],
@@ -170,6 +178,8 @@ export class ModuleAnalyzer {
     // Register early so circular imports can reference it.
     this.inProgress.add(modulePath);
     this.modules.set(modulePath, table);
+
+    this.validateMockImportDirectives(table, inheritedMockRootPath);
 
     // Phase 1: Collect symbols from top-level declarations.
     this.collectSymbols(table);
@@ -342,12 +352,24 @@ export class ModuleAnalyzer {
       if (stmt.kind !== "import-declaration") continue;
       const importDecl = stmt as ImportDeclaration;
 
+      const target = this.resolveImportTarget(importDecl.source, table);
+
       // Resolve the source module path.
-      const resolved = this.resolver.resolve(importDecl.source, table.path);
+      const resolved = this.resolver.resolve(target.specifier, target.fromModule);
       if (resolved === null) {
         table.diagnostics.push({
           severity: "error",
-          message: `Cannot resolve module "${importDecl.source}" from ${table.path}`,
+          message: `Cannot resolve module "${target.specifier}" from ${target.fromModule}`,
+          span: importDecl.span,
+          module: table.path,
+        });
+        continue;
+      }
+
+      if (table.path.endsWith(".test.do") && table.mockRootPath === table.path && resolved.endsWith(".test.do")) {
+        table.diagnostics.push({
+          severity: "error",
+          message: `Test file "${table.path}" cannot import another test file "${resolved}"`,
           span: importDecl.span,
           module: table.path,
         });
@@ -355,7 +377,7 @@ export class ModuleAnalyzer {
       }
 
       // Recursively analyse the source module.
-      const sourceTable = this.analyzeModuleInternal(resolved, importDecl.span);
+      const sourceTable = this.analyzeModuleInternal(resolved, importDecl.span, table.mockRootPath ?? undefined);
 
       for (const spec of importDecl.specifiers) {
         if (spec.kind === "namespace-import-specifier") {
@@ -398,6 +420,96 @@ export class ModuleAnalyzer {
     }
   }
 
+  private determineMockRootPath(
+    modulePath: string,
+    inheritedMockRootPath: string | undefined,
+    mockImportDirectives: MockImportDirective[],
+  ): string | null {
+    if (inheritedMockRootPath) return inheritedMockRootPath;
+    if (mockImportDirectives.length > 0 && modulePath.endsWith(".test.do")) {
+      return modulePath;
+    }
+    return null;
+  }
+
+  private validateMockImportDirectives(table: ModuleSymbolTable, inheritedMockRootPath: string | undefined): void {
+    if (table.mockImportDirectives.length === 0) return;
+
+    if (!table.path.endsWith(".test.do")) {
+      for (const directive of table.mockImportDirectives) {
+        table.diagnostics.push({
+          severity: "error",
+          message: "mock import directives are only valid in .test.do files",
+          span: directive.span,
+          module: table.path,
+        });
+      }
+    }
+
+    if (inheritedMockRootPath && inheritedMockRootPath !== table.path) {
+      for (const directive of table.mockImportDirectives) {
+        table.diagnostics.push({
+          severity: "error",
+          message: "mock import directives are only valid in the root test file",
+          span: directive.span,
+          module: table.path,
+        });
+      }
+    }
+
+    let seenNonDirective = false;
+    for (const stmt of table.program.statements) {
+      if (stmt.kind === "mock-import-directive") {
+        if (seenNonDirective) {
+          table.diagnostics.push({
+            severity: "error",
+            message: "mock import directives must appear at the top of the file before other statements",
+            span: stmt.span,
+            module: table.path,
+          });
+        }
+        continue;
+      }
+      seenNonDirective = true;
+    }
+
+    for (const directive of table.mockImportDirectives) {
+      for (const mapping of directive.mappings) {
+        if (mapping.dependency === mapping.replacement) {
+          table.diagnostics.push({
+            severity: "error",
+            message: `mock import cannot substitute "${mapping.dependency}" with itself`,
+            span: mapping.span,
+            module: table.path,
+          });
+        }
+      }
+    }
+  }
+
+  private resolveImportTarget(importSource: string, table: ModuleSymbolTable): { specifier: string; fromModule: string } {
+    const mockRootPath = table.mockRootPath;
+    if (!mockRootPath) {
+      return { specifier: importSource, fromModule: table.path };
+    }
+
+    const mockRootTable = this.modules.get(mockRootPath);
+    if (!mockRootTable || mockRootTable.mockImportDirectives.length === 0) {
+      return { specifier: importSource, fromModule: table.path };
+    }
+
+    const sourceSpecifier = toModuleSpecifier(mockRootPath, table.path);
+    const replacement = findMockReplacement(mockRootTable.mockImportDirectives, sourceSpecifier, importSource);
+    if (!replacement) {
+      return { specifier: importSource, fromModule: table.path };
+    }
+
+    return {
+      specifier: replacement,
+      fromModule: mockRootPath,
+    };
+  }
+
   // ==========================================================================
   // Phase 3: Re-exports
   // ==========================================================================
@@ -428,17 +540,18 @@ export class ModuleAnalyzer {
 
       if (stmt.kind === "export-list" && stmt.source !== null) {
         // export { A, B } from "./mod"
-        const resolved = this.resolver.resolve(stmt.source, table.path);
+        const target = this.resolveImportTarget(stmt.source, table);
+        const resolved = this.resolver.resolve(target.specifier, target.fromModule);
         if (!resolved) {
           table.diagnostics.push({
             severity: "error",
-            message: `Cannot resolve re-export source "${stmt.source}"`,
+            message: `Cannot resolve re-export source "${target.specifier}"`,
             span: stmt.span,
             module: table.path,
           });
           continue;
         }
-        const sourceTable = this.analyzeModuleInternal(resolved, stmt.span);
+        const sourceTable = this.analyzeModuleInternal(resolved, stmt.span, table.mockRootPath ?? undefined);
         for (const spec of stmt.specifiers) {
           const sym = sourceTable?.exports.get(spec.name) ?? null;
           if (sym) {
@@ -457,17 +570,18 @@ export class ModuleAnalyzer {
       }
 
       if (stmt.kind === "export-all-declaration") {
-        const resolved = this.resolver.resolve(stmt.source, table.path);
+        const target = this.resolveImportTarget(stmt.source, table);
+        const resolved = this.resolver.resolve(target.specifier, target.fromModule);
         if (!resolved) {
           table.diagnostics.push({
             severity: "error",
-            message: `Cannot resolve re-export source "${stmt.source}"`,
+            message: `Cannot resolve re-export source "${target.specifier}"`,
             span: stmt.span,
             module: table.path,
           });
           continue;
         }
-        const sourceTable = this.analyzeModuleInternal(resolved, stmt.span);
+        const sourceTable = this.analyzeModuleInternal(resolved, stmt.span, table.mockRootPath ?? undefined);
         if (sourceTable) {
           if (stmt.alias) {
             // export * as ns from "./mod" — not a per-symbol re-export,
@@ -630,6 +744,61 @@ export class ModuleAnalyzer {
       });
     }
   }
+}
+
+function collectMockImportDirectives(program: Program): MockImportDirective[] {
+  return program.statements.filter((stmt): stmt is MockImportDirective => stmt.kind === "mock-import-directive");
+}
+
+function normalizeModulePath(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+function toModuleSpecifier(fromModule: string, toModule: string): string {
+  const relativePath = normalizeModulePath(nodePath.relative(nodePath.dirname(fromModule), toModule));
+  const prefixedPath = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+  return prefixedPath.replace(/\/index\.do$/, "").replace(/\.do$/, "");
+}
+
+function getPatternSpecificity(pattern: string, sourceSpecifier: string): number | null {
+  if (pattern === sourceSpecifier) return 300;
+  if (pattern === "*") return 0;
+
+  if (pattern.endsWith("/**")) {
+    const base = pattern.slice(0, -3);
+    return sourceSpecifier.startsWith(`${base}/`) ? 100 : null;
+  }
+
+  if (pattern.endsWith("/*")) {
+    const base = pattern.slice(0, -2);
+    if (!sourceSpecifier.startsWith(`${base}/`)) return null;
+    const suffix = sourceSpecifier.slice(base.length + 1);
+    return suffix.length > 0 && !suffix.includes("/") ? 200 : null;
+  }
+
+  return null;
+}
+
+function findMockReplacement(
+  directives: MockImportDirective[],
+  sourceSpecifier: string,
+  dependencySpecifier: string,
+): string | null {
+  let bestMatch: { specificity: number; mapping: MockImportMapping } | null = null;
+
+  for (const directive of directives) {
+    const specificity = getPatternSpecificity(directive.sourcePattern, sourceSpecifier);
+    if (specificity === null) continue;
+
+    for (const mapping of directive.mappings) {
+      if (mapping.dependency !== dependencySpecifier) continue;
+      if (!bestMatch || specificity > bestMatch.specificity) {
+        bestMatch = { specificity, mapping };
+      }
+    }
+  }
+
+  return bestMatch?.mapping.replacement ?? null;
 }
 
 // ============================================================================

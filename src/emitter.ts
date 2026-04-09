@@ -11,11 +11,13 @@
  */
 
 import type { AnalysisResult } from "./analyzer.js";
-import type { Block, Statement, ClassDeclaration, InterfaceDeclaration } from "./ast.js";
+import type { Block, Statement, FunctionDeclaration, ClassDeclaration, InterfaceDeclaration } from "./ast.js";
+import type { ResolvedType } from "./checker-types.js";
 import type { ModuleSymbolTable, ClassSymbol, InterfaceSymbol } from "./types.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
 import { indent } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
+import { emitType } from "./emitter-types.js";
 import { propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 export type { EmitContext } from "./emitter-context.js";
@@ -99,6 +101,9 @@ function emitModule(
 
   // Emit standard includes
   emitIncludes(ctx);
+
+  // Emit mock capture structs and top-level storage before declarations that use them.
+  emitMockSupport(ctx);
 
   // Emit forward declarations for all class structs.
   // This ensures interface `using` aliases (which reference struct types via
@@ -185,6 +190,73 @@ function moduleNeedsJson(ctx: EmitContext): boolean {
     }
   }
   return false;
+}
+
+function emitMockSupport(ctx: EmitContext): void {
+  const captureTypes = collectMockCaptureTypes(ctx.module.program.statements);
+  for (const captureType of captureTypes) {
+    emitMockCaptureStruct(ctx.headerLines, captureType);
+    ctx.headerLines.push("");
+  }
+
+  const topLevelMockFunctions = collectTopLevelMockFunctions(ctx.module.program.statements);
+  for (const fn of topLevelMockFunctions) {
+    const mockCall = fn.resolvedType && fn.resolvedType.kind === "function"
+      ? fn.resolvedType.mockCall
+      : undefined;
+    if (!mockCall) continue;
+    ctx.sourceLines.push(`std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
+  }
+  if (topLevelMockFunctions.length > 0) {
+    ctx.sourceLines.push("");
+  }
+}
+
+function collectTopLevelMockFunctions(statements: Statement[]): FunctionDeclaration[] {
+  const functions: FunctionDeclaration[] = [];
+  for (const stmt of statements) {
+    const decl = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
+    if (decl.kind === "function-declaration" && hasMockCall(decl)) {
+      functions.push(decl);
+    }
+  }
+  return functions;
+}
+
+type MockCaptureType = Extract<ResolvedType, { kind: "mock-capture" }>;
+
+function collectMockCaptureTypes(statements: Statement[]): MockCaptureType[] {
+  const captureTypes = new Map<string, MockCaptureType>();
+  for (const stmt of statements) {
+    const decl = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
+    if (decl.kind === "function-declaration") {
+      const mockCall = decl.resolvedType && decl.resolvedType.kind === "function"
+        ? decl.resolvedType.mockCall
+        : undefined;
+      if (mockCall) captureTypes.set(mockCall.captureType.typeName, mockCall.captureType);
+      continue;
+    }
+    if (decl.kind !== "class-declaration") continue;
+    for (const method of decl.methods) {
+      const mockCall = method.resolvedType && method.resolvedType.kind === "function"
+        ? method.resolvedType.mockCall
+        : undefined;
+      if (mockCall) captureTypes.set(mockCall.captureType.typeName, mockCall.captureType);
+    }
+  }
+  return [...captureTypes.values()];
+}
+
+function emitMockCaptureStruct(lines: string[], captureType: MockCaptureType): void {
+  lines.push(`struct ${captureType.typeName} {`);
+  for (const field of captureType.fields) {
+    lines.push(`    ${emitType(field.type)} ${field.name};`);
+  }
+  lines.push("};");
+}
+
+function hasMockCall(decl: FunctionDeclaration): boolean {
+  return !!(decl.resolvedType && decl.resolvedType.kind === "function" && decl.resolvedType.mockCall);
 }
 
 /** Emit #include directives for extern class and function declarations. */

@@ -5,6 +5,7 @@ import {
   validateCollectionTypeAnnotation,
 } from "./checker-collection-annotations.js";
 import {
+  buildMockCallMetadata,
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
   isAssignableTo,
@@ -44,6 +45,15 @@ export function checkFunction(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): void {
+  if (decl.mock_ && decl.typeParams.length > 0) {
+    info.diagnostics.push({
+      severity: "error",
+      message: "Generic mock functions are not supported yet",
+      span: decl.span,
+      module: table.path,
+    });
+  }
+
   if (decl.typeParams.length > 0) {
     host.typeParamStack.push(new Set(decl.typeParams));
   }
@@ -150,6 +160,18 @@ export function checkFunction(
     })),
     returnType: inferredReturnType,
     typeParams: decl.typeParams.length > 0 ? decl.typeParams : undefined,
+    mockCall: decl.mock_
+      ? buildMockCallMetadata(
+          table.path,
+          decl.name,
+          decl.params.map((p) => ({
+            name: p.name,
+            type: p.resolvedType ?? UNKNOWN_TYPE,
+            hasDefault: p.defaultValue !== null,
+            defaultValue: p.defaultValue,
+          })),
+        )
+      : undefined,
   };
 
   if (decl.typeParams.length > 0) {
@@ -164,6 +186,15 @@ export function checkClass(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): void {
+  if (decl.mock_ && decl.typeParams.length > 0) {
+    info.diagnostics.push({
+      severity: "error",
+      message: "Generic mock classes are not supported yet",
+      span: decl.span,
+      module: table.path,
+    });
+  }
+
   if (decl.typeParams.length > 0) {
     host.typeParamStack.push(new Set(decl.typeParams));
   }
@@ -294,6 +325,24 @@ export function checkMethod(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): void {
+  if (method.mock_ && method.static_) {
+    info.diagnostics.push({
+      severity: "error",
+      message: "Static mock methods are not supported yet",
+      span: method.span,
+      module: table.path,
+    });
+  }
+
+  if (method.mock_ && method.typeParams.length > 0) {
+    info.diagnostics.push({
+      severity: "error",
+      message: "Generic mock methods are not supported yet",
+      span: method.span,
+      module: table.path,
+    });
+  }
+
   if (method.typeParams.length > 0) {
     host.typeParamStack.push(new Set(method.typeParams));
   }
@@ -413,6 +462,19 @@ export function checkMethod(
     })),
     returnType: returnType ?? VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+    mockCall: method.mock_
+      ? buildMockCallMetadata(
+          table.path,
+          method.name,
+          method.params.map((p) => ({
+            name: p.name,
+            type: p.resolvedType ?? UNKNOWN_TYPE,
+            hasDefault: p.defaultValue !== null,
+            defaultValue: p.defaultValue,
+          })),
+          classDecl.name,
+        )
+      : undefined,
   };
 
   if (method.typeParams.length > 0) {

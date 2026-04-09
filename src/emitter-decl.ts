@@ -73,12 +73,21 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
   // pure readers vs mutators is complex, and const prevents any field
   // mutation.  We can add fine-grained const later if needed.
   const staticPrefix = ctx.inClass && decl.static_ ? "static " : "";
+  const mockCall = decl.resolvedType && decl.resolvedType.kind === "function"
+    ? decl.resolvedType.mockCall
+    : undefined;
 
   if (decl.body.kind === "block") {
     ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params}) {`);
     const fnRetType = decl.resolvedType && decl.resolvedType.kind === "function"
       ? decl.resolvedType.returnType
       : undefined;
+    emitMockRecordingPrelude(decl, mockCall, ctx);
+    if (decl.bodyless) {
+      ctx.sourceLines.push(`${ind}    doof::panic("Unexpected mock function invoked: ${decl.name}");`);
+      ctx.sourceLines.push(`${ind}}`);
+      return;
+    }
     // Pre-scan for let variables captured by lambdas → heap-box them
     const paramNameSet = new Set(decl.params.map((p) => p.name));
     const capturedMutables = scanCapturedMutables(decl.body, paramNameSet);
@@ -96,6 +105,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
       : undefined;
     const body = emitExpression(decl.body as Expression, ctx, fnRetType);
     ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params}) {`);
+    emitMockRecordingPrelude(decl, mockCall, ctx);
     ctx.sourceLines.push(`${ind}    return ${body};`);
     ctx.sourceLines.push(`${ind}}`);
   }
@@ -134,6 +144,15 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   // Fields
   for (const field of decl.fields) {
     emitClassField(field, { ...ctx, indent: ctx.indent + 1 });
+  }
+
+  const mockMethods = decl.methods.filter((method) => method.mock_);
+  for (const method of mockMethods) {
+    const mockCall = method.resolvedType && method.resolvedType.kind === "function"
+      ? method.resolvedType.mockCall
+      : undefined;
+    if (!mockCall) continue;
+    ctx.sourceLines.push(`${memberInd}std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
   }
 
   // Constructor from fields (non-const, non-static fields)
@@ -269,6 +288,26 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
       }
     }
   }
+}
+
+function emitMockRecordingPrelude(
+  decl: FunctionDeclaration,
+  mockCall: FunctionDeclaration["resolvedType"] extends infer T ? any : never,
+  ctx: EmitContext,
+): void {
+  if (!decl.mock_ || !mockCall) return;
+
+  const ind = indent({ indent: ctx.indent + 1 });
+  const storageRef = ctx.inClass && !decl.static_
+    ? `this->${mockCall.storageName}`
+    : mockCall.storageName;
+  const args = decl.params.map((param) => emitIdentifierSafe(param.name)).join(", ");
+  const captureType = emitType(mockCall.captureType);
+  if (args.length > 0) {
+    ctx.sourceLines.push(`${ind}${storageRef}->push_back(${captureType}{${args}});`);
+    return;
+  }
+  ctx.sourceLines.push(`${ind}${storageRef}->push_back(${captureType}{});`);
 }
 
 // ============================================================================
