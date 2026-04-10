@@ -4,13 +4,13 @@
  * Doof CLI — command-line interface for the Doof-to-C++ transpiler.
  *
  * Usage:
- *   doof emit <entry.do>       — Emit C++ source files to an output directory
- *   doof build <entry.do>      — Emit + compile with an auto-detected native C++ compiler
- *   doof run <entry.do>        — Emit + compile + run the program
- *   doof check <entry.do>      — Type-check only (no C++ output)
+ *   doof emit [entry.do|dir]   — Emit C++ source files to an output directory
+ *   doof build [entry.do|dir]  — Emit + compile with an auto-detected native C++ compiler
+ *   doof run [entry.do|dir]    — Emit + compile + run the program
+ *   doof check [entry.do|dir]  — Type-check only (no C++ output)
  *
  * Options:
- *   -o, --outdir <dir>         — Output directory (default: ./build)
+ *   -o, --outdir <dir>         — Output directory (default: package build/ or build.buildDir)
  *   --compiler <path>          — C++ compiler to use (default: auto-detect)
  *   --std <standard>           — C++ standard (default: c++17)
  *   -v, --verbose              — Print detailed progress information
@@ -23,6 +23,10 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { NativeBuildOptions } from "./emitter-module.js";
+import { findDoofManifestPath, resolvePackageBuildContext } from "./package-manifest.js";
+import { joinFsPath, resolveFsPath, resolveFsPathFrom } from "./path-utils.js";
+import type { FileSystem } from "./resolver.js";
+import { assembleMacOSAppBundle } from "./macos-app-target.js";
 import {
   buildCompileArgs,
   compileCpp,
@@ -41,11 +45,13 @@ import { runTestCommand } from "./test-runner.js";
 // ============================================================================
 
 type Command = "emit" | "build" | "run" | "check" | "test" | "help" | "version";
+type PipelineCommand = "emit" | "build" | "run" | "check";
 
 export interface CliArgs {
   command: Command;
   entry: string;
   outDir: string;
+  outDirExplicit: boolean;
   compiler: string | null;
   cppStd: string;
   verbose: boolean;
@@ -58,17 +64,17 @@ const HELP_TEXT = `
 doof — Doof-to-C++ transpiler
 
 Usage:
-  doof <command> [options] <entry.do>
+  doof <command> [options] [entry.do | package-dir]
 
 Commands:
-  emit   <entry.do>    Emit C++ source files to an output directory
-  build  <entry.do>    Emit and compile to a native binary
-  run    <entry.do>    Emit, compile, and run the program
-  check  <entry.do>    Type-check only (no C++ output)
+  emit   [path]        Emit C++ source files to an output directory
+  build  [path]        Emit and compile to a native binary
+  run    [path]        Emit, compile, and run the program
+  check  [path]        Type-check only (no C++ output)
   test   <path>        Discover and run exported Doof tests
 
 Options:
-  -o, --outdir <dir>   Output directory (default: ./build)
+  -o, --outdir <dir>   Output directory (default: package build/ or build.buildDir)
   --compiler <path>    C++ compiler (default: auto-detect clang++/g++, or Visual Studio cl.exe on Windows)
   --std <standard>     C++ standard (default: c++17)
   --include-path <dir> Additional header search path (repeatable)
@@ -89,6 +95,8 @@ Options:
 Examples:
   doof run samples/hello.do
   doof build -o dist samples/fibonacci.do
+  doof build samples/solitaire
+  doof build
   doof emit --verbose samples/classes.do
   doof check samples/hello.do
   doof test samples
@@ -105,6 +113,7 @@ function createEmptyNativeBuildOptions(cppStd = "c++17"): NativeBuildOptions {
     libraryPaths: [],
     linkLibraries: [],
     frameworks: [],
+    pkgConfigPackages: [],
     sourceFiles: [],
     objectFiles: [],
     compilerFlags: [],
@@ -118,6 +127,7 @@ export function parseArgs(argv: string[]): CliArgs {
     command: "help",
     entry: "",
     outDir: "./build",
+    outDirExplicit: false,
     compiler: null,
     cppStd: "c++17",
     verbose: false,
@@ -150,6 +160,7 @@ export function parseArgs(argv: string[]): CliArgs {
     switch (arg) {
       case "-o": case "--outdir":
         args.outDir = rest[++i] ?? fatal("Missing value for --outdir");
+        args.outDirExplicit = true;
         break;
       case "--compiler":
         args.compiler = rest[++i] ?? fatal("Missing value for --compiler");
@@ -207,6 +218,25 @@ export function parseArgs(argv: string[]): CliArgs {
   return args;
 }
 
+export function resolveCliPipelineInputs(fileSystem: FileSystem, cwd: string, args: CliArgs): { entry: string; outDir: string } {
+  const requestedPath = args.entry ? resolveFsPathFrom(cwd, args.entry) : resolveFsPath(cwd);
+  const packageContext = resolveRequestedPackageContext(fileSystem, requestedPath, args.entry);
+  if (packageContext) {
+    return {
+      entry: packageContext.entryPath,
+      outDir: args.outDirExplicit ? args.outDir : packageContext.buildDir,
+    };
+  }
+
+  const manifestPath = findDoofManifestPath(fileSystem, requestedPath);
+  return {
+    entry: requestedPath,
+    outDir: !args.outDirExplicit && manifestPath
+      ? resolvePackageBuildContext(fileSystem, requestedPath).buildDir
+      : args.outDir,
+  };
+}
+
 export function getCliVersion(packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url))): string {
   try {
     const raw = readFileSync(packageJsonPath, "utf8");
@@ -244,18 +274,36 @@ function cmdEmit(entry: string, outDir: string, verbose: boolean, nativeBuild: N
 function cmdBuildOrRun(args: CliArgs, run: boolean): void {
   const toolchain = resolveCompilerToolchain(args.compiler);
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
-  const { project, outputBinaryName, provenance, buildManifest } = runPipeline(args.entry, args.verbose, nativeBuild);
+  const { project, nativeBuild: resolvedNativeBuild, outputBinaryName, provenance, buildManifest, buildTarget } = runPipeline(
+    args.entry,
+    args.verbose,
+    nativeBuild,
+  );
   writeProject(project, args.outDir, args.verbose, log, provenance, buildManifest);
-  const binary = compileCpp(args.outDir, project, toolchain, nativeBuild, args.verbose, log, outputBinaryName);
+  const binary = compileCpp(args.outDir, project, toolchain, resolvedNativeBuild, args.verbose, log, outputBinaryName);
+  let builtArtifactPath = binary;
+  let runBinaryPath = binary;
+
+  if (buildTarget?.kind === "macos-app") {
+    const bundle = assembleMacOSAppBundle({
+      outputDir: args.outDir,
+      executablePath: binary,
+      executableName: outputBinaryName,
+      config: buildTarget.config,
+      log: args.verbose ? log : undefined,
+    });
+    builtArtifactPath = bundle.appPath;
+    runBinaryPath = bundle.binaryPath;
+  }
 
   if (!run) {
-    log(`Build complete: ${binary}`);
+    log(`Build complete: ${builtArtifactPath}`);
     return;
   }
 
-  if (args.verbose) log(`Running: ${binary}`);
+  if (args.verbose) log(`Running: ${runBinaryPath}`);
   try {
-    execFileSync(binary, [], {
+    execFileSync(runBinaryPath, [], {
       stdio: "inherit",
       timeout: 30000,
       env: toolchain.env ?? process.env,
@@ -300,6 +348,38 @@ function normalizeLinkLibrary(value: string): string {
   return value.startsWith("-l") ? value.slice(2) : value;
 }
 
+function isPipelineCommand(command: Command): command is PipelineCommand {
+  return command === "emit" || command === "build" || command === "run" || command === "check";
+}
+
+function resolveRequestedPackageContext(fileSystem: FileSystem, requestedPath: string, rawEntry: string) {
+  if (!rawEntry) {
+    return resolvePackageBuildContext(fileSystem, requestedPath);
+  }
+
+  if (isManifestPath(requestedPath)) {
+    return resolvePackageBuildContext(fileSystem, requestedPath);
+  }
+
+  if (fileSystem.readFile(joinFsPath(requestedPath, "doof.json")) !== null) {
+    return resolvePackageBuildContext(fileSystem, requestedPath);
+  }
+
+  if (fileSystem.readFile(requestedPath) !== null) {
+    return null;
+  }
+
+  return path.extname(rawEntry) === ""
+    ? resolvePackageBuildContext(fileSystem, requestedPath)
+    : null;
+}
+
+function isManifestPath(pathValue: string): boolean {
+  return pathValue === "doof.json"
+    || pathValue.endsWith("/doof.json")
+    || pathValue.endsWith("\\doof.json");
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -307,8 +387,11 @@ function normalizeLinkLibrary(value: string): string {
 export function main(argv = process.argv): void {
   try {
     const args = parseArgs(argv);
+    const resolvedArgs = isPipelineCommand(args.command)
+      ? { ...args, ...resolveCliPipelineInputs(new RealFS(), process.cwd(), args) }
+      : args;
 
-    switch (args.command) {
+    switch (resolvedArgs.command) {
       case "help":
         console.log(HELP_TEXT);
         break;
@@ -316,24 +399,25 @@ export function main(argv = process.argv): void {
         console.log(`doof ${getCliVersion()}`);
         break;
       case "check":
-        if (!args.entry) fatal("Missing entry file. Usage: doof check <file.do>");
-        cmdCheck(args.entry, args.verbose);
+        cmdCheck(resolvedArgs.entry, resolvedArgs.verbose);
         break;
       case "test":
-        if (!args.entry) fatal("Missing test path. Usage: doof test <path>");
-        cmdTest(args);
+        if (!resolvedArgs.entry) fatal("Missing test path. Usage: doof test <path>");
+        cmdTest(resolvedArgs);
         break;
       case "emit":
-        if (!args.entry) fatal("Missing entry file. Usage: doof emit <file.do>");
-        cmdEmit(args.entry, args.outDir, args.verbose, resolveNativeBuildOptions(args.nativeBuild));
+        cmdEmit(
+          resolvedArgs.entry,
+          resolvedArgs.outDir,
+          resolvedArgs.verbose,
+          resolveNativeBuildOptions(resolvedArgs.nativeBuild),
+        );
         break;
       case "build":
-        if (!args.entry) fatal("Missing entry file. Usage: doof build <file.do>");
-        cmdBuildOrRun(args, false);
+        cmdBuildOrRun(resolvedArgs, false);
         break;
       case "run":
-        if (!args.entry) fatal("Missing entry file. Usage: doof run <file.do>");
-        cmdBuildOrRun(args, true);
+        cmdBuildOrRun(resolvedArgs, true);
         break;
     }
   } catch (err) {

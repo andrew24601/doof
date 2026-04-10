@@ -34,42 +34,47 @@ node dist/cli.js --help
 ## Usage
 
 ```text
-doof <command> [options] <entry.do | path>
+doof <command> [options] [entry.do | package-dir]
 ```
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `emit <entry.do>` | Emit C++ source files to an output directory |
-| `build <entry.do>` | Emit and compile to a native binary |
-| `run <entry.do>` | Emit, compile, and run the program |
-| `check <entry.do>` | Type-check only without writing C++ output |
+| `emit [path]` | Emit C++ source files to an output directory |
+| `build [path]` | Emit and compile to a native binary |
+| `run [path]` | Emit, compile, and run the program |
+| `check [path]` | Type-check only without writing C++ output |
 | `test <path>` | Discover and run Doof tests from a file or directory |
 
 ### What Each Command Does
 
 - `check` — runs parsing, module analysis, and type checking; no output written
-- `emit` — runs the full compiler pipeline and writes generated C++ files plus `CMakeLists.txt`; native build flags are written into the generated build metadata
-- `build` — emits the project and compiles it to a native executable in the output directory
-- `run` — same as `build`, then executes the produced binary
+- `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
+- `build` — emits the project and compiles it; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable
+- `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle
 - `test` — discovers exported test functions in `.test.do` files, builds a temporary harness per test file, compiles each test module separately, and runs each discovered test in its own process
 
 `doof emit` writes:
 
 - generated `.hpp` / `.cpp` files
 - `doof_runtime.hpp`
-- `CMakeLists.txt`
 - `provenance.json`
 - `doof-build.json`
 
+For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations.
+
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
+
+When a manifest declares `build.target = "macos-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
+
+For `emit`, `build`, `run`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the output directory to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` still overrides the manifest/default output directory.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `-o, --outdir <dir>` | Output directory. Default: `./build` |
+| `-o, --outdir <dir>` | Output directory. Default: the package `build/` directory or `build.buildDir` from `doof.json` |
 | `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
 | `--std <standard>` | C++ standard. Default: `c++17` |
 | `--include-path <dir>` | Additional header search path. Repeatable |
@@ -114,6 +119,19 @@ Build a native binary:
 npx doof build samples/hello.do
 ```
 
+Build a macOS app bundle from manifest metadata:
+
+```bash
+npx doof build samples/solitaire
+```
+
+Build the current package from inside its directory:
+
+```bash
+cd samples/solitaire
+npx doof build
+```
+
 Run a program end to end:
 
 ```bash
@@ -142,7 +160,7 @@ npx doof build \
   samples/http.do
 ```
 
-Emit with native build metadata embedded in `CMakeLists.txt`:
+Emit with native build metadata captured in `doof-build.json`:
 
 ```bash
 npx doof emit \
@@ -164,9 +182,13 @@ Use the native flags when your program needs:
 - additional `.cpp` bridge files or precompiled object files
 - preprocessor defines, compiler flags, or linker flags
 
-`emit`, `build`, and `run` all accept these options. `emit` persists them into the generated `CMakeLists.txt`, while `build` and `run` also pass them directly to the compiler/linker.
+Package manifests can also declare `build.native.pkgConfigPackages` or platform-specific native fragments such as `build.native.macos`. The CLI resolves those manifest-driven native inputs before emission and direct compilation, so `doof build` can pick up system-installed libraries like SDL3 without a separate CMake step.
 
-These flags work well for simple bridge files and library integrations. For projects that need Objective-C++, Swift, app bundle packaging, or a larger native build graph, use `doof emit` plus CMake or your existing native build system. The [`samples/solitaire`](../samples/solitaire/) SDL/Metal host and [`samples/reminders-mcp`](../samples/reminders-mcp/) EventKit sample both take that approach.
+`emit`, `build`, and `run` all accept these options. `emit` records them in `doof-build.json`, while `build` and `run` also pass them directly to the compiler/linker.
+
+These flags work well for simple bridge files and library integrations. The built-in `macos-app` target now covers the basic `.app` bundle case, including `Info.plist`, icon generation, frameworks, and resource copying. For projects that need Objective-C++, Swift, code signing, notarization, or a larger native build graph, use `doof emit` plus CMake or your existing native build system. The [`samples/solitaire`](../samples/solitaire/) SDL/Metal host and [`samples/reminders-mcp`](../samples/reminders-mcp/) EventKit sample both take that approach.
+
+`build.target = "macos-app"` is currently limited to macOS for `doof build` and `doof run`, because bundle assembly and icon generation rely on macOS tools such as `qlmanage`, `sips`, and `iconutil`.
 
 ## Samples with Native Dependencies
 

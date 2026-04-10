@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 include(FetchContent)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../lib/cardgame/DoofGeneratedMacOSBundle.cmake")
 
 set(DOOF_SEAHAVEN_LANGUAGES CXX)
 if(APPLE)
@@ -13,13 +14,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(DOOF_SEAHAVEN_EXECUTABLE "DoofSeahavenTowers")
-set(DOOF_SEAHAVEN_DISPLAY_NAME "Doof Seahaven Towers")
-set(DOOF_SEAHAVEN_BUNDLE_ID "dev.doof.seahaven-towers")
-set(DOOF_SEAHAVEN_VERSION "1.0")
-
 set(DOOF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-set(DOOF_OUTPUT_DIR "${DOOF_REPO_ROOT}/build-seahaven-towers")
+set(DOOF_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build")
 set(DOOF_SHARED_HOST_DIR "${DOOF_REPO_ROOT}/samples/lib/cardgame")
 set(DOOF_SHARED_ENGINE_DIR "${DOOF_SHARED_HOST_DIR}/engine")
 
@@ -38,14 +34,14 @@ set(DOOF_REQUIRED_HEADERS
 foreach(DOOF_REQUIRED_HEADER IN LISTS DOOF_REQUIRED_HEADERS)
     if(NOT EXISTS "${DOOF_OUTPUT_DIR}/${DOOF_REQUIRED_HEADER}")
         message(FATAL_ERROR
-            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
+            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit samples/seahaven-towers` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
         )
     endif()
 endforeach()
 
 if(NOT EXISTS "${DOOF_OUTPUT_DIR}/doof_runtime.hpp")
     message(FATAL_ERROR
-        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-seahaven-towers samples/seahaven-towers/main.do` from the repository root first. Missing doof_runtime.hpp."
+        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit samples/seahaven-towers` from the repository root first. Missing doof_runtime.hpp."
     )
 endif()
 
@@ -89,13 +85,7 @@ else()
     message(FATAL_ERROR "The Seahaven Towers sample currently supports macOS and Windows native builds.")
 endif()
 
-set(DOOF_SEAHAVEN_TARGET_ARGS)
-if(APPLE)
-    list(APPEND DOOF_SEAHAVEN_TARGET_ARGS MACOSX_BUNDLE)
-endif()
-
 add_executable(DoofSeahavenTowers
-    ${DOOF_SEAHAVEN_TARGET_ARGS}
     ${DOOF_SEAHAVEN_HOST_SOURCE}
     ${DOOF_GENERATED_SOURCES}
 )
@@ -123,9 +113,7 @@ endif()
 
 target_link_libraries(DoofSeahavenTowers PRIVATE nlohmann_json::nlohmann_json)
 
-if(APPLE)
-    target_link_libraries(DoofSeahavenTowers PRIVATE "-framework Cocoa" "-framework Foundation")
-elseif(WIN32)
+if(WIN32)
     target_link_libraries(DoofSeahavenTowers PRIVATE windowscodecs ole32)
 endif()
 
@@ -140,33 +128,8 @@ elseif(WIN32)
     target_link_options(DoofSeahavenTowers PRIVATE -mwindows)
 endif()
 
-file(GLOB DOOF_SAMPLE_IMAGE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/images/*")
-
 if(APPLE)
-    set(DOOF_SEAHAVEN_ICON_SVG "${CMAKE_CURRENT_SOURCE_DIR}/app-icon.svg")
-    set(DOOF_SEAHAVEN_ICON_ICNS "${CMAKE_CURRENT_BINARY_DIR}/DoofSeahavenTowers.icns")
-    set(DOOF_SEAHAVEN_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
-
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" "${DOOF_SEAHAVEN_INFO_PLIST}" @ONLY)
-
-    add_custom_command(
-        OUTPUT "${DOOF_SEAHAVEN_ICON_ICNS}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
-        COMMAND /bin/bash "${DOOF_REPO_ROOT}/scripts/generate-macos-icon.sh" "${DOOF_SEAHAVEN_ICON_SVG}" "${DOOF_SEAHAVEN_ICON_ICNS}"
-        DEPENDS "${DOOF_SEAHAVEN_ICON_SVG}" "${DOOF_REPO_ROOT}/scripts/generate-macos-icon.sh"
-        COMMENT "Generating Doof Seahaven Towers app icon"
-        VERBATIM
-    )
-
-    target_sources(DoofSeahavenTowers PRIVATE "${DOOF_SEAHAVEN_ICON_ICNS}" ${DOOF_SAMPLE_IMAGE_FILES})
-    set_source_files_properties("${DOOF_SEAHAVEN_ICON_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    foreach(DOOF_SAMPLE_IMAGE IN LISTS DOOF_SAMPLE_IMAGE_FILES)
-        set_source_files_properties("${DOOF_SAMPLE_IMAGE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/images")
-    endforeach()
-
-    set_target_properties(DoofSeahavenTowers PROPERTIES
-        MACOSX_BUNDLE_INFO_PLIST "${DOOF_SEAHAVEN_INFO_PLIST}"
-    )
+    doof_configure_generated_macos_bundle(DoofSeahavenTowers "${DOOF_OUTPUT_DIR}")
 else()
     add_custom_command(TARGET DoofSeahavenTowers POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

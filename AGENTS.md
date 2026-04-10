@@ -60,7 +60,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [emitter-schema.ts](src/emitter-schema.ts) (~200 lines) — JSON Schema Draft 7 generation for class metadata
 - [emitter-metadata.ts](src/emitter-metadata.ts) (~200 lines) — C++ emission for .metadata field and .invoke() method
 - [emitter-runtime.ts](src/emitter-runtime.ts) (~350 lines) — doof_runtime.hpp generation
-- [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Module splitting (.hpp/.cpp), main() wrapper, CMakeLists.txt
+- [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Module splitting (.hpp/.cpp), main() wrapper, project support files
 
 **When a module grows too large:**
 1. Identify cohesive subsets of functionality
@@ -184,7 +184,7 @@ src/
   emitter-schema.ts             # JSON Schema Draft 7 generation for class metadata
   emitter-metadata.ts           # C++ emission for .metadata field and .invoke() method
   emitter-runtime.ts            # doof_runtime.hpp generation
-  emitter-module.ts             # Module splitting (.hpp/.cpp), main() wrapper, CMakeLists.txt
+  emitter-module.ts             # Module splitting (.hpp/.cpp), main() wrapper, project support files
   emitter-test-helpers.ts       # Shared emitter test utilities
   emitter-basics.test.ts        # Emitter tests: primitives, declarations, control flow
   emitter-constructs.test.ts    # Emitter tests: destructuring, lambdas, patterns
@@ -451,7 +451,7 @@ Source Code
 - Generate interface-level `fromJSON` dispatchers using shared const discriminator fields
 - On-demand `_metadata` (JSON Schema) and `invoke()` (JSON dispatch) for tool interop ([emitter-schema.ts](src/emitter-schema.ts), [emitter-metadata.ts](src/emitter-metadata.ts))
 - Generate `doof_runtime.hpp` support header ([emitter-runtime.ts](src/emitter-runtime.ts))
-- Output: C++ source code string (single file per module in Phase 1)
+- Output: split C++ modules plus generated runtime/support files for the CLI pipeline
 
 ### Decorated AST Pattern
 

@@ -8,8 +8,8 @@
  *   - .cpp: #include own header, function implementations, variable definitions,
  *           anonymous namespace for non-exported symbols, main() wrapper
  *
- * Also generates CMakeLists.txt for building the project and a top-level
- * emitProject() function that produces all output files at once.
+ * Also exposes a top-level emitProject() function that produces all generated
+ * output files for a project at once.
  */
 
 import * as nodePath from "node:path";
@@ -39,6 +39,8 @@ import { emitDefaultExpression } from "./emitter-defaults.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
+import type { ResolvedDoofBuildTarget } from "./build-targets.js";
+import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-target.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
 
@@ -66,8 +68,13 @@ export interface ProjectEmitResult {
   modules: ModuleEmitResult[];
   /** doof_runtime.hpp content. */
   runtime: string;
-  /** CMakeLists.txt content. */
-  cmake: string;
+  /** Additional generated support files. */
+  supportFiles: ProjectSupportFile[];
+}
+
+export interface ProjectBuildMetadata {
+  outputBinaryName?: string;
+  buildTarget?: ResolvedDoofBuildTarget | null;
 }
 
 export interface NativeBuildOptions {
@@ -76,28 +83,12 @@ export interface NativeBuildOptions {
   libraryPaths: string[];
   linkLibraries: string[];
   frameworks: string[];
+  pkgConfigPackages: string[];
   sourceFiles: string[];
   objectFiles: string[];
   compilerFlags: string[];
   linkerFlags: string[];
   defines: string[];
-}
-
-function withNativeBuildDefaults(
-  options: Partial<NativeBuildOptions> = {},
-): NativeBuildOptions {
-  return {
-    cppStd: options.cppStd ?? "c++17",
-    includePaths: options.includePaths ?? [],
-    libraryPaths: options.libraryPaths ?? [],
-    linkLibraries: options.linkLibraries ?? [],
-    frameworks: options.frameworks ?? [],
-    sourceFiles: options.sourceFiles ?? [],
-    objectFiles: options.objectFiles ?? [],
-    compilerFlags: options.compilerFlags ?? [],
-    linkerFlags: options.linkerFlags ?? [],
-    defines: options.defines ?? [],
-  };
 }
 
 // ============================================================================
@@ -139,7 +130,7 @@ export function emitModuleSplit(
 }
 
 /**
- * Emit a full project: all modules split + runtime + CMakeLists.txt.
+ * Emit a full project: all modules split + runtime + generated support files.
  *
  * Output paths (hppPath, cppPath, #include directives) are relative to the
  * entry file's directory. Modules that live outside that directory are still
@@ -148,24 +139,27 @@ export function emitModuleSplit(
 export function emitProject(
   entryPath: string,
   analysisResult: AnalysisResult,
-  nativeBuildOptions: Partial<NativeBuildOptions> = {},
+  buildMetadata: ProjectBuildMetadata = {},
 ): ProjectEmitResult {
   // Propagate on-demand JSON flags before emission
   propagateJsonDemand(analysisResult);
   propagateMetadataDemand(analysisResult);
 
-  const nativeBuild = withNativeBuildDefaults(nativeBuildOptions);
-
   const baseDir = nodePath.dirname(entryPath);
+  const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
   const modules: ModuleEmitResult[] = [];
   for (const [modPath] of analysisResult.modules) {
     modules.push(emitModuleSplit(modPath, analysisResult, baseDir));
   }
 
+  const supportFiles = buildMetadata.buildTarget?.kind === "macos-app"
+    ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
+    : [];
+
   return {
     modules,
     runtime: generateRuntimeHeader(),
-    cmake: generateCMakeLists(modules, entryPath, baseDir, analysisResult, nativeBuild),
+    supportFiles,
   };
 }
 
@@ -983,150 +977,6 @@ function buildInitOrder(
   }
 
   return order;
-}
-
-// ============================================================================
-// CMakeLists.txt generation
-// ============================================================================
-
-function generateCMakeLists(
-  modules: ModuleEmitResult[],
-  entryPath: string,
-  _baseDir: string,
-  analysisResult: AnalysisResult,
-  nativeBuild: NativeBuildOptions,
-): string {
-  const lines: string[] = [];
-
-  // Determine project name from entry module
-  const projectName = modulePathToBaseName(entryPath);
-
-  lines.push("cmake_minimum_required(VERSION 3.16)");
-  lines.push(`project(${projectName} CXX)`);
-  lines.push("");
-
-  const cmakeStd = cppStdToCMakeStandard(nativeBuild.cppStd);
-  if (cmakeStd !== null) {
-    lines.push(`set(CMAKE_CXX_STANDARD ${cmakeStd.standard})`);
-    lines.push("set(CMAKE_CXX_STANDARD_REQUIRED ON)");
-    lines.push(`set(CMAKE_CXX_EXTENSIONS ${cmakeStd.extensions ? "ON" : "OFF"})`);
-  }
-  lines.push("");
-
-  // nlohmann/json dependency (header-only, fetched via FetchContent)
-  lines.push("include(FetchContent)");
-  lines.push("FetchContent_Declare(");
-  lines.push("    json");
-  lines.push("    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz");
-  lines.push(")");
-  lines.push("FetchContent_MakeAvailable(json)");
-  lines.push("");
-
-  // Collect all .cpp source files
-  const sources = [
-    ...modules.map((m) => m.cppPath),
-    ...nativeBuild.sourceFiles,
-    ...nativeBuild.objectFiles,
-  ];
-  lines.push(`add_executable(${projectName}`);
-  for (const src of sources) {
-    lines.push(`    ${cmakeValue(src)}`);
-  }
-  lines.push(")");
-  lines.push("");
-
-  // Include directory (for headers and runtime)
-  lines.push(`target_include_directories(${projectName} PRIVATE`);
-  lines.push(`    \${CMAKE_CURRENT_SOURCE_DIR}`);
-  for (const includePath of nativeBuild.includePaths) {
-    lines.push(`    ${cmakeValue(includePath)}`);
-  }
-  lines.push(")");
-
-  if (nativeBuild.libraryPaths.length > 0) {
-    lines.push("");
-    lines.push(`target_link_directories(${projectName} PRIVATE`);
-    for (const libraryPath of nativeBuild.libraryPaths) {
-      lines.push(`    ${cmakeValue(libraryPath)}`);
-    }
-    lines.push(")");
-  }
-
-  if (nativeBuild.defines.length > 0) {
-    lines.push("");
-    lines.push(`target_compile_definitions(${projectName} PRIVATE`);
-    for (const define of nativeBuild.defines) {
-      lines.push(`    ${cmakeValue(define)}`);
-    }
-    lines.push(")");
-  }
-
-  const compileOptions = [...nativeBuild.compilerFlags];
-  if (cmakeStd === null) {
-    compileOptions.unshift(`-std=${nativeBuild.cppStd}`);
-  }
-  if (compileOptions.length > 0) {
-    lines.push("");
-    lines.push(`target_compile_options(${projectName} PRIVATE`);
-    for (const option of compileOptions) {
-      lines.push(`    ${cmakeValue(option)}`);
-    }
-    lines.push(")");
-  }
-
-  if (nativeBuild.linkerFlags.length > 0) {
-    lines.push("");
-    lines.push(`target_link_options(${projectName} PRIVATE`);
-    for (const option of nativeBuild.linkerFlags) {
-      lines.push(`    ${cmakeValue(option)}`);
-    }
-    lines.push(")");
-  }
-
-  nativeBuild.linkLibraries = [...nativeBuild.linkLibraries, "nlohmann_json::nlohmann_json"];
-
-  if (nativeBuild.linkLibraries.length > 0) {
-    lines.push("");
-    lines.push(`target_link_libraries(${projectName} PRIVATE`);
-    for (const library of nativeBuild.linkLibraries) {
-      lines.push(`    ${cmakeValue(library)}`);
-    }
-    lines.push(")");
-  }
-
-  if (nativeBuild.frameworks.length > 0) {
-    lines.push("");
-    lines.push("if(APPLE)");
-    for (const framework of nativeBuild.frameworks) {
-      const variableName = frameworkVariableName(framework);
-      lines.push(`  find_library(${variableName} ${framework} REQUIRED)`);
-      lines.push(`  target_link_libraries(${projectName} PRIVATE \${${variableName}})`);
-    }
-    lines.push("endif()");
-  }
-
-  return lines.join("\n") + "\n";
-}
-
-function cppStdToCMakeStandard(cppStd: string): { standard: string; extensions: boolean } | null {
-  const match = /^(c\+\+|gnu\+\+)(\d+)$/.exec(cppStd);
-  if (!match) return null;
-  return {
-    standard: match[2],
-    extensions: match[1] === "gnu++",
-  };
-}
-
-function frameworkVariableName(framework: string): string {
-  const token = framework.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "FRAMEWORK";
-  return `DOOF_FRAMEWORK_${token}`;
-}
-
-function cmakeValue(value: string): string {
-  if (/^[A-Za-z0-9_:+./\-${}]+$/.test(value)) {
-    return value;
-  }
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 // ============================================================================

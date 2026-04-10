@@ -42,6 +42,7 @@ function createNativeBuildOptions(
     libraryPaths: options.libraryPaths ?? [],
     linkLibraries: options.linkLibraries ?? [],
     frameworks: options.frameworks ?? [],
+    pkgConfigPackages: options.pkgConfigPackages ?? [],
     sourceFiles: options.sourceFiles ?? [],
     objectFiles: options.objectFiles ?? [],
     compilerFlags: options.compilerFlags ?? [],
@@ -257,7 +258,7 @@ export class E2EContext {
     try {
       const diagnostics = collectSemanticDiagnostics(result);
       throwIfErrorDiagnostics(diagnostics);
-      project = emitProject(entry, result, nativeBuild);
+      project = emitProject(entry, result);
     } catch (e: any) {
       return {
         exitCode: -1,
@@ -347,7 +348,7 @@ export class E2EContext {
     try {
       const diagnostics = collectSemanticDiagnostics(result);
       throwIfErrorDiagnostics(diagnostics);
-      project = emitProject(entry, result, nativeBuild);
+      project = emitProject(entry, result);
     } catch (e: any) {
       return {
         success: false,

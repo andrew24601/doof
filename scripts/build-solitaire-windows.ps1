@@ -50,7 +50,7 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$emitDir = Join-Path $repoRoot "build-solitaire"
+$emitDir = Join-Path $repoRoot "samples/solitaire/build"
 $buildDir = Join-Path $repoRoot "samples/solitaire/_build-windows"
 
 Push-Location $repoRoot
@@ -61,7 +61,7 @@ try {
         Remove-Item $emitDir -Recurse -Force
     }
 
-    node dist/cli.js emit --include-path $repoRoot -o $emitDir samples/solitaire/main.do
+    node dist/cli.js emit samples/solitaire
 
     $cmakeArgs = @(
         "-S", "samples/solitaire",

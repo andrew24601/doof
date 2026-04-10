@@ -65,7 +65,7 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(cppCode).toContain("return a + b");
   });
 
-  it("always emits runtime JSON support and CMake dependency", () => {
+  it("always emits runtime JSON support", () => {
     const project = emitProjectHelper({
       "/main.do": `
         function main(): int {
@@ -77,7 +77,37 @@ describe("emitter-module — hpp/cpp split", () => {
 
     expect(project.runtime).toContain("#include <nlohmann/json.hpp>");
     expect(project.runtime).toContain("struct JSON {");
-    expect(project.cmake).toContain("FetchContent_Declare(");
+  });
+
+  it("emits macos-app support files", () => {
+    const project = emitProjectHelper({
+      "/main.do": `
+        function main(): int {
+          return 0
+        }
+      `,
+    }, "/main.do", {
+      outputBinaryName: "DoofSolitaire",
+      buildTarget: {
+        kind: "macos-app",
+        config: {
+          bundleId: "dev.doof.solitaire",
+          displayName: "Doof Solitaire",
+          version: "1.0",
+          iconPath: "/app/app-icon.svg",
+          resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+          category: "public.app-category.games",
+          minimumSystemVersion: "11.0",
+        },
+      },
+    });
+
+    expect(project.supportFiles.map((file) => file.relativePath)).toEqual([
+      "Info.plist",
+      "generate-macos-icon.sh",
+    ]);
+    expect(project.supportFiles[0]?.content).toContain("dev.doof.solitaire");
+    expect(project.supportFiles[1]?.content).toContain("qlmanage");
   });
 
   it("hpp has struct definition for exported class", () => {
@@ -301,7 +331,7 @@ describe("emitter-module — multi-module hpp includes", () => {
 });
 
 describe("emitter-module — emitProject", () => {
-  it("produces modules, runtime, and cmake", () => {
+  it("produces modules, runtime, and no support files by default", () => {
     const result = emitProjectHelper(
       {
         "/main.do": `
@@ -312,25 +342,7 @@ describe("emitter-module — emitProject", () => {
     );
     expect(result.modules).toHaveLength(1);
     expect(result.runtime).toContain("doof_runtime.hpp");
-    expect(result.cmake).toContain("cmake_minimum_required");
-  });
-
-  it("cmake lists all cpp source files", () => {
-    const result = emitProjectHelper(
-      {
-        "/main.do": `
-          import { add } from "./math"
-          function main(): int => add(1, 2)
-        `,
-        "/math.do": `
-          export function add(a: int, b: int): int => a + b
-        `,
-      },
-      "/main.do",
-    );
-    expect(result.cmake).toContain("main.cpp");
-    expect(result.cmake).toContain("math.cpp");
-    expect(result.cmake).toContain("project(main CXX)");
+    expect(result.supportFiles).toEqual([]);
   });
 
   it("anchors imported sibling modules under the output directory", () => {
@@ -356,92 +368,6 @@ describe("emitter-module — emitProject", () => {
 
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
     expect(mainModule?.hppCode).toContain('#include "shared/math.hpp"');
-    expect(result.cmake).toContain("shared/math.cpp");
-    expect(result.cmake).not.toContain("../shared/math.cpp");
-  });
-
-  it("cmake sets C++17 standard", () => {
-    const result = emitProjectHelper(
-      { "/main.do": `function main(): int => 0` },
-      "/main.do",
-    );
-    expect(result.cmake).toContain("set(CMAKE_CXX_STANDARD 17)");
-  });
-
-  it("cmake reflects native include, link, and framework options", () => {
-    const result = emitProjectHelper(
-      { "/main.do": `function main(): int => 0` },
-      "/main.do",
-      {
-        cppStd: "gnu++20",
-        includePaths: ["/opt/vendor/include"],
-        libraryPaths: ["/opt/vendor/lib"],
-        linkLibraries: ["curl"],
-        frameworks: ["Foundation"],
-      },
-    );
-    expect(result.cmake).toContain("set(CMAKE_CXX_STANDARD 20)");
-    expect(result.cmake).toContain("set(CMAKE_CXX_EXTENSIONS ON)");
-    expect(result.cmake).toContain("/opt/vendor/include");
-    expect(result.cmake).toContain("target_link_directories(main PRIVATE");
-    expect(result.cmake).toContain("/opt/vendor/lib");
-    expect(result.cmake).toContain("target_link_libraries(main PRIVATE");
-    expect(result.cmake).toContain("curl");
-    expect(result.cmake).toContain("find_library(DOOF_FRAMEWORK_Foundation Foundation REQUIRED)");
-  });
-
-  it("cmake includes extra sources, objects, defines, and options", () => {
-    const result = emitProjectHelper(
-      { "/main.do": `function main(): int => 0` },
-      "/main.do",
-      {
-        sourceFiles: ["/tmp/native/bridge.cpp"],
-        objectFiles: ["/tmp/native/bridge.o"],
-        defines: ["DEBUG", "API_LEVEL=2"],
-        compilerFlags: ["-O2"],
-        linkerFlags: ["-pthread"],
-      },
-    );
-    expect(result.cmake).toContain("/tmp/native/bridge.cpp");
-    expect(result.cmake).toContain("/tmp/native/bridge.o");
-    expect(result.cmake).toContain("target_compile_definitions(main PRIVATE");
-    expect(result.cmake).toContain("DEBUG");
-    expect(result.cmake).toContain("API_LEVEL=2");
-    expect(result.cmake).toContain("target_compile_options(main PRIVATE");
-    expect(result.cmake).toContain("-O2");
-    expect(result.cmake).toContain("target_link_options(main PRIVATE");
-    expect(result.cmake).toContain("-pthread");
-  });
-
-  it("cmake includes nlohmann/json even when no user JSON API is used", () => {
-    const result = emitProjectHelper(
-      {
-        "/main.do": `
-          class Point { x: int; y: int }
-          function main(): int => Point(1, 2).x
-        `,
-      },
-      "/main.do",
-    );
-    expect(result.cmake).toContain("nlohmann_json::nlohmann_json");
-    expect(result.cmake).toContain("FetchContent");
-  });
-
-  it("cmake includes nlohmann/json when JSON is used", () => {
-    const result = emitProjectHelper(
-      {
-        "/main.do": `
-          class Point { x: int; y: int }
-          function main(): int {
-            const json = Point(1, 2).toJsonValue()
-            return 0
-          }
-        `,
-      },
-      "/main.do",
-    );
-    expect(result.cmake).toContain("nlohmann_json::nlohmann_json");
-    expect(result.cmake).toContain("FetchContent_Declare");
   });
 
   it("hpp omits nlohmann/json include when no JSON is used", () => {

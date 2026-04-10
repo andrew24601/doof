@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectEmitResult } from "./emitter-module.js";
-import { buildCompileArgs, getCliVersion, parseArgs } from "./cli.js";
+import { buildCompileArgs, getCliVersion, parseArgs, resolveCliPipelineInputs } from "./cli.js";
+import { VirtualFS } from "./test-helpers.js";
 
 const tmpDirs: string[] = [];
 
@@ -91,6 +92,76 @@ describe("CLI argument parsing", () => {
   });
 });
 
+describe("CLI package resolution", () => {
+  it("defaults to the current package when build runs without a path", () => {
+    const fs = new VirtualFS({
+      "/workspace/doof.json": JSON.stringify({ name: "workspace" }),
+      "/workspace/main.do": "function main(): void {}",
+    });
+    const args = parseArgs(["node", "doof", "build"]);
+
+    expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
+      entry: "/workspace/main.do",
+      outDir: "/workspace/build",
+    });
+  });
+
+  it("resolves package directories through doof.json build settings", () => {
+    const fs = new VirtualFS({
+      "/workspace/demo/doof.json": JSON.stringify({
+        name: "demo",
+        build: {
+          entry: "src/app.do",
+          buildDir: "out/native",
+        },
+      }),
+      "/workspace/demo/src/app.do": "function main(): void {}",
+    });
+    const args = parseArgs(["node", "doof", "build", "demo"]);
+
+    expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
+      entry: "/workspace/demo/src/app.do",
+      outDir: "/workspace/demo/out/native",
+    });
+  });
+
+  it("uses manifest buildDir defaults for explicit entry files", () => {
+    const fs = new VirtualFS({
+      "/workspace/doof.json": JSON.stringify({
+        name: "workspace",
+        build: {
+          buildDir: "dist/generated",
+        },
+      }),
+      "/workspace/src/app.do": "function main(): void {}",
+    });
+    const args = parseArgs(["node", "doof", "build", "src/app.do"]);
+
+    expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
+      entry: "/workspace/src/app.do",
+      outDir: "/workspace/dist/generated",
+    });
+  });
+
+  it("keeps an explicit outdir instead of manifest buildDir", () => {
+    const fs = new VirtualFS({
+      "/workspace/demo/doof.json": JSON.stringify({
+        name: "demo",
+        build: {
+          buildDir: "out/native",
+        },
+      }),
+      "/workspace/demo/main.do": "function main(): void {}",
+    });
+    const args = parseArgs(["node", "doof", "build", "-o", "custom-out", "demo"]);
+
+    expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
+      entry: "/workspace/demo/main.do",
+      outDir: "custom-out",
+    });
+  });
+});
+
 describe("CLI compile args", () => {
   it("builds compiler arguments from native build options", () => {
     const project = createProjectEmitResult();
@@ -101,6 +172,7 @@ describe("CLI compile args", () => {
       libraryPaths: ["/opt/vendor/lib"],
       linkLibraries: ["curl", "ssl"],
       frameworks: ["Foundation"],
+      pkgConfigPackages: [],
       sourceFiles: ["/tmp/native/bridge.cpp"],
       objectFiles: ["/tmp/native/bridge.o"],
       compilerFlags: ["-O2"],
@@ -138,6 +210,7 @@ describe("CLI compile args", () => {
       libraryPaths: [],
       linkLibraries: [],
       frameworks: [],
+      pkgConfigPackages: [],
       sourceFiles: [],
       objectFiles: [],
       compilerFlags: [],
@@ -162,6 +235,7 @@ describe("CLI compile args", () => {
       libraryPaths: ["C:\\vendor\\lib"],
       linkLibraries: ["curl", "ssl.lib"],
       frameworks: [],
+      pkgConfigPackages: [],
       sourceFiles: ["C:\\tmp\\native\\bridge.cpp"],
       objectFiles: ["C:\\tmp\\native\\bridge.obj"],
       compilerFlags: ["/O2"],
@@ -200,6 +274,7 @@ describe("CLI compile args", () => {
       libraryPaths: ["/opt/vendor/lib"],
       linkLibraries: ["curl"],
       frameworks: ["Foundation"],
+      pkgConfigPackages: [],
       sourceFiles: ["/tmp/native/bridge.cpp"],
       objectFiles: ["/tmp/native/bridge.o"],
       compilerFlags: ["-O2"],
@@ -258,6 +333,6 @@ function createProjectEmitResult(): ProjectEmitResult {
       },
     ],
     runtime: "",
-    cmake: "",
+    supportFiles: [],
   };
 }

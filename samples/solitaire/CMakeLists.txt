@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 include(FetchContent)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../lib/cardgame/DoofGeneratedMacOSBundle.cmake")
 
 set(DOOF_SOLITAIRE_LANGUAGES CXX)
 if(APPLE)
@@ -13,13 +14,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(DOOF_SOLITAIRE_EXECUTABLE "DoofSolitaire")
-set(DOOF_SOLITAIRE_DISPLAY_NAME "Doof Solitaire")
-set(DOOF_SOLITAIRE_BUNDLE_ID "dev.doof.solitaire")
-set(DOOF_SOLITAIRE_VERSION "1.0")
-
 set(DOOF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-set(DOOF_OUTPUT_DIR "${DOOF_REPO_ROOT}/build-solitaire")
+set(DOOF_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build")
 set(DOOF_SHARED_HOST_DIR "${DOOF_REPO_ROOT}/samples/lib/cardgame")
 set(DOOF_SHARED_ENGINE_DIR "${DOOF_SHARED_HOST_DIR}/engine")
 
@@ -38,14 +34,14 @@ set(DOOF_REQUIRED_HEADERS
 foreach(DOOF_REQUIRED_HEADER IN LISTS DOOF_REQUIRED_HEADERS)
     if(NOT EXISTS "${DOOF_OUTPUT_DIR}/${DOOF_REQUIRED_HEADER}")
         message(FATAL_ERROR
-            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-solitaire samples/solitaire/main.do` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
+            "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit samples/solitaire` from the repository root first. Missing ${DOOF_REQUIRED_HEADER}."
         )
     endif()
 endforeach()
 
 if(NOT EXISTS "${DOOF_OUTPUT_DIR}/doof_runtime.hpp")
     message(FATAL_ERROR
-        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit --include-path <repo-root> -o build-solitaire samples/solitaire/main.do` from the repository root first. Missing doof_runtime.hpp."
+        "Generated Doof sources were not found in ${DOOF_OUTPUT_DIR}. Run `node dist/cli.js emit samples/solitaire` from the repository root first. Missing doof_runtime.hpp."
     )
 endif()
 
@@ -89,13 +85,7 @@ else()
     message(FATAL_ERROR "The solitaire sample currently supports macOS and Windows native builds.")
 endif()
 
-set(DOOF_SOLITAIRE_TARGET_ARGS)
-if(APPLE)
-    list(APPEND DOOF_SOLITAIRE_TARGET_ARGS MACOSX_BUNDLE)
-endif()
-
 add_executable(DoofSolitaire
-    ${DOOF_SOLITAIRE_TARGET_ARGS}
     ${DOOF_SOLITAIRE_HOST_SOURCE}
     ${DOOF_GENERATED_SOURCES}
 )
@@ -123,9 +113,7 @@ endif()
 
 target_link_libraries(DoofSolitaire PRIVATE nlohmann_json::nlohmann_json)
 
-if(APPLE)
-    target_link_libraries(DoofSolitaire PRIVATE "-framework Cocoa" "-framework Foundation")
-elseif(WIN32)
+if(WIN32)
     target_link_libraries(DoofSolitaire PRIVATE windowscodecs ole32)
 endif()
 
@@ -140,33 +128,8 @@ elseif(WIN32)
     target_link_options(DoofSolitaire PRIVATE -mwindows)
 endif()
 
-file(GLOB DOOF_SAMPLE_IMAGE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/images/*")
-
 if(APPLE)
-    set(DOOF_SOLITAIRE_ICON_SVG "${CMAKE_CURRENT_SOURCE_DIR}/app-icon.svg")
-    set(DOOF_SOLITAIRE_ICON_ICNS "${CMAKE_CURRENT_BINARY_DIR}/DoofSolitaire.icns")
-    set(DOOF_SOLITAIRE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
-
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" "${DOOF_SOLITAIRE_INFO_PLIST}" @ONLY)
-
-    add_custom_command(
-        OUTPUT "${DOOF_SOLITAIRE_ICON_ICNS}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
-        COMMAND /bin/bash "${DOOF_REPO_ROOT}/scripts/generate-macos-icon.sh" "${DOOF_SOLITAIRE_ICON_SVG}" "${DOOF_SOLITAIRE_ICON_ICNS}"
-        DEPENDS "${DOOF_SOLITAIRE_ICON_SVG}" "${DOOF_REPO_ROOT}/scripts/generate-macos-icon.sh"
-        COMMENT "Generating Doof Solitaire app icon"
-        VERBATIM
-    )
-
-    target_sources(DoofSolitaire PRIVATE "${DOOF_SOLITAIRE_ICON_ICNS}" ${DOOF_SAMPLE_IMAGE_FILES})
-    set_source_files_properties("${DOOF_SOLITAIRE_ICON_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    foreach(DOOF_SAMPLE_IMAGE IN LISTS DOOF_SAMPLE_IMAGE_FILES)
-        set_source_files_properties("${DOOF_SAMPLE_IMAGE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/images")
-    endforeach()
-
-    set_target_properties(DoofSolitaire PROPERTIES
-        MACOSX_BUNDLE_INFO_PLIST "${DOOF_SOLITAIRE_INFO_PLIST}"
-    )
+    doof_configure_generated_macos_bundle(DoofSolitaire "${DOOF_OUTPUT_DIR}")
 else()
     add_custom_command(TARGET DoofSolitaire POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

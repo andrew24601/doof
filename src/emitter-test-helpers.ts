@@ -8,8 +8,8 @@ import { ModuleAnalyzer } from "./analyzer.js";
 import {
   emitModuleSplit,
   emitProject,
+  type ProjectBuildMetadata,
   type ModuleEmitResult,
-  type NativeBuildOptions,
   type ProjectEmitResult,
 } from "./emitter-module.js";
 import { collectSemanticDiagnostics, throwIfErrorDiagnostics } from "./pipeline-diagnostics.js";
@@ -65,7 +65,7 @@ export function emitSplitMulti(
 export function emitProjectHelper(
   files: Record<string, string>,
   entry: string,
-  nativeBuildOptions: Partial<NativeBuildOptions> = {},
+  buildMetadata: ProjectBuildMetadata = {},
 ): ProjectEmitResult {
   const fs = new VirtualFS(files);
   const resolver = createBundledModuleResolver(fs);
@@ -74,7 +74,7 @@ export function emitProjectHelper(
   const diagnostics = collectSemanticDiagnostics(result);
   throwIfErrorDiagnostics(diagnostics);
 
-  return emitProject(entry, result, nativeBuildOptions);
+  return emitProject(entry, result, buildMetadata);
 }
 
 function combineModuleOutput(module: ModuleEmitResult): string {

@@ -34,7 +34,7 @@
 - ✅ **Module splitting** — `.hpp`/`.cpp` per module with proper includes and forward declarations
 - ✅ **main() wrapper** — Doof `main` → `doof_main()` + C++ `int main()` entry point
 - ✅ **Anonymous namespace** — non-exported symbols in anonymous namespace for proper encapsulation
-- ✅ **CMakeLists.txt generation** — project build script with C++17 standard
+- ✅ **External build metadata generation** — `doof-build.json` handoff for native project integration
 - ✅ **Multi-module compilation** — imported functions, classes, enums across modules (e2e tested)
 - ✅ **Module initialization** — `_init_module()` functions for `readonly` globals with dependency ordering
 - ✅ **Namespace-qualified imports** — `import * as ns from "mod"` with member access → direct symbol reference
@@ -887,7 +887,7 @@ Walk expression nodes, emit C++ text. Key cases:
 - ✅ Recursion: recursive functions (fibonacci) verify correct C++ emission
 - ✅ Module splitting: `.hpp`/`.cpp` per module with forward declarations, includes, and anonymous namespace
 - ✅ `main()` entry point wrapper: `doof_main()` + C++ `int main()` with arg conversion
-- ✅ CMakeLists.txt generation for project building
+- ✅ External build metadata generation for project building
 - ✅ Multi-module e2e: imported functions, classes, enums across modules compile and run
 
 ### Phase 1: Scaffold + Primitives (MVP) ✅ **COMPLETE**
@@ -958,7 +958,7 @@ Walk expression nodes, emit C++ text. Key cases:
 - [x] Emit `static` / anonymous namespace for non-exported symbols ✅ IMPLEMENTED
 - [x] Emit module initialization chain (topological dependency order) ✅ IMPLEMENTED
 - [x] Emit `main()` entry point wrapper (`doof_main()` + C++ `main()`) ✅ IMPLEMENTED
-- [x] Generate `CMakeLists.txt` build script ✅ IMPLEMENTED
+- [x] Generate `doof-build.json` build manifest ✅ IMPLEMENTED
 - [x] Tests: multi-module programs, import resolution ✅ 23 unit tests + 10 e2e tests
 - [x] `emitModuleSplit()` — single module → `.hpp`/`.cpp` pair ✅ IMPLEMENTED
 - [x] `emitProject()` — all modules + runtime + CMake ✅ IMPLEMENTED
@@ -1149,7 +1149,7 @@ For simplicity, Phase 1 could emit a single `.cpp` file per module (all-in-one).
 - Module splitting: `.hpp`/`.cpp` per module with forward declarations and includes
 - `main()` entry point: `doof_main()` + C++ `int main()` wrapper
 - Anonymous namespace for non-exported functions and variables
-- CMakeLists.txt generation for project building
+- External build metadata generation for project building
 - Multi-module compilation: imported functions, classes, enums across modules
 - Extern C++ class interop: `import class` with `#include` generation, `shared_ptr` wrapping, namespace-qualified names
 
@@ -1275,7 +1275,7 @@ function emit(source: string): string {
   - Non-exported symbol visibility (anonymous namespace)
   - `main()` entry point wrapper
   - Multi-module `#include` generation
-  - `emitProject()` with CMakeLists.txt
+    - `emitProject()` with project support files
   - Default parameter values in forward declarations
   - Named constructor field ordering (args sorted by class declaration order)
   - Enum `fromName` helper function

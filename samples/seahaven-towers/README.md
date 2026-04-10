@@ -32,16 +32,14 @@ From the repository root:
 
 ```bash
 npm run build
-rm -rf build-seahaven-towers
-node dist/cli.js emit --include-path "$PWD" -o build-seahaven-towers samples/seahaven-towers/main.do
-cmake -S samples/seahaven-towers -B build-seahaven-towers-sdl
-cmake --build build-seahaven-towers-sdl
+rm -rf samples/seahaven-towers/build
+node dist/cli.js build samples/seahaven-towers
 ```
 
 On macOS, launch the bundle with:
 
 ```bash
-open build-seahaven-towers-sdl/DoofSeahavenTowers.app
+open samples/seahaven-towers/build/DoofSeahavenTowers.app
 ```
 
 On Windows PowerShell, install the prerequisites once:
@@ -61,14 +59,14 @@ Then build and run with:
 
 ```powershell
 npm run build
-if (Test-Path build-seahaven-towers) { Remove-Item build-seahaven-towers -Recurse -Force }
-node dist/cli.js emit --include-path $PWD -o build-seahaven-towers samples/seahaven-towers/main.do
+if (Test-Path samples/seahaven-towers/build) { Remove-Item samples/seahaven-towers/build -Recurse -Force }
+node dist/cli.js emit samples/seahaven-towers
 cmake -S samples/seahaven-towers -B build-seahaven-towers-sdl -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build-seahaven-towers-sdl --config Release
 & .\build-seahaven-towers-sdl\Release\DoofSeahavenTowers.exe
 ```
 
-Or use the sample helper for the full emit + CMake flow:
+Or use the sample helper for the full build flow:
 
 ```bash
 samples/seahaven-towers/build.sh --run
@@ -81,6 +79,8 @@ On Windows, use the PowerShell helper instead:
 ```
 
 The sample CMake config will use an installed `nlohmann_json` package when available and otherwise fetch the header-only release automatically during configure.
+
+On macOS, the app bundle identity, plist metadata, icon path, staged resources, shared host sources, and SDL3 discovery now come from manifest-driven build metadata rooted in [samples/seahaven-towers/doof.json](samples/seahaven-towers/doof.json) and [samples/lib/cardgame/doof.json](samples/lib/cardgame/doof.json). The direct `doof build` path now produces the `.app` bundle without CMake.
 
 If you are not already in a Developer PowerShell session, pass `-VcVarsPath "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"` to [scripts/build-seahaven-towers-windows.ps1](/Users/andrew/develop/doof/scripts/build-seahaven-towers-windows.ps1).
 

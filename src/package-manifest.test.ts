@@ -9,6 +9,7 @@ import {
   findDoofManifestPath,
   loadPackageGraph,
   mergePackageNativeBuild,
+  resolvePackageBuildContext,
 } from "./package-manifest.js";
 import { VirtualFS } from "./test-helpers.js";
 
@@ -20,6 +21,15 @@ describe("doof manifest discovery", () => {
     });
 
     expect(findDoofManifestPath(fs, "/workspace/src/app/main.do")).toBe("/workspace/doof.json");
+  });
+
+  it("finds doof.json when starting from a package directory", () => {
+    const fs = new VirtualFS({
+      "/workspace/app/doof.json": JSON.stringify({ name: "app" }),
+      "/workspace/app/main.do": "function main(): void {}",
+    });
+
+    expect(findDoofManifestPath(fs, "/workspace/app")).toBe("/workspace/app/doof.json");
   });
 
   it("rejects missing doof.json when running the CLI pipeline", () => {
@@ -35,6 +45,70 @@ describe("doof manifest discovery", () => {
       () => {},
       () => {},
     )).toThrow("No doof.json found");
+  });
+});
+
+describe("manifest build defaults", () => {
+  it("defaults package entry and build output under the package root", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({ name: "app" }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(resolvePackageBuildContext(fs, "/app")).toMatchObject({
+      rootDir: "/app",
+      manifestPath: "/app/doof.json",
+      entryPath: "/app/main.do",
+      buildDir: "/app/build",
+    });
+  });
+
+  it("resolves build.entry and build.buildDir relative to the package root", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          entry: "src/demo.do",
+          buildDir: "dist/native",
+        },
+      }),
+      "/app/src/demo.do": "function main(): void {}",
+    });
+
+    expect(resolvePackageBuildContext(fs, "/app")).toMatchObject({
+      entryPath: "/app/src/demo.do",
+      buildDir: "/app/dist/native",
+    });
+  });
+
+  it("rejects build.entry paths that escape the package root", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          entry: "../main.do",
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => resolvePackageBuildContext(fs, "/app"))
+      .toThrow("build.entry must stay within the package root");
+  });
+
+  it("rejects build.buildDir paths that escape the package root", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          buildDir: "../build",
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => resolvePackageBuildContext(fs, "/app"))
+      .toThrow("build.buildDir must stay within the package root");
   });
 });
 
@@ -258,6 +332,7 @@ describe("local package graphs", () => {
       libraryPaths: ["/deps/bar/lib"],
       linkLibraries: ["curl", "sqlite3", "appkit"],
       frameworks: ["Foundation"],
+      pkgConfigPackages: [],
       defines: ["APP=1"],
       compilerFlags: ["-O2"],
       linkerFlags: ["-pthread"],
@@ -278,6 +353,171 @@ describe("local package graphs", () => {
     });
 
     expect(() => loadPackageGraph(fs, "/app/main.do")).toThrow("build.native.includePaths must stay within the package root");
+  });
+
+  it("applies platform-scoped native build metadata for the current host", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          native: {
+            includePaths: ["./shared"],
+            macos: {
+              sourceFiles: ["./native.mm"],
+              pkgConfigPackages: ["sdl3"],
+              frameworks: ["Cocoa"],
+            },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/shared/dummy.hpp": "",
+      "/app/native.mm": "",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.nativeBuild.includePaths).toEqual(["/app/shared"]);
+    if (process.platform === "darwin") {
+      expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native.mm"]);
+      expect(graph.rootPackage.nativeBuild.pkgConfigPackages).toEqual(["sdl3"]);
+      expect(graph.rootPackage.nativeBuild.frameworks).toEqual(["Cocoa"]);
+    } else {
+      expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual([]);
+      expect(graph.rootPackage.nativeBuild.pkgConfigPackages).toEqual([]);
+      expect(graph.rootPackage.nativeBuild.frameworks).toEqual([]);
+    }
+  });
+
+  it("normalizes macos-app target metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofSolitaire",
+          macosApp: {
+            bundleId: "dev.doof.solitaire",
+            displayName: "Doof Solitaire",
+            version: "1.0",
+            icon: "./app-icon.svg",
+            resources: [
+              { from: "images/*", to: "images" },
+            ],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "macos-app",
+      config: {
+        bundleId: "dev.doof.solitaire",
+        displayName: "Doof Solitaire",
+        version: "1.0",
+        iconPath: "/app/app-icon.svg",
+        resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+        category: "public.app-category.developer-tools",
+        minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
+  it("treats bare build paths as package-root relative", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofDemo",
+          native: {
+            includePaths: ["native/include"],
+            sourceFiles: ["native/bridge.cpp"],
+            libraryPaths: ["native/lib"],
+          },
+          macosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+            resources: [{ from: "images/*", to: "images" }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.nativeBuild.includePaths).toEqual(["/app/native/include"]);
+    expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native/bridge.cpp"]);
+    expect(graph.rootPackage.nativeBuild.libraryPaths).toEqual(["/app/native/lib"]);
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "macos-app",
+      config: {
+        bundleId: "dev.doof.demo",
+        displayName: "Demo",
+        version: "1.0",
+        iconPath: "/app/app-icon.svg",
+        resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+        category: "public.app-category.developer-tools",
+        minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
+  it("requires an executable name for macos-app targets", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          macosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "./app-icon.svg",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow('build.targetExecutableName is required when build.target is "macos-app"');
+  });
+
+  it("rejects macos-app resource destinations that escape the bundle", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofDemo",
+          macosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "./app-icon.svg",
+            resources: [{ from: "images/*", to: "../oops" }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("build.macosApp.resources[0].to bundle resource destinations must stay within Contents/Resources");
   });
 });
 
@@ -305,7 +545,7 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.provenance).toEqual({ dependencies: [] });
   });
 
-  it("propagates package native inputs into generated cmake and the build manifest", () => {
+  it("propagates package native inputs into runtime build metadata", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
         name: "app",
@@ -347,14 +587,14 @@ describe("manifest-derived pipeline metadata", () => {
       () => {},
     );
 
-    expect(result.project.cmake).toContain("/deps/foo/include");
-    expect(result.project.cmake).toContain("/deps/foo/bridge.cpp");
-    expect(result.project.cmake).toContain("/deps/foo/lib");
-    expect(result.project.cmake).toContain("curl");
-    expect(result.project.cmake).toContain("Foundation");
-    expect(result.project.cmake).toContain("FOO=1");
-    expect(result.project.cmake).toContain("-O2");
-    expect(result.project.cmake).toContain("-pthread");
+    expect(result.nativeBuild.includePaths).toEqual(["/deps/foo/include"]);
+    expect(result.nativeBuild.sourceFiles).toEqual(["/deps/foo/bridge.cpp"]);
+    expect(result.nativeBuild.libraryPaths).toEqual(["/deps/foo/lib"]);
+    expect(result.nativeBuild.linkLibraries).toEqual(["curl", "sqlite3"]);
+    expect(result.nativeBuild.frameworks).toEqual(["Foundation"]);
+    expect(result.nativeBuild.defines).toEqual(["FOO=1"]);
+    expect(result.nativeBuild.compilerFlags).toEqual(["-O2"]);
+    expect(result.nativeBuild.linkerFlags).toEqual(["-pthread"]);
     expect(result.buildManifest.outputBinaryName).toBe(normalizeOutputBinaryName("demo-app"));
     expect(result.buildManifest.nativeIncludePaths).toEqual(["/deps/foo/include"]);
     expect(result.buildManifest.nativeSourceFiles).toEqual(["/deps/foo/bridge.cpp"]);
@@ -416,6 +656,66 @@ describe("manifest-derived pipeline metadata", () => {
       expect(buildManifest.generatedSources).toContain("main.cpp");
       expect(buildManifest.generatedHeaders).toContain("main.hpp");
       expect(buildManifest.nativeSourceFiles).toEqual(["/deps/foo/bridge.cpp"]);
+      expect(fs.existsSync(path.join(outDir, "CMakeLists.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits bundle-aware metadata and support files for macos-app targets", () => {
+    const virtualFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofSolitaire",
+          native: {
+            frameworks: ["Cocoa", "Foundation"],
+          },
+          macosApp: {
+            bundleId: "dev.doof.solitaire",
+            displayName: "Doof Solitaire",
+            version: "1.0",
+            icon: "./app-icon.svg",
+            resources: [{ from: "images/*", to: "images" }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    const result = runPipelineWithFs(
+      virtualFs,
+      "/app/main.do",
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.buildTarget?.kind).toBe("macos-app");
+    expect(result.project.supportFiles.map((file) => file.relativePath)).toEqual([
+      "Info.plist",
+      "generate-macos-icon.sh",
+    ]);
+    expect(result.project.supportFiles[0]?.content).toContain("dev.doof.solitaire");
+    expect(result.buildManifest.buildTarget?.kind).toBe("macos-app");
+
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-macos-app-"));
+    try {
+      writeProject(result.project, outDir, false, () => {}, result.provenance, result.buildManifest);
+
+      const buildManifest = JSON.parse(fs.readFileSync(path.join(outDir, "doof-build.json"), "utf8")) as {
+        schemaVersion: number;
+        buildTarget: { kind: string; config: { iconPath: string } } | null;
+      };
+      expect(buildManifest.schemaVersion).toBe(2);
+      expect(buildManifest.buildTarget?.kind).toBe("macos-app");
+      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.svg");
+      expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.solitaire");
+      expect(fs.statSync(path.join(outDir, "generate-macos-icon.sh")).mode & 0o111).not.toBe(0);
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
@@ -429,6 +729,7 @@ function emptyNativeBuildOptions() {
     libraryPaths: [],
     linkLibraries: [],
     frameworks: [],
+    pkgConfigPackages: [],
     sourceFiles: [],
     objectFiles: [],
     compilerFlags: [],

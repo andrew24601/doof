@@ -2,6 +2,20 @@
   "name": "solitaire-sample",
   "version": "0.1.0",
   "license": "ISC",
+  "build": {
+    "target": "macos-app",
+    "targetExecutableName": "DoofSolitaire",
+    "macosApp": {
+      "bundleId": "dev.doof.solitaire",
+      "displayName": "Doof Solitaire",
+      "version": "1.0",
+      "category": "public.app-category.games",
+      "icon": "app-icon.svg",
+      "resources": [
+        { "from": "images/*", "to": "images" }
+      ]
+    }
+  },
   "dependencies": {
     "cardgame": {
       "path": "../lib/cardgame"

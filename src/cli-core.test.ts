@@ -4,6 +4,7 @@ import {
   getDefaultOutputBinaryName,
   normalizeOutputBinaryName,
   resolveNlohmannInclude,
+  resolvePkgConfigNativeBuild,
   resolveCompilerToolchain,
   tryFindCompilerToolchain,
 } from "./cli-core.js";
@@ -180,6 +181,48 @@ describe("CLI output binary naming", () => {
     expect(normalizeOutputBinaryName("demo-app", "win32")).toBe("demo-app.exe");
     expect(normalizeOutputBinaryName("demo-app.exe", "win32")).toBe("demo-app.exe");
     expect(normalizeOutputBinaryName("demo-app", "linux")).toBe("demo-app");
+  });
+});
+
+describe("CLI pkg-config native build resolution", () => {
+  it("converts pkg-config cflags and libs into native build options", () => {
+    const resolved = resolvePkgConfigNativeBuild({
+      cppStd: "c++17",
+      includePaths: [],
+      libraryPaths: [],
+      linkLibraries: [],
+      frameworks: [],
+      pkgConfigPackages: ["sdl3"],
+      sourceFiles: [],
+      objectFiles: [],
+      compilerFlags: [],
+      linkerFlags: [],
+      defines: [],
+    }, {
+      platform: "darwin",
+      env: {},
+      fileExists() {
+        return false;
+      },
+      execFile(command, args) {
+        expect(command).toBe("pkg-config");
+        if (args[0] === "--cflags") {
+          return Buffer.from("-I/opt/homebrew/include/SDL3 -DTEST_FLAG=1 -Winvalid-pch");
+        }
+        if (args[0] === "--libs") {
+          return Buffer.from("-L/opt/homebrew/lib -lSDL3 -framework Cocoa -Wl,-rpath,/opt/homebrew/lib");
+        }
+        throw new Error(`Unexpected args: ${args.join(" ")}`);
+      },
+    });
+
+    expect(resolved.includePaths).toEqual(["/opt/homebrew/include/SDL3"]);
+    expect(resolved.libraryPaths).toEqual(["/opt/homebrew/lib"]);
+    expect(resolved.linkLibraries).toEqual(["SDL3"]);
+    expect(resolved.frameworks).toEqual(["Cocoa"]);
+    expect(resolved.defines).toEqual(["TEST_FLAG=1"]);
+    expect(resolved.compilerFlags).toEqual(["-Winvalid-pch"]);
+    expect(resolved.linkerFlags).toEqual(["-Wl,-rpath,/opt/homebrew/lib"]);
   });
 });
 

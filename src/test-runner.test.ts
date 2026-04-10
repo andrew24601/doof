@@ -221,6 +221,7 @@ function emptyNativeBuildOptions() {
     libraryPaths: [],
     linkLibraries: [],
     frameworks: [],
+    pkgConfigPackages: [],
     sourceFiles: [],
     objectFiles: [],
     compilerFlags: [],

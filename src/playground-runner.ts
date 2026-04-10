@@ -308,6 +308,7 @@ function createNativeBuildOptions(): NativeBuildOptions {
     libraryPaths: [],
     linkLibraries: [],
     frameworks: [],
+    pkgConfigPackages: [],
     sourceFiles: [],
     objectFiles: [],
     compilerFlags: [],

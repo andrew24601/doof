@@ -5,6 +5,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
+import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import type { FileSystem } from "./resolver.js";
 import { joinFsPath, resolveFsPath } from "./path-utils.js";
 import {
@@ -43,16 +44,19 @@ export interface DiagnosticLike {
 
 export interface PipelineResult {
   project: ProjectEmitResult;
+  nativeBuild: NativeBuildOptions;
   warningCount: number;
   outputBinaryName: string;
   provenance: BuildProvenance;
   buildManifest: BuildManifestTemplate;
+  buildTarget: ResolvedDoofBuildTarget | null;
 }
 
 interface BuildManifestTemplate {
-  schemaVersion: 1;
+  schemaVersion: 2;
   entryPath: string;
   outputBinaryName: string;
+  buildTarget: ResolvedDoofBuildTarget | null;
   generatedHeaders: string[];
   generatedSources: string[];
   nativeIncludePaths: string[];
@@ -60,6 +64,7 @@ interface BuildManifestTemplate {
   libraryPaths: string[];
   linkLibraries: string[];
   frameworks: string[];
+  pkgConfigPackages: string[];
   defines: string[];
   compilerFlags: string[];
   linkerFlags: string[];
@@ -68,10 +73,11 @@ interface BuildManifestTemplate {
 }
 
 export interface DoofBuildManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   entryPath: string;
   outputDir: string;
   outputBinaryName: string;
+  buildTarget: ResolvedDoofBuildTarget | null;
   generatedHeaders: string[];
   generatedSources: string[];
   includePaths: string[];
@@ -79,6 +85,7 @@ export interface DoofBuildManifest {
   libraryPaths: string[];
   linkLibraries: string[];
   frameworks: string[];
+  pkgConfigPackages: string[];
   defines: string[];
   compilerFlags: string[];
   linkerFlags: string[];
@@ -297,6 +304,7 @@ export function runPipelineWithFs(
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath);
   const mergedPackageNativeBuild = mergePackageNativeBuild(packageGraph);
   const resolvedNativeBuild = mergeResolvedNativeBuildOptions(mergedPackageNativeBuild, nativeBuild);
+  const hostResolvedNativeBuild = resolvePkgConfigNativeBuild(resolvedNativeBuild);
   const resolver = createBundledModuleResolver(fileSystem, {
     packages: packageGraph.packages.map((pkg) => ({
       rootDir: pkg.rootDir,
@@ -336,23 +344,31 @@ export function runPipelineWithFs(
   }
   if (verbose) log("  No type errors");
 
+  const outputBinaryName = getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
+  const buildTarget = packageGraph.rootPackage.buildTarget;
+
   if (verbose) log("Emitting C++...");
-  const project = emitProject(normalizedEntryPath, analysisResult, resolvedNativeBuild);
+  const project = emitProject(normalizedEntryPath, analysisResult, {
+    outputBinaryName,
+    buildTarget,
+  });
   if (verbose) log(`  ${project.modules.length} module(s) emitted`);
 
-  const outputBinaryName = getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
   const provenance = createBuildProvenance(packageGraph);
 
   return {
     project,
+    nativeBuild: hostResolvedNativeBuild,
     warningCount,
     outputBinaryName,
     provenance,
+    buildTarget,
     buildManifest: createBuildManifestTemplate(
       normalizedEntryPath,
       outputBinaryName,
+      buildTarget,
       project,
-      resolvedNativeBuild,
+      hostResolvedNativeBuild,
       packageGraph.packages.map((pkg) => pkg.rootDir),
       provenance,
     ),
@@ -376,7 +392,13 @@ export function writeProject(
     writeFile(path.join(outDir, mod.cppPath), mod.cppCode, verbose, log);
   }
 
-  writeFile(path.join(outDir, "CMakeLists.txt"), project.cmake, verbose, log);
+  for (const supportFile of project.supportFiles) {
+    writeFile(path.join(outDir, supportFile.relativePath), supportFile.content, verbose, log);
+    if (supportFile.executable) {
+      fs.chmodSync(path.join(outDir, supportFile.relativePath), 0o755);
+    }
+  }
+
   if (provenance) {
     writeFile(path.join(outDir, "provenance.json"), JSON.stringify(provenance, null, 2) + "\n", verbose, log);
   }
@@ -449,23 +471,65 @@ export function resolveNativeBuildOptions(nativeBuild: NativeBuildOptions): Nati
     ...nativeBuild,
     includePaths: nativeBuild.includePaths.map((includePath) => path.resolve(includePath)),
     libraryPaths: nativeBuild.libraryPaths.map((libraryPath) => path.resolve(libraryPath)),
+    pkgConfigPackages: [...nativeBuild.pkgConfigPackages],
     sourceFiles: nativeBuild.sourceFiles.map((sourceFile) => path.resolve(sourceFile)),
     objectFiles: nativeBuild.objectFiles.map((objectFile) => path.resolve(objectFile)),
+  };
+}
+
+export function resolvePkgConfigNativeBuild(
+  nativeBuild: NativeBuildOptions,
+  host: CompilerDetectionHost = defaultCompilerDetectionHost(),
+): NativeBuildOptions {
+  if (nativeBuild.pkgConfigPackages.length === 0) {
+    return nativeBuild;
+  }
+
+  const resolved: NativeBuildOptions = {
+    ...nativeBuild,
+    includePaths: [...nativeBuild.includePaths],
+    libraryPaths: [...nativeBuild.libraryPaths],
+    linkLibraries: [...nativeBuild.linkLibraries],
+    frameworks: [...nativeBuild.frameworks],
+    pkgConfigPackages: [...nativeBuild.pkgConfigPackages],
+    sourceFiles: [...nativeBuild.sourceFiles],
+    objectFiles: [...nativeBuild.objectFiles],
+    compilerFlags: [...nativeBuild.compilerFlags],
+    linkerFlags: [...nativeBuild.linkerFlags],
+    defines: [...nativeBuild.defines],
+  };
+
+  for (const packageName of nativeBuild.pkgConfigPackages) {
+    applyPkgConfigTokens(execPkgConfig(host, ["--cflags", packageName], packageName), resolved, "cflags");
+    applyPkgConfigTokens(execPkgConfig(host, ["--libs", packageName], packageName), resolved, "libs");
+  }
+
+  return {
+    ...resolved,
+    includePaths: uniqueStrings(resolved.includePaths),
+    libraryPaths: uniqueStrings(resolved.libraryPaths),
+    linkLibraries: uniqueStrings(resolved.linkLibraries),
+    frameworks: uniqueStrings(resolved.frameworks),
+    compilerFlags: uniqueStrings(resolved.compilerFlags),
+    linkerFlags: uniqueStrings(resolved.linkerFlags),
+    defines: uniqueStrings(resolved.defines),
   };
 }
 
 function createBuildManifestTemplate(
   entryPath: string,
   outputBinaryName: string,
+  buildTarget: ResolvedDoofBuildTarget | null,
   project: ProjectEmitResult,
   nativeBuild: NativeBuildOptions,
   packageRoots: string[],
   provenance: BuildProvenance,
 ): BuildManifestTemplate {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     entryPath,
     outputBinaryName,
+    buildTarget,
     generatedHeaders: project.modules.map((mod) => mod.hppPath).sort(),
     generatedSources: project.modules.map((mod) => mod.cppPath).sort(),
     nativeIncludePaths: [...nativeBuild.includePaths],
@@ -473,6 +537,7 @@ function createBuildManifestTemplate(
     libraryPaths: [...nativeBuild.libraryPaths],
     linkLibraries: [...nativeBuild.linkLibraries],
     frameworks: [...nativeBuild.frameworks],
+    pkgConfigPackages: [...nativeBuild.pkgConfigPackages],
     defines: [...nativeBuild.defines],
     compilerFlags: [...nativeBuild.compilerFlags],
     linkerFlags: [...nativeBuild.linkerFlags],
@@ -489,6 +554,7 @@ function finalizeBuildManifest(template: BuildManifestTemplate, outDir: string):
     entryPath: template.entryPath,
     outputDir: absOutDir,
     outputBinaryName: template.outputBinaryName,
+    buildTarget: template.buildTarget,
     generatedHeaders: [...template.generatedHeaders],
     generatedSources: [...template.generatedSources],
     includePaths: uniqueStrings([absOutDir, ...template.nativeIncludePaths]),
@@ -496,6 +562,7 @@ function finalizeBuildManifest(template: BuildManifestTemplate, outDir: string):
     libraryPaths: [...template.libraryPaths],
     linkLibraries: [...template.linkLibraries],
     frameworks: [...template.frameworks],
+    pkgConfigPackages: [...template.pkgConfigPackages],
     defines: [...template.defines],
     compilerFlags: [...template.compilerFlags],
     linkerFlags: [...template.linkerFlags],
@@ -514,12 +581,80 @@ function mergeResolvedNativeBuildOptions(
     libraryPaths: uniqueStrings([...packageNativeBuild.libraryPaths, ...nativeBuild.libraryPaths]),
     linkLibraries: uniqueStrings([...packageNativeBuild.linkLibraries, ...nativeBuild.linkLibraries]),
     frameworks: uniqueStrings([...packageNativeBuild.frameworks, ...nativeBuild.frameworks]),
+    pkgConfigPackages: uniqueStrings([...packageNativeBuild.pkgConfigPackages, ...nativeBuild.pkgConfigPackages]),
     sourceFiles: uniqueStrings([...packageNativeBuild.sourceFiles, ...nativeBuild.sourceFiles]),
     objectFiles: [...nativeBuild.objectFiles],
     compilerFlags: uniqueStrings([...packageNativeBuild.compilerFlags, ...nativeBuild.compilerFlags]),
     linkerFlags: uniqueStrings([...packageNativeBuild.linkerFlags, ...nativeBuild.linkerFlags]),
     defines: uniqueStrings([...packageNativeBuild.defines, ...nativeBuild.defines]),
   };
+}
+
+function execPkgConfig(host: CompilerDetectionHost, args: string[], packageName: string): string[] {
+  try {
+    const output = host.execFile("pkg-config", args, { timeout: 5000, env: host.env }).toString().trim();
+    return output.length === 0 ? [] : output.split(/\s+/);
+  } catch (error: any) {
+    throw new Error(
+      `Failed to resolve pkg-config package ${JSON.stringify(packageName)}. Install pkg-config and the package metadata, or remove it from build.native.pkgConfigPackages.\n${formatProcessFailure("pkg-config failed", error)}`,
+    );
+  }
+}
+
+function applyPkgConfigTokens(
+  tokens: string[],
+  nativeBuild: NativeBuildOptions,
+  mode: "cflags" | "libs",
+): void {
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+
+    if (token === "-framework") {
+      const framework = tokens[index + 1];
+      if (framework) {
+        nativeBuild.frameworks.push(framework);
+        index++;
+      }
+      continue;
+    }
+
+    if (token === "-I" || token === "-L" || token === "-D") {
+      const value = tokens[index + 1];
+      if (value) {
+        if (token === "-I") nativeBuild.includePaths.push(value);
+        if (token === "-L") nativeBuild.libraryPaths.push(value);
+        if (token === "-D") nativeBuild.defines.push(value);
+        index++;
+      }
+      continue;
+    }
+
+    if (token.startsWith("-I")) {
+      nativeBuild.includePaths.push(token.slice(2));
+      continue;
+    }
+
+    if (token.startsWith("-L")) {
+      nativeBuild.libraryPaths.push(token.slice(2));
+      continue;
+    }
+
+    if (token.startsWith("-l")) {
+      nativeBuild.linkLibraries.push(token.slice(2));
+      continue;
+    }
+
+    if (token.startsWith("-D")) {
+      nativeBuild.defines.push(token.slice(2));
+      continue;
+    }
+
+    if (mode === "cflags") {
+      nativeBuild.compilerFlags.push(token);
+    } else {
+      nativeBuild.linkerFlags.push(token);
+    }
+  }
 }
 
 function uniqueStrings(values: string[]): string[] {

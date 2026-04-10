@@ -2,5 +2,22 @@
   "name": "boardgame",
   "version": "0.1.0",
   "license": "ISC",
+  "build": {
+    "native": {
+      "macos": {
+        "includePaths": ["."],
+        "sourceFiles": [
+          "native_boardgame_host.mm",
+          "engine/render/MetalRenderer.mm",
+          "engine/render/TextureLoader.mm",
+          "engine/render/TextureRegistry.mm",
+          "engine/math/MathUtil.cpp"
+        ],
+        "frameworks": ["Cocoa", "Foundation", "Metal", "QuartzCore", "ImageIO"],
+        "pkgConfigPackages": ["sdl3"],
+        "defines": ["SDL_MAIN_HANDLED"]
+      }
+    }
+  },
   "dependencies": {}
 }

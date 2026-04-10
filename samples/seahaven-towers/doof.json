@@ -2,6 +2,20 @@
   "name": "seahaven-towers-sample",
   "version": "0.1.0",
   "license": "ISC",
+  "build": {
+    "target": "macos-app",
+    "targetExecutableName": "DoofSeahavenTowers",
+    "macosApp": {
+      "bundleId": "dev.doof.seahaven-towers",
+      "displayName": "Doof Seahaven Towers",
+      "version": "1.0",
+      "category": "public.app-category.games",
+      "icon": "app-icon.svg",
+      "resources": [
+        { "from": "images/*", "to": "images" }
+      ]
+    }
+  },
   "dependencies": {
     "cardgame": {
       "path": "../lib/cardgame"

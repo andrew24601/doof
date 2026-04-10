@@ -144,27 +144,23 @@ The solitaire sample is designed to be used with the SDL3-based host.
 
 ```bash
 # Transpile the interactive sample entrypoint to C++
-rm -rf build-solitaire
-node dist/cli.js emit --include-path "$PWD" -o build-solitaire samples/solitaire/main.do
+rm -rf samples/solitaire/build
+node dist/cli.js emit samples/solitaire
 ```
 
 ### Native build status
 
-The interactive sample now builds against the shared native boardgame package in [samples/lib/cardgame](/Users/andrew/develop/doof/samples/lib/cardgame), while keeping its own sample-local CMake entrypoint and atlas assets under [samples/solitaire](./README.md).
+The interactive sample now builds against the shared native boardgame package in [samples/lib/cardgame](/Users/andrew/develop/doof/samples/lib/cardgame), while keeping its atlas assets under [samples/solitaire](./README.md). On macOS, `doof build` now drives the native host build directly without a sample-local CMake step.
 
 On macOS:
 
 ```bash
-# Refresh emitted sample sources first
-rm -rf build-solitaire
-node dist/cli.js emit --include-path "$PWD" -o build-solitaire samples/solitaire/main.do
-
-# Configure and build the sample-local Metal host
-cmake -S samples/solitaire -B build-solitaire-sdl
-cmake --build build-solitaire-sdl
+# Build the bundled app directly
+rm -rf samples/solitaire/build
+node dist/cli.js build samples/solitaire
 
 # Launch the app bundle
-open build-solitaire-sdl/DoofSolitaire.app
+open samples/solitaire/build/DoofSolitaire.app
 ```
 
 On Windows PowerShell:
@@ -181,8 +177,8 @@ git clone https://github.com/microsoft/vcpkg $HOME\vcpkg
 $env:VCPKG_ROOT = "$HOME\vcpkg"
 
 # Emit and build
-if (Test-Path build-solitaire) { Remove-Item build-solitaire -Recurse -Force }
-node dist/cli.js emit --include-path $PWD -o build-solitaire samples/solitaire/main.do
+if (Test-Path samples/solitaire/build) { Remove-Item samples/solitaire/build -Recurse -Force }
+node dist/cli.js emit samples/solitaire
 cmake -S samples/solitaire -B build-solitaire-sdl -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build-solitaire-sdl --config Release
 
@@ -192,7 +188,7 @@ cmake --build build-solitaire-sdl --config Release
 
 If you previously configured an older SDL sample build, remove `build-solitaire-sdl/` and re-run the two CMake commands above so you are not reusing a stale cache.
 
-On macOS, the sample builds as a real `.app` bundle with staged resources, a Dock/Finder icon, and bundle metadata owned by CMake.
+On macOS, the sample builds as a real `.app` bundle directly through `doof build`, with staged resources, a Dock/Finder icon, and bundle metadata declared in [samples/solitaire/doof.json](samples/solitaire/doof.json).
 On Windows, the sample builds as a normal `.exe` and stages the `images/` directory next to the executable.
 
 ## Game Rules (Klondike Solitaire)
@@ -215,8 +211,8 @@ On Windows, the sample builds as a normal `.exe` and stages the `images/` direct
 
 ## macOS Notes
 
-- Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to emit sources, build the sample, and copy the finished bundle to `build/DoofSolitaire.app`.
-- The helper build now reuses the CMake-produced app bundle instead of writing a separate `Info.plist`, so the icon and staged resources stay in sync.
+- Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to build the sample directly with `doof build` and copy the finished bundle to `build/DoofSolitaire.app`.
+- The macOS bundle identity, plist metadata, icon path, staged resources, shared host sources, and SDL3 discovery now come from manifest-driven build metadata rooted in [samples/solitaire/doof.json](samples/solitaire/doof.json) and [samples/lib/cardgame/doof.json](samples/lib/cardgame/doof.json).
 
 ## Windows Notes
 

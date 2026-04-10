@@ -4,9 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUT_DIR="$ROOT_DIR/build-seahaven-towers"
+OUT_DIR="$SCRIPT_DIR/build"
 BUILD_DIR="$ROOT_DIR/build-seahaven-towers-sdl"
-ENTRY_FILE="$SCRIPT_DIR/main.do"
 RUN_AFTER_BUILD="${1:-}"
 
 if [[ ! -f "$ROOT_DIR/dist/cli.js" ]]; then
@@ -19,16 +18,22 @@ fi
 
 rm -rf "$OUT_DIR"
 
-node "$ROOT_DIR/dist/cli.js" emit \
-    "$ENTRY_FILE" \
-    -o "$OUT_DIR" \
-    --include-path "$ROOT_DIR"
+if [[ "$(uname)" == "Darwin" ]]; then
+    node "$ROOT_DIR/dist/cli.js" build \
+        "$SCRIPT_DIR"
 
-cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR"
-cmake --build "$BUILD_DIR"
+    APP_BUNDLE="$OUT_DIR/DoofSeahavenTowers.app"
+    APP_BINARY="$OUT_DIR/DoofSeahavenTowers"
+else
+    node "$ROOT_DIR/dist/cli.js" emit \
+        "$SCRIPT_DIR"
 
-APP_BUNDLE="$BUILD_DIR/DoofSeahavenTowers.app"
-APP_BINARY="$BUILD_DIR/DoofSeahavenTowers"
+    cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR"
+    cmake --build "$BUILD_DIR"
+
+    APP_BUNDLE="$BUILD_DIR/DoofSeahavenTowers.app"
+    APP_BINARY="$BUILD_DIR/DoofSeahavenTowers"
+fi
 
 if [[ -d "$APP_BUNDLE" ]]; then
     echo "Built $APP_BUNDLE"
