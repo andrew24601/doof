@@ -88,10 +88,17 @@ export class ModuleResolver {
     if (this.isRelative(specifier)) {
       return this.resolveRelative(specifier, fromModule);
     }
+
+    const contextualPackageResolution = this.resolveContextualPackage(specifier, fromModule);
+    if (contextualPackageResolution) {
+      return contextualPackageResolution;
+    }
+
     if (this.isStdlib(specifier)) {
       return this.resolveStdlib(specifier);
     }
-    return this.resolvePackage(specifier, fromModule);
+
+    return this.resolveLegacyPackage(specifier);
   }
 
   // --------------------------------------------------------------------------
@@ -116,15 +123,6 @@ export class ModuleResolver {
   // Package/bare specifier resolution
   // --------------------------------------------------------------------------
 
-  private resolvePackage(specifier: string, fromModule: string): string | null {
-    const contextualResolution = this.resolveContextualPackage(specifier, fromModule);
-    if (contextualResolution) {
-      return contextualResolution;
-    }
-
-    return this.resolveLegacyPackage(specifier);
-  }
-
   private resolveLegacyPackage(specifier: string): string | null {
     if (!this.packageRoot) return null;
     const base = joinFsPath(this.packageRoot, specifier);
@@ -141,16 +139,41 @@ export class ModuleResolver {
       return null;
     }
 
-    const [packageName, ...rest] = specifier.split("/");
-    const dependencyRoot = owner.dependencies.get(packageName);
-    if (!dependencyRoot) {
+    const matchedDependency = this.matchDependencySpecifier(owner.dependencies, specifier);
+    if (!matchedDependency) {
       return null;
     }
 
-    const base = rest.length === 0
-      ? dependencyRoot
-      : joinFsPath(dependencyRoot, ...rest);
+    const base = matchedDependency.subpath.length === 0
+      ? matchedDependency.rootDir
+      : joinFsPath(matchedDependency.rootDir, ...matchedDependency.subpath);
     return this.tryResolveFile(base);
+  }
+
+  private matchDependencySpecifier(
+    dependencies: ReadonlyMap<string, string>,
+    specifier: string,
+  ): { rootDir: string; subpath: string[] } | null {
+    let bestMatch: { dependencyName: string; rootDir: string } | null = null;
+
+    for (const [dependencyName, rootDir] of dependencies) {
+      if (specifier !== dependencyName && !specifier.startsWith(`${dependencyName}/`)) {
+        continue;
+      }
+      if (!bestMatch || dependencyName.length > bestMatch.dependencyName.length) {
+        bestMatch = { dependencyName, rootDir };
+      }
+    }
+
+    if (!bestMatch) {
+      return null;
+    }
+
+    const suffix = specifier.slice(bestMatch.dependencyName.length);
+    const subpath = suffix.length === 0
+      ? []
+      : suffix.slice(1).split("/");
+    return { rootDir: bestMatch.rootDir, subpath };
   }
 
   private findOwningPackage(fromModule: string): PackageResolutionInfo | null {

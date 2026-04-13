@@ -145,6 +145,52 @@ describe("local package graphs", () => {
     expect(fooPackage?.dependencyRoots.get("bar")).toBe("/deps/bar");
   });
 
+  it("accepts dependency names that include slashes", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {
+          "std/fs": { path: "../deps/std-fs" },
+        },
+      }),
+      "/app/main.do": 'import { writeText } from "std/fs"\nfunction main(): void => writeText("out.txt", "ok")',
+      "/deps/std-fs/doof.json": JSON.stringify({ name: "std/fs" }),
+      "/deps/std-fs/index.do": "export function writeText(path: string, value: string): void {}",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/deps/std-fs");
+  });
+
+  it("rejects dependency names with empty or traversal path segments", () => {
+    const emptySegmentFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {
+          "std//fs": { path: "../deps/std-fs" },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => loadPackageGraph(emptySegmentFs, "/app/main.do"))
+      .toThrow('invalid dependency name "std//fs"');
+
+    const traversalFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {
+          "foo/../bar": { path: "../deps/bar" },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => loadPackageGraph(traversalFs, "/app/main.do"))
+      .toThrow('invalid dependency name "foo/../bar"');
+  });
+
   it("loads remote dependencies through a resolver hook and records provenance", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({

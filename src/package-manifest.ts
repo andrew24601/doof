@@ -624,7 +624,12 @@ function isValidExecutableName(value: string): boolean {
 }
 
 function isValidDependencyName(value: string): boolean {
-  return value.length > 0 && !value.includes("/") && !value.startsWith("std");
+  if (value.length === 0 || value.includes("\\")) {
+    return false;
+  }
+
+  const segments = value.split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

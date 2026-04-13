@@ -120,6 +120,38 @@ describe("ModuleResolver", () => {
     expect(resolver.resolve("foo/types", "/app/main.do")).toBe("/deps/foo/types.do");
   });
 
+  it("resolves dependency names that include slashes", () => {
+    const fs = new VirtualFS({
+      "/app/main.do": "",
+      "/deps/std-fs/index.do": "",
+      "/deps/std-fs/runtime.do": "",
+    });
+    const resolver = new ModuleResolver(fs, {
+      packages: [{
+        rootDir: "/app",
+        dependencies: new Map([["std/fs", "/deps/std-fs"]]),
+      }],
+    });
+
+    expect(resolver.resolve("std/fs", "/app/main.do")).toBe("/deps/std-fs/index.do");
+    expect(resolver.resolve("std/fs/runtime", "/app/main.do")).toBe("/deps/std-fs/runtime.do");
+  });
+
+  it("prefers explicit std dependency overrides over bundled stdlib modules", () => {
+    const fs = new VirtualFS({
+      "/app/main.do": "",
+      "/deps/std-assert/index.do": "",
+    });
+    const resolver = createBundledModuleResolver(fs, {
+      packages: [{
+        rootDir: "/app",
+        dependencies: new Map([["std/assert", "/deps/std-assert"]]),
+      }],
+    });
+
+    expect(resolver.resolve("std/assert", "/app/main.do")).toBe("/deps/std-assert/index.do");
+  });
+
   it("uses the dependency graph of the owning package for nested package imports", () => {
     const fs = new VirtualFS({
       "/app/main.do": "",
