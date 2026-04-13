@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
@@ -22,6 +23,7 @@ import {
   relativeFsPath,
   resolveFsPath,
   resolveFsPathFrom,
+  toPortablePath,
 } from "./path-utils.js";
 
 export interface ResolvedPackageNativeBuild extends Pick<
@@ -91,7 +93,7 @@ export interface LoadedPackage {
   manifestPath: string;
   manifest: DoofManifest;
   dependencyRoots: ReadonlyMap<string, string>;
-  remoteDependencyProvenance: BuildProvenanceEntry | null;
+  remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
 }
@@ -106,13 +108,23 @@ export interface BuildProvenance {
 }
 
 export interface BuildProvenanceEntry {
-  source: {
-    kind: string;
-    url: string;
-  };
+  kind: string;
+  url: string;
   version: string;
-  resolvedCommit: string | null;
-  cacheKey: string | null;
+  commit: string | null;
+  referencedFrom: string[];
+}
+
+export interface ResolvedRemotePackage {
+  kind: "git";
+  url: string;
+  version: string;
+  commit: string;
+  pathSegments: string[];
+}
+
+export interface PackageOutputPaths {
+  byRootDir: ReadonlyMap<string, string>;
 }
 
 export interface RemoteDependencyContext {
@@ -124,7 +136,7 @@ export interface RemoteDependencyContext {
 
 export interface ResolvedRemoteDependency {
   rootDir: string;
-  provenance: BuildProvenanceEntry;
+  package: ResolvedRemotePackage;
 }
 
 export interface LoadPackageGraphOptions {
@@ -140,9 +152,40 @@ interface MutableLoadedPackage {
   manifestPath: string;
   manifest: DoofManifest;
   dependencyRoots: Map<string, string>;
-  remoteDependencyProvenance: BuildProvenanceEntry | null;
+  remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+}
+
+type DiscoveredDependency =
+  | {
+    kind: "local";
+    dependencyName: string;
+    rootDir: string;
+  }
+  | {
+    kind: "remote";
+    dependencyName: string;
+    packageKey: string;
+    requestedVersion: string;
+    requestedRootDir: string;
+  };
+
+interface DiscoveredPackage {
+  rootDir: string;
+  manifestPath: string;
+  manifest: DoofManifest;
+  dependencies: DiscoveredDependency[];
+  remotePackage: ResolvedRemotePackage | null;
+  nativeBuild: ResolvedPackageNativeBuild;
+  buildTarget: ResolvedDoofBuildTarget | null;
+}
+
+interface RemotePackageSelection {
+  packageKey: string;
+  version: string;
+  rootDir: string;
+  remotePackage: ResolvedRemotePackage;
 }
 
 interface PackageLoadContext {
@@ -151,22 +194,39 @@ interface PackageLoadContext {
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
   ) => ResolvedRemoteDependency;
-  remoteDependencyMetadata: Map<string, BuildProvenanceEntry>;
+  discoveredPackages: Map<string, DiscoveredPackage>;
+  remotePackagesByKey: Map<string, RemotePackageSelection[]>;
 }
 
 interface MaterializedRemoteMetadata {
-  source: {
-    kind: string;
-    url: string;
-  };
+  kind: string;
+  url: string;
   version: string;
-  resolvedCommit: string | null;
-  cacheKey: string | null;
+  commit: string;
+  pathSegments: string[];
   resolvedRef: string | null;
+}
+
+interface CachedRemoteVersionsFile {
+  schemaVersion: 1;
+  kind: "git";
+  url: string;
+  versions: Record<string, CachedRemoteVersionEntry>;
+}
+
+interface CachedRemoteVersionEntry {
+  commit: string;
+  resolvedRef: string | null;
+}
+
+interface RemotePackageCoordinate {
+  key: string;
+  pathSegments: string[];
 }
 
 const MANIFEST_FILENAME = "doof.json";
 const REMOTE_METADATA_FILENAME = ".doof-remote.json";
+const REMOTE_VERSIONS_FILENAME = "versions.json";
 
 export function findDoofManifestPath(fileSystem: FileSystem, entryPath: string): string | null {
   const normalizedPath = resolveFsPath(entryPath);
@@ -216,52 +276,96 @@ export function loadPackageGraph(
     throw new Error(`No doof.json found for ${resolveFsPath(entryPath)}`);
   }
 
-  const cache = new Map<string, MutableLoadedPackage>();
   const loadingStack: string[] = [];
   const loadContext: PackageLoadContext = {
     cacheRoot: options.cacheRoot ?? getDefaultPackageCacheRoot(),
     resolveRemoteDependency: options.resolveRemoteDependency ?? defaultResolveRemoteDependency,
-    remoteDependencyMetadata: new Map<string, BuildProvenanceEntry>(),
+    discoveredPackages: new Map<string, DiscoveredPackage>(),
+    remotePackagesByKey: new Map<string, RemotePackageSelection[]>(),
   };
-  const rootPackage = loadPackageFromManifest(fileSystem, manifestPath, cache, loadingStack, loadContext);
+  discoverPackageFromManifest(fileSystem, manifestPath, loadingStack, loadContext);
+  const selectedRemoteRoots = selectRemotePackageRoots(loadContext.remotePackagesByKey);
+  const finalizedPackages = new Map<string, MutableLoadedPackage>();
+  const rootPackage = finalizeLoadedPackage(
+    dirnameFsPath(resolveFsPath(manifestPath)),
+    loadContext.discoveredPackages,
+    selectedRemoteRoots,
+    finalizedPackages,
+  );
   return {
     rootPackage,
-    packages: [...cache.values()].sort((left, right) => left.rootDir.localeCompare(right.rootDir)),
+    packages: [...finalizedPackages.values()].sort((left, right) => left.rootDir.localeCompare(right.rootDir)),
   };
 }
 
 export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
-  const seen = new Set<string>();
-  const dependencies: BuildProvenanceEntry[] = [];
+  const packagesByRoot = new Map(graph.packages.map((pkg) => [pkg.rootDir, pkg]));
+  const provenanceByKey = new Map<string, BuildProvenanceEntry>();
+  const visitedEdges = new Set<string>();
 
-  for (const pkg of graph.packages) {
-    if (!pkg.remoteDependencyProvenance) {
-      continue;
+  function visitPackage(pkg: LoadedPackage) {
+    for (const dependencyRoot of pkg.dependencyRoots.values()) {
+      const dependency = packagesByRoot.get(dependencyRoot);
+      if (!dependency) {
+        continue;
+      }
+
+      const edgeKey = `${pkg.rootDir}\u0000${dependencyRoot}`;
+      if (visitedEdges.has(edgeKey)) {
+        continue;
+      }
+      visitedEdges.add(edgeKey);
+
+      if (dependency.remotePackage) {
+        const referencer = pkg.remotePackage?.url ?? ".";
+        const key = [
+          dependency.remotePackage.kind,
+          dependency.remotePackage.url,
+          dependency.remotePackage.version,
+          dependency.remotePackage.commit,
+        ].join("\u0000");
+        const existing = provenanceByKey.get(key) ?? {
+          kind: dependency.remotePackage.kind,
+          url: dependency.remotePackage.url,
+          version: dependency.remotePackage.version,
+          commit: dependency.remotePackage.commit,
+          referencedFrom: [],
+        };
+        if (!existing.referencedFrom.includes(referencer)) {
+          existing.referencedFrom.push(referencer);
+          existing.referencedFrom.sort();
+        }
+        provenanceByKey.set(key, existing);
+      }
+
+      visitPackage(dependency);
     }
-
-    const entry = pkg.remoteDependencyProvenance;
-    const key = [
-      entry.source.kind,
-      entry.source.url,
-      entry.version,
-      entry.resolvedCommit ?? "",
-      entry.cacheKey ?? "",
-    ].join("\u0000");
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    dependencies.push(entry);
   }
 
-  dependencies.sort((left, right) => {
-    const leftKey = `${left.source.url}\u0000${left.version}`;
-    const rightKey = `${right.source.url}\u0000${right.version}`;
+  visitPackage(graph.rootPackage);
+
+  const dependencies = [...provenanceByKey.values()].sort((left, right) => {
+    const leftKey = `${left.url}\u0000${left.version}`;
+    const rightKey = `${right.url}\u0000${right.version}`;
     return leftKey.localeCompare(rightKey);
   });
-
   return { dependencies };
+}
+
+export function createPackageOutputPaths(graph: PackageGraph, entryPath: string): PackageOutputPaths {
+  const baseDir = dirnameFsPath(resolveFsPath(entryPath));
+  const byRootDir = new Map<string, string>();
+
+  for (const pkg of graph.packages) {
+    if (pkg.remotePackage) {
+      byRootDir.set(pkg.rootDir, [".packages", ...pkg.remotePackage.pathSegments].join("/"));
+      continue;
+    }
+
+    byRootDir.set(pkg.rootDir, anchorOutputRelativePath(toPortablePath(relativeFsPath(baseDir, pkg.rootDir))));
+  }
+
+  return { byRootDir };
 }
 
 export function mergePackageNativeBuild(graph: PackageGraph): ResolvedPackageNativeBuild {
@@ -300,16 +404,15 @@ export function mergePackageNativeBuild(graph: PackageGraph): ResolvedPackageNat
   return merged;
 }
 
-function loadPackageFromManifest(
+function discoverPackageFromManifest(
   fileSystem: FileSystem,
   manifestPath: string,
-  cache: Map<string, MutableLoadedPackage>,
   loadingStack: string[],
   context: PackageLoadContext,
-): LoadedPackage {
+): DiscoveredPackage {
   const normalizedManifestPath = resolveFsPath(manifestPath);
   const rootDir = dirnameFsPath(normalizedManifestPath);
-  const cached = cache.get(rootDir);
+  const cached = context.discoveredPackages.get(rootDir);
   if (cached) {
     return cached;
   }
@@ -320,15 +423,16 @@ function loadPackageFromManifest(
   }
 
   const manifest = readManifestOrThrow(fileSystem, normalizedManifestPath);
-  const loaded: MutableLoadedPackage = {
+  const discovered: DiscoveredPackage = {
     rootDir,
     manifestPath: normalizedManifestPath,
     manifest,
-    dependencyRoots: new Map<string, string>(),
-    remoteDependencyProvenance: context.remoteDependencyMetadata.get(rootDir) ?? null,
+    dependencies: [],
+    remotePackage: null,
     nativeBuild: normalizeNativeBuildConfig(manifest.build?.native, rootDir, normalizedManifestPath),
     buildTarget: normalizeBuildTargetConfig(manifest.build, rootDir, normalizedManifestPath),
   };
+  context.discoveredPackages.set(rootDir, discovered);
 
   loadingStack.push(rootDir);
 
@@ -337,14 +441,17 @@ function loadPackageFromManifest(
       if ("path" in dependency) {
         const dependencyRoot = resolveFsPathFrom(rootDir, dependency.path);
         const dependencyManifestPath = joinFsPath(dependencyRoot, MANIFEST_FILENAME);
-        const loadedDependency = loadPackageFromManifest(
+        const loadedDependency = discoverPackageFromManifest(
           fileSystem,
           dependencyManifestPath,
-          cache,
           loadingStack,
           context,
         );
-        loaded.dependencyRoots.set(dependencyName, loadedDependency.rootDir);
+        discovered.dependencies.push({
+          kind: "local",
+          dependencyName,
+          rootDir: loadedDependency.rootDir,
+        });
         continue;
       }
 
@@ -355,23 +462,137 @@ function loadPackageFromManifest(
         cacheRoot: context.cacheRoot,
       });
       const dependencyRoot = resolveFsPath(resolvedRemoteDependency.rootDir);
-      context.remoteDependencyMetadata.set(dependencyRoot, resolvedRemoteDependency.provenance);
+      const remotePackage = normalizeResolvedRemotePackage(dependency, resolvedRemoteDependency);
+      const packageKey = remotePackage.pathSegments.join("/");
+      const selections = context.remotePackagesByKey.get(packageKey) ?? [];
+      if (!selections.some((entry) => entry.rootDir === dependencyRoot)) {
+        selections.push({
+          packageKey,
+          version: remotePackage.version,
+          rootDir: dependencyRoot,
+          remotePackage,
+        });
+        context.remotePackagesByKey.set(packageKey, selections);
+      }
+      const remoteDiscovered = context.discoveredPackages.get(dependencyRoot);
+      if (remoteDiscovered) {
+        remoteDiscovered.remotePackage = remotePackage;
+      }
       const dependencyManifestPath = joinFsPath(dependencyRoot, MANIFEST_FILENAME);
-      const loadedDependency = loadPackageFromManifest(
+      const loadedDependency = discoverPackageFromManifest(
         fileSystem,
         dependencyManifestPath,
-        cache,
         loadingStack,
         context,
       );
-      loaded.dependencyRoots.set(dependencyName, loadedDependency.rootDir);
+      loadedDependency.remotePackage = remotePackage;
+      discovered.dependencies.push({
+        kind: "remote",
+        dependencyName,
+        packageKey,
+        requestedVersion: remotePackage.version,
+        requestedRootDir: dependencyRoot,
+      });
     }
   } finally {
     loadingStack.pop();
   }
 
-  cache.set(rootDir, loaded);
-  return loaded;
+  return discovered;
+}
+
+function selectRemotePackageRoots(
+  remotePackagesByKey: ReadonlyMap<string, readonly RemotePackageSelection[]>,
+): ReadonlyMap<string, string> {
+  const selected = new Map<string, string>();
+
+  for (const [packageKey, candidates] of remotePackagesByKey) {
+    const winner = [...candidates].sort((left, right) => compareRequestedVersions(right.version, left.version))[0];
+    if (winner) {
+      selected.set(packageKey, winner.rootDir);
+    }
+  }
+
+  return selected;
+}
+
+function finalizeLoadedPackage(
+  rootDir: string,
+  discoveredPackages: ReadonlyMap<string, DiscoveredPackage>,
+  selectedRemoteRoots: ReadonlyMap<string, string>,
+  finalizedPackages: Map<string, MutableLoadedPackage>,
+): LoadedPackage {
+  const cached = finalizedPackages.get(rootDir);
+  if (cached) {
+    return cached;
+  }
+
+  const discovered = discoveredPackages.get(rootDir);
+  if (!discovered) {
+    throw new Error(`Package graph is missing discovered package ${rootDir}`);
+  }
+
+  const finalized: MutableLoadedPackage = {
+    rootDir: discovered.rootDir,
+    manifestPath: discovered.manifestPath,
+    manifest: discovered.manifest,
+    dependencyRoots: new Map<string, string>(),
+    remotePackage: discovered.remotePackage,
+    nativeBuild: discovered.nativeBuild,
+    buildTarget: discovered.buildTarget,
+  };
+  finalizedPackages.set(rootDir, finalized);
+
+  for (const dependency of discovered.dependencies) {
+    const dependencyRoot = dependency.kind === "local"
+      ? dependency.rootDir
+      : selectedRemoteRoots.get(dependency.packageKey) ?? dependency.requestedRootDir;
+    const finalizedDependency = finalizeLoadedPackage(
+      dependencyRoot,
+      discoveredPackages,
+      selectedRemoteRoots,
+      finalizedPackages,
+    );
+    finalized.dependencyRoots.set(dependency.dependencyName, finalizedDependency.rootDir);
+  }
+
+  return finalized;
+}
+
+function normalizeResolvedRemotePackage(
+  dependency: DoofRemoteDependencyConfig,
+  resolvedRemoteDependency: ResolvedRemoteDependency,
+): ResolvedRemotePackage {
+  if (resolvedRemoteDependency.package) {
+    return {
+      ...resolvedRemoteDependency.package,
+      pathSegments: [...resolvedRemoteDependency.package.pathSegments],
+    };
+  }
+
+  const legacy = resolvedRemoteDependency as ResolvedRemoteDependency & {
+    provenance?: {
+      source?: { url?: string };
+      version?: string;
+      resolvedCommit?: string | null;
+    };
+  };
+  const coordinate = resolveRemotePackageCoordinate(dependency.url);
+  return {
+    kind: "git",
+    url: legacy.provenance?.source?.url ?? dependency.url,
+    version: legacy.provenance?.version ?? dependency.version,
+    commit: legacy.provenance?.resolvedCommit ?? sanitizeCachePathSegment(nodePath.basename(resolvedRemoteDependency.rootDir)),
+    pathSegments: coordinate.pathSegments,
+  };
+}
+
+function anchorOutputRelativePath(relativePath: string): string {
+  const parts = relativePath.split("/");
+  while (parts.length > 0 && parts[0] === "..") {
+    parts.shift();
+  }
+  return parts.join("/");
 }
 
 function parseDoofManifest(rawManifest: string, manifestPath: string): DoofManifest {
@@ -816,73 +1037,81 @@ function defaultResolveRemoteDependency(
   dependency: DoofRemoteDependencyConfig,
   context: RemoteDependencyContext,
 ): ResolvedRemoteDependency {
-  const rootDir = computeRemoteCacheDir(context.cacheRoot, dependency.url, dependency.version);
+  const coordinate = resolveRemotePackageCoordinate(dependency.url);
+  const packageDir = nodePath.join(context.cacheRoot, ...coordinate.pathSegments);
+  const cachedVersions = readRemoteVersionsFile(packageDir);
+  const cachedVersion = cachedVersions?.versions[dependency.version] ?? null;
+  const rootDir = computeRemoteCacheDir(context.cacheRoot, dependency.url, cachedVersion?.commit ?? dependency.version);
   const manifestPath = nodePath.join(rootDir, MANIFEST_FILENAME);
-  const cacheKey = createRemoteCacheKey(dependency.url, dependency.version);
 
-  if (!nodeFs.existsSync(manifestPath)) {
-    if (nodeFs.existsSync(rootDir)) {
-      nodeFs.rmSync(rootDir, { recursive: true, force: true });
+  if (cachedVersion) {
+    const cachedRootDir = computeRemoteCacheDir(context.cacheRoot, dependency.url, cachedVersion.commit);
+    const cachedManifestPath = nodePath.join(cachedRootDir, MANIFEST_FILENAME);
+    if (nodeFs.existsSync(cachedManifestPath)) {
+      return {
+        rootDir: cachedRootDir,
+        package: readRemoteDependencyMetadata(cachedRootDir) ?? {
+          kind: "git",
+          url: dependency.url,
+          version: dependency.version,
+          commit: cachedVersion.commit,
+          pathSegments: coordinate.pathSegments,
+        },
+      };
     }
-
-    const provenance = materializeRemoteDependency(dependency, rootDir, cacheKey);
-    return { rootDir, provenance };
   }
 
-  return {
-    rootDir,
-    provenance: readRemoteDependencyProvenance(rootDir) ?? {
-      source: { kind: "git", url: dependency.url },
-      version: dependency.version,
-      resolvedCommit: null,
-      cacheKey,
-    },
-  };
+  if (nodeFs.existsSync(manifestPath)) {
+    return {
+      rootDir,
+      package: readRemoteDependencyMetadata(rootDir) ?? {
+        kind: "git",
+        url: dependency.url,
+        version: dependency.version,
+        commit: nodePath.basename(rootDir),
+        pathSegments: coordinate.pathSegments,
+      },
+    };
+  }
+
+  if (nodeFs.existsSync(rootDir)) {
+    nodeFs.rmSync(rootDir, { recursive: true, force: true });
+  }
+
+  const materializedPackage = materializeRemoteDependency(dependency, context.cacheRoot, coordinate, cachedVersions ?? undefined);
+  return { rootDir: computeRemoteCacheDir(context.cacheRoot, dependency.url, materializedPackage.commit), package: materializedPackage };
 }
 
 function materializeRemoteDependency(
   dependency: DoofRemoteDependencyConfig,
-  rootDir: string,
-  cacheKey: string,
-): BuildProvenanceEntry {
-  const parentDir = nodePath.dirname(rootDir);
-  const tempDir = `${rootDir}.tmp-${process.pid}-${Date.now()}`;
+  cacheRoot: string,
+  coordinate: RemotePackageCoordinate,
+  cachedVersions?: CachedRemoteVersionsFile,
+): ResolvedRemotePackage {
+  const packageDir = nodePath.join(cacheRoot, ...coordinate.pathSegments);
+  const cachedVersion = cachedVersions?.versions[dependency.version] ?? null;
+  if (cachedVersion) {
+    return materializeRemoteDependencyFromCommit(dependency, packageDir, coordinate, cachedVersion.commit, cachedVersion.resolvedRef);
+  }
+
   const candidateRefs = buildRemoteRefCandidates(dependency.version);
   let lastError: unknown = null;
 
-  nodeFs.mkdirSync(parentDir, { recursive: true });
+  nodeFs.mkdirSync(packageDir, { recursive: true });
 
   for (const ref of candidateRefs) {
     try {
-      execFileSync("git", ["clone", "--depth", "1", "--branch", ref, dependency.url, tempDir], {
-        stdio: "pipe",
+      const materialized = cloneRemoteDependencyToCommitDir(dependency, packageDir, coordinate, ["clone", "--depth", "1", "--branch", ref, dependency.url], ref);
+      writeRemoteVersionsFile(packageDir, dependency.url, {
+        ...(cachedVersions?.versions ?? {}),
+        [dependency.version]: {
+          commit: materialized.commit,
+          resolvedRef: ref,
+        },
       });
-
-      const resolvedCommit = execFileSync("git", ["-C", tempDir, "rev-parse", "HEAD"], {
-        stdio: "pipe",
-      }).toString().trim();
-      const provenance: BuildProvenanceEntry = {
-        source: { kind: "git", url: dependency.url },
-        version: dependency.version,
-        resolvedCommit,
-        cacheKey,
-      };
-      const metadata: MaterializedRemoteMetadata = {
-        ...provenance,
-        resolvedRef: ref,
-      };
-
-      nodeFs.writeFileSync(
-        nodePath.join(tempDir, REMOTE_METADATA_FILENAME),
-        JSON.stringify(metadata, null, 2) + "\n",
-        "utf8",
-      );
-      nodeFs.rmSync(nodePath.join(tempDir, ".git"), { recursive: true, force: true });
-      nodeFs.renameSync(tempDir, rootDir);
-      return provenance;
+      return materialized;
     } catch (error: any) {
       lastError = error;
-      nodeFs.rmSync(tempDir, { recursive: true, force: true });
     }
   }
 
@@ -893,20 +1122,130 @@ function materializeRemoteDependency(
   );
 }
 
-function computeRemoteCacheDir(cacheRoot: string, url: string, version: string): string {
-  const parsed = tryParseRemoteUrl(url);
-  const versionSegment = sanitizeCachePathSegment(version);
-
-  if (!parsed) {
-    return nodePath.join(cacheRoot, "remote", sanitizeCachePathSegment(url), versionSegment);
+function materializeRemoteDependencyFromCommit(
+  dependency: DoofRemoteDependencyConfig,
+  packageDir: string,
+  coordinate: RemotePackageCoordinate,
+  commit: string,
+  resolvedRef: string | null,
+): ResolvedRemotePackage {
+  if (resolvedRef) {
+    try {
+      return cloneRemoteDependencyToCommitDir(
+        dependency,
+        packageDir,
+        coordinate,
+        ["clone", "--depth", "1", "--branch", resolvedRef, dependency.url],
+        resolvedRef,
+      );
+    } catch {
+      // Keep the cached commit authoritative even if the original tag/ref disappeared.
+    }
   }
 
-  return nodePath.join(
-    cacheRoot,
-    parsed.host,
-    ...parsed.pathSegments.map((segment) => sanitizeCachePathSegment(segment)),
-    versionSegment,
-  );
+  const rootDir = nodePath.join(packageDir, commit);
+  const parentDir = nodePath.dirname(rootDir);
+  const tempDir = `${rootDir}.tmp-${process.pid}-${Date.now()}`;
+
+  nodeFs.mkdirSync(parentDir, { recursive: true });
+
+  try {
+    execFileSync("git", ["init", tempDir], { stdio: "pipe" });
+    execFileSync("git", ["-C", tempDir, "remote", "add", "origin", dependency.url], { stdio: "pipe" });
+    execFileSync("git", ["-C", tempDir, "fetch", "--depth", "1", "origin", commit], { stdio: "pipe" });
+    execFileSync("git", ["-C", tempDir, "checkout", "FETCH_HEAD"], { stdio: "pipe" });
+    writeRemoteDependencyMetadata(tempDir, {
+      kind: "git",
+      url: dependency.url,
+      version: dependency.version,
+      commit,
+      pathSegments: coordinate.pathSegments,
+      resolvedRef: null,
+    });
+    nodeFs.rmSync(nodePath.join(tempDir, ".git"), { recursive: true, force: true });
+    nodeFs.renameSync(tempDir, rootDir);
+    return {
+      kind: "git",
+      url: dependency.url,
+      version: dependency.version,
+      commit,
+      pathSegments: coordinate.pathSegments,
+    };
+  } catch (error: any) {
+    nodeFs.rmSync(tempDir, { recursive: true, force: true });
+    throw new Error(
+      `Failed to materialize remote dependency ${dependency.url}@${dependency.version} at ${commit}`
+        + `${formatGitCloneError(error)}`,
+    );
+  }
+}
+
+function cloneRemoteDependencyToCommitDir(
+  dependency: DoofRemoteDependencyConfig,
+  packageDir: string,
+  coordinate: RemotePackageCoordinate,
+  cloneArgsPrefix: string[],
+  resolvedRef: string | null,
+): ResolvedRemotePackage {
+  const tempDir = `${packageDir}.tmp-${process.pid}-${Date.now()}`;
+  execFileSync("git", [...cloneArgsPrefix, tempDir], { stdio: "pipe" });
+  const commit = execFileSync("git", ["-C", tempDir, "rev-parse", "HEAD"], {
+    stdio: "pipe",
+  }).toString().trim();
+  const rootDir = nodePath.join(packageDir, commit);
+
+  if (nodeFs.existsSync(rootDir)) {
+    nodeFs.rmSync(tempDir, { recursive: true, force: true });
+    return readRemoteDependencyMetadata(rootDir) ?? {
+      kind: "git",
+      url: dependency.url,
+      version: dependency.version,
+      commit,
+      pathSegments: coordinate.pathSegments,
+    };
+  }
+
+  writeRemoteDependencyMetadata(tempDir, {
+    kind: "git",
+    url: dependency.url,
+    version: dependency.version,
+    commit,
+    pathSegments: coordinate.pathSegments,
+    resolvedRef,
+  });
+  nodeFs.rmSync(nodePath.join(tempDir, ".git"), { recursive: true, force: true });
+  nodeFs.renameSync(tempDir, rootDir);
+  return {
+    kind: "git",
+    url: dependency.url,
+    version: dependency.version,
+    commit,
+    pathSegments: coordinate.pathSegments,
+  };
+}
+
+function computeRemoteCacheDir(cacheRoot: string, url: string, commit: string): string {
+  const coordinate = resolveRemotePackageCoordinate(url);
+  return nodePath.join(cacheRoot, ...coordinate.pathSegments, sanitizeCachePathSegment(commit));
+}
+
+function resolveRemotePackageCoordinate(url: string): RemotePackageCoordinate {
+  const parsed = tryParseRemoteUrl(url);
+  if (parsed && parsed.pathSegments.length >= 2) {
+    const pathSegments = parsed.pathSegments.slice(-2).map((segment) => sanitizeCachePathSegment(segment));
+    return {
+      key: pathSegments.join("/"),
+      pathSegments,
+    };
+  }
+
+  const fallbackBase = sanitizeCachePathSegment(nodePath.basename(url) || "pkg");
+  const fallbackHash = createHash("sha1").update(url).digest("hex").slice(0, 12);
+  const pathSegments = ["remote", `${fallbackBase}-${fallbackHash}`];
+  return {
+    key: pathSegments.join("/"),
+    pathSegments,
+  };
 }
 
 function tryParseRemoteUrl(url: string): { host: string; pathSegments: string[] } | null {
@@ -953,11 +1292,7 @@ function buildRemoteRefCandidates(version: string): string[] {
   return [...new Set(candidates.filter((candidate) => candidate.length > 0))];
 }
 
-function createRemoteCacheKey(url: string, version: string): string {
-  return `git:${url}#${version}`;
-}
-
-function readRemoteDependencyProvenance(rootDir: string): BuildProvenanceEntry | null {
+function readRemoteDependencyMetadata(rootDir: string): ResolvedRemotePackage | null {
   const metadataPath = nodePath.join(rootDir, REMOTE_METADATA_FILENAME);
   if (!nodeFs.existsSync(metadataPath)) {
     return null;
@@ -967,26 +1302,121 @@ function readRemoteDependencyProvenance(rootDir: string): BuildProvenanceEntry |
     const parsed = JSON.parse(nodeFs.readFileSync(metadataPath, "utf8")) as Partial<MaterializedRemoteMetadata>;
     if (
       !parsed
-      || !parsed.source
-      || typeof parsed.source.kind !== "string"
-      || typeof parsed.source.url !== "string"
+      || typeof parsed.kind !== "string"
+      || typeof parsed.url !== "string"
       || typeof parsed.version !== "string"
+      || typeof parsed.commit !== "string"
+      || !Array.isArray(parsed.pathSegments)
+      || !parsed.pathSegments.every((segment) => typeof segment === "string")
     ) {
       return null;
     }
 
     return {
-      source: {
-        kind: parsed.source.kind,
-        url: parsed.source.url,
-      },
+      kind: parsed.kind === "git" ? "git" : "git",
+      url: parsed.url,
       version: parsed.version,
-      resolvedCommit: typeof parsed.resolvedCommit === "string" ? parsed.resolvedCommit : null,
-      cacheKey: typeof parsed.cacheKey === "string" ? parsed.cacheKey : null,
+      commit: parsed.commit,
+      pathSegments: [...parsed.pathSegments] as string[],
     };
   } catch {
     return null;
   }
+}
+
+function writeRemoteDependencyMetadata(rootDir: string, metadata: MaterializedRemoteMetadata): void {
+  nodeFs.writeFileSync(
+    nodePath.join(rootDir, REMOTE_METADATA_FILENAME),
+    JSON.stringify(metadata, null, 2) + "\n",
+    "utf8",
+  );
+}
+
+function readRemoteVersionsFile(packageDir: string): CachedRemoteVersionsFile | null {
+  const versionsPath = nodePath.join(packageDir, REMOTE_VERSIONS_FILENAME);
+  if (!nodeFs.existsSync(versionsPath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(nodeFs.readFileSync(versionsPath, "utf8")) as Partial<CachedRemoteVersionsFile>;
+    if (
+      !parsed
+      || parsed.schemaVersion !== 1
+      || parsed.kind !== "git"
+      || typeof parsed.url !== "string"
+      || !parsed.versions
+      || typeof parsed.versions !== "object"
+    ) {
+      return null;
+    }
+
+    const versions: Record<string, CachedRemoteVersionEntry> = {};
+    for (const [version, entry] of Object.entries(parsed.versions)) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const candidate = entry as Partial<CachedRemoteVersionEntry>;
+      if (typeof candidate.commit !== "string") {
+        continue;
+      }
+      versions[version] = {
+        commit: candidate.commit,
+        resolvedRef: typeof candidate.resolvedRef === "string" ? candidate.resolvedRef : null,
+      };
+    }
+
+    return {
+      schemaVersion: 1,
+      kind: "git",
+      url: parsed.url,
+      versions,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRemoteVersionsFile(
+  packageDir: string,
+  url: string,
+  versions: Record<string, CachedRemoteVersionEntry>,
+): void {
+  nodeFs.mkdirSync(packageDir, { recursive: true });
+  nodeFs.writeFileSync(
+    nodePath.join(packageDir, REMOTE_VERSIONS_FILENAME),
+    JSON.stringify({
+      schemaVersion: 1,
+      kind: "git",
+      url,
+      versions,
+    }, null, 2) + "\n",
+    "utf8",
+  );
+}
+
+function compareRequestedVersions(left: string, right: string): number {
+  const leftParts = parseComparableVersion(left);
+  const rightParts = parseComparableVersion(right);
+  if (leftParts && rightParts) {
+    const maxLength = Math.max(leftParts.length, rightParts.length);
+    for (let index = 0; index < maxLength; index += 1) {
+      const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+      if (delta !== 0) {
+        return delta;
+      }
+    }
+  }
+
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function parseComparableVersion(version: string): number[] | null {
+  const normalized = version.startsWith("v") ? version.slice(1) : version;
+  if (!/^\d+(?:\.\d+)*$/.test(normalized)) {
+    return null;
+  }
+  return normalized.split(".").map((part) => Number.parseInt(part, 10));
 }
 
 function formatGitCloneError(error: unknown): string {

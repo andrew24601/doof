@@ -14,6 +14,7 @@
 
 import * as nodePath from "node:path";
 import type { AnalysisResult } from "./analyzer.js";
+import type { PackageOutputPaths } from "./package-manifest.js";
 import type {
   Statement,
   FunctionDeclaration,
@@ -89,6 +90,7 @@ export interface ProjectEmitResult {
 export interface ProjectBuildMetadata {
   outputBinaryName?: string;
   buildTarget?: ResolvedDoofBuildTarget | null;
+  packageOutputPaths?: PackageOutputPaths;
 }
 
 export interface NativeBuildOptions {
@@ -119,6 +121,7 @@ export function emitModuleSplit(
   modulePath: string,
   analysisResult: AnalysisResult,
   baseDir = "/",
+  packageOutputPaths?: PackageOutputPaths,
 ): ModuleEmitResult {
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
@@ -129,10 +132,10 @@ export function emitModuleSplit(
   propagateMetadataDemand(analysisResult);
 
   const interfaceImpls = buildInterfaceImplMap(analysisResult);
-  const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir);
+  const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
-  const hppCode = emitHpp(table, analysisResult, interfaceImpls, baseDir);
-  const cppCode = emitCppFile(table, analysisResult, interfaceImpls, baseDir);
+  const hppCode = emitHpp(table, analysisResult, interfaceImpls, baseDir, packageOutputPaths);
+  const cppCode = emitCppFile(table, analysisResult, interfaceImpls, baseDir, packageOutputPaths);
 
   return {
     hppCode,
@@ -163,7 +166,7 @@ export function emitProject(
   const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
   const modules: ModuleEmitResult[] = [];
   for (const [modPath] of analysisResult.modules) {
-    modules.push(emitModuleSplit(modPath, analysisResult, baseDir));
+    modules.push(emitModuleSplit(modPath, analysisResult, baseDir, buildMetadata.packageOutputPaths));
   }
 
   const supportFiles = [
@@ -192,6 +195,7 @@ function emitHpp(
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
   baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
 ): string {
   const lines: string[] = [];
 
@@ -263,7 +267,7 @@ function emitHpp(
   // Module imports → #include their .hpp
   const moduleIncludes = new Set<string>();
   for (const dependencyModule of collectReferencedModulePaths(table)) {
-    moduleIncludes.add(modulePathToInclude(dependencyModule, baseDir));
+    moduleIncludes.add(modulePathToInclude(dependencyModule, baseDir, packageOutputPaths));
   }
   if (moduleIncludes.size > 0) {
     for (const inc of moduleIncludes) {
@@ -439,9 +443,10 @@ function emitCppFile(
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
   baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
 ): string {
   const lines: string[] = [];
-  const { hppName } = modulePathToCppNames(table.path, baseDir);
+  const { hppName } = modulePathToCppNames(table.path, baseDir, packageOutputPaths);
 
   // Include own header and runtime
   lines.push(`#include "${hppName}"`);
@@ -1005,9 +1010,24 @@ function relativeModulePath(modulePath: string, baseDir: string): string {
   if (modulePath.startsWith(`${BUNDLED_STDLIB_ROOT}/`) || modulePath === BUNDLED_STDLIB_ROOT) {
     return nodePath.posix.join("__doof_stdlib__", relativeFsPath(BUNDLED_STDLIB_ROOT, modulePath));
   }
-  // For virtual-FS test paths like "/main.do" with baseDir "/",
-  // nodePath.relative("/", "/main.do") === "main.do" — works correctly.
   return anchorRelativePath(toPortablePath(relativeFsPath(baseDir, modulePath)));
+}
+
+function relativeModulePathWithPackages(
+  modulePath: string,
+  baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
+): string {
+  if (modulePath.startsWith(`${BUNDLED_STDLIB_ROOT}/`) || modulePath === BUNDLED_STDLIB_ROOT) {
+    return nodePath.posix.join("__doof_stdlib__", relativeFsPath(BUNDLED_STDLIB_ROOT, modulePath));
+  }
+
+  const mappedPath = resolvePackageModuleOutputPath(modulePath, packageOutputPaths);
+  if (mappedPath) {
+    return mappedPath;
+  }
+
+  return relativeModulePath(modulePath, baseDir);
 }
 
 function anchorRelativePath(relativePath: string): string {
@@ -1023,14 +1043,50 @@ function formatHeaderInclude(headerPath: string): string {
 }
 
 /** Convert a Doof module path to C++ .hpp/.cpp filenames (relative to baseDir). */
-function modulePathToCppNames(modulePath: string, baseDir: string): { hppName: string; cppName: string } {
-  const base = relativeModulePath(modulePath, baseDir).replace(/\.do$/, "");
+function modulePathToCppNames(
+  modulePath: string,
+  baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
+): { hppName: string; cppName: string } {
+  const base = relativeModulePathWithPackages(modulePath, baseDir, packageOutputPaths).replace(/\.do$/, "");
   return { hppName: `${base}.hpp`, cppName: `${base}.cpp` };
 }
 
 /** Convert a Doof module path to a #include header path (relative to baseDir). */
-function modulePathToInclude(modulePath: string, baseDir: string): string {
-  return relativeModulePath(modulePath, baseDir).replace(/\.do$/, ".hpp");
+function modulePathToInclude(modulePath: string, baseDir: string, packageOutputPaths?: PackageOutputPaths): string {
+  return relativeModulePathWithPackages(modulePath, baseDir, packageOutputPaths).replace(/\.do$/, ".hpp");
+}
+
+function resolvePackageModuleOutputPath(
+  modulePath: string,
+  packageOutputPaths?: PackageOutputPaths,
+): string | null {
+  if (!packageOutputPaths) {
+    return null;
+  }
+
+  let bestMatch: { rootDir: string; outputRoot: string } | null = null;
+  for (const [rootDir, outputRoot] of packageOutputPaths.byRootDir) {
+    if (!(modulePath === rootDir || modulePath.startsWith(`${rootDir}/`))) {
+      continue;
+    }
+    if (!bestMatch || rootDir.length > bestMatch.rootDir.length) {
+      bestMatch = { rootDir, outputRoot };
+    }
+  }
+
+  if (!bestMatch) {
+    return null;
+  }
+
+  const relativeWithinPackage = toPortablePath(relativeFsPath(bestMatch.rootDir, modulePath));
+  if (!bestMatch.outputRoot) {
+    return relativeWithinPackage;
+  }
+  if (!relativeWithinPackage) {
+    return bestMatch.outputRoot;
+  }
+  return `${bestMatch.outputRoot}/${relativeWithinPackage}`;
 }
 
 /** Convert a module path to an init function name. */

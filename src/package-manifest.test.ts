@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeOutputBinaryName, RealFS, runPipelineWithFs, writeProject } from "./cli-core.js";
 import {
   createBuildProvenance,
+  createPackageOutputPaths,
   findDoofManifestPath,
   loadPackageGraph,
   mergePackageNativeBuild,
@@ -210,11 +211,12 @@ describe("local package graphs", () => {
         expect(context.cacheRoot).toBe(path.join(os.homedir(), ".doof", "packages"));
         return {
           rootDir: "/cache/foo",
-          provenance: {
-            source: { kind: "git", url: dependency.url },
+          package: {
+            kind: "git",
+            url: dependency.url,
             version: dependency.version,
-            resolvedCommit: "abc123",
-            cacheKey: "git:https://github.com/example/foo#1.2.3",
+            commit: "abc123",
+            pathSegments: ["example", "foo"],
           },
         };
       },
@@ -223,12 +225,14 @@ describe("local package graphs", () => {
     expect(graph.rootPackage.dependencyRoots.get("foo")).toBe("/cache/foo");
     expect(createBuildProvenance(graph)).toEqual({
       dependencies: [{
-        source: { kind: "git", url: "https://github.com/example/foo" },
+        kind: "git",
+        url: "https://github.com/example/foo",
         version: "1.2.3",
-        resolvedCommit: "abc123",
-        cacheKey: "git:https://github.com/example/foo#1.2.3",
+        commit: "abc123",
+        referencedFrom: ["."],
       }],
     });
+    expect(createPackageOutputPaths(graph, "/app/main.do").byRootDir.get("/cache/foo")).toBe(".packages/example/foo");
   });
 
   it("materializes version-prefixed git tags for remote dependencies", () => {
@@ -278,15 +282,71 @@ describe("local package graphs", () => {
 
       expect(helloRoot).toBeTruthy();
       expect(helloRoot?.startsWith(cacheRoot)).toBe(true);
+      expect(path.basename(helloRoot ?? "")).toBe(resolvedCommit);
       expect(fs.existsSync(path.join(helloRoot!, "doof.json"))).toBe(true);
+      const versionsPath = path.join(path.dirname(helloRoot!), "versions.json");
+      expect(fs.existsSync(versionsPath)).toBe(true);
+      expect(JSON.parse(fs.readFileSync(versionsPath, "utf8"))).toMatchObject({
+        schemaVersion: 1,
+        kind: "git",
+        url: repoDir,
+        versions: {
+          "0.1": {
+            commit: resolvedCommit,
+            resolvedRef: "v0.1",
+          },
+        },
+      });
       expect(createBuildProvenance(graph)).toEqual({
         dependencies: [{
-          source: { kind: "git", url: repoDir },
+          kind: "git",
+          url: repoDir,
           version: "0.1",
-          resolvedCommit,
-          cacheKey: `git:${repoDir}#0.1`,
+          commit: resolvedCommit,
+          referencedFrom: ["."],
         }],
       });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses versions.json to materialize a cached version without resolving tags again", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-remote-package-cache-"));
+
+    try {
+      const repoDir = path.join(tempDir, "hello-doof-repo");
+      fs.mkdirSync(repoDir, { recursive: true });
+      fs.writeFileSync(path.join(repoDir, "doof.json"), JSON.stringify({ name: "hello-doof", dependencies: {} }, null, 2));
+      fs.writeFileSync(path.join(repoDir, "hello.do"), "export const value = 1\n");
+      execFileSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["config", "user.name", "Doof Tests"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["config", "user.email", "doof-tests@example.com"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["add", "."], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["commit", "-m", "initial"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["tag", "v0.1"], { cwd: repoDir, stdio: "pipe" });
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        dependencies: { "hello-doof": { url: repoDir, version: "0.1" } },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), 'import { value } from "hello-doof/hello"\nfunction main(): int => value\n');
+
+      const cacheRoot = path.join(tempDir, "cache");
+      const firstGraph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"), { cacheRoot });
+      const firstRoot = firstGraph.rootPackage.dependencyRoots.get("hello-doof");
+      expect(firstRoot).toBeTruthy();
+
+      execFileSync("git", ["tag", "-d", "v0.1"], { cwd: repoDir, stdio: "pipe" });
+      fs.rmSync(firstRoot!, { recursive: true, force: true });
+
+      const secondGraph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"), { cacheRoot });
+      const secondRoot = secondGraph.rootPackage.dependencyRoots.get("hello-doof");
+      expect(secondRoot).toBeTruthy();
+      expect(path.basename(secondRoot ?? "")).toBe(path.basename(firstRoot ?? ""));
+      expect(fs.existsSync(path.join(secondRoot!, "doof.json"))).toBe(true);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -310,17 +370,150 @@ describe("local package graphs", () => {
         observedCacheRoot = context.cacheRoot;
         return {
           rootDir: "/cache/foo",
-          provenance: {
-            source: { kind: "git", url: "https://github.com/example/foo" },
+          package: {
+            kind: "git",
+            url: "https://github.com/example/foo",
             version: "1.2.3",
-            resolvedCommit: "abc123",
-            cacheKey: "git:https://github.com/example/foo#1.2.3",
+            commit: "abc123",
+            pathSegments: ["example", "foo"],
           },
         };
       },
     });
 
     expect(observedCacheRoot).toBe(path.join(os.homedir(), ".doof", "packages"));
+  });
+
+  it("selects a single remote package version per owner/repo before finalizing the graph", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {
+          foo: { url: "https://github.com/example/foo", version: "1.0.0" },
+          bar: { path: "../deps/bar" },
+        },
+      }),
+      "/app/main.do": 'import { value } from "foo"\nfunction main(): int => value',
+      "/deps/bar/doof.json": JSON.stringify({
+        name: "bar",
+        dependencies: {
+          foo: { url: "https://github.com/example/foo", version: "2.0.0" },
+        },
+      }),
+      "/deps/bar/index.do": "export const value = 1",
+      "/cache/foo-v1/doof.json": JSON.stringify({ name: "foo" }),
+      "/cache/foo-v1/index.do": "export const value = 1",
+      "/cache/foo-v2/doof.json": JSON.stringify({ name: "foo" }),
+      "/cache/foo-v2/index.do": "export const value = 2",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", {
+      resolveRemoteDependency(dependency) {
+        return dependency.version === "1.0.0"
+          ? {
+            rootDir: "/cache/foo-v1",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "1111111",
+              pathSegments: ["example", "foo"],
+            },
+          }
+          : {
+            rootDir: "/cache/foo-v2",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "2222222",
+              pathSegments: ["example", "foo"],
+            },
+          };
+      },
+    });
+
+    expect(graph.rootPackage.dependencyRoots.get("foo")).toBe("/cache/foo-v2");
+    const barPackage = graph.packages.find((pkg) => pkg.rootDir === "/deps/bar");
+    expect(barPackage?.dependencyRoots.get("foo")).toBe("/cache/foo-v2");
+    expect(graph.packages.map((pkg) => pkg.rootDir)).not.toContain("/cache/foo-v1");
+    expect(createBuildProvenance(graph)).toEqual({
+      dependencies: [{
+        kind: "git",
+        url: "https://github.com/example/foo",
+        version: "2.0.0",
+        commit: "2222222",
+        referencedFrom: ["."],
+      }],
+    });
+  });
+
+  it("records transitive remote provenance using the referencer package URL", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {
+          foo: { url: "https://github.com/example/foo", version: "1.0.0" },
+        },
+      }),
+      "/app/main.do": 'import { value } from "foo"\nfunction main(): int => value',
+      "/cache/foo/doof.json": JSON.stringify({
+        name: "foo",
+        dependencies: {
+          bar: { url: "https://github.com/example/bar", version: "1.5.0" },
+        },
+      }),
+      "/cache/foo/index.do": 'export { value } from "bar"',
+      "/cache/bar/doof.json": JSON.stringify({ name: "bar" }),
+      "/cache/bar/index.do": "export const value = 1",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", {
+      resolveRemoteDependency(dependency) {
+        if (dependency.url.endsWith("/foo")) {
+          return {
+            rootDir: "/cache/foo",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: "1.0.0",
+              commit: "foo-commit",
+              pathSegments: ["example", "foo"],
+            },
+          };
+        }
+
+        return {
+          rootDir: "/cache/bar",
+          package: {
+            kind: "git",
+            url: dependency.url,
+            version: "1.5.0",
+            commit: "bar-commit",
+            pathSegments: ["example", "bar"],
+          },
+        };
+      },
+    });
+
+    expect(createBuildProvenance(graph)).toEqual({
+      dependencies: [
+        {
+          kind: "git",
+          url: "https://github.com/example/bar",
+          version: "1.5.0",
+          commit: "bar-commit",
+          referencedFrom: ["https://github.com/example/foo"],
+        },
+        {
+          kind: "git",
+          url: "https://github.com/example/foo",
+          version: "1.0.0",
+          commit: "foo-commit",
+          referencedFrom: ["."],
+        },
+      ],
+    });
   });
 
   it("normalizes and merges native build metadata transitively", () => {

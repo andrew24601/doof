@@ -370,6 +370,40 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.hppCode).toContain('#include "shared/math.hpp"');
   });
 
+  it("emits remote package modules under .packages output roots", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": [
+          'import { readText } from "../.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/index"',
+          "function main(): int => 0",
+        ].join("\n"),
+        "/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/index.do": [
+          'export { readText } from "./runtime"',
+        ].join("\n"),
+        "/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/runtime.do": [
+          'export function readText(path: string): string => path',
+        ].join("\n"),
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", ".packages/andrew24601/doof-fs"],
+          ]),
+        },
+      },
+    );
+
+    expect(result.modules.map((mod) => mod.hppPath).sort()).toEqual([
+      ".packages/andrew24601/doof-fs/index.hpp",
+      ".packages/andrew24601/doof-fs/runtime.hpp",
+      "main.hpp",
+    ]);
+    const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
+    expect(mainModule?.hppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
+  });
+
   it("emits package extern headers as direct sibling includes", () => {
     const result = emitProjectHelper(
       {

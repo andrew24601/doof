@@ -44,7 +44,7 @@ Point at a git repository URL with a version string:
 }
 ```
 
-The compiler materializes remote packages into `~/.doof/packages/` by default. It clones a git tag matching the declared version or `v<version>`, so `"version": "0.1"` resolves the `v0.1` tag.
+The compiler materializes remote packages into `~/.doof/packages/` by default. Git dependencies are cached under a package coordinate plus resolved commit, for example `~/.doof/packages/andrew24601/hello-doof/<commit>/`, and each package cache root keeps a `versions.json` file that maps requested versions to cached commits. Version lookup still tries the declared tag first and then `v<version>`, so `"version": "0.1"` resolves the `v0.1` tag when needed, but later builds can reuse `versions.json` instead of resolving that tag again.
 
 See [`samples/hello-package/`](../samples/hello-package/) for a working remote package example.
 
@@ -130,7 +130,7 @@ Packages can declare native build inputs under `build.native`. These values prop
 }
 ```
 
-Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/`.
+Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/<owner>/<repo>/<commit>/`.
 
 Canonical style is to omit the leading `./` for package-local paths. These fields treat bare values such as `native/include`, `native/bridge.cpp`, `native/lib`, `templates`, `main.do`, or `app-icon.svg` as package-root-relative. Leading `./` is accepted, but it is just extra noise in `doof.json` and the docs prefer the shorter package-relative form.
 
@@ -140,7 +140,7 @@ For real filesystem builds, Doof now copies package-native inputs into the emitt
 - Every file listed in `build.native.sourceFiles`
 - Any additional files or directories listed in `build.native.extraCopyPaths`
 
-This copied output is authoritative for compilation and for `doof-build.json`. Generated Doof headers stay under the emitted package subtree, and copied native files land alongside them. That means package-native code can use ordinary sibling or relative includes such as `#include "types.hpp"` or `#include "detail/helpers.hpp"` without depending on wrapper headers.
+This copied output is authoritative for compilation and for `doof-build.json`. Remote package output now lands under the emitted `.packages/<owner>/<repo>/` subtree, and copied native files land alongside the generated Doof headers there. That means package-native code can use ordinary sibling or relative includes such as `#include "types.hpp"` or `#include "detail/helpers.hpp"` without depending on wrapper headers.
 
 Best practice is to keep these fields narrow and intentional:
 

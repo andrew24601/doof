@@ -10,8 +10,10 @@ import type { FileSystem } from "./resolver.js";
 import { dirnameFsPath, isWithinFsRoot, joinFsPath, relativeFsPath, resolveFsPath, toPortablePath } from "./path-utils.js";
 import {
   createBuildProvenance,
+  createPackageOutputPaths,
   loadPackageGraph,
   type BuildProvenance,
+  type PackageOutputPaths,
   type PackageGraph,
   mergePackageNativeBuild,
   type ResolvedPackageNativeBuild,
@@ -324,8 +326,9 @@ export function runPipelineWithFs(
 
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath);
   const mergedPackageNativeBuild = mergePackageNativeBuild(packageGraph);
+  const packageOutputPaths = createPackageOutputPaths(packageGraph, normalizedEntryPath);
   const nativeCopyPlan = fileSystem instanceof RealFS
-    ? createNativeCopyPlan(packageGraph, normalizedEntryPath)
+    ? createNativeCopyPlan(packageGraph, packageOutputPaths)
     : null;
   const resolvedNativeBuild = mergeResolvedNativeBuildOptions(
     nativeCopyPlan?.passthroughNativeBuild ?? mergedPackageNativeBuild,
@@ -378,6 +381,7 @@ export function runPipelineWithFs(
   const emittedProject = emitProject(normalizedEntryPath, analysisResult, {
     outputBinaryName,
     buildTarget,
+    packageOutputPaths,
   });
   const project: ProjectEmitResult = nativeCopyPlan
     ? {
@@ -660,8 +664,7 @@ function mergeResolvedNativeBuildOptions(
   };
 }
 
-function createNativeCopyPlan(graph: PackageGraph, entryPath: string): NativeCopyPlan {
-  const baseDir = dirnameFsPath(entryPath);
+function createNativeCopyPlan(graph: PackageGraph, packageOutputPaths: PackageOutputPaths): NativeCopyPlan {
   const outputCopies: ProjectEmitResult["outputNativeCopies"] = [];
   const copiedIncludePaths: string[] = [];
   const copiedSourceFiles: string[] = [];
@@ -670,7 +673,7 @@ function createNativeCopyPlan(graph: PackageGraph, entryPath: string): NativeCop
   const passthroughNativeBuild = createEmptyResolvedPackageNativeBuild();
 
   for (const pkg of graph.packages) {
-    const packageOutputRoot = getOutputRelativePath(baseDir, pkg.rootDir);
+    const packageOutputRoot = packageOutputPaths.byRootDir.get(pkg.rootDir) ?? "";
     const packageCopyRoots: ProjectEmitResult["outputNativeCopies"] = [];
 
     const addCopyRoot = (sourcePath: string, kind: "file" | "directory" | "auto"): string => {

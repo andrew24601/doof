@@ -62,9 +62,29 @@ doof <command> [options] [entry.do | package-dir]
 - `provenance.json`
 - `doof-build.json`
 
+Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` subtree instead of mirroring the cache path from `~/.doof/packages/`.
+
 For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations.
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
+
+`provenance.json` records the finalized remote dependency graph using resolved git metadata:
+
+```json
+{
+  "dependencies": [
+    {
+      "kind": "git",
+      "url": "https://github.com/andrew24601/doof-fs",
+      "version": "0.1",
+      "commit": "5497e5306fcb80d3a0014ca41cfb236096c3583f",
+      "referencedFrom": ["."]
+    }
+  ]
+}
+```
+
+Root package references appear as `"."` in `referencedFrom`. Transitive remote references use the referencer package URL.
 
 When a manifest declares `build.target = "macos-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
 
