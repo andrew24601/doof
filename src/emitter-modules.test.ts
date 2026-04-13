@@ -370,6 +370,56 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.hppCode).toContain('#include "shared/math.hpp"');
   });
 
+  it("emits package extern headers as direct sibling includes", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": [
+          `import { readText } from "../deps/fs/runtime"`,
+          `function main(): int => 0`,
+        ].join("\n"),
+        "/workspace/deps/fs/runtime.do": [
+          `import { IoError } from "./types"`,
+          `export import function readText(path: string): Result<string, IoError> from "native_fs.hpp" as doof_fs::readText`,
+        ].join("\n"),
+        "/workspace/deps/fs/types.do": `export enum IoError { Other }`,
+      },
+      "/workspace/app/main.do",
+      {
+      },
+    );
+
+    const runtimeModule = result.modules.find((mod) => mod.modulePath === "/workspace/deps/fs/runtime.do");
+    expect(runtimeModule?.hppCode).toContain('#include "native_fs.hpp"');
+    expect(result.supportFiles).toEqual([]);
+  });
+
+  it("includes re-exported module headers in barrel modules", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": [
+          `import { readText, IoError } from "../deps/fs"`,
+          `function main(): int => 0`,
+        ].join("\n"),
+        "/workspace/deps/fs/index.do": [
+          `export { readText } from "./runtime"`,
+          `export { IoError } from "./types"`,
+        ].join("\n"),
+        "/workspace/deps/fs/runtime.do": [
+          `import { IoError } from "./types"`,
+          `export import function readText(path: string): Result<string, IoError> from "native_fs.hpp" as doof_fs::readText`,
+        ].join("\n"),
+        "/workspace/deps/fs/types.do": `export enum IoError { Other }`,
+      },
+      "/workspace/app/main.do",
+      {
+      },
+    );
+
+    const indexModule = result.modules.find((mod) => mod.modulePath === "/workspace/deps/fs/index.do");
+    expect(indexModule?.hppCode).toContain('#include "deps/fs/runtime.hpp"');
+    expect(indexModule?.hppCode).toContain('#include "deps/fs/types.hpp"');
+  });
+
   it("hpp omits nlohmann/json include when no JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }

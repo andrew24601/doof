@@ -116,9 +116,10 @@ Packages can declare native build inputs under `build.native`. These values prop
   "build": {
     "targetExecutableName": "demo-app",
     "native": {
-      "includePaths": ["./native/include"],
-      "sourceFiles": ["./native/bridge.cpp"],
-      "libraryPaths": ["./native/lib"],
+      "includePaths": ["native/include"],
+      "sourceFiles": ["native/bridge.cpp"],
+      "extraCopyPaths": ["templates", "native/config.json"],
+      "libraryPaths": ["native/lib"],
       "linkLibraries": ["curl"],
       "frameworks": ["Foundation"],
       "defines": ["USE_DEMO=1"],
@@ -131,6 +132,29 @@ Packages can declare native build inputs under `build.native`. These values prop
 
 Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/`.
 
+Canonical style is to omit the leading `./` for package-local paths. These fields treat bare values such as `native/include`, `native/bridge.cpp`, `native/lib`, `templates`, `main.do`, or `app-icon.svg` as package-root-relative. Leading `./` is accepted, but it is just extra noise in `doof.json` and the docs prefer the shorter package-relative form.
+
+For real filesystem builds, Doof now copies package-native inputs into the emitted output tree and compiles against those copied paths instead of the original package cache/source tree. The default copied set is:
+
+- Every directory listed in `build.native.includePaths`
+- Every file listed in `build.native.sourceFiles`
+- Any additional files or directories listed in `build.native.extraCopyPaths`
+
+This copied output is authoritative for compilation and for `doof-build.json`. Generated Doof headers stay under the emitted package subtree, and copied native files land alongside them. That means package-native code can use ordinary sibling or relative includes such as `#include "types.hpp"` or `#include "detail/helpers.hpp"` without depending on wrapper headers.
+
+Best practice is to keep these fields narrow and intentional:
+
+- Use `sourceFiles` for native `.c`, `.cc`, `.cpp`, or `.mm` translation units that should be compiled.
+- Use `extraCopyPaths` for package-local headers or resources that need to exist in the emitted output but are not meant to define a compiler include root.
+- Use `includePaths` only for directories that are intentionally part of the compiler's include search path.
+
+Concrete guidance:
+
+- Appropriate `includePaths` example: a package stores public native headers under `native/include/fs/` and a bridge file includes them as `#include "fs/client.hpp"`. In that case, set `"includePaths": ["native/include"]` because `native/include` is a real include root.
+- Appropriate `extraCopyPaths` example: a package has a single sibling header `native_fs.hpp` next to generated Doof headers and the code includes it with `#include "native_fs.hpp"` or other relative includes. In that case, copy that file with `"extraCopyPaths": ["native_fs.hpp"]` instead of adding the whole package root to `includePaths`.
+
+The `fs` sample follows the second pattern: it copies `native_fs.hpp` into the emitted package tree via `extraCopyPaths` and relies on local relative includes inside that copied tree rather than adding the package root as a global include root.
+
 `build.native` continues to own compiler and linker concerns even for bundle targets. For example, Apple frameworks still belong in `build.native.frameworks`, not in `build.macosApp`.
 
 Native build metadata can also be scoped to the current host platform:
@@ -140,8 +164,8 @@ Native build metadata can also be scoped to the current host platform:
   "build": {
     "native": {
       "macos": {
-        "includePaths": ["."],
-        "sourceFiles": ["./native_host.mm"],
+        "includePaths": ["native/include"],
+        "sourceFiles": ["native_host.mm"],
         "frameworks": ["Cocoa", "Metal"],
         "pkgConfigPackages": ["sdl3"]
       }

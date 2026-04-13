@@ -334,5 +334,9 @@ function createProjectEmitResult(): ProjectEmitResult {
     ],
     runtime: "",
     supportFiles: [],
+    outputNativeCopies: [],
+    outputNativeIncludePaths: [],
+    outputNativeSourceFiles: [],
+    outputNativeLibraryPaths: [],
   };
 }

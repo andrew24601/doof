@@ -63,6 +63,12 @@ export interface ModuleEmitResult {
 }
 
 /** Result of emitting a full project. */
+export interface ProjectCopiedFile {
+  sourcePath: string;
+  relativePath: string;
+  kind: "file" | "directory" | "auto";
+}
+
 export interface ProjectEmitResult {
   /** All module .hpp/.cpp pairs. */
   modules: ModuleEmitResult[];
@@ -70,6 +76,14 @@ export interface ProjectEmitResult {
   runtime: string;
   /** Additional generated support files. */
   supportFiles: ProjectSupportFile[];
+  /** Native package files or trees copied into the output directory. */
+  outputNativeCopies: ProjectCopiedFile[];
+  /** Output-relative include search roots for copied native inputs. */
+  outputNativeIncludePaths: string[];
+  /** Output-relative native source files for copied native inputs. */
+  outputNativeSourceFiles: string[];
+  /** Output-relative library search paths for copied native inputs. */
+  outputNativeLibraryPaths: string[];
 }
 
 export interface ProjectBuildMetadata {
@@ -152,14 +166,20 @@ export function emitProject(
     modules.push(emitModuleSplit(modPath, analysisResult, baseDir));
   }
 
-  const supportFiles = buildMetadata.buildTarget?.kind === "macos-app"
-    ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
-    : [];
+  const supportFiles = [
+    ...(buildMetadata.buildTarget?.kind === "macos-app"
+      ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
+      : []),
+  ];
 
   return {
     modules,
     runtime: generateRuntimeHeader(),
     supportFiles,
+    outputNativeCopies: [],
+    outputNativeIncludePaths: [],
+    outputNativeSourceFiles: [],
+    outputNativeLibraryPaths: [],
   };
 }
 
@@ -218,37 +238,17 @@ function emitHpp(
   const externIncludeSet = new Set<string>();
   for (const stmt of table.program.statements) {
     if (stmt.kind === "extern-class-declaration") {
-      const header = stmt.headerPath ?? `${stmt.name}.hpp`;
-      if (header.startsWith("<")) {
-        externIncludeSet.add(`#include ${header}`);
-      } else {
-        externIncludeSet.add(`#include "${header}"`);
-      }
+      externIncludeSet.add(formatHeaderInclude(stmt.headerPath ?? `${stmt.name}.hpp`));
     } else if (stmt.kind === "extern-function-declaration") {
       if (stmt.headerPath) {
-        const header = stmt.headerPath;
-        if (header.startsWith("<")) {
-          externIncludeSet.add(`#include ${header}`);
-        } else {
-          externIncludeSet.add(`#include "${header}"`);
-        }
+        externIncludeSet.add(formatHeaderInclude(stmt.headerPath));
       }
     } else if (stmt.kind === "export-declaration") {
       const inner = (stmt as any).declaration;
       if (inner?.kind === "extern-function-declaration" && inner.headerPath) {
-        const header = inner.headerPath;
-        if (header.startsWith("<")) {
-          externIncludeSet.add(`#include ${header}`);
-        } else {
-          externIncludeSet.add(`#include "${header}"`);
-        }
+        externIncludeSet.add(formatHeaderInclude(inner.headerPath));
       } else if (inner?.kind === "extern-class-declaration") {
-        const header = inner.headerPath ?? `${inner.name}.hpp`;
-        if (header.startsWith("<")) {
-          externIncludeSet.add(`#include ${header}`);
-        } else {
-          externIncludeSet.add(`#include "${header}"`);
-        }
+        externIncludeSet.add(formatHeaderInclude(inner.headerPath ?? `${inner.name}.hpp`));
       }
     }
   }
@@ -262,11 +262,8 @@ function emitHpp(
 
   // Module imports → #include their .hpp
   const moduleIncludes = new Set<string>();
-  for (const imp of table.imports) {
-    moduleIncludes.add(modulePathToInclude(imp.sourceModule, baseDir));
-  }
-  for (const nsImp of table.namespaceImports) {
-    moduleIncludes.add(modulePathToInclude(nsImp.sourceModule, baseDir));
+  for (const dependencyModule of collectReferencedModulePaths(table)) {
+    moduleIncludes.add(modulePathToInclude(dependencyModule, baseDir));
   }
   if (moduleIncludes.size > 0) {
     for (const inc of moduleIncludes) {
@@ -948,11 +945,8 @@ function buildInitOrder(
     if (!table) return;
 
     // Visit dependencies first
-    for (const imp of table.imports) {
-      visit(imp.sourceModule);
-    }
-    for (const nsImp of table.namespaceImports) {
-      visit(nsImp.sourceModule);
+    for (const dependencyModule of collectReferencedModulePaths(table)) {
+      visit(dependencyModule);
     }
 
     // Only add if the module has readonly globals that need initialization
@@ -969,14 +963,35 @@ function buildInitOrder(
   }
 
   // Visit all imported modules from the entry
-  for (const imp of entryTable.imports) {
-    visit(imp.sourceModule);
-  }
-  for (const nsImp of entryTable.namespaceImports) {
-    visit(nsImp.sourceModule);
+  for (const dependencyModule of collectReferencedModulePaths(entryTable)) {
+    visit(dependencyModule);
   }
 
   return order;
+}
+
+function collectReferencedModulePaths(table: ModuleSymbolTable): string[] {
+  const dependencies = new Set<string>();
+
+  for (const imp of table.imports) {
+    if (imp.sourceModule !== table.path) {
+      dependencies.add(imp.sourceModule);
+    }
+  }
+
+  for (const nsImp of table.namespaceImports) {
+    if (nsImp.sourceModule !== table.path) {
+      dependencies.add(nsImp.sourceModule);
+    }
+  }
+
+  for (const sym of table.exports.values()) {
+    if (sym.module !== table.path) {
+      dependencies.add(sym.module);
+    }
+  }
+
+  return [...dependencies];
 }
 
 // ============================================================================
@@ -1001,6 +1016,10 @@ function anchorRelativePath(relativePath: string): string {
     parts.shift();
   }
   return parts.join("/");
+}
+
+function formatHeaderInclude(headerPath: string): string {
+  return headerPath.startsWith("<") ? `#include ${headerPath}` : `#include "${headerPath}"`;
 }
 
 /** Convert a Doof module path to C++ .hpp/.cpp filenames (relative to baseDir). */

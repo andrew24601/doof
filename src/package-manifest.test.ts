@@ -330,6 +330,7 @@ describe("local package graphs", () => {
       includePaths: ["/deps/bar/headers", "/deps/foo/include", "/app/native/include"],
       sourceFiles: ["/deps/bar/bar.cpp", "/deps/foo/bridge.cpp"],
       libraryPaths: ["/deps/bar/lib"],
+      extraCopyPaths: [],
       linkLibraries: ["curl", "sqlite3", "appkit"],
       frameworks: ["Foundation"],
       pkgConfigPackages: [],
@@ -345,14 +346,14 @@ describe("local package graphs", () => {
         name: "app",
         build: {
           native: {
-            includePaths: ["../shared/include"],
+            extraCopyPaths: ["../shared/include"],
           },
         },
       }),
       "/app/main.do": "function main(): void {}",
     });
 
-    expect(() => loadPackageGraph(fs, "/app/main.do")).toThrow("build.native.includePaths must stay within the package root");
+    expect(() => loadPackageGraph(fs, "/app/main.do")).toThrow("build.native.extraCopyPaths must stay within the package root");
   });
 
   it("applies platform-scoped native build metadata for the current host", () => {
@@ -439,6 +440,7 @@ describe("local package graphs", () => {
             includePaths: ["native/include"],
             sourceFiles: ["native/bridge.cpp"],
             libraryPaths: ["native/lib"],
+            extraCopyPaths: ["native/assets"],
           },
           macosApp: {
             bundleId: "dev.doof.demo",
@@ -459,6 +461,7 @@ describe("local package graphs", () => {
     expect(graph.rootPackage.nativeBuild.includePaths).toEqual(["/app/native/include"]);
     expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native/bridge.cpp"]);
     expect(graph.rootPackage.nativeBuild.libraryPaths).toEqual(["/app/native/lib"]);
+    expect(graph.rootPackage.nativeBuild.extraCopyPaths).toEqual(["/app/native/assets"]);
     expect(graph.rootPackage.buildTarget).toEqual({
       kind: "macos-app",
       config: {
@@ -607,30 +610,35 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.buildManifest.packageRoots).toEqual(["/app", "/deps/foo"]);
   });
 
-  it("writes doof-build.json for external build tools", () => {
-    const virtualFs = new VirtualFS({
-      "/app/doof.json": JSON.stringify({
-        name: "app",
-        dependencies: {
-          foo: { path: "../deps/foo" },
+  it("writes doof-build.json for external build tools using copied package-native paths", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-build-manifest-real-"));
+    const appDir = path.join(workspaceDir, "app");
+    const depDir = path.join(workspaceDir, "deps", "foo");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(path.join(depDir, "include"), { recursive: true });
+    fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+      name: "app",
+      dependencies: {
+        foo: { path: "../deps/foo" },
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(appDir, "main.do"), 'import { value } from "foo"\nfunction main(): int => value\n');
+    fs.writeFileSync(path.join(depDir, "doof.json"), JSON.stringify({
+      name: "foo",
+      build: {
+        native: {
+          includePaths: ["./include"],
+          sourceFiles: ["./bridge.cpp"],
         },
-      }),
-      "/app/main.do": 'import { value } from "foo"\nfunction main(): int => value',
-      "/deps/foo/doof.json": JSON.stringify({
-        name: "foo",
-        build: {
-          native: {
-            includePaths: ["./include"],
-            sourceFiles: ["./bridge.cpp"],
-          },
-        },
-      }),
-      "/deps/foo/index.do": "export const value = 1",
-    });
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(depDir, "index.do"), "export const value = 1\n");
+    fs.writeFileSync(path.join(depDir, "include", "foo.hpp"), "#pragma once\n", "utf8");
+    fs.writeFileSync(path.join(depDir, "bridge.cpp"), "int doof_bridge() { return 0; }\n", "utf8");
 
     const result = runPipelineWithFs(
-      virtualFs,
-      "/app/main.do",
+      new RealFS(),
+      path.join(appDir, "main.do"),
       false,
       emptyNativeBuildOptions(),
       () => {},
@@ -652,13 +660,78 @@ describe("manifest-derived pipeline metadata", () => {
       };
 
       expect(buildManifest.outputDir).toBe(outDir);
-      expect(buildManifest.includePaths).toEqual([outDir, "/deps/foo/include"]);
+      expect(buildManifest.includePaths).toEqual([outDir, path.join(outDir, "deps", "foo", "include")]);
       expect(buildManifest.generatedSources).toContain("main.cpp");
       expect(buildManifest.generatedHeaders).toContain("main.hpp");
-      expect(buildManifest.nativeSourceFiles).toEqual(["/deps/foo/bridge.cpp"]);
+      expect(buildManifest.nativeSourceFiles).toEqual([path.join(outDir, "deps", "foo", "bridge.cpp")]);
+      expect(fs.readFileSync(path.join(outDir, "deps", "foo", "include", "foo.hpp"), "utf8")).toBe("#pragma once\n");
+      expect(fs.readFileSync(path.join(outDir, "deps", "foo", "bridge.cpp"), "utf8")).toBe(
+        "int doof_bridge() { return 0; }\n",
+      );
       expect(fs.existsSync(path.join(outDir, "CMakeLists.txt"))).toBe(false);
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("copies package-owned native headers into the emitted package tree", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-package-copy-"));
+    const appDir = path.join(workspaceDir, "app");
+    const depDir = path.join(workspaceDir, "deps", "fs");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(depDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+      name: "app",
+      dependencies: {
+        fs: { path: "../deps/fs" },
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(appDir, "main.do"), 'import { readText } from "fs"\nfunction main(): int => 0\n');
+    fs.writeFileSync(path.join(depDir, "doof.json"), JSON.stringify({
+      name: "fs",
+      build: {
+        native: {
+          includePaths: ["."],
+        },
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(depDir, "index.do"), 'export { readText } from "./runtime"\n');
+    fs.writeFileSync(path.join(depDir, "runtime.do"), [
+      'import { IoError } from "./types"',
+      'export import function readText(path: string): Result<string, IoError> from "native_fs.hpp" as doof_fs::readText',
+    ].join("\n") + "\n");
+    fs.writeFileSync(path.join(depDir, "types.do"), "export enum IoError { Other }\n");
+    fs.writeFileSync(path.join(depDir, "native_fs.hpp"), '#pragma once\n#include "types.hpp"\n', "utf8");
+
+    const result = runPipelineWithFs(
+      new RealFS(),
+      path.join(appDir, "main.do"),
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    const runtimeModule = result.project.modules.find((mod) => mod.modulePath === path.join(depDir, "runtime.do"));
+    expect(runtimeModule?.hppCode).toContain('#include "native_fs.hpp"');
+    expect(result.project.supportFiles).toEqual([]);
+    expect(result.project.outputNativeCopies).toContainEqual({
+      sourcePath: depDir,
+      relativePath: path.join("deps", "fs").replace(/\\/g, "/"),
+      kind: "directory",
+    });
+
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-package-copy-out-"));
+    try {
+      writeProject(result.project, outDir, false, () => {}, result.provenance, result.buildManifest);
+      expect(fs.readFileSync(path.join(outDir, "deps", "fs", "native_fs.hpp"), "utf8")).toBe(
+        '#pragma once\n#include "types.hpp"\n',
+      );
+      expect(fs.readFileSync(path.join(outDir, "deps", "fs", "runtime.do"), "utf8")).toContain('from "native_fs.hpp"');
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
 

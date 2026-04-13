@@ -7,11 +7,12 @@ import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import type { FileSystem } from "./resolver.js";
-import { joinFsPath, resolveFsPath } from "./path-utils.js";
+import { dirnameFsPath, isWithinFsRoot, joinFsPath, relativeFsPath, resolveFsPath, toPortablePath } from "./path-utils.js";
 import {
   createBuildProvenance,
   loadPackageGraph,
   type BuildProvenance,
+  type PackageGraph,
   mergePackageNativeBuild,
   type ResolvedPackageNativeBuild,
 } from "./package-manifest.js";
@@ -59,6 +60,9 @@ interface BuildManifestTemplate {
   buildTarget: ResolvedDoofBuildTarget | null;
   generatedHeaders: string[];
   generatedSources: string[];
+  outputNativeIncludePaths: string[];
+  outputNativeSourceFiles: string[];
+  outputNativeLibraryPaths: string[];
   nativeIncludePaths: string[];
   nativeSourceFiles: string[];
   libraryPaths: string[];
@@ -121,6 +125,23 @@ export interface BuildCompileArgsOptions {
 interface WindowsEnvScript {
   filePath: string;
   args: string[];
+}
+
+interface NativeCopyPlan {
+  outputCopies: ProjectEmitResult["outputNativeCopies"];
+  includePaths: string[];
+  sourceFiles: string[];
+  libraryPaths: string[];
+  passthroughNativeBuild: ResolvedPackageNativeBuild;
+}
+
+interface ManagedOutputNativeFile {
+  sourcePath: string;
+  relativePath: string;
+}
+
+interface ManagedNativeCopyManifest {
+  files: string[];
 }
 
 const DEFAULT_GCC_TOOLCHAIN: CompilerToolchain = { kind: "gcc-like", command: "c++" };
@@ -303,7 +324,13 @@ export function runPipelineWithFs(
 
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath);
   const mergedPackageNativeBuild = mergePackageNativeBuild(packageGraph);
-  const resolvedNativeBuild = mergeResolvedNativeBuildOptions(mergedPackageNativeBuild, nativeBuild);
+  const nativeCopyPlan = fileSystem instanceof RealFS
+    ? createNativeCopyPlan(packageGraph, normalizedEntryPath)
+    : null;
+  const resolvedNativeBuild = mergeResolvedNativeBuildOptions(
+    nativeCopyPlan?.passthroughNativeBuild ?? mergedPackageNativeBuild,
+    nativeBuild,
+  );
   const hostResolvedNativeBuild = resolvePkgConfigNativeBuild(resolvedNativeBuild);
   const resolver = createBundledModuleResolver(fileSystem, {
     packages: packageGraph.packages.map((pkg) => ({
@@ -348,10 +375,19 @@ export function runPipelineWithFs(
   const buildTarget = packageGraph.rootPackage.buildTarget;
 
   if (verbose) log("Emitting C++...");
-  const project = emitProject(normalizedEntryPath, analysisResult, {
+  const emittedProject = emitProject(normalizedEntryPath, analysisResult, {
     outputBinaryName,
     buildTarget,
   });
+  const project: ProjectEmitResult = nativeCopyPlan
+    ? {
+      ...emittedProject,
+      outputNativeCopies: nativeCopyPlan.outputCopies,
+      outputNativeIncludePaths: nativeCopyPlan.includePaths,
+      outputNativeSourceFiles: nativeCopyPlan.sourceFiles,
+      outputNativeLibraryPaths: nativeCopyPlan.libraryPaths,
+    }
+    : emittedProject;
   if (verbose) log(`  ${project.modules.length} module(s) emitted`);
 
   const provenance = createBuildProvenance(packageGraph);
@@ -399,6 +435,8 @@ export function writeProject(
     }
   }
 
+  syncOutputNativeFiles(outDir, project, verbose, log);
+
   if (provenance) {
     writeFile(path.join(outDir, "provenance.json"), JSON.stringify(provenance, null, 2) + "\n", verbose, log);
   }
@@ -424,11 +462,30 @@ export function buildCompileArgs(
   const moduleCppFiles = project.modules.map((mod) => platform === "win32"
     ? path.win32.join(absOutDir, mod.cppPath)
     : joinFsPath(absOutDir, mod.cppPath));
-  const includePaths = uniqueStrings([absOutDir, ...(options.extraIncludePaths ?? []), ...nativeBuild.includePaths]);
+  const outputNativeIncludePaths = project.outputNativeIncludePaths.map((relativePath) =>
+    resolveOutputRelativePath(absOutDir, relativePath, platform)
+  );
+  const outputNativeSourceFiles = project.outputNativeSourceFiles.map((relativePath) =>
+    resolveOutputRelativePath(absOutDir, relativePath, platform)
+  );
+  const outputNativeLibraryPaths = project.outputNativeLibraryPaths.map((relativePath) =>
+    resolveOutputRelativePath(absOutDir, relativePath, platform)
+  );
+  const includePaths = uniqueStrings([
+    absOutDir,
+    ...(options.extraIncludePaths ?? []),
+    ...outputNativeIncludePaths,
+    ...nativeBuild.includePaths,
+  ]);
+  const effectiveNativeBuild: NativeBuildOptions = {
+    ...nativeBuild,
+    sourceFiles: uniqueStrings([...outputNativeSourceFiles, ...nativeBuild.sourceFiles]),
+    libraryPaths: uniqueStrings([...outputNativeLibraryPaths, ...nativeBuild.libraryPaths]),
+  };
 
   const args = toolchain.kind === "msvc"
-    ? buildMsvcCompileArgs(outBinary, moduleCppFiles, includePaths, nativeBuild, mode)
-    : buildGccLikeCompileArgs(outBinary, moduleCppFiles, includePaths, nativeBuild, mode);
+    ? buildMsvcCompileArgs(outBinary, moduleCppFiles, includePaths, effectiveNativeBuild, mode)
+    : buildGccLikeCompileArgs(outBinary, moduleCppFiles, includePaths, effectiveNativeBuild, mode);
 
   return { outBinary, args };
 }
@@ -532,6 +589,9 @@ function createBuildManifestTemplate(
     buildTarget,
     generatedHeaders: project.modules.map((mod) => mod.hppPath).sort(),
     generatedSources: project.modules.map((mod) => mod.cppPath).sort(),
+    outputNativeIncludePaths: [...project.outputNativeIncludePaths],
+    outputNativeSourceFiles: [...project.outputNativeSourceFiles],
+    outputNativeLibraryPaths: [...project.outputNativeLibraryPaths],
     nativeIncludePaths: [...nativeBuild.includePaths],
     nativeSourceFiles: [...nativeBuild.sourceFiles],
     libraryPaths: [...nativeBuild.libraryPaths],
@@ -557,9 +617,19 @@ function finalizeBuildManifest(template: BuildManifestTemplate, outDir: string):
     buildTarget: template.buildTarget,
     generatedHeaders: [...template.generatedHeaders],
     generatedSources: [...template.generatedSources],
-    includePaths: uniqueStrings([absOutDir, ...template.nativeIncludePaths]),
-    nativeSourceFiles: [...template.nativeSourceFiles],
-    libraryPaths: [...template.libraryPaths],
+    includePaths: uniqueStrings([
+      absOutDir,
+      ...template.outputNativeIncludePaths.map((relativePath) => path.join(absOutDir, relativePath)),
+      ...template.nativeIncludePaths,
+    ]),
+    nativeSourceFiles: uniqueStrings([
+      ...template.outputNativeSourceFiles.map((relativePath) => path.join(absOutDir, relativePath)),
+      ...template.nativeSourceFiles,
+    ]),
+    libraryPaths: uniqueStrings([
+      ...template.outputNativeLibraryPaths.map((relativePath) => path.join(absOutDir, relativePath)),
+      ...template.libraryPaths,
+    ]),
     linkLibraries: [...template.linkLibraries],
     frameworks: [...template.frameworks],
     pkgConfigPackages: [...template.pkgConfigPackages],
@@ -588,6 +658,271 @@ function mergeResolvedNativeBuildOptions(
     linkerFlags: uniqueStrings([...packageNativeBuild.linkerFlags, ...nativeBuild.linkerFlags]),
     defines: uniqueStrings([...packageNativeBuild.defines, ...nativeBuild.defines]),
   };
+}
+
+function createNativeCopyPlan(graph: PackageGraph, entryPath: string): NativeCopyPlan {
+  const baseDir = dirnameFsPath(entryPath);
+  const outputCopies: ProjectEmitResult["outputNativeCopies"] = [];
+  const copiedIncludePaths: string[] = [];
+  const copiedSourceFiles: string[] = [];
+  const copiedLibraryPaths: string[] = [];
+  const destinationSources = new Map<string, string>();
+  const passthroughNativeBuild = createEmptyResolvedPackageNativeBuild();
+
+  for (const pkg of graph.packages) {
+    const packageOutputRoot = getOutputRelativePath(baseDir, pkg.rootDir);
+    const packageCopyRoots: ProjectEmitResult["outputNativeCopies"] = [];
+
+    const addCopyRoot = (sourcePath: string, kind: "file" | "directory" | "auto"): string => {
+      const relativeWithinPackage = toPortablePath(relativeFsPath(pkg.rootDir, sourcePath));
+      const relativePath = joinOutputRelativePath(packageOutputRoot, relativeWithinPackage);
+      const existingSource = destinationSources.get(relativePath);
+      if (existingSource && existingSource !== sourcePath) {
+        throw new Error(
+          `Native package copy collision for ${relativePath}: ${existingSource} conflicts with ${sourcePath}`,
+        );
+      }
+      destinationSources.set(relativePath, sourcePath);
+
+      if (!packageCopyRoots.some((entry) => entry.sourcePath === sourcePath && entry.relativePath === relativePath)) {
+        packageCopyRoots.push({ sourcePath, relativePath, kind });
+      }
+
+      return relativePath;
+    };
+
+    for (const includePath of pkg.nativeBuild.includePaths) {
+      copiedIncludePaths.push(addCopyRoot(includePath, "directory"));
+    }
+
+    for (const sourceFile of pkg.nativeBuild.sourceFiles) {
+      copiedSourceFiles.push(addCopyRoot(sourceFile, "file"));
+    }
+
+    for (const extraCopyPath of pkg.nativeBuild.extraCopyPaths) {
+      addCopyRoot(extraCopyPath, "auto");
+    }
+
+    outputCopies.push(...packageCopyRoots);
+
+    for (const libraryPath of pkg.nativeBuild.libraryPaths) {
+      const copiedLibraryPath = rewriteOutputNativePath(libraryPath, packageCopyRoots);
+      if (copiedLibraryPath) {
+        copiedLibraryPaths.push(copiedLibraryPath);
+      } else {
+        passthroughNativeBuild.libraryPaths.push(libraryPath);
+      }
+    }
+
+    appendUnique(passthroughNativeBuild.linkLibraries, pkg.nativeBuild.linkLibraries);
+    appendUnique(passthroughNativeBuild.frameworks, pkg.nativeBuild.frameworks);
+    appendUnique(passthroughNativeBuild.pkgConfigPackages, pkg.nativeBuild.pkgConfigPackages);
+    appendUnique(passthroughNativeBuild.defines, pkg.nativeBuild.defines);
+    appendUnique(passthroughNativeBuild.compilerFlags, pkg.nativeBuild.compilerFlags);
+    appendUnique(passthroughNativeBuild.linkerFlags, pkg.nativeBuild.linkerFlags);
+  }
+
+  return {
+    outputCopies,
+    includePaths: uniqueStrings(copiedIncludePaths),
+    sourceFiles: uniqueStrings(copiedSourceFiles),
+    libraryPaths: uniqueStrings(copiedLibraryPaths),
+    passthroughNativeBuild,
+  };
+}
+
+function createEmptyResolvedPackageNativeBuild(): ResolvedPackageNativeBuild {
+  return {
+    includePaths: [],
+    sourceFiles: [],
+    libraryPaths: [],
+    extraCopyPaths: [],
+    linkLibraries: [],
+    frameworks: [],
+    pkgConfigPackages: [],
+    defines: [],
+    compilerFlags: [],
+    linkerFlags: [],
+  };
+}
+
+function getOutputRelativePath(baseDir: string, targetPath: string): string {
+  return anchorOutputRelativePath(toPortablePath(relativeFsPath(baseDir, targetPath)));
+}
+
+function anchorOutputRelativePath(relativePath: string): string {
+  const parts = relativePath.split("/");
+  while (parts.length > 0 && parts[0] === "..") {
+    parts.shift();
+  }
+  return parts.join("/");
+}
+
+function joinOutputRelativePath(basePath: string, childPath: string): string {
+  if (!basePath) {
+    return childPath;
+  }
+  if (!childPath) {
+    return basePath;
+  }
+  return `${basePath}/${childPath}`;
+}
+
+function rewriteOutputNativePath(
+  sourcePath: string,
+  outputCopies: ReadonlyArray<ProjectEmitResult["outputNativeCopies"][number]>,
+): string | null {
+  for (const entry of outputCopies) {
+    if (entry.sourcePath === sourcePath) {
+      return entry.relativePath;
+    }
+    if (entry.kind === "file" || !isWithinFsRoot(sourcePath, entry.sourcePath)) {
+      continue;
+    }
+
+    const suffix = toPortablePath(relativeFsPath(entry.sourcePath, sourcePath));
+    return joinOutputRelativePath(entry.relativePath, suffix);
+  }
+
+  return null;
+}
+
+function resolveOutputRelativePath(outDir: string, relativePath: string, platform: NodeJS.Platform): string {
+  if (!relativePath) {
+    return outDir;
+  }
+  return platform === "win32" ? path.win32.join(outDir, relativePath) : joinFsPath(outDir, relativePath);
+}
+
+function syncOutputNativeFiles(
+  outDir: string,
+  project: ProjectEmitResult,
+  verbose: boolean,
+  log: (msg: string) => void,
+): void {
+  const outputNativeFiles = project.outputNativeCopies.length > 0
+    ? expandOutputNativeCopies(project.outputNativeCopies)
+    : [];
+  const reservedPaths = new Set<string>([
+    "doof_runtime.hpp",
+    "doof-build.json",
+    "provenance.json",
+    ...project.modules.flatMap((mod) => [mod.hppPath, mod.cppPath]),
+    ...project.supportFiles.map((file) => file.relativePath),
+  ]);
+
+  for (const outputNativeFile of outputNativeFiles) {
+    if (reservedPaths.has(outputNativeFile.relativePath)) {
+      throw new Error(`Native package copy would overwrite generated output: ${outputNativeFile.relativePath}`);
+    }
+  }
+
+  removeStaleOutputNativeFiles(outDir, outputNativeFiles.map((file) => file.relativePath));
+
+  for (const outputNativeFile of outputNativeFiles) {
+    const destinationPath = path.join(outDir, outputNativeFile.relativePath);
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.copyFileSync(outputNativeFile.sourcePath, destinationPath);
+    const mode = fs.statSync(outputNativeFile.sourcePath).mode & 0o777;
+    if ((mode & 0o111) !== 0) {
+      fs.chmodSync(destinationPath, mode);
+    }
+    if (verbose) {
+      log(`  copied: ${outputNativeFile.relativePath}`);
+    }
+  }
+
+  writeManagedNativeCopyManifest(outDir, outputNativeFiles.map((file) => file.relativePath));
+}
+
+function expandOutputNativeCopies(
+  outputCopies: ReadonlyArray<ProjectEmitResult["outputNativeCopies"][number]>,
+): ManagedOutputNativeFile[] {
+  const expanded = new Map<string, string>();
+
+  for (const entry of outputCopies) {
+    const sourceStat = fs.statSync(entry.sourcePath);
+    const kind = entry.kind === "auto"
+      ? (sourceStat.isDirectory() ? "directory" : "file")
+      : entry.kind;
+
+    if (kind === "file") {
+      const existing = expanded.get(entry.relativePath);
+      if (existing && existing !== entry.sourcePath) {
+        throw new Error(`Native package copy collision for ${entry.relativePath}`);
+      }
+      expanded.set(entry.relativePath, entry.sourcePath);
+      continue;
+    }
+
+    for (const childPath of listFilesRecursive(entry.sourcePath)) {
+      const childRelativePath = toPortablePath(relativeFsPath(entry.sourcePath, childPath));
+      const destinationRelativePath = joinOutputRelativePath(entry.relativePath, childRelativePath);
+      const existing = expanded.get(destinationRelativePath);
+      if (existing && existing !== childPath) {
+        throw new Error(`Native package copy collision for ${destinationRelativePath}`);
+      }
+      expanded.set(destinationRelativePath, childPath);
+    }
+  }
+
+  return [...expanded.entries()]
+    .map(([relativePath, sourcePath]) => ({ relativePath, sourcePath }))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+function listFilesRecursive(rootPath: string): string[] {
+  const rootStat = fs.statSync(rootPath);
+  if (!rootStat.isDirectory()) {
+    return [rootPath];
+  }
+
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(rootPath, { withFileTypes: true })) {
+    const childPath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFilesRecursive(childPath));
+      continue;
+    }
+    if (entry.isFile()) {
+      files.push(childPath);
+    }
+  }
+  return files;
+}
+
+function removeStaleOutputNativeFiles(outDir: string, nextFiles: readonly string[]): void {
+  const previousFiles = readManagedNativeCopyManifest(outDir).files;
+  const nextFileSet = new Set(nextFiles);
+
+  for (const relativePath of previousFiles) {
+    if (!nextFileSet.has(relativePath)) {
+      fs.rmSync(path.join(outDir, relativePath), { force: true });
+    }
+  }
+}
+
+function readManagedNativeCopyManifest(outDir: string): ManagedNativeCopyManifest {
+  const manifestPath = path.join(outDir, ".doof-native-copy-manifest.json");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as ManagedNativeCopyManifest;
+    return { files: [...(parsed.files ?? [])] };
+  } catch {
+    return { files: [] };
+  }
+}
+
+function writeManagedNativeCopyManifest(outDir: string, files: readonly string[]): void {
+  const manifestPath = path.join(outDir, ".doof-native-copy-manifest.json");
+  fs.writeFileSync(manifestPath, JSON.stringify({ files: [...files].sort() }, null, 2) + "\n", "utf8");
+}
+
+function appendUnique(target: string[], values: readonly string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) {
+      target.push(value);
+    }
+  }
 }
 
 function execPkgConfig(host: CompilerDetectionHost, args: string[], packageName: string): string[] {

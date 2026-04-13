@@ -15,6 +15,9 @@ import {
   type CompilerToolchain,
   resolveNlohmannInclude,
   resolveCompilerToolchain,
+  RealFS,
+  runPipelineWithFs,
+  writeProject,
   tryFindCompilerToolchain,
 } from "./cli-core.js";
 import { emitProject, type NativeBuildOptions } from "./emitter-module.js";
@@ -267,20 +270,7 @@ export class E2EContext {
       };
     }
 
-    // Write runtime header
-    fs.writeFileSync(path.join(this.tmpDir, "doof_runtime.hpp"), project.runtime);
-
-    // Write all module .hpp and .cpp files
-    const cppFiles: string[] = [];
-    for (const mod of project.modules) {
-      const hppFile = path.join(this.tmpDir, mod.hppPath);
-      const cppFile = path.join(this.tmpDir, mod.cppPath);
-      fs.mkdirSync(path.dirname(hppFile), { recursive: true });
-      fs.mkdirSync(path.dirname(cppFile), { recursive: true });
-      fs.writeFileSync(hppFile, mod.hppCode);
-      fs.writeFileSync(cppFile, mod.cppCode);
-      cppFiles.push(cppFile);
-    }
+    writeProjectArtifacts(this.tmpDir, project);
 
     const { outBinary, args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
       extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
@@ -357,20 +347,7 @@ export class E2EContext {
       };
     }
 
-    // Write runtime header
-    fs.writeFileSync(path.join(this.tmpDir, "doof_runtime.hpp"), project.runtime);
-
-    // Write all module files
-    const cppFiles: string[] = [];
-    for (const mod of project.modules) {
-      const hppFile = path.join(this.tmpDir, mod.hppPath);
-      const cppFile = path.join(this.tmpDir, mod.cppPath);
-      fs.mkdirSync(path.dirname(hppFile), { recursive: true });
-      fs.mkdirSync(path.dirname(cppFile), { recursive: true });
-      fs.writeFileSync(hppFile, mod.hppCode);
-      fs.writeFileSync(cppFile, mod.cppCode);
-      cppFiles.push(cppFile);
-    }
+    writeProjectArtifacts(this.tmpDir, project);
 
     const allCode = project.modules.map(m =>
       `--- ${m.hppPath} ---\n${m.hppCode}\n--- ${m.cppPath} ---\n${m.cppCode}`
@@ -394,6 +371,84 @@ export class E2EContext {
         success: false,
         error: e.stderr?.toString() ?? e.message,
         codes: allCode,
+      };
+    }
+  }
+
+  compileAndRunManifestProject(
+    entryPath: string,
+    nativeBuildOptions: Partial<NativeBuildOptions> = {},
+  ): RunResult {
+    if (!this.cppToolchain) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: missingCompilerMessage(),
+      };
+    }
+
+    const nativeBuild = createNativeBuildOptions(nativeBuildOptions);
+    let pipeline;
+    try {
+      pipeline = runPipelineWithFs(
+        new RealFS(),
+        entryPath,
+        false,
+        nativeBuild,
+        () => {},
+        () => {},
+      );
+    } catch (e: any) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    const outDir = fs.mkdtempSync(path.join(this.tmpDir, "doof-manifest-project-"));
+    writeProject(pipeline.project, outDir, false, () => {}, pipeline.provenance, pipeline.buildManifest);
+
+    try {
+      const { outBinary, args } = buildCompileArgs(outDir, pipeline.project, pipeline.nativeBuild, {
+        extraIncludePaths: getExtraIncludePaths(
+          pipeline.nativeBuild,
+          [
+            pipeline.project.runtime,
+            ...pipeline.project.modules.map((mod) => mod.hppCode),
+            ...pipeline.project.modules.map((mod) => mod.cppCode),
+          ],
+        ),
+        toolchain: this.cppToolchain,
+        outputBinaryName: pipeline.outputBinaryName,
+      });
+      execFileSync(this.cppToolchain.command, args, {
+        stdio: "pipe",
+        cwd: outDir,
+        timeout: 15000,
+        env: this.cppToolchain.env ?? process.env,
+      });
+    } catch (e: any) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: formatCompilationFailure(e),
+      };
+    }
+
+    try {
+      const outBinary = path.join(outDir, path.basename(pipeline.outputBinaryName));
+      const stdout = execFileSync(outBinary, [], {
+        stdio: "pipe",
+        timeout: 5000,
+        env: this.cppToolchain.env ?? process.env,
+      }).toString();
+      return { exitCode: 0, stdout: normalizeProcessOutput(stdout), stderr: "" };
+    } catch (e: any) {
+      return {
+        exitCode: e.status ?? 1,
+        stdout: normalizeProcessOutput(e.stdout?.toString() ?? ""),
+        stderr: normalizeProcessOutput(e.stderr?.toString() ?? ""),
       };
     }
   }
@@ -423,6 +478,11 @@ function writeProjectArtifacts(tmpDir: string, project: ReturnType<typeof emitPr
     fs.mkdirSync(path.dirname(cppFile), { recursive: true });
     fs.writeFileSync(hppFile, mod.hppCode);
     fs.writeFileSync(cppFile, mod.cppCode);
+  }
+  for (const supportFile of project.supportFiles) {
+    const filePath = path.join(tmpDir, supportFile.relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, supportFile.content);
   }
 }
 

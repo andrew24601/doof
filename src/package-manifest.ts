@@ -24,7 +24,7 @@ import {
   resolveFsPathFrom,
 } from "./path-utils.js";
 
-export type ResolvedPackageNativeBuild = Pick<
+export interface ResolvedPackageNativeBuild extends Pick<
   NativeBuildOptions,
   | "includePaths"
   | "sourceFiles"
@@ -35,7 +35,9 @@ export type ResolvedPackageNativeBuild = Pick<
   | "defines"
   | "compilerFlags"
   | "linkerFlags"
->;
+> {
+  extraCopyPaths: string[];
+}
 
 export interface DoofNativeBuildFragment extends Partial<ResolvedPackageNativeBuild> {}
 
@@ -285,6 +287,7 @@ export function mergePackageNativeBuild(graph: PackageGraph): ResolvedPackageNat
     appendUnique(merged.includePaths, pkg.nativeBuild.includePaths);
     appendUnique(merged.sourceFiles, pkg.nativeBuild.sourceFiles);
     appendUnique(merged.libraryPaths, pkg.nativeBuild.libraryPaths);
+    appendUnique(merged.extraCopyPaths, pkg.nativeBuild.extraCopyPaths);
     appendUnique(merged.linkLibraries, pkg.nativeBuild.linkLibraries);
     appendUnique(merged.frameworks, pkg.nativeBuild.frameworks);
     appendUnique(merged.pkgConfigPackages, pkg.nativeBuild.pkgConfigPackages);
@@ -520,6 +523,7 @@ function parseNativeBuildFragment(
     includePaths: readOptionalStringArray(value.includePaths, manifestPath, `${fieldPath}.includePaths`),
     sourceFiles: readOptionalStringArray(value.sourceFiles, manifestPath, `${fieldPath}.sourceFiles`),
     libraryPaths: readOptionalStringArray(value.libraryPaths, manifestPath, `${fieldPath}.libraryPaths`),
+    extraCopyPaths: readOptionalStringArray(value.extraCopyPaths, manifestPath, `${fieldPath}.extraCopyPaths`),
     linkLibraries: readOptionalStringArray(value.linkLibraries, manifestPath, `${fieldPath}.linkLibraries`),
     frameworks: readOptionalStringArray(value.frameworks, manifestPath, `${fieldPath}.frameworks`),
     pkgConfigPackages: readOptionalStringArray(value.pkgConfigPackages, manifestPath, `${fieldPath}.pkgConfigPackages`),
@@ -632,6 +636,7 @@ function createEmptyResolvedPackageNativeBuild(): ResolvedPackageNativeBuild {
     includePaths: [],
     sourceFiles: [],
     libraryPaths: [],
+    extraCopyPaths: [],
     linkLibraries: [],
     frameworks: [],
     pkgConfigPackages: [],
@@ -683,6 +688,12 @@ function normalizeNativeBuildConfig(
     includePaths: normalizePackagePaths(mergedBuild.includePaths, rootDir, manifestPath, "build.native.includePaths"),
     sourceFiles: normalizePackagePaths(mergedBuild.sourceFiles, rootDir, manifestPath, "build.native.sourceFiles"),
     libraryPaths: normalizePackagePaths(mergedBuild.libraryPaths, rootDir, manifestPath, "build.native.libraryPaths"),
+    extraCopyPaths: normalizePackagePaths(
+      mergedBuild.extraCopyPaths,
+      rootDir,
+      manifestPath,
+      "build.native.extraCopyPaths",
+    ),
     linkLibraries: [...(mergedBuild.linkLibraries ?? [])],
     frameworks: [...(mergedBuild.frameworks ?? [])],
     pkgConfigPackages: [...(mergedBuild.pkgConfigPackages ?? [])],
@@ -700,6 +711,7 @@ function mergeNativeBuildFragments(
     includePaths: [...(base.includePaths ?? []), ...(platform?.includePaths ?? [])],
     sourceFiles: [...(base.sourceFiles ?? []), ...(platform?.sourceFiles ?? [])],
     libraryPaths: [...(base.libraryPaths ?? []), ...(platform?.libraryPaths ?? [])],
+    extraCopyPaths: [...(base.extraCopyPaths ?? []), ...(platform?.extraCopyPaths ?? [])],
     linkLibraries: [...(base.linkLibraries ?? []), ...(platform?.linkLibraries ?? [])],
     frameworks: [...(base.frameworks ?? []), ...(platform?.frameworks ?? [])],
     pkgConfigPackages: [...(base.pkgConfigPackages ?? []), ...(platform?.pkgConfigPackages ?? [])],
