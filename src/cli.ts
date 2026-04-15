@@ -29,6 +29,7 @@ import type { FileSystem } from "./resolver.js";
 import { assembleMacOSAppBundle } from "./macos-app-target.js";
 import {
   buildCompileArgs,
+  buildCompilePlan,
   compileCpp,
   findCompilerToolchain,
   printDiagnostic,
@@ -251,7 +252,7 @@ export function getCliVersion(packageJsonPath = fileURLToPath(new URL("../packag
 // Commands
 // ============================================================================
 
-export { buildCompileArgs } from "./cli-core.js";
+export { buildCompileArgs, buildCompilePlan } from "./cli-core.js";
 
 function runPipeline(entryFile: string, verbose: boolean, nativeBuild: NativeBuildOptions) {
   return runPipelineWithFs(new RealFS(), entryFile, verbose, nativeBuild, log, printDiagnostic);

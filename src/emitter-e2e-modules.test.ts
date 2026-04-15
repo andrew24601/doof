@@ -656,17 +656,7 @@ int32_t NativeCounter::get() const {
   });
 
   it("compiles and runs the checked-in regex sample", () => {
-    const sampleDir = path.resolve("samples/regex");
-    const result = ctx.compileAndRunProject(
-      {
-        "/main.do": fs.readFileSync(path.join(sampleDir, "main.do"), "utf-8"),
-        "/regex.do": fs.readFileSync(path.join(sampleDir, "regex.do"), "utf-8"),
-      },
-      "/main.do",
-      {
-        includePaths: [sampleDir],
-      },
-    );
+    const result = ctx.compileAndRunManifestProject(path.resolve("samples/regex/main.do"));
 
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);

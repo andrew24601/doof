@@ -58,18 +58,17 @@ export interface RunTestCommandResult {
   failed: number;
 }
 
-class OverlayFS implements FileSystem {
-  constructor(
-    private readonly overlay: Map<string, string>,
-    private readonly fallback: FileSystem,
-  ) {}
+class OverlayFS extends RealFS {
+  constructor(private readonly overlay: Map<string, string>) {
+    super();
+  }
 
   readFile(absolutePath: string): string | null {
-    return this.overlay.get(absolutePath) ?? this.fallback.readFile(absolutePath);
+    return this.overlay.get(absolutePath) ?? super.readFile(absolutePath);
   }
 
   fileExists(absolutePath: string): boolean {
-    return this.overlay.has(absolutePath) || this.fallback.fileExists(absolutePath);
+    return this.overlay.has(absolutePath) || super.fileExists(absolutePath);
   }
 }
 
@@ -236,11 +235,11 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
     const harnessPath = buildHarnessPath(rootDir, group.moduleDisplayPath);
     const harnessSource = generateTestHarnessSource(harnessPath, group.tests);
     const overlay = new Map<string, string>([[harnessPath, harnessSource]]);
-    const fileSystem = new OverlayFS(overlay, new RealFS());
+    const fileSystem = new OverlayFS(overlay);
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-test-"));
 
     try {
-      const { project, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
+      const { project, nativeBuild, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
         fileSystem,
         harnessPath,
         options.verbose,
@@ -254,7 +253,7 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
         outDir,
         project,
         options.compiler,
-        options.nativeBuild,
+        nativeBuild,
         options.verbose,
         options.reporter.log,
         outputBinaryName,

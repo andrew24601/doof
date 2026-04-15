@@ -124,6 +124,24 @@ export interface BuildCompileArgsOptions {
   platform?: NodeJS.Platform;
 }
 
+export interface CompileCommandStep {
+  command: string;
+  args: string[];
+}
+
+export interface CompileCommandPlan {
+  outBinary: string;
+  commands: CompileCommandStep[];
+}
+
+interface BuildCompileInputs {
+  outBinary: string;
+  absOutDir: string;
+  moduleCppFiles: string[];
+  includePaths: string[];
+  effectiveNativeBuild: NativeBuildOptions;
+}
+
 interface WindowsEnvScript {
   filePath: string;
   args: string[];
@@ -459,8 +477,135 @@ export function buildCompileArgs(
   options: BuildCompileArgsOptions = {},
 ): { outBinary: string; args: string[] } {
   const toolchain = options.toolchain ?? DEFAULT_GCC_TOOLCHAIN;
-  const platform = options.platform ?? process.platform;
   const mode = options.mode ?? "build";
+  const inputs = resolveBuildCompileInputs(outDir, project, nativeBuild, options);
+
+  const args = toolchain.kind === "msvc"
+    ? buildMsvcCompileArgs(inputs.outBinary, inputs.moduleCppFiles, inputs.includePaths, inputs.effectiveNativeBuild, mode)
+    : buildGccLikeCompileArgs(inputs.outBinary, inputs.moduleCppFiles, inputs.includePaths, inputs.effectiveNativeBuild, mode);
+
+  return { outBinary: inputs.outBinary, args };
+}
+
+export function buildCompilePlan(
+  outDir: string,
+  project: ProjectEmitResult,
+  nativeBuild: NativeBuildOptions,
+  options: BuildCompileArgsOptions = {},
+): CompileCommandPlan {
+  const toolchain = options.toolchain ?? DEFAULT_GCC_TOOLCHAIN;
+  const mode = options.mode ?? "build";
+  const platform = options.platform ?? process.platform;
+  const inputs = resolveBuildCompileInputs(outDir, project, nativeBuild, options);
+
+  if (toolchain.kind !== "gcc-like") {
+    return {
+      outBinary: inputs.outBinary,
+      commands: [{
+        command: toolchain.command,
+        args: buildMsvcCompileArgs(
+          inputs.outBinary,
+          inputs.moduleCppFiles,
+          inputs.includePaths,
+          inputs.effectiveNativeBuild,
+          mode,
+        ),
+      }],
+    };
+  }
+
+  const cSourceFiles = inputs.effectiveNativeBuild.sourceFiles.filter(isNativeCSource);
+  const otherSourceFiles = inputs.effectiveNativeBuild.sourceFiles.filter((sourceFile) => !isNativeCSource(sourceFile));
+  const generatedObjectFiles: string[] = [];
+  const commands: CompileCommandStep[] = [];
+
+  if (mode === "build") {
+    const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
+    cSourceFiles.forEach((sourceFile, index) => {
+      const objectFile = buildNativeObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      generatedObjectFiles.push(objectFile);
+      commands.push({
+        command: cCompiler,
+        args: buildGccLikeCCompileArgs(objectFile, sourceFile, inputs.includePaths, inputs.effectiveNativeBuild),
+      });
+    });
+  }
+
+  if (mode === "syntax-only") {
+    const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
+    cSourceFiles.forEach((sourceFile) => {
+      commands.push({
+        command: cCompiler,
+        args: buildGccLikeCSyntaxArgs(sourceFile, inputs.includePaths, inputs.effectiveNativeBuild),
+      });
+    });
+  }
+
+  const finalNativeBuild: NativeBuildOptions = {
+    ...inputs.effectiveNativeBuild,
+    sourceFiles: otherSourceFiles,
+    objectFiles: [...inputs.effectiveNativeBuild.objectFiles, ...generatedObjectFiles],
+  };
+
+  commands.push({
+    command: toolchain.command,
+    args: buildGccLikeCompileArgs(
+      inputs.outBinary,
+      inputs.moduleCppFiles,
+      inputs.includePaths,
+      finalNativeBuild,
+      mode,
+    ),
+  });
+
+  return {
+    outBinary: inputs.outBinary,
+    commands,
+  };
+}
+
+export function compileCpp(
+  outDir: string,
+  project: ProjectEmitResult,
+  toolchain: CompilerToolchain,
+  nativeBuild: NativeBuildOptions,
+  verbose: boolean,
+  log: (msg: string) => void,
+  outputBinaryName = getDefaultOutputBinaryName(),
+): string {
+  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
+    allowProvision: true,
+  });
+  const plan = buildCompilePlan(outDir, project, nativeBuild, {
+    toolchain,
+    outputBinaryName,
+    extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
+  });
+  for (const step of plan.commands) {
+    if (verbose) log(`Compiling: ${[step.command, ...step.args].map(formatShellArg).join(" ")}`);
+    try {
+      execFileSync(step.command, step.args, {
+        stdio: "pipe",
+        timeout: 30000,
+        env: toolchain.env ?? process.env,
+      });
+    } catch (e: any) {
+      throw new Error(formatProcessFailure("Compilation failed", e));
+    }
+  }
+
+  if (verbose) log(`  binary: ${plan.outBinary}`);
+  return plan.outBinary;
+}
+
+function resolveBuildCompileInputs(
+  outDir: string,
+  project: ProjectEmitResult,
+  nativeBuild: NativeBuildOptions,
+  options: BuildCompileArgsOptions,
+): BuildCompileInputs {
+  const platform = options.platform ?? process.platform;
   const absOutDir = platform === "win32" ? path.resolve(outDir) : resolveFsPath(outDir);
   const outBinary = platform === "win32"
     ? path.win32.join(absOutDir, getResolvedOutputBinaryName(options.outputBinaryName, platform))
@@ -489,44 +634,13 @@ export function buildCompileArgs(
     libraryPaths: uniqueStrings([...outputNativeLibraryPaths, ...nativeBuild.libraryPaths]),
   };
 
-  const args = toolchain.kind === "msvc"
-    ? buildMsvcCompileArgs(outBinary, moduleCppFiles, includePaths, effectiveNativeBuild, mode)
-    : buildGccLikeCompileArgs(outBinary, moduleCppFiles, includePaths, effectiveNativeBuild, mode);
-
-  return { outBinary, args };
-}
-
-export function compileCpp(
-  outDir: string,
-  project: ProjectEmitResult,
-  toolchain: CompilerToolchain,
-  nativeBuild: NativeBuildOptions,
-  verbose: boolean,
-  log: (msg: string) => void,
-  outputBinaryName = getDefaultOutputBinaryName(),
-): string {
-  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
-    allowProvision: true,
-  });
-  const { outBinary, args } = buildCompileArgs(outDir, project, nativeBuild, {
-    toolchain,
-    outputBinaryName,
-    extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
-  });
-  if (verbose) log(`Compiling: ${[toolchain.command, ...args].map(formatShellArg).join(" ")}`);
-
-  try {
-    execFileSync(toolchain.command, args, {
-      stdio: "pipe",
-      timeout: 30000,
-      env: toolchain.env ?? process.env,
-    });
-  } catch (e: any) {
-    throw new Error(formatProcessFailure("Compilation failed", e));
-  }
-
-  if (verbose) log(`  binary: ${outBinary}`);
-  return outBinary;
+  return {
+    outBinary,
+    absOutDir,
+    moduleCppFiles,
+    includePaths,
+    effectiveNativeBuild,
+  };
 }
 
 export function resolveNativeBuildOptions(nativeBuild: NativeBuildOptions): NativeBuildOptions {
@@ -1311,7 +1425,7 @@ function buildGccLikeCompileArgs(
     ...nativeBuild.compilerFlags,
   ];
 
-  const compileSources = [...moduleCppFiles, ...nativeBuild.sourceFiles];
+  const compileSources = buildGccLikeCompileSources(moduleCppFiles, nativeBuild.sourceFiles);
   if (mode === "syntax-only") {
     return [...compileArgs, "-fsyntax-only", ...compileSources];
   }
@@ -1327,6 +1441,102 @@ function buildGccLikeCompileArgs(
     ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
     ...nativeBuild.linkerFlags,
   ];
+}
+
+function buildGccLikeCompileSources(moduleCppFiles: string[], nativeSourceFiles: string[]): string[] {
+  return [...moduleCppFiles, ...nativeSourceFiles];
+}
+
+function buildGccLikeCCompileArgs(
+  objectFile: string,
+  sourceFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+): string[] {
+  return [
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+    "-x",
+    "c",
+    "-c",
+    sourceFile,
+    "-o",
+    objectFile,
+  ];
+}
+
+function buildGccLikeCSyntaxArgs(
+  sourceFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+): string[] {
+  return [
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+    "-x",
+    "c",
+    "-fsyntax-only",
+    sourceFile,
+  ];
+}
+
+function isNativeCSource(sourceFile: string): boolean {
+  return path.extname(sourceFile).toLowerCase() === ".c";
+}
+
+function buildNativeObjectFilePath(
+  outDir: string,
+  sourceFile: string,
+  index: number,
+  platform: NodeJS.Platform,
+): string {
+  const objectExtension = platform === "win32" ? ".obj" : ".o";
+  const objectRoot = outDir;
+  const relativeSourcePath = getNativeObjectRelativeSourcePath(outDir, sourceFile, index, platform);
+
+  return platform === "win32"
+    ? path.win32.join(objectRoot, `${relativeSourcePath}${objectExtension}`)
+    : joinFsPath(objectRoot, `${relativeSourcePath}${objectExtension}`);
+}
+
+function getNativeObjectRelativeSourcePath(
+  outDir: string,
+  sourceFile: string,
+  index: number,
+  platform: NodeJS.Platform,
+): string {
+  const pathApi = platform === "win32" ? path.win32 : path;
+  const relativePath = pathApi.relative(outDir, sourceFile);
+  if (relativePath.length > 0 && !relativePath.startsWith("..") && !pathApi.isAbsolute(relativePath)) {
+    return relativePath;
+  }
+
+  const safeBaseName = path.basename(sourceFile).replace(/[^A-Za-z0-9_.-]/g, "_");
+  return platform === "win32"
+    ? path.win32.join("external", `__doof_native_${index}_${safeBaseName}`)
+    : joinFsPath("external", `__doof_native_${index}_${safeBaseName}`);
+}
+
+function deriveGccLikeCCompilerCommand(cppCompilerCommand: string): string {
+  const dir = path.dirname(cppCompilerCommand);
+  const baseName = path.basename(cppCompilerCommand);
+  let cCompilerBaseName: string;
+
+  if (baseName === "clang++") {
+    cCompilerBaseName = "clang";
+  } else if (baseName === "g++") {
+    cCompilerBaseName = "gcc";
+  } else if (baseName === "c++") {
+    cCompilerBaseName = "cc";
+  } else if (baseName.endsWith("++")) {
+    cCompilerBaseName = baseName.slice(0, -2);
+  } else {
+    cCompilerBaseName = baseName;
+  }
+
+  return dir === "." ? cCompilerBaseName : path.join(dir, cCompilerBaseName);
 }
 
 function buildMsvcCompileArgs(

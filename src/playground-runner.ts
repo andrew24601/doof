@@ -8,7 +8,7 @@ import {
 } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import {
-  buildCompileArgs,
+  buildCompilePlan,
   resolveCompilerToolchain,
   resolveNlohmannInclude,
   type CompilerToolchain,
@@ -135,7 +135,7 @@ export function runPlaygroundSource(
     const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
       allowProvision: true,
     });
-    const { outBinary, args } = buildCompileArgs(
+    const compilePlan = buildCompilePlan(
       tempDir,
       artifacts.project,
       nativeBuild,
@@ -144,30 +144,34 @@ export function runPlaygroundSource(
         extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
       },
     );
-    const buildProcess = runProcess(host, toolchain.command, args, {
-      cwd: tempDir,
-      env: toolchain.env ?? process.env,
-      stdio: "pipe",
-      timeout: 30000,
-    });
+    let lastBuildProcess: ReturnType<typeof runProcess> | null = null;
+    for (const command of compilePlan.commands) {
+      const buildProcess = runProcess(host, command.command, command.args, {
+        cwd: tempDir,
+        env: toolchain.env ?? process.env,
+        stdio: "pipe",
+        timeout: 30000,
+      });
+      lastBuildProcess = buildProcess;
 
-    if (buildProcess.failed) {
-      return {
-        status: "build-failed",
-        message: buildProcess.failureMessage,
-        cpp: artifacts.cpp,
-        buildCommand: buildProcess.command,
-        buildStdout: buildProcess.stdout,
-        buildStderr: buildProcess.stderr,
-        runCommand: "",
-        runStdout: "",
-        runStderr: "",
-        exitCode: null,
-        elapsedMs: host.now() - startedAt,
-      };
+      if (buildProcess.failed) {
+        return {
+          status: "build-failed",
+          message: buildProcess.failureMessage,
+          cpp: artifacts.cpp,
+          buildCommand: buildProcess.command,
+          buildStdout: buildProcess.stdout,
+          buildStderr: buildProcess.stderr,
+          runCommand: "",
+          runStdout: "",
+          runStderr: "",
+          exitCode: null,
+          elapsedMs: host.now() - startedAt,
+        };
+      }
     }
 
-    const runProcessResult = runProcess(host, outBinary, [], {
+    const runProcessResult = runProcess(host, compilePlan.outBinary, [], {
       cwd: tempDir,
       env: toolchain.env ?? process.env,
       stdio: "pipe",
@@ -179,9 +183,9 @@ export function runPlaygroundSource(
         status: "run-failed",
         message: runProcessResult.failureMessage,
         cpp: artifacts.cpp,
-        buildCommand: buildProcess.command,
-        buildStdout: buildProcess.stdout,
-        buildStderr: buildProcess.stderr,
+        buildCommand: lastBuildProcess?.command ?? "",
+        buildStdout: lastBuildProcess?.stdout ?? "",
+        buildStderr: lastBuildProcess?.stderr ?? "",
         runCommand: runProcessResult.command,
         runStdout: runProcessResult.stdout,
         runStderr: runProcessResult.stderr,
@@ -194,9 +198,9 @@ export function runPlaygroundSource(
       status: "succeeded",
       message: "Build and run succeeded.",
       cpp: artifacts.cpp,
-      buildCommand: buildProcess.command,
-      buildStdout: buildProcess.stdout,
-      buildStderr: buildProcess.stderr,
+      buildCommand: lastBuildProcess?.command ?? "",
+      buildStdout: lastBuildProcess?.stdout ?? "",
+      buildStderr: lastBuildProcess?.stderr ?? "",
       runCommand: runProcessResult.command,
       runStdout: runProcessResult.stdout,
       runStderr: runProcessResult.stderr,

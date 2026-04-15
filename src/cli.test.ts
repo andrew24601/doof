@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectEmitResult } from "./emitter-module.js";
-import { buildCompileArgs, getCliVersion, parseArgs, resolveCliPipelineInputs } from "./cli.js";
+import { buildCompileArgs, buildCompilePlan, getCliVersion, parseArgs, resolveCliPipelineInputs } from "./cli.js";
 import { VirtualFS } from "./test-helpers.js";
 
 const tmpDirs: string[] = [];
@@ -296,6 +296,81 @@ describe("CLI compile args", () => {
     expect(args).not.toContain("Foundation");
     expect(args).not.toContain("/tmp/native/bridge.o");
     expect(args).not.toContain("-pthread");
+  });
+
+  it("precompiles native .c sources before the final gcc-like link step", () => {
+    const project = createProjectEmitResult();
+
+    const plan = buildCompilePlan("/tmp/doof-build", project, {
+      cppStd: "c++17",
+      includePaths: [],
+      libraryPaths: [],
+      linkLibraries: [],
+      frameworks: [],
+      pkgConfigPackages: [],
+      sourceFiles: ["/tmp/native/pcre2.c", "/tmp/native/bridge.cpp"],
+      objectFiles: [],
+      compilerFlags: [],
+      linkerFlags: [],
+      defines: [],
+    }, {
+      platform: "linux",
+      toolchain: { kind: "gcc-like", command: "clang++" },
+    });
+
+    expect(plan.outBinary).toBe("/tmp/doof-build/a.out");
+    expect(plan.commands).toHaveLength(2);
+    expect(plan.commands[0]).toEqual({
+      command: "clang",
+      args: [
+        "-I/tmp/doof-build",
+        "-x",
+        "c",
+        "-c",
+        "/tmp/native/pcre2.c",
+        "-o",
+        "/tmp/doof-build/.doof-native-objects/external/__doof_native_0_pcre2.c.o",
+      ],
+    });
+    expect(plan.commands[1].command).toBe("clang++");
+    expect(plan.commands[1].args).toContain("/tmp/doof-build/main.cpp");
+    expect(plan.commands[1].args).toContain("/tmp/native/bridge.cpp");
+    expect(plan.commands[1].args).toContain("/tmp/doof-build/.doof-native-objects/external/__doof_native_0_pcre2.c.o");
+  });
+
+  it("syntax-checks native .c sources separately on gcc-like toolchains", () => {
+    const project = createProjectEmitResult();
+
+    const plan = buildCompilePlan("/tmp/doof-build", project, {
+      cppStd: "c++17",
+      includePaths: [],
+      libraryPaths: [],
+      linkLibraries: [],
+      frameworks: [],
+      pkgConfigPackages: [],
+      sourceFiles: ["/tmp/native/pcre2.c"],
+      objectFiles: [],
+      compilerFlags: [],
+      linkerFlags: [],
+      defines: [],
+    }, {
+      mode: "syntax-only",
+      platform: "linux",
+      toolchain: { kind: "gcc-like", command: "clang++" },
+    });
+
+    expect(plan.commands).toHaveLength(2);
+    expect(plan.commands[0]).toEqual({
+      command: "clang",
+      args: [
+        "-I/tmp/doof-build",
+        "-x",
+        "c",
+        "-fsyntax-only",
+        "/tmp/native/pcre2.c",
+      ],
+    });
+    expect(plan.commands[1].args).toContain("-fsyntax-only");
   });
 });
 

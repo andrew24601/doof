@@ -11,7 +11,7 @@ import * as os from "node:os";
 import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import {
-  buildCompileArgs,
+  buildCompilePlan,
   type CompilerToolchain,
   resolveNlohmannInclude,
   resolveCompilerToolchain,
@@ -149,17 +149,19 @@ export class E2EContext {
     let outBinary = "";
     try {
       const nativeBuild = createNativeBuildOptions();
-      const compileResult = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+      const compilePlan = buildCompilePlan(this.tmpDir, project, nativeBuild, {
         extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
         toolchain: this.cppToolchain,
       });
-      outBinary = compileResult.outBinary;
-      execFileSync(this.cppToolchain.command, compileResult.args, {
-        stdio: "pipe",
-        cwd: this.tmpDir,
-        timeout: 15000,
-        env: this.cppToolchain.env ?? process.env,
-      });
+      outBinary = compilePlan.outBinary;
+      for (const command of compilePlan.commands) {
+        execFileSync(command.command, command.args, {
+          stdio: "pipe",
+          cwd: this.tmpDir,
+          timeout: 15000,
+          env: this.cppToolchain.env ?? process.env,
+        });
+      }
     } catch (e: any) {
       return {
         exitCode: -1,
@@ -214,17 +216,19 @@ export class E2EContext {
 
     try {
       const nativeBuild = createNativeBuildOptions();
-      const { args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+      const compilePlan = buildCompilePlan(this.tmpDir, project, nativeBuild, {
         extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
         mode: "syntax-only",
         toolchain: this.cppToolchain,
       });
-      execFileSync(this.cppToolchain.command, args, {
-        stdio: "pipe",
-        cwd: this.tmpDir,
-        timeout: 15000,
-        env: this.cppToolchain.env ?? process.env,
-      });
+      for (const command of compilePlan.commands) {
+        execFileSync(command.command, command.args, {
+          stdio: "pipe",
+          cwd: this.tmpDir,
+          timeout: 15000,
+          env: this.cppToolchain.env ?? process.env,
+        });
+      }
       return { success: true, error: "", code: cppCode };
     } catch (e: any) {
       return {
@@ -272,18 +276,20 @@ export class E2EContext {
 
     writeProjectArtifacts(this.tmpDir, project);
 
-    const { outBinary, args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+    const compilePlan = buildCompilePlan(this.tmpDir, project, nativeBuild, {
       extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
       toolchain: this.cppToolchain,
     });
 
     try {
-      execFileSync(this.cppToolchain.command, args, {
-        stdio: "pipe",
-        cwd: this.tmpDir,
-        timeout: 15000,
-        env: this.cppToolchain.env ?? process.env,
-      });
+      for (const command of compilePlan.commands) {
+        execFileSync(command.command, command.args, {
+          stdio: "pipe",
+          cwd: this.tmpDir,
+          timeout: 15000,
+          env: this.cppToolchain.env ?? process.env,
+        });
+      }
     } catch (e: any) {
       const allCode = project.modules.map(m =>
         `--- ${m.hppPath} ---\n${m.hppCode}\n--- ${m.cppPath} ---\n${m.cppCode}`
@@ -297,7 +303,7 @@ export class E2EContext {
 
     // Run
     try {
-      const stdout = execFileSync(outBinary, [], {
+      const stdout = execFileSync(compilePlan.outBinary, [], {
         stdio: "pipe",
         timeout: 5000,
         env: this.cppToolchain.env ?? process.env,
@@ -354,17 +360,19 @@ export class E2EContext {
     ).join("\n\n");
 
     try {
-      const { args } = buildCompileArgs(this.tmpDir, project, nativeBuild, {
+      const compilePlan = buildCompilePlan(this.tmpDir, project, nativeBuild, {
         extraIncludePaths: getExtraIncludePaths(nativeBuild, [project.runtime, ...project.modules.map((mod) => mod.hppCode), ...project.modules.map((mod) => mod.cppCode)]),
         mode: "syntax-only",
         toolchain: this.cppToolchain,
       });
-      execFileSync(this.cppToolchain.command, args, {
-        stdio: "pipe",
-        cwd: this.tmpDir,
-        timeout: 15000,
-        env: this.cppToolchain.env ?? process.env,
-      });
+      for (const command of compilePlan.commands) {
+        execFileSync(command.command, command.args, {
+          stdio: "pipe",
+          cwd: this.tmpDir,
+          timeout: 15000,
+          env: this.cppToolchain.env ?? process.env,
+        });
+      }
       return { success: true, error: "", codes: allCode };
     } catch (e: any) {
       return {
@@ -410,7 +418,7 @@ export class E2EContext {
     writeProject(pipeline.project, outDir, false, () => {}, pipeline.provenance, pipeline.buildManifest);
 
     try {
-      const { outBinary, args } = buildCompileArgs(outDir, pipeline.project, pipeline.nativeBuild, {
+      const compilePlan = buildCompilePlan(outDir, pipeline.project, pipeline.nativeBuild, {
         extraIncludePaths: getExtraIncludePaths(
           pipeline.nativeBuild,
           [
@@ -422,12 +430,14 @@ export class E2EContext {
         toolchain: this.cppToolchain,
         outputBinaryName: pipeline.outputBinaryName,
       });
-      execFileSync(this.cppToolchain.command, args, {
-        stdio: "pipe",
-        cwd: outDir,
-        timeout: 15000,
-        env: this.cppToolchain.env ?? process.env,
-      });
+      for (const command of compilePlan.commands) {
+        execFileSync(command.command, command.args, {
+          stdio: "pipe",
+          cwd: outDir,
+          timeout: 15000,
+          env: this.cppToolchain.env ?? process.env,
+        });
+      }
     } catch (e: any) {
       return {
         exitCode: -1,

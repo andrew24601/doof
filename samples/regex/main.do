@@ -1,10 +1,4 @@
-import {
-  Match,
-  RegexError,
-  compile,
-  matches,
-  replaceAll,
-} from "./regex"
+import { Match, Regex, RegexError, RegexFlag } from "std/regex"
 
 class SampleOutput {
   emailValid: bool
@@ -19,37 +13,31 @@ class SampleOutput {
 }
 
 function runSample(): Result<SampleOutput, RegexError> {
-  try emailValid := matches(
-    "ops@doof.dev",
-    "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
-  )
-  try ticketRegex := compile("([A-Z]+)-([0-9]+)", true)
-  try dateRegex := compile("([0-9]{4})-([0-9]{2})-([0-9]{2})")
+  try emailRegex := Regex.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+  try ticketRegex := Regex.compile("([A-Z]+)-([0-9]+)", [RegexFlag.IgnoreCase])
+  try dateRegex := Regex.compile("(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})")
   firstReleaseDate := dateRegex.find("Release train departs on 2026-03-30.")
-  try normalizedWhitespace := replaceAll(
-    " Release \t notes   need   cleanup ",
-    "\\s+",
-    " ",
-  )
+  try whitespaceRegex := Regex.compile("\\s+")
+  normalizedWhitespace := whitespaceRegex.replaceAll(" Release \t notes   need   cleanup ", " ")
 
   let releaseYear: string | null = null
   let releaseMonth: string | null = null
   let releaseDay: string | null = null
   let firstReleaseDateGroupCount = 0
   if firstReleaseDate != null {
-    firstReleaseDateGroupCount = firstReleaseDate.captureCount()
-    [releaseYear, releaseMonth, releaseDay] = firstReleaseDate.groups
+    firstReleaseDateGroupCount = firstReleaseDate.captures.length
+    [releaseYear, releaseMonth, releaseDay] = firstReleaseDate.captures
   }
 
   return Success {
     value: SampleOutput {
-      emailValid,
+      emailValid: emailRegex.test("ops@doof.dev"),
       firstReleaseDate,
       releaseYear,
       releaseMonth,
       releaseDay,
       firstReleaseDateGroupCount,
-      hasReleaseWarning: ticketRegex.search("Watch for DOOF-999 before cutting RC1"),
+      hasReleaseWarning: ticketRegex.test("Watch for DOOF-999 before cutting RC1"),
       normalizedWhitespace: normalizedWhitespace.trim(),
       firstReplacement: ticketRegex.replaceFirst("DOOF-104 / DOOF-105", "ticket"),
     }
@@ -61,7 +49,8 @@ function formatMatch(match: Match | null): string {
     return "no match"
   }
 
-  return "${match.text} at ${match.start}..${match.end}"
+  (start, end) := match.range
+  return "${match.value} at ${start}..${end}"
 }
 
 function formatOutput(output: SampleOutput): string {
@@ -78,7 +67,7 @@ function formatOutput(output: SampleOutput): string {
 function formatError(error: RegexError): string {
   let text = "Regex ${error.stage} failed"
   text += " for pattern ${error.pattern}"
-  if error.ignoreCase {
+  if error.flags.has(RegexFlag.IgnoreCase) {
     text += " (ignoreCase)"
   }
   text += ": ${error.message}"
