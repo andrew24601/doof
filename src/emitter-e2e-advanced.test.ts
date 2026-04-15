@@ -1096,6 +1096,41 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe("9007199254740993\n9007199254740993");
   });
 
+  it("parses and re-stringifies escaped JSON strings", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        parsed := try! JSON.parse("{\\\"quote\\\":\\\"a\\\\\\\"b\\\",\\\"line\\\":\\\"x\\\\ny\\\",\\\"snowman\\\":\\\"\\\\u2603\\\"}")
+        println(JSON.stringify(parsed))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      quote: 'a"b',
+      line: "x\ny",
+      snowman: "☃",
+    });
+  });
+
+  it("returns a descriptive error for malformed JSON text", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        case JSON.parse("{\\\"broken\\\":") {
+          s: Success => println("unexpected")
+          f: Failure => println(f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout).toContain("line 1");
+    expect(result.stdout).toContain("column");
+  });
+
   it("preserves map aliasing when assigning Map<string, JsonValue> to JsonValue", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

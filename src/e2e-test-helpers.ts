@@ -13,7 +13,6 @@ import { ModuleAnalyzer } from "./analyzer.js";
 import {
   buildCompilePlan,
   type CompilerToolchain,
-  resolveNlohmannInclude,
   resolveCompilerToolchain,
   RealFS,
   runPipelineWithFs,
@@ -505,8 +504,7 @@ function missingCompilerMessage(): string {
 }
 
 function getExtraIncludePaths(nativeBuild: NativeBuildOptions, generatedArtifacts: string[]): string[] {
-  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, { allowProvision: true });
-  return nlohmannInclude ? [nlohmannInclude] : [];
+  return [];
 }
 
 function formatCompilationFailure(error: any): string {

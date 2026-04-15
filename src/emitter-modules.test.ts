@@ -75,7 +75,7 @@ describe("emitter-module — hpp/cpp split", () => {
       `,
     }, "/main.do");
 
-    expect(project.runtime).toContain("#include <nlohmann/json.hpp>");
+    expect(project.runtime).toContain("struct Parser {");
     expect(project.runtime).toContain("struct JSON {");
   });
 
@@ -454,19 +454,19 @@ describe("emitter-module — emitProject", () => {
     expect(indexModule?.hppCode).toContain('#include "deps/fs/types.hpp"');
   });
 
-  it("hpp omits nlohmann/json include when no JSON is used", () => {
+  it("hpp omits external JSON includes when no JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }
     `);
-    expect(hppCode).not.toContain("nlohmann/json.hpp");
+    expect(hppCode).toContain('#include "doof_runtime.hpp"');
   });
 
-  it("hpp includes nlohmann/json when JSON is used", () => {
+  it("hpp relies on doof runtime when JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }
       function test(p: Point): JsonValue => p.toJsonValue()
     `);
-    expect(hppCode).toContain("nlohmann/json.hpp");
+    expect(hppCode).toContain('#include "doof_runtime.hpp"');
   });
 });
 

@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
@@ -169,14 +168,6 @@ const VSWHERE_COMPONENT = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64";
 const GCC_LIKE_COMPILERS = ["clang++", "g++", "c++"] as const;
 const VISUAL_STUDIO_VERSION_NAMES = ["18", "17", "16", "15", "Preview", "Current"];
 const VISUAL_STUDIO_EDITIONS = ["Community", "Professional", "Enterprise", "BuildTools"];
-const NLOHMANN_JSON_VERSION = "v3.11.3";
-const NLOHMANN_JSON_URL = `https://raw.githubusercontent.com/nlohmann/json/${NLOHMANN_JSON_VERSION}/single_include/nlohmann/json.hpp`;
-
-interface ResolveNlohmannIncludeOptions {
-  host?: CompilerDetectionHost;
-  allowProvision?: boolean;
-  provisioner?: (host: CompilerDetectionHost) => string | null;
-}
 
 function defaultCompilerDetectionHost(): CompilerDetectionHost {
   return {
@@ -266,66 +257,6 @@ export function resolveCompilerToolchain(
   }
 
   throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
-}
-
-export function findNlohmannInclude(
-  includePaths: readonly string[] = [],
-  host: CompilerDetectionHost = defaultCompilerDetectionHost(),
-): string | null {
-  for (const dir of includePaths) {
-    if (hasNlohmannHeader(dir, host.fileExists)) {
-      return dir;
-    }
-  }
-
-  const configuredInclude = host.env.DOOF_NLOHMANN_INCLUDE;
-  if (configuredInclude && hasNlohmannHeader(configuredInclude, host.fileExists)) {
-    return configuredInclude;
-  }
-
-  if (host.platform === "win32") {
-    for (const dir of getWindowsNlohmannCandidates(host.env)) {
-      if (hasNlohmannHeader(dir, host.fileExists)) {
-        return dir;
-      }
-    }
-    return null;
-  }
-
-  try {
-    const prefix = host.execFile("brew", ["--prefix", "nlohmann-json"], { timeout: 5000 }).toString().trim();
-    const brewInclude = prefix ? path.join(prefix, "include") : "";
-    if (brewInclude && hasNlohmannHeader(brewInclude, host.fileExists)) {
-      return brewInclude;
-    }
-  } catch {
-    // Ignore missing Homebrew or package.
-  }
-
-  for (const dir of ["/usr/local/include", "/usr/include"]) {
-    if (hasNlohmannHeader(dir, host.fileExists)) {
-      return dir;
-    }
-  }
-
-  return null;
-}
-
-export function resolveNlohmannInclude(
-  includePaths: readonly string[] = [],
-  options: ResolveNlohmannIncludeOptions = {},
-): string | null {
-  const host = options.host ?? defaultCompilerDetectionHost();
-  const discoveredInclude = findNlohmannInclude(includePaths, host);
-  if (discoveredInclude) {
-    return discoveredInclude;
-  }
-
-  if (!options.allowProvision) {
-    return null;
-  }
-
-  return (options.provisioner ?? provisionNlohmannInclude)(host);
 }
 
 export function runPipelineWithFs(
@@ -574,13 +505,9 @@ export function compileCpp(
   log: (msg: string) => void,
   outputBinaryName = getDefaultOutputBinaryName(),
 ): string {
-  const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
-    allowProvision: true,
-  });
   const plan = buildCompilePlan(outDir, project, nativeBuild, {
     toolchain,
     outputBinaryName,
-    extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
   });
   for (const step of plan.commands) {
     if (verbose) log(`Compiling: ${[step.command, ...step.args].map(formatShellArg).join(" ")}`);
@@ -1354,61 +1281,6 @@ function findCommandInPath(
 
 function hasPathSeparators(value: string): boolean {
   return value.includes("/") || value.includes("\\") || /^[A-Za-z]:/.test(value);
-}
-
-function hasNlohmannHeader(includeDir: string, fileExists: (filePath: string) => boolean): boolean {
-  return fileExists(path.join(includeDir, "nlohmann", "json.hpp"));
-}
-
-function getWindowsNlohmannCandidates(env: NodeJS.ProcessEnv): string[] {
-  const candidates: string[] = [];
-  const configuredVcpkgRoot = env.VCPKG_ROOT;
-  if (configuredVcpkgRoot) {
-    candidates.push(path.win32.join(configuredVcpkgRoot, "installed", "x64-windows", "include"));
-    candidates.push(path.win32.join(configuredVcpkgRoot, "installed", "x86-windows", "include"));
-  }
-
-  for (const installationPath of getVisualStudioInstallationCandidates(env)) {
-    candidates.push(path.win32.join(installationPath, "VC", "vcpkg", "installed", "x64-windows", "include"));
-    candidates.push(path.win32.join(installationPath, "VC", "vcpkg", "installed", "x86-windows", "include"));
-  }
-
-  candidates.push(getProvisionedNlohmannIncludeDir());
-  return uniqueStrings(candidates);
-}
-
-function getProvisionedNlohmannIncludeDir(): string {
-  return path.join(os.homedir(), ".doof", "cache", "nlohmann-json", NLOHMANN_JSON_VERSION, "include");
-}
-
-function provisionNlohmannInclude(host: CompilerDetectionHost): string | null {
-  const includeDir = getProvisionedNlohmannIncludeDir();
-  if (hasNlohmannHeader(includeDir, host.fileExists)) {
-    return includeDir;
-  }
-
-  try {
-    const targetFile = path.join(includeDir, "nlohmann", "json.hpp");
-    const downloadScript = [
-      'import { mkdirSync, writeFileSync } from "node:fs";',
-      'import { dirname } from "node:path";',
-      'const [, url, targetFile] = process.argv;',
-      'const response = await fetch(url);',
-      'if (!response.ok) throw new Error(`HTTP ${response.status} while downloading ${url}`);',
-      'const text = await response.text();',
-      'mkdirSync(dirname(targetFile), { recursive: true });',
-      'writeFileSync(targetFile, text, "utf8");',
-    ].join(" ");
-    execFileSync(process.execPath, ["--input-type=module", "-e", downloadScript, NLOHMANN_JSON_URL, targetFile], {
-      stdio: "pipe",
-      timeout: 60000,
-      env: host.env,
-    });
-
-    return hasNlohmannHeader(includeDir, host.fileExists) ? includeDir : null;
-  } catch {
-    return null;
-  }
 }
 
 function buildGccLikeCompileArgs(

@@ -56,10 +56,7 @@ function callToolResultJson(isError: bool, text: string): string {
 }
 
 function toolErrorText(error: JsonValue): string {
-  return case error {
-    value: string => value,
-    _ => "Tool call failed"
-  }
+  return JSON.stringify(error)
 }
 
 function invokeToolCallResultJson(tools: RemindersTools, toolName: string, argsJson: string): string {

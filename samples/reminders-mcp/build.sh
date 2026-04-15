@@ -25,26 +25,6 @@ info()  { echo -e "${BOLD}${GREEN}==>${RESET} $*"; }
 warn()  { echo -e "${BOLD}${YELLOW}warning:${RESET} $*"; }
 error() { echo -e "${BOLD}${RED}error:${RESET} $*" >&2; }
 
-find_nlohmann_include() {
-    if command -v brew >/dev/null 2>&1; then
-        local prefix
-        prefix="$(brew --prefix nlohmann-json 2>/dev/null || true)"
-        if [[ -n "$prefix" && -f "$prefix/include/nlohmann/json.hpp" ]]; then
-            echo "$prefix/include"
-            return 0
-        fi
-    fi
-
-    for dir in /usr/local/include /opt/homebrew/include /usr/include; do
-        if [[ -f "$dir/nlohmann/json.hpp" ]]; then
-            echo "$dir"
-            return 0
-        fi
-    done
-
-    return 1
-}
-
 if ! command -v swiftc >/dev/null 2>&1; then
     error "swiftc not found — install Xcode or the Swift toolchain"
     exit 1
@@ -63,11 +43,6 @@ fi
 
 if [[ ! -f "$REPO_DIR/dist/cli.js" ]]; then
     error "dist/cli.js not found — run npm run build first"
-    exit 1
-fi
-
-if ! NLOHMANN_INCLUDE_DIR="$(find_nlohmann_include)"; then
-    error "nlohmann/json.hpp not found — install nlohmann-json first"
     exit 1
 fi
 
@@ -99,7 +74,6 @@ while IFS= read -r -d '' cppFile; do
         -O2 \
         -isysroot "$SDK_PATH" \
         -I"$BUILD_DIR" \
-        -I"$NLOHMANN_INCLUDE_DIR" \
         -c "$cppFile" \
         -o "$objFile"
     CPP_OBJECTS+=("$objFile")

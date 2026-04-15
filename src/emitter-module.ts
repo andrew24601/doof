@@ -222,16 +222,6 @@ function emitHpp(
     lines.push(inc);
   }
 
-  // Conditionally include nlohmann/json if any class needs JSON serialization
-  const needsJson = table.program.statements.some((s) => {
-    const decl = s.kind === "export-declaration" ? s.declaration : s;
-    if (decl.kind === "class-declaration" && decl.needsJson) return true;
-    if (decl.kind === "interface-declaration" && decl.needsJson) return true;
-    return false;
-  });
-  if (needsJson) {
-    lines.push("#include <nlohmann/json.hpp>");
-  }
   lines.push("");
 
   // Runtime header (needed for inline methods that use doof:: utilities)

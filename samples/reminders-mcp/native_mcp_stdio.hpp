@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-#include <nlohmann/json.hpp>
+#include "doof_runtime.hpp"
 
 struct NativeMcpRequest {
     std::string kind;
@@ -27,8 +27,6 @@ struct NativeMcpRequest {
 };
 
 namespace doof_mcp_detail {
-
-using json = nlohmann::json;
 
 inline std::string trim_copy(std::string value) {
     auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
@@ -59,6 +57,25 @@ inline NativeMcpRequest make_error_request(int32_t code, std::string message, st
     request.errorCode = code;
     request.errorMessage = std::move(message);
     return request;
+}
+
+inline const doof::JsonValue* object_member(
+    const doof::JsonValue::Object::element_type* object,
+    std::string_view key
+) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+    const auto it = object->find(std::string(key));
+    return it == object->end() ? nullptr : &it->second;
+}
+
+inline doof::JsonValue make_object(std::initializer_list<std::pair<std::string, doof::JsonValue>> fields) {
+    auto object = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();
+    for (const auto& [key, value] : fields) {
+        (*object)[key] = value;
+    }
+    return doof::JsonValue(std::move(object));
 }
 
 inline bool read_frame(std::istream& input, std::string& body, bool& reachedEof, std::string& error) {
@@ -142,33 +159,36 @@ inline bool read_frame(std::istream& input, std::string& body, bool& reachedEof,
 }
 
 inline NativeMcpRequest parse_request(const std::string& body) {
-    const json parsed = json::parse(body, nullptr, false);
-    if (parsed.is_discarded()) {
+    const auto parsedResult = doof::JSON::parse(body);
+    if (parsedResult.isFailure()) {
         return make_error_request(-32700, "Invalid JSON in MCP request");
     }
 
-    if (!parsed.is_object()) {
+    const doof::JsonValue parsed = parsedResult.value();
+    const auto* root = doof::json_as_object(parsed);
+    if (root == nullptr) {
         return make_error_request(-32600, "MCP request must be a JSON object");
     }
 
-    if (!parsed.contains("jsonrpc") || parsed["jsonrpc"] != "2.0") {
+    const auto* jsonrpc = object_member(root, "jsonrpc");
+    if (jsonrpc == nullptr || !doof::json_is_string(*jsonrpc) || doof::json_as_string(*jsonrpc) != "2.0") {
         return make_error_request(-32600, "MCP request must declare jsonrpc 2.0");
     }
 
     NativeMcpRequest request;
-    if (parsed.contains("id")) {
-        request.requestIdJson = parsed["id"].dump();
+    if (const auto* id = object_member(root, "id")) {
+        request.requestIdJson = doof::JSON::stringify(*id);
     }
 
-    if (parsed.contains("method") && parsed["method"].is_string()) {
-        request.method = parsed["method"].get<std::string>();
+    if (const auto* method = object_member(root, "method"); method != nullptr && doof::json_is_string(*method)) {
+        request.method = doof::json_as_string(*method);
     }
 
     if (request.method.empty()) {
         return make_error_request(-32600, "MCP request is missing a string method", request.requestIdJson);
     }
 
-    const bool isNotification = !parsed.contains("id");
+    const bool isNotification = object_member(root, "id") == nullptr;
     if (isNotification) {
         request.kind = request.method == "notifications/initialized" ? "initialized-notification" : "notification";
         return request;
@@ -176,8 +196,13 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 
     if (request.method == "initialize") {
         request.kind = "initialize";
-        if (parsed.contains("params") && parsed["params"].is_object()) {
-            request.protocolVersion = parsed["params"].value("protocolVersion", "");
+        if (const auto* params = object_member(root, "params")) {
+            if (const auto* paramsObject = doof::json_as_object(*params)) {
+                if (const auto* protocolVersion = object_member(paramsObject, "protocolVersion");
+                    protocolVersion != nullptr && doof::json_is_string(*protocolVersion)) {
+                    request.protocolVersion = doof::json_as_string(*protocolVersion);
+                }
+            }
         }
         return request;
     }
@@ -189,18 +214,20 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 
     if (request.method == "tools/call") {
         request.kind = "tools-call";
-        if (!parsed.contains("params") || !parsed["params"].is_object()) {
+        const auto* params = object_member(root, "params");
+        const auto* paramsObject = params == nullptr ? nullptr : doof::json_as_object(*params);
+        if (paramsObject == nullptr) {
             return make_error_request(-32602, "tools/call requires an object params field", request.requestIdJson);
         }
 
-        const json& params = parsed["params"];
-        if (!params.contains("name") || !params["name"].is_string()) {
+        const auto* name = object_member(paramsObject, "name");
+        if (name == nullptr || !doof::json_is_string(*name)) {
             return make_error_request(-32602, "tools/call requires a string params.name", request.requestIdJson);
         }
 
-        request.toolName = params["name"].get<std::string>();
-        if (params.contains("arguments")) {
-            request.argsJson = params["arguments"].dump();
+        request.toolName = doof::json_as_string(*name);
+        if (const auto* arguments = object_member(paramsObject, "arguments")) {
+            request.argsJson = doof::JSON::stringify(*arguments);
         } else {
             request.argsJson = "{}";
         }
@@ -211,16 +238,16 @@ inline NativeMcpRequest parse_request(const std::string& body) {
     return request;
 }
 
-inline json parse_json_fragment(const std::string& text) {
-    const json parsed = json::parse(text, nullptr, false);
-    if (parsed.is_discarded()) {
-        return text;
+inline doof::JsonValue parse_json_fragment(const std::string& text) {
+    const auto parsed = doof::JSON::parse(text);
+    if (parsed.isFailure()) {
+        return doof::JsonValue(text);
     }
-    return parsed;
+    return parsed.value();
 }
 
-inline void write_message(const json& payload) {
-    const std::string encoded = payload.dump();
+inline void write_message(const doof::JsonValue& payload) {
+    const std::string encoded = doof::JSON::stringify(payload);
     std::cout << encoded << '\n';
     std::cout.flush();
 }
@@ -261,23 +288,23 @@ public:
             return;
         }
 
-        doof_mcp_detail::json response = {
-            {"jsonrpc", "2.0"},
+        const doof::JsonValue response = doof_mcp_detail::make_object({
+            {"jsonrpc", doof::JsonValue("2.0")},
             {"id", doof_mcp_detail::parse_json_fragment(requestIdJson)},
             {"result", doof_mcp_detail::parse_json_fragment(resultJson)},
-        };
+        });
         doof_mcp_detail::write_message(response);
     }
 
     void sendError(const std::string& requestIdJson, int32_t code, const std::string& message) const {
-        doof_mcp_detail::json response = {
-            {"jsonrpc", "2.0"},
-            {"id", requestIdJson.empty() ? doof_mcp_detail::json(nullptr) : doof_mcp_detail::parse_json_fragment(requestIdJson)},
-            {"error", {
-                {"code", code},
-                {"message", message},
-            }},
-        };
+        const doof::JsonValue response = doof_mcp_detail::make_object({
+            {"jsonrpc", doof::JsonValue("2.0")},
+            {"id", requestIdJson.empty() ? doof::JsonValue(nullptr) : doof_mcp_detail::parse_json_fragment(requestIdJson)},
+            {"error", doof_mcp_detail::make_object({
+                {"code", doof::JsonValue(code)},
+                {"message", doof::JsonValue(message)},
+            })},
+        });
         doof_mcp_detail::write_message(response);
     }
 

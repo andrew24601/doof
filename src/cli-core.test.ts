@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  findNlohmannInclude,
   getDefaultOutputBinaryName,
   normalizeOutputBinaryName,
-  resolveNlohmannInclude,
   resolvePkgConfigNativeBuild,
   resolveCompilerToolchain,
   tryFindCompilerToolchain,
@@ -226,57 +224,3 @@ describe("CLI pkg-config native build resolution", () => {
   });
 });
 
-describe.runIf(process.platform === "win32")("CLI nlohmann/json include lookup", () => {
-  it("prefers explicit include paths", () => {
-    const includeDir = findNlohmannInclude(["C:\\vendor\\include"], {
-      platform: "win32",
-      env: {},
-      fileExists(filePath) {
-        return filePath === "C:\\vendor\\include\\nlohmann\\json.hpp";
-      },
-      execFile() {
-        throw new Error("unexpected exec");
-      },
-    });
-
-    expect(includeDir).toBe("C:\\vendor\\include");
-  });
-
-  it("checks vcpkg on Windows", () => {
-    const includeDir = findNlohmannInclude([], {
-      platform: "win32",
-      env: {
-        VCPKG_ROOT: "C:\\vcpkg",
-      },
-      fileExists(filePath) {
-        return filePath === "C:\\vcpkg\\installed\\x64-windows\\include\\nlohmann\\json.hpp";
-      },
-      execFile() {
-        throw new Error("unexpected exec");
-      },
-    });
-
-    expect(includeDir).toBe("C:\\vcpkg\\installed\\x64-windows\\include");
-  });
-
-  it("falls back to provisioning when requested", () => {
-    const includeDir = resolveNlohmannInclude([], {
-      allowProvision: true,
-      host: {
-        platform: "win32",
-        env: {},
-        fileExists() {
-          return false;
-        },
-        execFile() {
-          throw new Error("unexpected exec");
-        },
-      },
-      provisioner() {
-        return "C:\\Users\\test\\.doof\\cache\\nlohmann-json\\v3.11.3\\include";
-      },
-    });
-
-    expect(includeDir).toBe("C:\\Users\\test\\.doof\\cache\\nlohmann-json\\v3.11.3\\include");
-  });
-});

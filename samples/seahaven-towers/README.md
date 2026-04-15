@@ -78,7 +78,7 @@ On Windows, use the PowerShell helper instead:
 .\scripts\build-seahaven-towers-windows.ps1 -Run
 ```
 
-The sample CMake config will use an installed `nlohmann_json` package when available and otherwise fetch the header-only release automatically during configure.
+The sample CMake config only needs SDL3 and the generated Doof sources.
 
 On macOS, the app bundle identity, plist metadata, icon path, staged resources, shared host sources, and SDL3 discovery now come from manifest-driven build metadata rooted in [samples/seahaven-towers/doof.json](samples/seahaven-towers/doof.json) and [samples/lib/cardgame/doof.json](samples/lib/cardgame/doof.json). The direct `doof build` path now produces the `.app` bundle without CMake.
 

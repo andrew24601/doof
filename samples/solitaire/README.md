@@ -218,4 +218,4 @@ On Windows, the sample builds as a normal `.exe` and stages the `images/` direct
 
 - Run [scripts/build-solitaire-windows.ps1](/Users/andrew/develop/doof/scripts/build-solitaire-windows.ps1) after setting `VCPKG_ROOT` to automate the emit + CMake flow on Windows. If you are not already in a Developer PowerShell session, pass `-VcVarsPath "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"`.
 - The Windows host uses Windows Imaging Component (WIC) to decode the PNG atlas and SDL3 geometry rendering to draw the prepared render plans.
-- The sample CMake config will use an installed `nlohmann_json` package when available and otherwise fetch the header-only release automatically during configure.
+- The sample CMake config only needs SDL3 and the generated Doof sources.

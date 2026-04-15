@@ -78,20 +78,6 @@ if [[ "$SDL_FOUND" != "1" ]]; then
     exit 1
 fi
 
-if command -v brew &>/dev/null; then
-    NLOHMANN_PREFIX=$(brew --prefix nlohmann-json 2>/dev/null || true)
-    if [[ -n "$NLOHMANN_PREFIX" && -f "$NLOHMANN_PREFIX/include/nlohmann/json.hpp" ]]; then
-        DOOF_ARGS+=(--include-path "$NLOHMANN_PREFIX/include")
-    fi
-fi
-
-for dir in /opt/homebrew/include /usr/local/include /usr/include; do
-    if [[ -f "$dir/nlohmann/json.hpp" ]]; then
-        DOOF_ARGS+=(--include-path "$dir")
-        break
-    fi
-done
-
 node "$ROOT_DIR/dist/cli.js" build "${DOOF_ARGS[@]}"
 
 echo "Built $OUT_DIR/a.out"

@@ -53,22 +53,6 @@ else
     DOOF_ARGS+=(--link-lib sqlite3)
 fi
 
-if command -v brew &>/dev/null; then
-    NLOHMANN_PREFIX=$(brew --prefix nlohmann-json 2>/dev/null || true)
-    if [[ -n "$NLOHMANN_PREFIX" && -f "$NLOHMANN_PREFIX/include/nlohmann/json.hpp" ]]; then
-        DOOF_ARGS+=(--include-path "$NLOHMANN_PREFIX/include")
-    fi
-fi
-
-if [[ ${#DOOF_ARGS[@]} -ge 0 ]]; then
-    for dir in /usr/local/include /usr/include; do
-        if [[ -f "$dir/nlohmann/json.hpp" ]]; then
-            DOOF_ARGS+=(--include-path "$dir")
-            break
-        fi
-    done
-fi
-
 node "$ROOT_DIR/dist/cli.js" build "${DOOF_ARGS[@]}"
 
 echo "Built $OUT_DIR/a.out"

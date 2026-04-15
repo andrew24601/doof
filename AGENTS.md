@@ -447,7 +447,7 @@ Source Code
 - Map Doof types to C++ types (int→int32_t, classes→shared_ptr, interfaces→variant, etc.)
 - Walk decorated AST nodes and emit equivalent C++ source text
 - Pre-compute interface→implementing-classes map for closed-world variant dispatch
-- Auto-generate `toJSON()`/`fromJSON()` methods for classes with all-serializable fields (uses nlohmann/json)
+- Auto-generate `toJSON()`/`fromJSON()` methods for classes with all-serializable fields using the runtime `JsonValue` parser/stringifier
 - Generate interface-level `fromJSON` dispatchers using shared const discriminator fields
 - On-demand `_metadata` (JSON Schema) and `invoke()` (JSON dispatch) for tool interop ([emitter-schema.ts](src/emitter-schema.ts), [emitter-metadata.ts](src/emitter-metadata.ts))
 - Generate `doof_runtime.hpp` support header ([emitter-runtime.ts](src/emitter-runtime.ts))

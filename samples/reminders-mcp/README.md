@@ -17,7 +17,6 @@ Requirements:
 - macOS 14 or later
 - Xcode command-line tools (`clang++`, `swiftc`, `xcrun`)
 - built Doof CLI (`npm run build`)
-- `nlohmann/json.hpp` available in a standard include location or via Homebrew
 
 Build the bundled executable:
 

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findNlohmannInclude, resolveCompilerToolchain } from "./cli-core.js";
+import { resolveCompilerToolchain } from "./cli-core.js";
 import {
   discoverTests,
   filterTests,
@@ -148,9 +148,6 @@ describe("test runner execution", () => {
     try {
       compiler = resolveCompilerToolchain(null);
     } catch {
-      return;
-    }
-    if (!findNlohmannInclude()) {
       return;
     }
     const dir = createTempDir();

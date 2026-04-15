@@ -22,7 +22,7 @@ Or build and run immediately:
 samples/sqlite/build.sh --run
 ```
 
-The build script prefers `pkg-config sqlite3` when available and otherwise falls back to `-lsqlite3`. It also looks for `nlohmann/json.hpp` in common Homebrew and system include paths because the generated Doof runtime uses it.
+The build script prefers `pkg-config sqlite3` when available and otherwise falls back to `-lsqlite3`.
 
 ## Interface
 

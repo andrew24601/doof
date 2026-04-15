@@ -10,7 +10,6 @@ import { ModuleAnalyzer } from "./analyzer.js";
 import {
   buildCompilePlan,
   resolveCompilerToolchain,
-  resolveNlohmannInclude,
   type CompilerToolchain,
 } from "./cli-core.js";
 import { emitProject } from "./emitter-module.js";
@@ -132,16 +131,12 @@ export function runPlaygroundSource(
     }
 
     const nativeBuild = createNativeBuildOptions();
-    const nlohmannInclude = resolveNlohmannInclude(nativeBuild.includePaths, {
-      allowProvision: true,
-    });
     const compilePlan = buildCompilePlan(
       tempDir,
       artifacts.project,
       nativeBuild,
       {
         toolchain,
-        extraIncludePaths: nlohmannInclude ? [nlohmannInclude] : [],
       },
     );
     let lastBuildProcess: ReturnType<typeof runProcess> | null = null;

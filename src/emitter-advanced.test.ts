@@ -97,8 +97,8 @@ describe("emitter — Result type", () => {
 
   it("always includes JSON runtime support", () => {
     const header = generateRuntimeHeader();
-    expect(header).toContain("nlohmann/json.hpp");
-    expect(header).toContain("json_from_nlohmann");
+    expect(header).toContain("struct JSON {");
+    expect(header).toContain("struct Parser {");
     expect(header).toContain("struct JsonValue");
   });
 });
@@ -920,20 +920,20 @@ describe("emitter — JSON serialization", () => {
     `);
     expect(cpp).not.toContain("toJsonValue");
     expect(cpp).not.toContain("fromJsonValue");
-    expect(cpp).not.toContain("nlohmann");
+    expect(cpp).toContain('#include "doof_runtime.hpp"');
   });
 
-  it("does NOT include nlohmann/json.hpp when no JSON is used", () => {
+  it("does not include external JSON headers when no JSON is used", () => {
     const cpp = emit(`
       class Point {
         x: int
         y: int
       }
     `);
-    expect(cpp).not.toContain("#include <nlohmann/json.hpp>");
+    expect(cpp).toContain('#include "doof_runtime.hpp"');
   });
 
-  it("includes nlohmann/json.hpp when toJsonValue is called", () => {
+  it("uses runtime JSON helpers when toJsonValue is called", () => {
     const cpp = emit(`
       class Point {
         x: int
@@ -941,7 +941,8 @@ describe("emitter — JSON serialization", () => {
       }
       function test(p: Point): JsonValue => p.toJsonValue()
     `);
-    expect(cpp).toContain("#include <nlohmann/json.hpp>");
+    expect(cpp).toContain('#include "doof_runtime.hpp"');
+    expect(cpp).toContain("toJsonValue()");
   });
 
   it("generates JSON for nested class transitively via toJsonValue call", () => {

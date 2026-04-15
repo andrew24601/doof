@@ -46,16 +46,6 @@ if(NOT EXISTS "${DOOF_OUTPUT_DIR}/doof_runtime.hpp")
 endif()
 
 find_package(SDL3 CONFIG QUIET)
-find_package(nlohmann_json CONFIG QUIET)
-
-if(NOT nlohmann_json_FOUND)
-    FetchContent_Declare(
-        json
-        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(json)
-endif()
 
 if(NOT SDL3_FOUND)
     if(WIN32)
@@ -110,8 +100,6 @@ if(SDL3_FOUND)
 else()
     target_link_libraries(DoofSolitaire PRIVATE PkgConfig::SDL3)
 endif()
-
-target_link_libraries(DoofSolitaire PRIVATE nlohmann_json::nlohmann_json)
 
 if(WIN32)
     target_link_libraries(DoofSolitaire PRIVATE windowscodecs ole32)
