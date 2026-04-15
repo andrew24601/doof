@@ -25,6 +25,12 @@ import {
   resolveFsPathFrom,
   toPortablePath,
 } from "./path-utils.js";
+import {
+  getImplicitStdDependencyConfig,
+  getImplicitStdDependencyNames,
+  getStdPackageShortName,
+  isImplicitStdSelfReference,
+} from "./std-packages.js";
 
 export interface ResolvedPackageNativeBuild extends Pick<
   NativeBuildOptions,
@@ -141,6 +147,7 @@ export interface ResolvedRemoteDependency {
 
 export interface LoadPackageGraphOptions {
   cacheRoot?: string;
+  implicitStdDependencies?: boolean;
   resolveRemoteDependency?: (
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
@@ -190,6 +197,7 @@ interface RemotePackageSelection {
 
 interface PackageLoadContext {
   cacheRoot: string;
+  implicitStdDependencies: boolean;
   resolveRemoteDependency: (
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
@@ -279,6 +287,7 @@ export function loadPackageGraph(
   const loadingStack: string[] = [];
   const loadContext: PackageLoadContext = {
     cacheRoot: options.cacheRoot ?? getDefaultPackageCacheRoot(),
+    implicitStdDependencies: options.implicitStdDependencies ?? false,
     resolveRemoteDependency: options.resolveRemoteDependency ?? defaultResolveRemoteDependency,
     discoveredPackages: new Map<string, DiscoveredPackage>(),
     remotePackagesByKey: new Map<string, RemotePackageSelection[]>(),
@@ -296,6 +305,26 @@ export function loadPackageGraph(
     rootPackage,
     packages: [...finalizedPackages.values()].sort((left, right) => left.rootDir.localeCompare(right.rootDir)),
   };
+}
+
+/**
+ * Materialize a remote dependency directly by URL/version into the package cache.
+ * This is a small helper used by the stdlib layer to fetch implicit std/* packages
+ * on-demand. Returns the resolved root dir and package metadata.
+ */
+export function materializeRemoteDependencyByUrl(
+  url: string,
+  version: string,
+  cacheRoot?: string,
+): ResolvedRemoteDependency {
+  const dependency: DoofRemoteDependencyConfig = { url, version };
+  const ctx: RemoteDependencyContext = {
+    dependencyName: "<implicit>",
+    packageRootDir: "/",
+    manifestPath: "",
+    cacheRoot: cacheRoot ?? getDefaultPackageCacheRoot(),
+  };
+  return defaultResolveRemoteDependency(dependency, ctx);
 }
 
 export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
@@ -493,6 +522,66 @@ function discoverPackageFromManifest(
         requestedVersion: remotePackage.version,
         requestedRootDir: dependencyRoot,
       });
+    }
+
+    if (context.implicitStdDependencies) {
+      for (const dependencyName of getImplicitStdDependencyNames()) {
+        if (manifest.dependencies[dependencyName] !== undefined) {
+          continue;
+        }
+        if (isImplicitStdSelfReference(manifest.name, dependencyName)) {
+          continue;
+        }
+
+        const shortName = getStdPackageShortName(dependencyName);
+        if (!shortName) {
+          continue;
+        }
+
+        const dependency = getImplicitStdDependencyConfig(shortName);
+        if (!dependency) {
+          continue;
+        }
+
+        const resolvedRemoteDependency = context.resolveRemoteDependency(dependency, {
+          dependencyName,
+          packageRootDir: rootDir,
+          manifestPath: normalizedManifestPath,
+          cacheRoot: context.cacheRoot,
+        });
+        const dependencyRoot = resolveFsPath(resolvedRemoteDependency.rootDir);
+        const remotePackage = normalizeResolvedRemotePackage(dependency, resolvedRemoteDependency);
+        const packageKey = remotePackage.pathSegments.join("/");
+        const selections = context.remotePackagesByKey.get(packageKey) ?? [];
+        if (!selections.some((entry) => entry.rootDir === dependencyRoot)) {
+          selections.push({
+            packageKey,
+            version: remotePackage.version,
+            rootDir: dependencyRoot,
+            remotePackage,
+          });
+          context.remotePackagesByKey.set(packageKey, selections);
+        }
+        const remoteDiscovered = context.discoveredPackages.get(dependencyRoot);
+        if (remoteDiscovered) {
+          remoteDiscovered.remotePackage = remotePackage;
+        }
+        const dependencyManifestPath = joinFsPath(dependencyRoot, MANIFEST_FILENAME);
+        const loadedDependency = discoverPackageFromManifest(
+          fileSystem,
+          dependencyManifestPath,
+          loadingStack,
+          context,
+        );
+        loadedDependency.remotePackage = remotePackage;
+        discovered.dependencies.push({
+          kind: "remote",
+          dependencyName,
+          packageKey,
+          requestedVersion: remotePackage.version,
+          requestedRootDir: dependencyRoot,
+        });
+      }
     }
   } finally {
     loadingStack.pop();

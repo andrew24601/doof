@@ -460,7 +460,9 @@ function createResolverForEntry(vfs: VirtualFS, entry: string) {
     return createBundledModuleResolver(vfs);
   }
 
-  const graph = loadPackageGraph(vfs, entry);
+  const graph = loadPackageGraph(vfs, entry, {
+    implicitStdDependencies: false,
+  });
   return createBundledModuleResolver(vfs, {
     packages: graph.packages.map((pkg) => ({
       rootDir: pkg.rootDir,

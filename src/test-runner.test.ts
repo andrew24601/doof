@@ -154,7 +154,73 @@ describe("test runner execution", () => {
       return;
     }
     const dir = createTempDir();
-    writeFile(dir, "doof.json", JSON.stringify({ name: "tests" }));
+    // Provide a local std/assert dependency so the test doesn't rely on a bundled stdlib
+    writeFile(dir, "doof.json", JSON.stringify({
+      name: "tests",
+      dependencies: { "std/assert": { path: "./deps/std-assert" } },
+    }));
+
+    writeFile(dir, "deps/std-assert/doof.json", JSON.stringify({
+      name: "std/assert",
+      dependencies: {},
+    }));
+
+    writeFile(dir, "deps/std-assert/index.do", [
+      "export class Assert {",
+      "    static equal<T>(actual: T, expected: T, message: string | null = null): void {",
+      "        if actual == expected {",
+      "            return",
+      "        }",
+      "        if message == null {",
+      "            assert(false, \"expected values to be equal\")",
+      "        } else {",
+      "            assert(false, (message ?? \"\") + \": expected values to be equal\")",
+      "        }",
+      "    }",
+      "",
+      "    static notEqual<T>(actual: T, expected: T, message: string | null = null): void {",
+      "        if !(actual == expected) {",
+      "            return",
+      "        }",
+      "        if message == null {",
+      "            assert(false, \"expected values to differ\")",
+      "        } else {",
+      "            assert(false, (message ?? \"\") + \": expected values to differ\")",
+      "        }",
+      "    }",
+      "",
+      "    static isTrue(value: bool, message: string | null = null): void {",
+      "        if value {",
+      "            return",
+      "        }",
+      "        if message == null {",
+      "            assert(false, \"expected value to be true\")",
+      "        } else {",
+      "            assert(false, (message ?? \"\") + \": expected value to be true\")",
+      "        }",
+      "    }",
+      "",
+      "    static isFalse(value: bool, message: string | null = null): void {",
+      "        if !value {",
+      "            return",
+      "        }",
+      "        if message == null {",
+      "            assert(false, \"expected value to be false\")",
+      "        } else {",
+      "            assert(false, (message ?? \"\") + \": expected value to be false\")",
+      "        }",
+      "    }",
+      "",
+      "    static fail(message: string | null = null): void {",
+      "        if message == null {",
+      "            assert(false, \"test failed\")",
+      "        } else {",
+      "            assert(false, message ?? \"test failed\")",
+      "        }",
+      "    }",
+      "}",
+    ].join("\n"));
+
     writeFile(dir, "calc.test.do", [
       'import { Assert } from "std/assert"',
       "",

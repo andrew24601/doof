@@ -164,6 +164,68 @@ describe("local package graphs", () => {
     expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/deps/std-fs");
   });
 
+  it("injects implicit std dependencies when a package does not declare them", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {},
+      }),
+      "/app/main.do": 'import { writeText } from "std/fs"\nfunction main(): void => writeText("out.txt", "ok")',
+      "/cache/std-fs/doof.json": JSON.stringify({ name: "std/fs" }),
+      "/cache/std-fs/index.do": "export function writeText(path: string, value: string): void {}",
+      "/cache/std-path/doof.json": JSON.stringify({ name: "std/path" }),
+      "/cache/std-path/index.do": "export function join(parts: string[]): string => \"\"",
+      "/cache/std-assert/doof.json": JSON.stringify({ name: "std/assert" }),
+      "/cache/std-assert/index.do": "export class Assert {}",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", {
+      implicitStdDependencies: true,
+      resolveRemoteDependency(dependency, context) {
+        if (context.dependencyName === "std/fs") {
+          return {
+            rootDir: "/cache/std-fs",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "fs-commit",
+              pathSegments: ["doof-lang", "fs"],
+            },
+          };
+        }
+        if (context.dependencyName === "std/path") {
+          return {
+            rootDir: "/cache/std-path",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "path-commit",
+              pathSegments: ["doof-lang", "path"],
+            },
+          };
+        }
+        if (context.dependencyName === "std/assert") {
+          return {
+            rootDir: "/cache/std-assert",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "assert-commit",
+              pathSegments: ["doof-lang", "assert"],
+            },
+          };
+        }
+
+        throw new Error(`unexpected dependency ${context.dependencyName}`);
+      },
+    });
+
+    expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/cache/std-fs");
+  });
+
   it("rejects dependency names with empty or traversal path segments", () => {
     const emptySegmentFs = new VirtualFS({
       "/app/doof.json": JSON.stringify({

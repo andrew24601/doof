@@ -83,11 +83,11 @@ describe("ModuleResolver", () => {
     expect(resolver.resolve("http", "/project/main.do")).toBeNull();
   });
 
-  it("resolves compiler-provided stdlib modules", () => {
+  it("does not resolve removed bundled stdlib modules by default", () => {
     const fs = new VirtualFS({ "/project/main.do": "" });
     const resolver = createBundledModuleResolver(fs);
 
-    expect(resolver.resolve("std/assert", "/project/main.do")).toBe(`${BUNDLED_STDLIB_ROOT}/std/assert.do`);
+    expect(resolver.resolve("std/assert", "/project/main.do")).toBeNull();
   });
 
   it("resolves bare package imports through the owning package manifest context", () => {

@@ -3,9 +3,5 @@
   "version": "0.1.0",
   "license": "ISC",
   "dependencies": {
-    "std/fs": {
-      "url": "https://github.com/andrew24601/doof-fs",
-      "version": "0.1"
-    }
   }
 }

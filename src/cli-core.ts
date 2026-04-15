@@ -324,7 +324,9 @@ export function runPipelineWithFs(
     throw new Error(`File not found: ${normalizedEntryPath}`);
   }
 
-  const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath);
+  const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath, {
+    implicitStdDependencies: fileSystem instanceof RealFS,
+  });
   const mergedPackageNativeBuild = mergePackageNativeBuild(packageGraph);
   const packageOutputPaths = createPackageOutputPaths(packageGraph, normalizedEntryPath);
   const nativeCopyPlan = fileSystem instanceof RealFS

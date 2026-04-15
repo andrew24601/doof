@@ -107,7 +107,9 @@ export function discoverTests(
   const pipelineFileSystem = withBundledStdlib(fileSystem);
 
   for (const testFile of testFiles) {
-    const packageGraph = loadPackageGraph(fileSystem, testFile);
+    const packageGraph = loadPackageGraph(fileSystem, testFile, {
+      implicitStdDependencies: fileSystem instanceof RealFS,
+    });
     const analyzer = new ModuleAnalyzer(
       pipelineFileSystem,
       createBundledModuleResolver(fileSystem, {
