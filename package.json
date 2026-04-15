@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "stdlib-packages.json",
     "README.md"
   ],
   "scripts": {
@@ -16,6 +17,7 @@
     "prepack": "npm run build",
     "start": "node dist/bin.js",
     "build:solitaire:mac": "bash scripts/build-solitaire-macos.sh",
+    "sync:stdlib": "node scripts/sync-stdlib.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

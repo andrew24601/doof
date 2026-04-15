@@ -267,7 +267,10 @@ Testing → [docs/testing.md](docs/testing.md)
 npm install
 npm run build   # compile TypeScript
 npm test        # run compiler test suite
+npm run sync:stdlib  # mirror implicit std/* repos into ./stdlib for local reference
 ```
+
+`npm run sync:stdlib` reads the shared [stdlib-packages.json](stdlib-packages.json) manifest, downloads the matching `https://github.com/doof-lang/*` tag archives, and expands them into the ignored `stdlib/` directory so local docs tooling and AI agents can inspect the current implicit standard library sources.
 
 ## Status
 
