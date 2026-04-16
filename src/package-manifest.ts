@@ -307,6 +307,73 @@ export function loadPackageGraph(
   };
 }
 
+export function narrowPackageGraphForBuild(
+  graph: PackageGraph,
+  usedModulePaths: Iterable<string>,
+): PackageGraph {
+  const packagesByRoot = new Map(graph.packages.map((pkg) => [pkg.rootDir, pkg]));
+  const selectedRoots = new Set<string>([graph.rootPackage.rootDir]);
+
+  const findOwningPackageRoot = (modulePath: string): string | null => {
+    const normalizedPath = resolveFsPath(modulePath);
+    let winner: string | null = null;
+    for (const pkg of graph.packages) {
+      if (!(normalizedPath === pkg.rootDir || normalizedPath.startsWith(`${pkg.rootDir}/`))) {
+        continue;
+      }
+      if (winner === null || pkg.rootDir.length > winner.length) {
+        winner = pkg.rootDir;
+      }
+    }
+    return winner;
+  };
+
+  for (const modulePath of usedModulePaths) {
+    const ownerRoot = findOwningPackageRoot(modulePath);
+    if (ownerRoot) {
+      selectedRoots.add(ownerRoot);
+    }
+  }
+
+  const queue = [...selectedRoots];
+  while (queue.length > 0) {
+    const rootDir = queue.shift()!;
+    const pkg = packagesByRoot.get(rootDir);
+    if (!pkg) {
+      continue;
+    }
+
+    for (const [dependencyName, dependencyRoot] of pkg.dependencyRoots) {
+      if (pkg.manifest.dependencies[dependencyName] === undefined) {
+        continue;
+      }
+      if (selectedRoots.has(dependencyRoot)) {
+        continue;
+      }
+      selectedRoots.add(dependencyRoot);
+      queue.push(dependencyRoot);
+    }
+  }
+
+  const packages = graph.packages
+    .filter((pkg) => selectedRoots.has(pkg.rootDir))
+    .map((pkg) => ({
+      ...pkg,
+      dependencyRoots: new Map(
+        [...pkg.dependencyRoots].filter(([, dependencyRoot]) => selectedRoots.has(dependencyRoot)),
+      ),
+    }));
+  const rootPackage = packages.find((pkg) => pkg.rootDir === graph.rootPackage.rootDir);
+  if (!rootPackage) {
+    throw new Error(`Narrowed package graph dropped root package ${graph.rootPackage.rootDir}`);
+  }
+
+  return {
+    rootPackage,
+    packages,
+  };
+}
+
 /**
  * Materialize a remote dependency directly by URL/version into the package cache.
  * This is a small helper used by the stdlib layer to fetch implicit std/* packages

@@ -10,6 +10,7 @@ import {
   findDoofManifestPath,
   loadPackageGraph,
   mergePackageNativeBuild,
+  narrowPackageGraphForBuild,
   resolvePackageBuildContext,
 } from "./package-manifest.js";
 import { VirtualFS } from "./test-helpers.js";
@@ -177,6 +178,10 @@ describe("local package graphs", () => {
       "/cache/std-path/index.do": "export function join(parts: string[]): string => \"\"",
       "/cache/std-assert/doof.json": JSON.stringify({ name: "std/assert" }),
       "/cache/std-assert/index.do": "export class Assert {}",
+      "/cache/std-regex/doof.json": JSON.stringify({ name: "std/regex" }),
+      "/cache/std-regex/index.do": "export class Regex {}",
+      "/cache/std-stream/doof.json": JSON.stringify({ name: "std/stream" }),
+      "/cache/std-stream/index.do": "export interface Stream<T> {}",
     });
 
     const graph = loadPackageGraph(fs, "/app/main.do", {
@@ -218,12 +223,151 @@ describe("local package graphs", () => {
             },
           };
         }
+        if (context.dependencyName === "std/regex") {
+          return {
+            rootDir: "/cache/std-regex",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "regex-commit",
+              pathSegments: ["doof-lang", "regex"],
+            },
+          };
+        }
+        if (context.dependencyName === "std/stream") {
+          return {
+            rootDir: "/cache/std-stream",
+            package: {
+              kind: "git",
+              url: dependency.url,
+              version: dependency.version,
+              commit: "stream-commit",
+              pathSegments: ["doof-lang", "stream"],
+            },
+          };
+        }
 
         throw new Error(`unexpected dependency ${context.dependencyName}`);
       },
     });
 
     expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/cache/std-fs");
+  });
+
+  it("narrows implicit std package graphs to analyzed modules for build metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        dependencies: {},
+      }),
+      "/app/main.do": 'import { writeText } from "std/fs"\nfunction main(): void => writeText("out.txt", "ok")',
+      "/cache/std-fs/doof.json": JSON.stringify({
+        name: "std/fs",
+        dependencies: {
+          "std/path": { path: "../std-path" },
+        },
+        build: {
+          native: {
+            includePaths: ["./include"],
+          },
+        },
+      }),
+      "/cache/std-fs/index.do": "export function writeText(path: string, value: string): void {}",
+      "/cache/std-fs/include/fs.hpp": "#pragma once\n",
+      "/cache/std-path/doof.json": JSON.stringify({
+        name: "std/path",
+        build: {
+          native: {
+            includePaths: ["./include"],
+          },
+        },
+      }),
+      "/cache/std-path/index.do": "export function join(parts: string[]): string => \"\"",
+      "/cache/std-path/include/path.hpp": "#pragma once\n",
+      "/cache/std-assert/doof.json": JSON.stringify({
+        name: "std/assert",
+        build: {
+          native: {
+            includePaths: ["./include"],
+          },
+        },
+      }),
+      "/cache/std-assert/index.do": "export class Assert {}",
+      "/cache/std-assert/include/assert.hpp": "#pragma once\n",
+      "/cache/std-regex/doof.json": JSON.stringify({
+        name: "std/regex",
+        build: {
+          native: {
+            includePaths: ["./include"],
+          },
+        },
+      }),
+      "/cache/std-regex/index.do": "export class Regex {}",
+      "/cache/std-regex/include/regex.hpp": "#pragma once\n",
+      "/cache/std-stream/doof.json": JSON.stringify({
+        name: "std/stream",
+        build: {
+          native: {
+            includePaths: ["./include"],
+          },
+        },
+      }),
+      "/cache/std-stream/index.do": "export interface Stream<T> {}",
+      "/cache/std-stream/include/stream.hpp": "#pragma once\n",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", {
+      implicitStdDependencies: true,
+      resolveRemoteDependency(dependency, context) {
+        const rootDirByName: Record<string, string> = {
+          "std/assert": "/cache/std-assert",
+          "std/fs": "/cache/std-fs",
+          "std/path": "/cache/std-path",
+          "std/regex": "/cache/std-regex",
+          "std/stream": "/cache/std-stream",
+        };
+        const rootDir = rootDirByName[context.dependencyName];
+        if (!rootDir) {
+          throw new Error(`unexpected dependency ${context.dependencyName}`);
+        }
+        const shortName = context.dependencyName.slice("std/".length);
+        return {
+          rootDir,
+          package: {
+            kind: "git",
+            url: dependency.url,
+            version: dependency.version,
+            commit: `${shortName}-commit`,
+            pathSegments: ["doof-lang", shortName],
+          },
+        };
+      },
+    });
+
+    expect(graph.packages.map((pkg) => pkg.rootDir)).toEqual([
+      "/app",
+      "/cache/std-assert",
+      "/cache/std-fs",
+      "/cache/std-path",
+      "/cache/std-regex",
+      "/cache/std-stream",
+    ]);
+
+    const buildGraph = narrowPackageGraphForBuild(graph, [
+      "/app/main.do",
+      "/cache/std-fs/index.do",
+    ]);
+
+    expect(buildGraph.packages.map((pkg) => pkg.rootDir)).toEqual([
+      "/app",
+      "/cache/std-fs",
+      "/cache/std-path",
+    ]);
+    expect(mergePackageNativeBuild(buildGraph).includePaths).toEqual([
+      "/cache/std-path/include",
+      "/cache/std-fs/include",
+    ]);
   });
 
   it("rejects dependency names with empty or traversal path segments", () => {

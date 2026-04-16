@@ -11,6 +11,7 @@ import {
   createBuildProvenance,
   createPackageOutputPaths,
   loadPackageGraph,
+  narrowPackageGraphForBuild,
   type BuildProvenance,
   type PackageOutputPaths,
   type PackageGraph,
@@ -276,16 +277,6 @@ export function runPipelineWithFs(
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath, {
     implicitStdDependencies: fileSystem instanceof RealFS,
   });
-  const mergedPackageNativeBuild = mergePackageNativeBuild(packageGraph);
-  const packageOutputPaths = createPackageOutputPaths(packageGraph, normalizedEntryPath);
-  const nativeCopyPlan = fileSystem instanceof RealFS
-    ? createNativeCopyPlan(packageGraph, packageOutputPaths)
-    : null;
-  const resolvedNativeBuild = mergeResolvedNativeBuildOptions(
-    nativeCopyPlan?.passthroughNativeBuild ?? mergedPackageNativeBuild,
-    nativeBuild,
-  );
-  const hostResolvedNativeBuild = resolvePkgConfigNativeBuild(resolvedNativeBuild);
   const resolver = createBundledModuleResolver(fileSystem, {
     packages: packageGraph.packages.map((pkg) => ({
       rootDir: pkg.rootDir,
@@ -308,6 +299,18 @@ export function runPipelineWithFs(
     throw new Error(`Analysis failed with ${pluralize(analyzerErrors.length, "error")}`);
   }
   if (verbose) log(`  ${analysisResult.modules.size} module(s) analyzed`);
+
+  const buildPackageGraph = narrowPackageGraphForBuild(packageGraph, analysisResult.modules.keys());
+  const mergedPackageNativeBuild = mergePackageNativeBuild(buildPackageGraph);
+  const packageOutputPaths = createPackageOutputPaths(buildPackageGraph, normalizedEntryPath);
+  const nativeCopyPlan = fileSystem instanceof RealFS
+    ? createNativeCopyPlan(buildPackageGraph, packageOutputPaths)
+    : null;
+  const resolvedNativeBuild = mergeResolvedNativeBuildOptions(
+    nativeCopyPlan?.passthroughNativeBuild ?? mergedPackageNativeBuild,
+    nativeBuild,
+  );
+  const hostResolvedNativeBuild = resolvePkgConfigNativeBuild(resolvedNativeBuild);
 
   if (verbose) log("Type checking...");
   const checker = new TypeChecker(analysisResult);
@@ -345,7 +348,7 @@ export function runPipelineWithFs(
     : emittedProject;
   if (verbose) log(`  ${project.modules.length} module(s) emitted`);
 
-  const provenance = createBuildProvenance(packageGraph);
+  const provenance = createBuildProvenance(buildPackageGraph);
 
   return {
     project,
@@ -360,7 +363,7 @@ export function runPipelineWithFs(
       buildTarget,
       project,
       hostResolvedNativeBuild,
-      packageGraph.packages.map((pkg) => pkg.rootDir),
+      buildPackageGraph.packages.map((pkg) => pkg.rootDir),
       provenance,
     ),
   };
