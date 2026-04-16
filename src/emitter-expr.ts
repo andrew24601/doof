@@ -13,12 +13,14 @@
  */
 
 import type { Expression, Block, ArrayLiteral, MapLiteral, TupleLiteral } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { typesEqual, type ResolvedType } from "./checker-types.js";
 import { emitAsNarrowExpression } from "./emitter-narrowing.js";
+import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitWrapJsonValue } from "./emitter-json-value.js";
 import { emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
 import { isOptionalNullable } from "./emitter-types.js";
+import { substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 
 // Re-export the public API consumed by other emitter modules.
@@ -34,6 +36,7 @@ import {
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitResolvedClassName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
@@ -89,13 +92,19 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       return "nullptr";
 
     case "identifier":
-      if (ctx.capturedMutables?.has(expr.name)) {
-        return `(*${emitIdentifierSafe(expr.name)})`;
+      {
+        const baseExpr = ctx.capturedMutables?.has(expr.name)
+          ? `(*${emitIdentifierSafe(expr.name)})`
+          : expr.resolvedBinding?.kind === "import"
+            ? emitIdentifierSafe(expr.resolvedBinding.name)
+            : emitIdentifierSafe(expr.name);
+        const bindingType = expr.resolvedBinding?.type ? substituteEmitType(expr.resolvedBinding.type, ctx) : undefined;
+        const resolvedExprType = substituteEmitType(expr.resolvedType, ctx);
+        if (bindingType && resolvedExprType && !typesEqual(bindingType, resolvedExprType)) {
+          return emitExtractNarrowedValue(baseExpr, bindingType, resolvedExprType, ctx);
+        }
+        return baseExpr;
       }
-      if (expr.resolvedBinding?.kind === "import") {
-        return emitIdentifierSafe(expr.resolvedBinding.name);
-      }
-      return emitIdentifierSafe(expr.name);
 
     case "binary-expression":
       return emitBinaryExpression(expr, ctx);
@@ -277,7 +286,7 @@ function emitObjectLiteral(
   }
   if (expr.resolvedType?.kind === "class") {
     const sym = expr.resolvedType.symbol;
-    const cppName = sym.extern_?.cppName ?? sym.name;
+    const cppName = emitResolvedClassName(expr.resolvedType);
     const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
     const args = buildConstructorFieldInfoList(sym).map((field) => {
       const prop = propMap.get(field.name);

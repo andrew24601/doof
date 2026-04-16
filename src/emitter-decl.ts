@@ -19,6 +19,7 @@ import type {
 import type { ResolvedType } from "./checker-types.js";
 import { isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
 import { emitType, emitInnerType } from "./emitter-types.js";
+import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitBlockStatements } from "./emitter-stmt.js";
@@ -70,7 +71,8 @@ function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | 
 
 export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): void {
   const ind = indent(ctx);
-  const name = emitIdentifierSafe(decl.name);
+  const name = ctx.qualifiedFunctionName ?? emitIdentifierSafe(ctx.functionNameOverride ?? decl.name);
+  const resolvedDeclType = substituteEmitType(decl.resolvedType, ctx);
 
   // Emit description comment
   if (decl.description) {
@@ -85,12 +87,12 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
   }
 
   // Emit template prefix for generic functions
-  const tpl = emitTemplatePrefix(decl.typeParams, ind);
+  const tpl = ctx.suppressTemplatePrefix ? null : emitTemplatePrefix(decl.typeParams, ind);
   if (tpl) ctx.sourceLines.push(tpl);
 
   // Determine return type
-  const retType = decl.resolvedType && decl.resolvedType.kind === "function"
-    ? emitType(decl.resolvedType.returnType)
+  const retType = resolvedDeclType && resolvedDeclType.kind === "function"
+    ? emitType(resolvedDeclType.returnType)
     : "auto";
 
   // Build parameter list
@@ -102,14 +104,14 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
   // pure readers vs mutators is complex, and const prevents any field
   // mutation.  We can add fine-grained const later if needed.
   const staticPrefix = ctx.inClass && decl.static_ ? "static " : "";
-  const mockCall = decl.resolvedType && decl.resolvedType.kind === "function"
-    ? decl.resolvedType.mockCall
+  const mockCall = resolvedDeclType && resolvedDeclType.kind === "function"
+    ? resolvedDeclType.mockCall
     : undefined;
 
   if (decl.body.kind === "block") {
     ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params}) {`);
-    const fnRetType = decl.resolvedType && decl.resolvedType.kind === "function"
-      ? decl.resolvedType.returnType
+    const fnRetType = resolvedDeclType && resolvedDeclType.kind === "function"
+      ? resolvedDeclType.returnType
       : undefined;
     emitMockRecordingPrelude(decl, mockCall, ctx);
     if (decl.bodyless) {
@@ -129,8 +131,8 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
     ctx.sourceLines.push(`${ind}}`);
   } else {
     // Expression body → return wrapper
-    const fnRetType = decl.resolvedType && decl.resolvedType.kind === "function"
-      ? decl.resolvedType.returnType
+    const fnRetType = resolvedDeclType && resolvedDeclType.kind === "function"
+      ? resolvedDeclType.returnType
       : undefined;
     const body = emitExpression(decl.body as Expression, ctx, fnRetType);
     ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params}) {`);
@@ -140,11 +142,37 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
   }
 }
 
+export function emitFunctionPrototype(decl: FunctionDeclaration, ctx: EmitContext): void {
+  const ind = indent(ctx);
+  const name = emitIdentifierSafe(decl.name);
+  const resolvedDeclType = substituteEmitType(decl.resolvedType, ctx);
+
+  if (decl.description) {
+    ctx.sourceLines.push(`${ind}// ${decl.description}`);
+  }
+  for (const param of decl.params) {
+    if (param.description) {
+      ctx.sourceLines.push(`${ind}// @param ${param.name} ${param.description}`);
+    }
+  }
+
+  const tpl = emitTemplatePrefix(decl.typeParams, ind);
+  if (tpl) ctx.sourceLines.push(tpl);
+
+  const retType = resolvedDeclType && resolvedDeclType.kind === "function"
+    ? emitType(resolvedDeclType.returnType)
+    : "auto";
+  const params = decl.params.map((p) => emitParam(p, ctx, false)).join(", ");
+  const staticPrefix = ctx.inClass && decl.static_ ? "static " : "";
+  ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params});`);
+}
+
 export function emitParam(param: Parameter, _ctx: EmitContext, includeDefault = true): string {
-  const pType = param.resolvedType ? emitType(param.resolvedType) : "auto";
+  const resolvedType = substituteEmitType(param.resolvedType, _ctx);
+  const pType = resolvedType ? emitType(resolvedType) : "auto";
   const name = emitIdentifierSafe(param.name);
   if (includeDefault && param.defaultValue) {
-    const defaultVal = emitDefaultExpression(param.defaultValue, param.resolvedType ?? undefined);
+    const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined);
     return `${pType} ${name} = ${defaultVal}`;
   }
   return `${pType} ${name}`;
@@ -156,7 +184,7 @@ export function emitParam(param: Parameter, _ctx: EmitContext, includeDefault = 
 
 export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   const ind = indent(ctx);
-  const name = emitIdentifierSafe(decl.name);
+  const name = ctx.classNameOverride ?? emitIdentifierSafe(decl.name);
   const memberInd = indent({ indent: ctx.indent + 1 });
 
   // Emit description comment
@@ -165,7 +193,9 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   }
 
   // Emit template prefix for generic classes
-  const tpl = emitTemplatePrefix(decl.typeParams, ind);
+  const tpl = ctx.emitExplicitClassSpecialization
+    ? `${ind}template<>`
+    : emitTemplatePrefix(decl.typeParams, ind);
   if (tpl) ctx.sourceLines.push(tpl);
 
   ctx.sourceLines.push(`${ind}struct ${name} : public std::enable_shared_from_this<${name}> {`);
@@ -194,20 +224,21 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     const ctorParams = constructorFields
       .map((cf) => {
         let fType: string;
+        const resolvedFieldType = substituteEmitType(cf.field.resolvedType, ctx);
         if (cf.field.weak_) {
           // weak fields get weak_ptr parameter type
-          const innerName = cf.field.resolvedType?.kind === "class"
-            ? cf.field.resolvedType.symbol.name
-            : cf.field.resolvedType?.kind === "weak" && cf.field.resolvedType.inner.kind === "class"
-              ? cf.field.resolvedType.inner.symbol.name
+          const innerName = resolvedFieldType?.kind === "class"
+            ? resolvedFieldType.symbol.name
+            : resolvedFieldType?.kind === "weak" && resolvedFieldType.inner.kind === "class"
+              ? resolvedFieldType.inner.symbol.name
               : "auto";
           fType = `std::weak_ptr<${innerName}>`;
         } else {
-          fType = cf.field.resolvedType ? emitType(cf.field.resolvedType) : "auto";
+          fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
         }
         // Add default parameter value if the field has a default
         if (cf.field.defaultValue) {
-          const defaultVal = emitExpression(cf.field.defaultValue, ctx, cf.field.resolvedType ?? undefined);
+          const defaultVal = emitExpression(cf.field.defaultValue, ctx, resolvedFieldType ?? undefined);
           return `${fType} ${emitIdentifierSafe(cf.name)} = ${defaultVal}`;
         }
         return `${fType} ${emitIdentifierSafe(cf.name)}`;
@@ -225,7 +256,12 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   if (decl.methods.length > 0) {
     ctx.sourceLines.push("");
     for (const method of decl.methods) {
-      emitFunctionDecl(method, { ...ctx, indent: ctx.indent + 1, inClass: true });
+      const methodCtx = { ...ctx, indent: ctx.indent + 1, inClass: true };
+      if (ctx.emitMethodBodiesInline === false) {
+        emitFunctionPrototype(method, methodCtx);
+      } else {
+        emitFunctionDecl(method, methodCtx);
+      }
     }
   }
 
@@ -263,8 +299,23 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   }
 }
 
+export function emitClassMethodDefinitions(decl: ClassDeclaration, ctx: EmitContext): void {
+  const name = ctx.classNameOverride ?? emitIdentifierSafe(decl.name);
+
+  for (const method of decl.methods) {
+    emitFunctionDecl(method, {
+      ...ctx,
+      inClass: false,
+      emitParameterDefaults: false,
+      qualifiedFunctionName: `${name}::${emitIdentifierSafe(method.name)}`,
+    });
+    ctx.sourceLines.push("");
+  }
+}
+
 function emitClassField(field: ClassField, ctx: EmitContext): void {
   const ind = indent(ctx);
+  const resolvedFieldType = substituteEmitType(field.resolvedType, ctx);
 
   for (let fi = 0; fi < field.names.length; fi++) {
     const name = field.names[fi];
@@ -277,17 +328,17 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
     }
 
     if (field.const_) {
-      const fType = field.resolvedType ? emitType(field.resolvedType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
       if (field.defaultValue) {
-        const val = emitExpression(field.defaultValue, ctx, field.resolvedType ?? undefined);
+        const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}const ${fType} ${safeName} = ${val};`);
       } else {
         ctx.sourceLines.push(`${ind}const ${fType} ${safeName};`);
       }
     } else if (field.static_) {
-      const fType = field.resolvedType ? emitType(field.resolvedType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
       if (field.defaultValue) {
-        const val = emitExpression(field.defaultValue, ctx, field.resolvedType ?? undefined);
+        const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}static inline ${fType} ${safeName} = ${val};`);
       } else {
         ctx.sourceLines.push(`${ind}static inline ${fType} ${safeName}{};`);
@@ -297,20 +348,20 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
       // The checker may resolve the type as just the class type (since weak_ is a field modifier),
       // or as a wrapped weak type. Handle both cases.
       let innerType = "auto";
-      if (field.resolvedType) {
-        if (field.resolvedType.kind === "weak") {
-          innerType = emitInnerType(field.resolvedType.inner);
-        } else if (field.resolvedType.kind === "class") {
-          innerType = field.resolvedType.symbol.name;
+      if (resolvedFieldType) {
+        if (resolvedFieldType.kind === "weak") {
+          innerType = emitInnerType(resolvedFieldType.inner);
+        } else if (resolvedFieldType.kind === "class") {
+          innerType = resolvedFieldType.symbol.name;
         } else {
-          innerType = emitType(field.resolvedType);
+          innerType = emitType(resolvedFieldType);
         }
       }
       ctx.sourceLines.push(`${ind}std::weak_ptr<${innerType}> ${safeName};`);
     } else {
-      const fType = field.resolvedType ? emitType(field.resolvedType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
       if (field.defaultValue) {
-        const val = emitExpression(field.defaultValue, ctx, field.resolvedType ?? undefined);
+        const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}${fType} ${safeName} = ${val};`);
       } else {
         ctx.sourceLines.push(`${ind}${fType} ${safeName};`);

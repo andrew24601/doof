@@ -605,6 +605,259 @@ describe("e2e — case expressions", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
   });
+
+  it("runs for-of over Stream<int>", () => {
+    const result = ctx.compileAndRun(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      function sum(items: Stream<int>): int {
+        let total = 0
+        for item of items {
+          total = total + item
+        }
+        return total
+      }
+
+      function main(): int {
+        return sum(Counter(1, 4))
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(6);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs direct generic helper over Stream<int>", () => {
+    const result = ctx.compileAndRun(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      function collect<T>(items: Stream<T>): T[] {
+        let values: T[] = []
+        for item of items {
+          values.push(item)
+        }
+        return values
+      }
+
+      function main(): int {
+        const stream: Stream<int> = Counter(1, 4)
+        values := collect(stream)
+        return values.length
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(3);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs transitive generic helpers over Stream<int>", () => {
+    const result = ctx.compileAndRun(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      function collect<T>(items: Stream<T>): T[] {
+        let values: T[] = []
+        for item of items {
+          values.push(item)
+        }
+        return values
+      }
+
+      function collectViaHelper<T>(items: Stream<T>): T[] => collect(items)
+
+      function main(): int {
+        const stream: Stream<int> = Counter(1, 4)
+        values := collectViaHelper(stream)
+        return values.length
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(3);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs a minimal Chain<int> class over streams", () => {
+    const result = ctx.compileAndRun(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      class Chain<T> implements Stream<T> {
+        source: Stream<T>
+
+        next(): T | null => this.source.next()
+
+        collect(): T[] {
+          let values: T[] = []
+          for item of this.source {
+            values.push(item)
+          }
+          return values
+        }
+      }
+
+      function main(): int {
+        const stream: Stream<int> = Counter(1, 4)
+        const chain = Chain<int> { source: stream }
+        values := chain.collect()
+        return values.length
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(3);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("targets a richer Chain<T> pipeline over streams", () => {
+    const result = ctx.compileAndRun(`
+      function isEven(value: int): bool => value % 2 == 0
+      function decorate(value: int): string => string(value)
+
+      class Counter implements Stream<int> {
+        current: int
+        endExclusive: int
+
+        next(): int | null {
+          if this.current < this.endExclusive {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      class FilteredStream<T> implements Stream<T> {
+        source: Stream<T>
+        pred: (value: T): bool
+
+        next(): T | null {
+          while true {
+            candidate := this.source.next()
+            if candidate == null {
+              return null
+            }
+            if this.pred(candidate!) {
+              return candidate!
+            }
+          }
+        }
+      }
+
+      class MappedStream<T, U> implements Stream<U> {
+        source: Stream<T>
+        transform: (value: T): U
+
+        next(): U | null {
+          value := this.source.next()
+          if value == null {
+            return null
+          }
+          return this.transform(value!)
+        }
+      }
+
+      class TakeStream<T> implements Stream<T> {
+        source: Stream<T>
+        remaining: int
+
+        next(): T | null {
+          if this.remaining <= 0 {
+            return null
+          }
+          value := this.source.next()
+          if value == null {
+            return null
+          }
+          this.remaining = this.remaining - 1
+          return value
+        }
+      }
+
+      class Chain<T> implements Stream<T> {
+        source: Stream<T>
+
+        next(): T | null => this.source.next()
+
+        filter(pred: (value: T): bool): Chain<T> => Chain<T> { source: FilteredStream<T> { source: this.source, pred } }
+        map<U>(transform: (value: T): U): Chain<U> => Chain<U> { source: MappedStream<T, U> { source: this.source, transform } }
+        take(count: int): Chain<T> => Chain<T> { source: TakeStream<T> { source: this.source, remaining: count } }
+
+        collect(): T[] {
+          let values: T[] = []
+          for item of this.source {
+            values.push(item)
+          }
+          return values
+        }
+      }
+
+      function main(): int {
+        const base: Stream<int> = Counter(1, 10)
+        const chain = Chain<int> { source: base }
+        const values = chain.filter(isEven).map(decorate).take(3).collect()
+        return values[0].length + values[1].length + values[2].length
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(3);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
 });
 
 // ============================================================================

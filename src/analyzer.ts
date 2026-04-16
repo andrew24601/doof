@@ -640,6 +640,9 @@ export class ModuleAnalyzer {
       case "class-declaration": {
         // Class type params are in scope for fields and methods.
         const classScope = this.extendScope(typeParamScope, stmt.typeParams);
+        for (const impl of stmt.implements_) {
+          this.resolveTypeAnnotation(impl, table, classScope);
+        }
         for (const f of stmt.fields) {
           if (f.type) this.resolveTypeAnnotation(f.type, table, classScope);
         }

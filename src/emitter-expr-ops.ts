@@ -515,6 +515,10 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     return `std::visit([](auto&& _obj) { return _obj->${prop}; }, ${object})`;
   }
 
+  if (objType && objType.kind === "stream") {
+    return `std::visit([](auto&& _obj) { return _obj->${prop}; }, ${object})`;
+  }
+
   const useArrow = objType ? isPointerType(objType) : false;
   const accessor = useArrow ? "->" : ".";
 

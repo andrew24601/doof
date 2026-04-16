@@ -1,6 +1,7 @@
 import { Lexer, Token, TokenType, type LexerDiagnostic } from "./lexer.js";
 import type {
   Program, Statement, Expression, Block, TypeAnnotation,
+  NamedType,
   Parameter, ClassField, InterfaceField, InterfaceMethod,
   EnumVariant, CaseArm, CasePattern, CallArgument,
   ObjectProperty, ImportSpecifier, ExportSpecifier,
@@ -709,11 +710,11 @@ export class Parser {
     const description = this.parseDescription();
     const typeParams = this.parseTypeParams();
 
-    const implements_: string[] = [];
+    const implements_: NamedType[] = [];
     if (this.match(TokenType.Implements)) {
-      implements_.push(this.expect(TokenType.Identifier).value);
+      implements_.push(this.parseNamedTypeReference());
       while (this.match(TokenType.Comma)) {
-        implements_.push(this.expect(TokenType.Identifier).value);
+        implements_.push(this.parseNamedTypeReference());
       }
     }
 
@@ -772,6 +773,14 @@ export class Parser {
 
   private looksLikeMethod(): boolean {
     return this.looksLikeMethodAt(0);
+  }
+
+  private parseNamedTypeReference(): NamedType {
+    const type = this.parsePrimaryType();
+    if (type.kind !== "named-type") {
+      throw this.error("Expected interface name in implements clause");
+    }
+    return type;
   }
 
   /** Check if tokens starting at `offset` from current position look like a method. */
@@ -3073,8 +3082,9 @@ export class Parser {
         if (this.check(TokenType.LeftBrace) && this.looksLikeConstructor()) {
           return this.parseNamedConstruction(name, startLoc, typeArgs, this.isCurrentTokenImmediatelyAfterPrevious());
         }
-        // Name<T>(args) — generic positional construction or function call
-        // Fall through to identifier with typeArgs stored — handled by caller
+        if (this.check(TokenType.LeftParen) && this.isCurrentTokenOnSameLineAsPrevious()) {
+          return this.parsePositionalConstruction(name, startLoc, typeArgs);
+        }
       }
 
       // Constructor with named fields: Name { ... }
@@ -3137,9 +3147,9 @@ export class Parser {
   }
 
   /**
-   * Lookahead: does `<...>` look like generic type args followed by `{` (construction)?
+   * Lookahead: does `<...>` look like generic type args followed by construction syntax?
    * Current token must be `<`.
-   * Scans for balanced `<` `>` with identifiers, commas, [], ? inside, then checks for `{`.
+   * Scans for balanced `<` `>` with identifiers, commas, [], ? inside, then checks for `{` or `(`.
    */
   private looksLikeGenericConstruction(): boolean {
     let i = 0; // current token is <
@@ -3160,9 +3170,9 @@ export class Parser {
       }
       i++;
     }
-    // After `>`, check for `{`
+    // After `>`, check for `{` or `(`
     const after = this.peek(i + 1);
-    return after.type === TokenType.LeftBrace;
+    return after.type === TokenType.LeftBrace || after.type === TokenType.LeftParen;
   }
 
   /**
@@ -3233,6 +3243,31 @@ export class Parser {
       args: properties,
       named: true,
       tightBraces,
+      span: this.span(startLoc),
+    };
+  }
+
+  private parsePositionalConstruction(
+    typeName: string,
+    startLoc: SourceLocation,
+    typeArgs: TypeAnnotation[] = [],
+  ): Expression {
+    this.expect(TokenType.LeftParen);
+
+    const args: Expression[] = [];
+    while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
+      args.push(this.parseExpression());
+      if (!this.match(TokenType.Comma)) break;
+    }
+
+    this.expect(TokenType.RightParen);
+
+    return {
+      kind: "construct-expression",
+      type: typeName,
+      typeArgs,
+      args,
+      named: false,
       span: this.span(startLoc),
     };
   }

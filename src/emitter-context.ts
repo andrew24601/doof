@@ -55,4 +55,20 @@ export interface EmitContext {
    * references.  Populated by `scanCapturedMutables()` before body emission.
    */
   capturedMutables?: Set<string>;
+  /** Concrete type substitutions used when emitting a monomorphized generic clone. */
+  typeSubstitution?: Map<string, ResolvedType>;
+  /** Override the emitted function name when generating a concrete clone. */
+  functionNameOverride?: string;
+  /** Skip template emission for monomorphized clones. */
+  suppressTemplatePrefix?: boolean;
+  /** Lookup from generic call instantiation key to emitted concrete helper name. */
+  monomorphizedFunctionNames?: Map<string, string>;
+  /** Raw class name override used for explicit class specializations. */
+  classNameOverride?: string;
+  /** Emit template<> instead of the class's generic template prefix. */
+  emitExplicitClassSpecialization?: boolean;
+  /** Emit only method declarations inside a class body; definitions are emitted separately. */
+  emitMethodBodiesInline?: boolean;
+  /** Emit a fully qualified function name for out-of-line method definitions. */
+  qualifiedFunctionName?: string;
 }

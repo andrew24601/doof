@@ -1,7 +1,7 @@
 import type { ResolvedType } from "./checker-types.js";
 import { typeToString, typesEqual } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
-import { emitType, isPointerType } from "./emitter-types.js";
+import { emitType, isMonostateNullable, isOptionalNullable, isPointerType } from "./emitter-types.js";
 
 export function emitExtractNarrowedValue(
   sourceExpr: string,
@@ -9,6 +9,18 @@ export function emitExtractNarrowedValue(
   targetType: ResolvedType,
   _ctx: EmitContext,
 ): string {
+  if (isOptionalNullable(sourceType)) {
+    return `${sourceExpr}.value()`;
+  }
+
+  if (isPointerType(sourceType)) {
+    return sourceExpr;
+  }
+
+  if (isMonostateNullable(sourceType)) {
+    return `std::get<${emitType(targetType)}>(${sourceExpr})`;
+  }
+
   if (sourceType.kind === "interface" || sourceType.kind === "union") {
     if (targetType.kind === "interface") {
       return sourceExpr;

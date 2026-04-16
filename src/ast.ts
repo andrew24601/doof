@@ -1,5 +1,5 @@
 import type { ResolvedType, Binding } from "./checker-types.js";
-import type { ModuleSymbol } from "./types.js";
+import type { ClassSymbol, ModuleSymbol } from "./types.js";
 
 // ============================================================================
 // Source Location
@@ -217,6 +217,11 @@ export interface CallExpression extends Typed {
   kind: "call-expression";
   callee: Expression;
   args: CallArgument[];
+  resolvedGenericTypeArgs?: ResolvedType[];
+  resolvedGenericBinding?: Binding;
+  resolvedGenericOwnerClass?: ClassSymbol;
+  resolvedGenericMethodName?: string;
+  resolvedGenericMethodStatic?: boolean;
   span: SourceSpan;
 }
 
@@ -609,7 +614,7 @@ export interface ClassDeclaration {
   name: string;
   description?: string;
   typeParams: string[];
-  implements_: string[];
+  implements_: NamedType[];
   fields: ClassField[];
   methods: FunctionDeclaration[];
   destructor: Block | null;

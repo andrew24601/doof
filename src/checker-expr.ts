@@ -1,5 +1,6 @@
 import type {
   Block,
+  CallExpression,
   CallArgument,
   ConstructExpression,
   Expression,
@@ -142,6 +143,59 @@ interface NamedCallInput {
   name: string;
   span: SourceSpan;
   inferType: (expectedType?: ResolvedType) => ResolvedType;
+}
+
+function getResolvedGenericTypeArgs(
+  typeParams: string[],
+  paramMap: Map<string, ResolvedType>,
+): ResolvedType[] {
+  return typeParams.map((typeParam) => paramMap.get(typeParam) ?? UNKNOWN_TYPE);
+}
+
+function buildResolvedGenericClassType(
+  calleeType: Extract<ResolvedType, { kind: "class" }>,
+  paramMap: Map<string, ResolvedType>,
+): Extract<ResolvedType, { kind: "class" }> {
+  if (calleeType.typeArgs && calleeType.typeArgs.length > 0) {
+    return calleeType;
+  }
+
+  const typeParams = calleeType.symbol.declaration.typeParams;
+  if (typeParams.length === 0) {
+    return calleeType;
+  }
+
+  const resolvedTypeArgs = getResolvedGenericTypeArgs(typeParams, paramMap);
+  if (resolvedTypeArgs.every((typeArg) => typeArg.kind === "unknown")) {
+    return calleeType;
+  }
+
+  return {
+    kind: "class",
+    symbol: calleeType.symbol,
+    typeArgs: resolvedTypeArgs,
+  };
+}
+
+function recordResolvedGenericCall(
+  expr: CallExpression,
+  calleeType: Extract<ResolvedType, { kind: "function" }>,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  expr.resolvedGenericTypeArgs = getResolvedGenericTypeArgs(calleeType.typeParams ?? [], paramMap);
+  if (expr.callee.kind === "identifier" && expr.callee.resolvedBinding) {
+    expr.resolvedGenericBinding = expr.callee.resolvedBinding;
+    return;
+  }
+
+  if (expr.callee.kind === "member-expression" || expr.callee.kind === "qualified-member-expression") {
+    const objectType = expr.callee.object.resolvedType;
+    if (objectType?.kind === "class") {
+      expr.resolvedGenericOwnerClass = objectType.symbol;
+      expr.resolvedGenericMethodName = expr.callee.property;
+      expr.resolvedGenericMethodStatic = expr.callee.kind === "qualified-member-expression";
+    }
+  }
 }
 
 function validatePositionalFunctionArgs(
@@ -747,6 +801,7 @@ function inferExprTypeInner(
               providedArgTypes.push(orderedArgs[i]!.type);
             }
             const paramMap = host.inferTypeArgs(calleeType.typeParams, providedParams, providedArgTypes);
+            recordResolvedGenericCall(expr, calleeType, paramMap);
             effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
           }
           validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
@@ -756,9 +811,11 @@ function inferExprTypeInner(
         if (calleeType.typeParams && calleeType.typeParams.length > 0) {
           const argTypes: ResolvedType[] = [];
           for (let i = 0; i < expr.args.length; i++) {
-            argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info));
+            const paramType = i < calleeType.params.length ? calleeType.params[i].type : undefined;
+            argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
+          recordResolvedGenericCall(expr, calleeType, paramMap);
           effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
           validatePositionalFunctionArgs(
             effectiveCalleeType.params,
@@ -788,6 +845,44 @@ function inferExprTypeInner(
       }
 
       if (calleeType.kind === "class") {
+        let effectiveClassType = calleeType;
+        let constructorParams = getConstructorParams(host, calleeType.symbol, table, true);
+
+        if ((!calleeType.typeArgs || calleeType.typeArgs.length === 0) && calleeType.symbol.declaration.typeParams.length > 0) {
+          const argTypes: ResolvedType[] = [];
+          for (let i = 0; i < expr.args.length; i++) {
+            const paramType = i < constructorParams.length ? constructorParams[i].type : undefined;
+            argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+          }
+
+          const paramMap = host.inferTypeArgs(calleeType.symbol.declaration.typeParams, constructorParams, argTypes);
+          effectiveClassType = buildResolvedGenericClassType(calleeType, paramMap);
+
+          if (effectiveClassType.typeArgs && effectiveClassType.typeArgs.length > 0) {
+            const classParamMap = new Map<string, ResolvedType>();
+            for (let i = 0; i < calleeType.symbol.declaration.typeParams.length && i < effectiveClassType.typeArgs.length; i++) {
+              classParamMap.set(calleeType.symbol.declaration.typeParams[i], effectiveClassType.typeArgs[i]);
+            }
+            constructorParams = constructorParams.map((param) => ({
+              ...param,
+              type: substituteTypeParams(param.type, classParamMap),
+            }));
+          }
+
+          validateConstructorArgs(
+            host,
+            calleeType.symbol,
+            argTypes,
+            expr.args.map((arg) => arg.span),
+            true,
+            table,
+            info,
+            expr.span,
+            constructorParams,
+          );
+          return effectiveClassType;
+        }
+
         if (expr.args.some((arg) => arg.name)) {
           const props: ObjectProperty[] = expr.args.map((arg) => ({
             kind: "object-property",
@@ -795,23 +890,21 @@ function inferExprTypeInner(
             value: arg.value,
             span: arg.span,
           }));
-          const params = getConstructorParams(host, calleeType.symbol, table, true);
-          const paramMap = new Map(params.map((param) => [param.name, param]));
+          const paramMap = new Map(constructorParams.map((param) => [param.name, param]));
           for (const prop of props) {
             const fieldParam = paramMap.get(prop.name);
             inferExprType(host, prop.value!, scope, table, info, fieldParam?.type);
           }
-          validateNamedConstructorArgs(host, calleeType.symbol, props, true, table, info, expr.span);
+          validateNamedConstructorArgs(host, calleeType.symbol, props, true, table, info, expr.span, constructorParams);
         } else {
-          const params = getConstructorParams(host, calleeType.symbol, table, true);
           const argTypes: ResolvedType[] = [];
           for (let i = 0; i < expr.args.length; i++) {
-            const paramType = i < params.length ? params[i].type : undefined;
+            const paramType = i < constructorParams.length ? constructorParams[i].type : undefined;
             argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
           }
-          validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span);
+          validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span, constructorParams);
         }
-        return calleeType;
+        return effectiveClassType;
       }
 
       for (const arg of expr.args) {
@@ -925,7 +1018,7 @@ function inferExprTypeInner(
               }
             }
           }
-          validateNamedConstructorArgs(host, sym, props, true, table, info, expr.span);
+          validateNamedConstructorArgs(host, sym, props, true, table, info, expr.span, constructParams);
         } else {
           const argTypes: ResolvedType[] = [];
           for (let i = 0; i < expr.args.length; i++) {
@@ -933,7 +1026,7 @@ function inferExprTypeInner(
             argTypes.push(inferExprType(host, expr.args[i] as Expression, scope, table, info, paramType));
           }
           const argSpans = (expr.args as Expression[]).map((a) => a.span);
-          validateConstructorArgs(host, sym, argTypes, argSpans, true, table, info, expr.span);
+          validateConstructorArgs(host, sym, argTypes, argSpans, true, table, info, expr.span, constructParams);
         }
 
         if (sym.declaration.private_ && sym.module !== table.path) {
@@ -1430,9 +1523,8 @@ function getConstructorParams(
   for (const field of sym.declaration.fields) {
     if (field.static_) continue;
     if (nominal && field.const_) continue;
-    const fieldType = field.type
-      ? host.resolveTypeAnnotation(field.type, table)
-      : UNKNOWN_TYPE;
+    const fieldType = field.resolvedType
+      ?? (field.type ? host.resolveTypeAnnotation(field.type, table) : UNKNOWN_TYPE);
     for (const name of field.names) {
       params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null });
     }
@@ -1449,8 +1541,9 @@ function validateConstructorArgs(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
   callSpan: SourceSpan,
+  paramsOverride?: ConstructorParam[],
 ): void {
-  const params = getConstructorParams(host, sym, table, nominal);
+  const params = paramsOverride ?? getConstructorParams(host, sym, table, nominal);
   const requiredCount = params.filter((p) => !p.hasDefault).length;
   const totalCount = params.length;
 
@@ -1485,8 +1578,9 @@ function validateNamedConstructorArgs(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
   callSpan: SourceSpan,
+  paramsOverride?: ConstructorParam[],
 ): void {
-  const params = getConstructorParams(host, sym, table, nominal);
+  const params = paramsOverride ?? getConstructorParams(host, sym, table, nominal);
   const paramMap = new Map(params.map((p) => [p.name, p]));
 
   for (const prop of props) {

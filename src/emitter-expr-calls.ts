@@ -13,6 +13,7 @@ import type {
 } from "./ast.js";
 import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
 import { emitType } from "./emitter-types.js";
+import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -21,6 +22,7 @@ import {
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitResolvedClassName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
@@ -148,9 +150,44 @@ function emitIdentifierCallByName(name: string, args: string[], ctx: EmitContext
   return `${emitIdentifierSafe(name)}(${joinedArgs})`;
 }
 
+function emitExplicitGenericMethodCall(
+  expr: CallExpression,
+  ctx: EmitContext,
+  args: string,
+): string | null {
+  const methodTypeArgs = resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx);
+  if (!methodTypeArgs || methodTypeArgs.length === 0 || !expr.resolvedGenericMethodName) return null;
+
+  if (expr.callee.kind === "member-expression") {
+    const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
+    if (!objectType || objectType.kind !== "class") return null;
+    const object = emitExpression(expr.callee.object, ctx);
+    const accessor = objectType.symbol ? "->" : ".";
+    const typeArgs = methodTypeArgs.map(emitType).join(", ");
+    return `${object}${accessor}${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
+  }
+
+  if (expr.callee.kind === "qualified-member-expression") {
+    const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
+    if (!objectType || objectType.kind !== "class") return null;
+    const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+    const typeArgs = methodTypeArgs.map(emitType).join(", ");
+    return `${className}::${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
+  }
+
+  return null;
+}
+
+function emitConcreteClassName(
+  type: Extract<ResolvedType, { kind: "class" }>,
+): string {
+  return emitResolvedClassName(type);
+}
+
 export function emitCallExpression(expr: CallExpression, ctx: EmitContext): string {
-  const calleeType = expr.callee.resolvedType;
+  const calleeType = substituteEmitType(expr.callee.resolvedType, ctx);
   const hasNamedArgs = expr.args.some((arg) => arg.name);
+  const monomorphizedName = resolveMonomorphizedFunctionName(expr, ctx);
 
   if (hasNamedArgs && calleeType?.kind === "function") {
     const args = buildOrderedNamedCallValues(
@@ -158,6 +195,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       expr.args.map((arg) => ({ name: arg.name!, value: arg.value })),
       ctx,
     );
+
+    if (monomorphizedName) {
+      return `${emitIdentifierSafe(monomorphizedName)}(${args.join(", ")})`;
+    }
 
     if (expr.callee.kind === "identifier") {
       return emitIdentifierCallByName(expr.callee.name, args, ctx);
@@ -175,7 +216,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       span: arg.span,
     }));
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
-    const cppName = calleeType.symbol.extern_?.cppName ?? calleeType.symbol.name;
+    const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
+    const cppName = emitConcreteClassName(classType);
     const args = buildConstructorFieldInfoList(calleeType.symbol).map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
@@ -215,6 +257,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   // Build argument list, passing parameter target types for null coercion.
   const paramTypes = calleeType?.kind === "function" ? calleeType.params : undefined;
   const args = buildPositionalCallValues(paramTypes, expr.args, ctx).join(", ");
+  const explicitGenericMethodCall = emitExplicitGenericMethodCall(expr, ctx, args);
 
   // Positional Success(value) → doof::Result<T, E>::success(val)
   if (expr.callee.kind === "identifier" && expr.callee.name === "Success" && isUnshadowedResultCtorCall(expr, "Success")) {
@@ -250,14 +293,19 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   if (calleeType && calleeType.kind === "class") {
     // Constructor call → std::make_shared<ClassName>(args...)
-    const cppName = calleeType.symbol.extern_?.cppName ?? calleeType.symbol.name;
+    const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
+    const cppName = emitConcreteClassName(classType);
     return `std::make_shared<${cppName}>(${args})`;
   }
 
   // Check if this is a method call on an interface-typed object → std::visit
   if (expr.callee.kind === "member-expression") {
     const memberExpr = expr.callee as MemberExpression;
-    const objType = memberExpr.object.resolvedType;
+    const objType = substituteEmitType(memberExpr.object.resolvedType, ctx);
+
+    if (explicitGenericMethodCall) {
+      return explicitGenericMethodCall;
+    }
 
     const staticMethod = getStaticClassMethodCall(memberExpr);
     if (staticMethod) {
@@ -356,6 +404,15 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return `std::visit([](auto&& _obj) { return _obj->${method}(); }, ${obj})`;
     }
 
+    if (objType && objType.kind === "stream") {
+      const obj = emitExpression(memberExpr.object, ctx);
+      const method = emitIdentifierSafe(memberExpr.property);
+      if (args) {
+        return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;
+      }
+      return `std::visit([](auto&& _obj) { return _obj->${method}(); }, ${obj})`;
+    }
+
     // Actor method call (sync) → actor->call_sync(...)
     if (objType && objType.kind === "actor") {
       return emitActorSyncCall(expr, memberExpr, objType, args, ctx);
@@ -364,7 +421,11 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   if (expr.callee.kind === "qualified-member-expression") {
     const memberExpr = expr.callee as QualifiedMemberExpression;
-    const objType = memberExpr.object.resolvedType;
+    const objType = substituteEmitType(memberExpr.object.resolvedType, ctx);
+
+    if (explicitGenericMethodCall) {
+      return explicitGenericMethodCall;
+    }
 
     const staticMethod = getQualifiedClassMethodCall(memberExpr);
     if (staticMethod) {
@@ -378,6 +439,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Map known Doof runtime builtins to doof:: namespace
   if (expr.callee.kind === "identifier") {
+    if (monomorphizedName) {
+      return `${emitIdentifierSafe(monomorphizedName)}(${args})`;
+    }
     const name = expr.callee.name;
     if (name === "assert") {
       return `doof::assert_(${args})`;
@@ -451,6 +515,7 @@ function emitActorSyncCall(
 // ============================================================================
 
 export function emitConstructExpression(expr: ConstructExpression, ctx: EmitContext): string {
+  const resolvedExprType = substituteEmitType(expr.resolvedType, ctx);
   const sym = resolveClassSymbol(expr, ctx);
   const functionParams = resolveFunctionParams(expr, ctx);
 
@@ -515,12 +580,11 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Append generic type arguments: Box<int> → Box<int32_t>
-  if (expr.typeArgs && expr.typeArgs.length > 0) {
-    const typeArgStrs = expr.typeArgs.map((ta) => emitTypeAnnotation(ta, ctx));
+  if (resolvedExprType?.kind === "class" && resolvedExprType.typeArgs && resolvedExprType.typeArgs.length > 0) {
+    const typeArgStrs = resolvedExprType.typeArgs.map(emitType);
     typeName = `${typeName}<${typeArgStrs.join(", ")}>`;
-  } else if (expr.resolvedType?.kind === "class" && expr.resolvedType.typeArgs && expr.resolvedType.typeArgs.length > 0) {
-    // Fall back to resolved type args from checker
-    const typeArgStrs = expr.resolvedType.typeArgs.map(emitType);
+  } else if (expr.typeArgs && expr.typeArgs.length > 0) {
+    const typeArgStrs = expr.typeArgs.map((ta) => emitTypeAnnotation(ta, ctx));
     typeName = `${typeName}<${typeArgStrs.join(", ")}>`;
   }
 

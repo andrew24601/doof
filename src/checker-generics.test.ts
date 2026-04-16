@@ -7,7 +7,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { check, findId, findTypes } from "./checker-test-helpers.js";
+import { check, collectExprs, findId, findTypes } from "./checker-test-helpers.js";
+import { isStreamSensitiveType, typeContainsTypeVar, typeToString, type ResolvedType } from "./checker-types.js";
 
 // ==========================================================================
 // Phase 1: Generic Type Aliases
@@ -131,6 +132,73 @@ describe("Checker — generic functions", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("infers type arg through Stream<T> parameter", () => {
+    const cr = check({
+      "/main.do": `
+        class Counter implements Stream<int> {
+          current: int
+          endExclusive: int
+
+          next(): int | null {
+            if this.current < this.endExclusive {
+              value := this.current
+              this.current = this.current + 1
+              return value
+            }
+            return null
+          }
+        }
+
+        function readOnce<T>(stream: Stream<T>): T | null => stream.next()
+
+        source: Stream<int> := Counter(1, 3)
+        const value = readOnce(source)
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const readOnceCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "identifier"
+        && expr.callee.name === "readOnce");
+    expect(readOnceCall).toBeDefined();
+    expect(typeToString(readOnceCall!.resolvedType!)).toBe("int | null");
+  });
+
+  it("decorates generic call expressions with resolved type arguments", () => {
+    const cr = check({
+      "/main.do": `
+        class Counter implements Stream<int> {
+          current: int
+          endExclusive: int
+
+          next(): int | null {
+            if this.current < this.endExclusive {
+              value := this.current
+              this.current = this.current + 1
+              return value
+            }
+            return null
+          }
+        }
+
+        function readOnce<T>(stream: Stream<T>): T | null => stream.next()
+        source: Stream<int> := Counter(1, 3)
+        const value = readOnce(source)
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const readOnceCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "identifier"
+        && expr.callee.name === "readOnce");
+
+    expect(readOnceCall).toBeDefined();
+    expect(readOnceCall?.resolvedGenericBinding?.name).toBe("readOnce");
+    expect(readOnceCall?.resolvedGenericTypeArgs).toBeDefined();
+    expect(readOnceCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int"]);
+  });
+
   it("decorates generic function with typeParams in resolvedType", () => {
     const cr = check({
       "/main.do": `
@@ -244,6 +312,62 @@ describe("Checker — generic classes", () => {
       expect(bIds[0].type.name).toBe("string");
     }
   });
+
+  it("resolves explicit generic positional construction", () => {
+    const cr = check({
+      "/main.do": `
+        class Box<T> {
+          value: T
+        }
+        const b = Box<int>(42)
+        const use = b
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "b");
+    expect(ids[0]?.type.kind).toBe("class");
+    if (ids[0]?.type.kind === "class") {
+      expect(ids[0].type.typeArgs?.map(typeToString)).toEqual(["int"]);
+    }
+  });
+
+  it("infers generic class type args from positional constructor calls", () => {
+    const cr = check({
+      "/main.do": `
+        class Counter implements Stream<int> {
+          current: int
+          endExclusive: int
+
+          next(): int | null {
+            if this.current < this.endExclusive {
+              value := this.current
+              this.current = this.current + 1
+              return value
+            }
+            return null
+          }
+        }
+
+        class Chain<T> implements Stream<T> {
+          source: Stream<T>
+
+          next(): T | null => this.source.next()
+        }
+
+        const chain = Chain(Counter(1, 4))
+        const use = chain
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "chain");
+    expect(ids[0]?.type.kind).toBe("class");
+    if (ids[0]?.type.kind === "class") {
+      expect(ids[0].type.symbol.name).toBe("Chain");
+      expect(ids[0].type.typeArgs?.map(typeToString)).toEqual(["int"]);
+    }
+  });
 });
 
 // ==========================================================================
@@ -272,5 +396,80 @@ describe("Checker — method-level type params", () => {
       `,
     }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("decorates generic method calls with owner class metadata", () => {
+    const cr = check({
+      "/main.do": `
+        function stringify(value: int): string => string(value)
+
+        class Box<T> {
+          value: T
+          map<U>(f: (value: T): U): U => f(this.value)
+        }
+
+        const b = Box<int> { value: 42 }
+        const result = b.map(stringify)
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const mapCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "map");
+
+    expect(mapCall).toBeDefined();
+    expect(mapCall?.resolvedGenericOwnerClass?.name).toBe("Box");
+    expect(mapCall?.resolvedGenericMethodName).toBe("map");
+    expect(mapCall?.resolvedGenericMethodStatic).toBe(false);
+    expect(mapCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["string"]);
+  });
+
+  it("contextually types shorthand lambdas in generic positional method calls", () => {
+    const cr = check({
+      "/main.do": `
+        class Box<T> {
+          value: T
+          map<U>(f: (it: T): U): U => f(this.value)
+        }
+
+        const b = Box<int> { value: 42 }
+        const result = b.map(=> "{${it}}")
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const mapCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "map");
+
+    expect(mapCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["string"]);
+  });
+});
+
+describe("checker-types — stream sensitivity", () => {
+  it("detects type variables nested under Stream", () => {
+    const type: ResolvedType = {
+      kind: "function",
+      params: [{ name: "source", type: { kind: "stream", elementType: { kind: "typevar", name: "T" } } }],
+      returnType: { kind: "primitive", name: "bool" },
+    };
+
+    expect(typeContainsTypeVar(type)).toBe(true);
+    expect(isStreamSensitiveType(type)).toBe(true);
+  });
+
+  it("does not mark concrete Stream<int> signatures as stream-sensitive", () => {
+    const type: ResolvedType = {
+      kind: "function",
+      params: [{ name: "source", type: { kind: "stream", elementType: { kind: "primitive", name: "int" } } }],
+      returnType: { kind: "array", elementType: { kind: "primitive", name: "int" }, readonly_: false },
+    };
+
+    expect(typeContainsTypeVar(type)).toBe(false);
+    expect(isStreamSensitiveType(type)).toBe(false);
   });
 });

@@ -42,10 +42,10 @@ export function propagateJsonDemand(analysisResult: AnalysisResult): void {
         const list = classDecls.get(decl.name) ?? [];
         list.push(decl);
         classDecls.set(decl.name, list);
-        for (const ifaceName of decl.implements_) {
-          const impls = ifaceImpls.get(ifaceName) ?? [];
+        for (const iface of decl.implements_) {
+          const impls = ifaceImpls.get(iface.name) ?? [];
           impls.push(decl);
-          ifaceImpls.set(ifaceName, impls);
+          ifaceImpls.set(iface.name, impls);
         }
       } else if (decl.kind === "interface-declaration") {
         ifaceDecls.set(decl.name, decl);

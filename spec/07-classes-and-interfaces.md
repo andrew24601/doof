@@ -63,6 +63,28 @@ class Counter {
 }
 ```
 
+### Stream Implementations
+
+Classes can explicitly implement `Stream<T>`. A class satisfies `Stream<T>` when it exposes a zero-argument `next()` method returning `T | null`.
+
+```javascript
+class Counter implements Stream<int> {
+    current = 0
+    end: int
+
+    next(): int | null {
+        if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+        }
+        return null
+    }
+}
+```
+
+`for-of` can iterate over any `Stream<T>` value and binds each iteration variable as `T`.
+
 ### Static Members
 
 Members declared with `static` belong to the class itself, not to instances. Static methods have no `this` binding and cannot access instance fields or methods. Static fields are shared class state and are not part of instance construction or other instance-shaped operations.

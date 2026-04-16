@@ -128,6 +128,28 @@ for name of names {
 }
 ```
 
+Current iterable forms are arrays, maps, sets, ranges, and `Stream<T>` values. A stream yields one element at a time by calling `next()` until it returns `null`.
+
+```javascript
+class Counter implements Stream<int> {
+    current: int
+    end: int
+
+    next(): int | null {
+        if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+        }
+        return null
+    }
+}
+
+for value of Counter(0, 3) {
+    print(value)
+}
+```
+
 ### For-Of with Maps
 
 ```javascript

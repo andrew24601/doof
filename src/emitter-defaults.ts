@@ -8,6 +8,7 @@ import {
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitResolvedClassName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
@@ -101,7 +102,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       }
 
       if (tupleType.kind === "class") {
-        const className = tupleType.symbol.extern_?.cppName ?? tupleType.symbol.name;
+        const className = emitResolvedClassName(tupleType);
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
         const args = expr.elements
           .map((element, index) => emitDefaultExpression(element, fieldTypes[index]))
@@ -117,7 +118,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
         return unsupportedDefault(expr, contextType);
       }
-      const className = callType.symbol.extern_?.cppName ?? callType.symbol.name;
+      const className = emitResolvedClassName(callType);
       const fieldTypes = buildFieldTypeList(callType.symbol);
       const args = expr.args
         .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index]))
@@ -165,7 +166,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
     case "object-literal": {
       const objectType = contextType ?? expr.resolvedType;
       if (objectType?.kind === "class") {
-        const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+        const className = emitResolvedClassName(objectType);
         const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
         const args = buildConstructorFieldInfoList(objectType.symbol)
           .map((field) => {

@@ -56,6 +56,23 @@ function withClassTypeParams<T>(
   }
 }
 
+function withMethodTypeParams<T>(
+  host: CheckerHost,
+  method: ClassDeclaration["methods"][number],
+  fn: () => T,
+): T {
+  if (method.typeParams.length > 0) {
+    host.typeParamStack.push(new Set(method.typeParams));
+  }
+  try {
+    return fn();
+  } finally {
+    if (method.typeParams.length > 0) {
+      host.typeParamStack.pop();
+    }
+  }
+}
+
 function resolveClassFieldType(
   host: CheckerHost,
   classTable: ModuleSymbolTable,
@@ -77,7 +94,7 @@ function resolveClassMethodType(
   classDecl: ClassDeclaration,
   classSubMap?: Map<string, ResolvedType>,
 ): ResolvedType {
-  let methodType: ResolvedType = {
+  let methodType: ResolvedType = withMethodTypeParams(host, method, () => ({
     kind: "function",
     params: method.params.map((p) => ({
       name: p.name,
@@ -102,7 +119,7 @@ function resolveClassMethodType(
           classDecl.name,
         )
       : undefined,
-  };
+  }));
   if (classSubMap) {
     methodType = substituteTypeParams(methodType, classSubMap);
   }
@@ -625,6 +642,33 @@ function inferTypeAliasStaticMemberType(
   };
 }
 
+function inferStreamInstanceMemberType(
+  objectType: Extract<ResolvedType, { kind: "stream" }>,
+  property: string,
+  table: ModuleSymbolTable,
+  info?: ModuleTypeInfo,
+  span?: SourceSpan,
+): ResolvedType {
+  if (property === "next") {
+    return {
+      kind: "function",
+      params: [],
+      returnType: {
+        kind: "union",
+        types: [objectType.elementType, NULL_TYPE],
+      },
+    };
+  }
+
+  reportMemberDiagnostic(
+    info,
+    table,
+    span,
+    `Property "${property}" does not exist on type "${typeToString(objectType)}"`,
+  );
+  return UNKNOWN_TYPE;
+}
+
 export function inferMemberType(
   host: CheckerHost,
   objectType: ResolvedType,
@@ -698,6 +742,14 @@ export function inferMemberType(
     return mode === "instance"
       ? inferInterfaceInstanceMemberType(host, objectType, property, table, info, span)
       : inferInterfaceStaticMemberType(host, objectType, property, table, mode, info, span);
+  }
+
+  if (objectType.kind === "stream") {
+    if (mode !== "instance") {
+      reportMemberDiagnostic(info, table, span, `Static member "${property}" must be accessed on an instance`);
+      return UNKNOWN_TYPE;
+    }
+    return inferStreamInstanceMemberType(objectType, property, table, info, span);
   }
 
   if (objectType.kind === "tuple") {

@@ -18,6 +18,7 @@ import type {
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
+import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
@@ -82,11 +83,11 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
     case "return-statement": {
       const ind = indent(ctx);
       if (stmt.value) {
-        const fnRet = ctx.currentFunctionReturnType;
+        const fnRet = substituteEmitType(ctx.currentFunctionReturnType, ctx);
         const val = emitExpression(stmt.value, ctx, fnRet);
         // If enclosing function returns Result<T,E> and value is not already Result,
         // wrap in Result::success()
-        const valType = stmt.value.resolvedType;
+        const valType = substituteEmitType(stmt.value.resolvedType, ctx);
         if (fnRet && fnRet.kind === "result" && valType && valType.kind !== "result") {
           const resultCppType = emitType(fnRet);
           ctx.sourceLines.push(`${ind}return ${resultCppType}::success(${val});`);
@@ -335,7 +336,7 @@ function emitConstDecl(
 
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
-  const declType = stmt.resolvedType;
+  const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
 
   // Emit description comment
@@ -371,19 +372,20 @@ function emitReadonlyDecl(
 
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
-  const explicitCppType = stmt.type && stmt.resolvedType ? emitType(stmt.resolvedType) : null;
+  const declType = substituteEmitType(stmt.resolvedType, ctx);
+  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
 
   // Emit description comment
   if (stmt.description) {
     ctx.sourceLines.push(`${ind}// ${stmt.description}`);
   }
 
-  const val = emitExpression(stmt.value, ctx, stmt.resolvedType);
-  assertDeclarationTypeResolved(stmt.name, stmt.resolvedType);
+  const val = emitExpression(stmt.value, ctx, declType);
+  assertDeclarationTypeResolved(stmt.name, declType);
 
   // readonly on class types → shared_ptr<const T>
-  if (stmt.resolvedType && stmt.resolvedType.kind === "class") {
-    const innerType = stmt.resolvedType.symbol.name;
+  if (declType && declType.kind === "class") {
+    const innerType = declType.symbol.name;
     ctx.sourceLines.push(`${ind}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}const ${explicitCppType} ${name} = ${val};`);
@@ -404,13 +406,14 @@ function emitImmutableBinding(
 
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
-  const explicitCppType = stmt.type && stmt.resolvedType ? emitType(stmt.resolvedType) : null;
-  const val = emitExpression(stmt.value, ctx, stmt.resolvedType);
-  assertDeclarationTypeResolved(stmt.name, stmt.resolvedType);
+  const declType = substituteEmitType(stmt.resolvedType, ctx);
+  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const val = emitExpression(stmt.value, ctx, declType);
+  assertDeclarationTypeResolved(stmt.name, declType);
 
   // := → const auto (shallow immutable: binding can't change, pointee mutable)
-  if (stmt.resolvedType && stmt.resolvedType.kind === "class") {
-    const cppType = emitType(stmt.resolvedType);
+  if (declType && declType.kind === "class") {
+    const cppType = emitType(declType);
     ctx.sourceLines.push(`${ind}const ${cppType} ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}const ${explicitCppType} ${name} = ${val};`);
@@ -431,7 +434,7 @@ function emitLetDecl(
 
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
-  const declType = stmt.resolvedType;
+  const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
@@ -1107,8 +1110,70 @@ function emitForOfStatement(
   }
 
   const iterable = emitExpression(stmt.iterable, ctx);
+  const iterableType = substituteEmitType(stmt.iterable.resolvedType, ctx);
+
+  if (iterableType?.kind === "stream") {
+    const streamVar = `_stream_${ctx.tempCounter++}`;
+    const nextVar = `_stream_next_${ctx.tempCounter++}`;
+    const nextType = {
+      kind: "union",
+      types: [iterableType.elementType, { kind: "null" }],
+    } as import("./checker-types.js").ResolvedType;
+
+    ctx.sourceLines.push(`${ind}auto ${streamVar} = ${iterable};`);
+    ctx.sourceLines.push(`${ind}while (true) {`);
+
+    const innerCtx = {
+      ...ctx,
+      indent: ctx.indent + 1,
+      loopControls: [...(ctx.loopControls ?? []), { label: stmt.label, naturalCompletionFlag }],
+    };
+    const innerInd = indent(innerCtx);
+
+    ctx.sourceLines.push(`${innerInd}auto ${nextVar} = std::visit([](auto&& _obj) { return _obj->next(); }, ${streamVar});`);
+
+    if (isMonostateNullable(nextType)) {
+      ctx.sourceLines.push(`${innerInd}if (std::holds_alternative<std::monostate>(${nextVar})) break;`);
+    } else if (isOptionalNullable(nextType)) {
+      ctx.sourceLines.push(`${innerInd}if (!${nextVar}.has_value()) break;`);
+    } else if (isPointerType(nextType)) {
+      ctx.sourceLines.push(`${innerInd}if (${nextVar} == nullptr) break;`);
+    }
+
+    if (stmt.bindings.length === 1) {
+      const binding = emitIdentifierSafe(stmt.bindings[0]);
+      if (isMonostateNullable(nextType)) {
+        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = std::get<${emitType(iterableType.elementType)}>(${nextVar});`);
+      } else if (isOptionalNullable(nextType)) {
+        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = ${nextVar}.value();`);
+      } else {
+        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = ${nextVar};`);
+      }
+    } else {
+      const bindings = stmt.bindings.map(emitIdentifierSafe).join(", ");
+      if (isMonostateNullable(nextType)) {
+        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = std::get<${emitType(iterableType.elementType)}>(${nextVar});`);
+      } else if (isOptionalNullable(nextType)) {
+        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = ${nextVar}.value();`);
+      } else {
+        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = ${nextVar};`);
+      }
+    }
+
+    emitBlockStatements(stmt.body, innerCtx);
+    ctx.sourceLines.push(`${ind}}`);
+    if (stmt.label) {
+      ctx.sourceLines.push(`${ind}${stmt.label}_break:;`);
+    }
+    if (naturalCompletionFlag && stmt.then_) {
+      ctx.sourceLines.push(`${ind}if (${naturalCompletionFlag}) {`);
+      emitBlockStatements(stmt.then_, { ...ctx, indent: ctx.indent + 1 });
+      ctx.sourceLines.push(`${ind}}`);
+    }
+    return;
+  }
+
   // Arrays and maps are shared_ptr<container>, need dereference to iterate
-  const iterableType = stmt.iterable.resolvedType;
   const needsDeref = iterableType && (iterableType.kind === "array" || iterableType.kind === "map" || iterableType.kind === "set");
   const iterExpr = needsDeref ? `*${iterable}` : iterable;
   const loopCtx = {

@@ -1480,7 +1480,7 @@ describe("Parser — description metadata", () => {
     const stmt = firstStmt(`class Foo "Implements Bar." implements Bar { x: int }`) as any;
     expect(stmt.kind).toBe("class-declaration");
     expect(stmt.description).toBe("Implements Bar.");
-    expect(stmt.implements_).toEqual(["Bar"]);
+    expect(stmt.implements_.map((impl: { name: string }) => impl.name)).toEqual(["Bar"]);
   });
 
   it("parses class field with description", () => {

@@ -227,6 +227,8 @@ export function checkStatement(
         ? iterableType.elementType
         : iterableType.kind === "set"
           ? iterableType.elementType
+        : iterableType.kind === "stream"
+          ? iterableType.elementType
         : isRangeExpression(stmt.iterable)
           ? iterableType
           : UNKNOWN_TYPE;

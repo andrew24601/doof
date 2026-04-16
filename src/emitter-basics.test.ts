@@ -779,6 +779,61 @@ describe("emitter — for-of loops", () => {
     `);
     expect(cpp).toContain("for (const auto& x : *items)");
   });
+
+  it("emits stream aliases and next() dispatch", () => {
+    const cpp = emit(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      function readOnce(stream: Stream<int>): int | null {
+        return stream.next()
+      }
+    `);
+
+    expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<Counter>>;");
+    expect(cpp).toContain("std::visit([](auto&& _obj) { return _obj->next(); }, stream)");
+  });
+
+  it("lowers for-of over streams to next-driven loops", () => {
+    const cpp = emit(`
+      class Counter implements Stream<int> {
+        current: int
+        end: int
+
+        next(): int | null {
+          if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      function sum(items: Stream<int>): int {
+        let total = 0
+        for item of items {
+          total = total + item
+        }
+        return total
+      }
+    `);
+
+    expect(cpp).toContain("while (true)");
+    expect(cpp).toContain("auto _stream_next_");
+    expect(cpp).toContain("if (!_stream_next_");
+  });
 });
 
 describe("emitter — includes", () => {

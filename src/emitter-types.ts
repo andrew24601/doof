@@ -96,6 +96,9 @@ export function emitType(type: ResolvedType): string {
       return `std::shared_ptr<std::unordered_set<${el}>>`;
     }
 
+    case "stream":
+      return `__doof_stream_${mangleTypeForCppName(type.elementType)}`;
+
     case "union":
       return emitUnionType(type.types);
 
@@ -148,6 +151,65 @@ export function emitType(type: ResolvedType): string {
       const cppName = type.classType.symbol.extern_?.cppName ?? type.classType.symbol.name;
       return `doof::MethodReflection<${cppName}>`;
     }
+  }
+}
+
+export function mangleTypeForCppName(type: ResolvedType): string {
+  switch (type.kind) {
+    case "primitive":
+      return type.name;
+    case "class":
+      return type.symbol.name;
+    case "enum":
+      return type.symbol.name;
+    case "array":
+      return `array_${mangleTypeForCppName(type.elementType)}`;
+    case "map":
+      return `map_${mangleTypeForCppName(type.keyType)}_${mangleTypeForCppName(type.valueType)}`;
+    case "set":
+      return `set_${mangleTypeForCppName(type.elementType)}`;
+    case "tuple":
+      return `tuple_${type.elements.map(mangleTypeForCppName).join("_")}`;
+    case "union":
+      return `union_${type.types.map(mangleTypeForCppName).join("_")}`;
+    case "null":
+      return "null";
+    case "stream":
+      return `stream_${mangleTypeForCppName(type.elementType)}`;
+    case "interface":
+      return type.symbol.name;
+    case "function":
+      return "fn";
+    case "weak":
+      return `weak_${mangleTypeForCppName(type.inner)}`;
+    case "void":
+      return "void";
+    case "unknown":
+      return "unknown";
+    case "namespace":
+      return "namespace";
+    case "actor":
+      return `actor_${mangleTypeForCppName(type.innerClass)}`;
+    case "promise":
+      return `promise_${mangleTypeForCppName(type.valueType)}`;
+    case "result":
+      return `result_${mangleTypeForCppName(type.successType)}_${mangleTypeForCppName(type.errorType)}`;
+    case "success-wrapper":
+      return `success_${mangleTypeForCppName(type.valueType)}`;
+    case "failure-wrapper":
+      return `failure_${mangleTypeForCppName(type.errorType)}`;
+    case "typevar":
+      return type.name;
+    case "json-value":
+      return "json";
+    case "builtin-namespace":
+      return type.name;
+    case "mock-capture":
+      return type.typeName;
+    case "class-metadata":
+      return `metadata_${mangleTypeForCppName(type.classType)}`;
+    case "method-reflection":
+      return `method_${mangleTypeForCppName(type.classType)}`;
   }
 }
 

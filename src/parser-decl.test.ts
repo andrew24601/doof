@@ -285,7 +285,17 @@ describe("Parser — class declarations", () => {
       readonly y: float;
     }`);
     if (stmt.kind === "class-declaration") {
-      expect(stmt.implements_).toEqual(["Drawable", "Positioned"]);
+      expect(stmt.implements_.map((impl) => impl.name)).toEqual(["Drawable", "Positioned"]);
+    }
+  });
+
+  it("parses class implements generic builtin stream", () => {
+    const stmt = firstStmt(`class Counter implements Stream<int> { next(): int | null => null }`);
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.implements_).toHaveLength(1);
+      expect(stmt.implements_[0].name).toBe("Stream");
+      expect(stmt.implements_[0].typeArgs).toHaveLength(1);
+      expect(stmt.implements_[0].typeArgs[0]).toMatchObject({ kind: "named-type", name: "int" });
     }
   });
 

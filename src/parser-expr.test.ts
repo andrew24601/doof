@@ -690,6 +690,16 @@ describe("Parser — trailing lambdas", () => {
     const expr = parseExpr("Repo {}");
     expect(expr.kind).toBe("construct-expression");
   });
+
+  it("parses generic positional construction", () => {
+    const expr = parseExpr("Box<int>(42)");
+    expect(expr.kind).toBe("construct-expression");
+    if (expr.kind === "construct-expression") {
+      expect(expr.named).toBe(false);
+      expect(expr.type).toBe("Box");
+      expect(expr.typeArgs).toHaveLength(1);
+    }
+  });
 });
 
 // ==========================================================================

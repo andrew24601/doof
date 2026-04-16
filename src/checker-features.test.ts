@@ -245,6 +245,98 @@ describe("checker — for-of ranges", () => {
   });
 });
 
+describe("checker — streams", () => {
+  it("types next() on Stream<int> and validates explicit implements", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class CounterStream implements Stream<int> {
+            current: int = 0
+
+            function next(): int | null {
+              if current < 3 {
+                value := current
+                current += 1
+                return value
+              }
+              return null
+            }
+          }
+
+          function readOnce(stream: Stream<int>): int | null => stream.next()
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const streamRefs = collectExprs(cr.program)
+      .filter((expr): expr is import("./ast.js").Identifier => expr.kind === "identifier" && expr.name === "stream");
+    expect(streamRefs.length).toBeGreaterThan(0);
+    expect(typeToString(streamRefs[0].resolvedType!)).toBe("Stream<int>");
+
+    const nextCalls = collectExprs(cr.program)
+      .filter((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression" && expr.callee.kind === "member-expression" && expr.callee.property === "next");
+    expect(nextCalls.length).toBeGreaterThan(0);
+    expect(typeToString(nextCalls[0].resolvedType!)).toBe("int | null");
+  });
+
+  it("infers for-of loop bindings from Stream<int>", () => {
+    const { program, diagnostics } = check(
+      {
+        "/main.do": `
+          class CounterStream implements Stream<int> {
+            current: int = 0
+
+            function next(): int | null {
+              if current < 2 {
+                value := current
+                current += 1
+                return value
+              }
+              return null
+            }
+          }
+
+          function sum(stream: Stream<int>): int {
+            let total = 0
+            for item of stream {
+              total = total + item
+            }
+            return total
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(diagnostics).toHaveLength(0);
+
+    const itemIds = collectExprs(program)
+      .filter((expr): expr is import("./ast.js").Identifier => expr.kind === "identifier" && expr.name === "item");
+    expect(itemIds.length).toBeGreaterThan(0);
+    for (const item of itemIds) {
+      expect(typeToString(item.resolvedType!)).toBe("int");
+    }
+  });
+
+  it("rejects classes that explicitly implement incompatible Stream<T>", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class BrokenStream implements Stream<int> {
+            function next(): string | null => null
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes('Class "BrokenStream" does not satisfy interface "Stream<int>"'))).toBe(true);
+  });
+});
+
 // ============================================================================
 // Result<T, E> type integration
 // ============================================================================

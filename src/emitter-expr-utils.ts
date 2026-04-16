@@ -6,6 +6,7 @@ import type { Expression, ObjectProperty, TypeAnnotation } from "./ast.js";
 import { isPrimitiveName, type ResolvedType } from "./checker-types.js";
 import type { ClassSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
+import { emitType } from "./emitter-types.js";
 
 /**
  * Resolve a TypeAnnotation to a ResolvedType.
@@ -94,6 +95,14 @@ export interface ConstructorFieldInfo {
   name: string;
   type: ResolvedType | undefined;
   defaultValue: Expression | null;
+}
+
+export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>): string {
+  const cppName = type.symbol.extern_?.cppName ?? type.symbol.name;
+  if (!type.typeArgs || type.typeArgs.length === 0) {
+    return cppName;
+  }
+  return `${cppName}<${type.typeArgs.map(emitType).join(", ")}>`;
 }
 
 export function buildConstructorFieldInfoList(

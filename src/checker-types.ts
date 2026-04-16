@@ -110,6 +110,11 @@ export interface SetResolvedType {
   readonly_?: boolean;
 }
 
+export interface StreamResolvedType {
+  kind: "stream";
+  elementType: ResolvedType;
+}
+
 export interface UnionResolvedType {
   kind: "union";
   types: ResolvedType[];
@@ -211,6 +216,7 @@ export type ResolvedType =
   | ArrayResolvedType
   | MapResolvedType
   | SetResolvedType
+  | StreamResolvedType
   | UnionResolvedType
   | TupleResolvedType
   | WeakResolvedType
@@ -381,6 +387,8 @@ export function typeToString(t: ResolvedType): string {
       const prefix = t.readonly_ ? "ReadonlySet" : "Set";
       return `${prefix}<${typeToString(t.elementType)}>`;
     }
+    case "stream":
+      return `Stream<${typeToString(t.elementType)}>`;
     case "union":
       return t.types.map(typeToString).join(" | ");
     case "tuple":
@@ -518,6 +526,9 @@ export function findUnsupportedHashCollectionConstraint(type: ResolvedType): Has
 
     case "promise":
       return findUnsupportedHashCollectionConstraint(type.valueType);
+
+    case "stream":
+      return findUnsupportedHashCollectionConstraint(type.elementType);
 
     case "result": {
       const unsupportedSuccess = findUnsupportedHashCollectionConstraint(type.successType);
@@ -661,6 +672,10 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
     return isAssignableTo(source.elementType, target.elementType);
   }
 
+  if (source.kind === "stream" && target.kind === "stream") {
+    return isAssignableTo(source.elementType, target.elementType);
+  }
+
   // Tuple compatibility.
   if (source.kind === "tuple" && target.kind === "tuple") {
     if (source.elements.length !== target.elements.length) return false;
@@ -691,6 +706,10 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
   // Class → interface: structural — class must have all interface fields and methods.
   if (source.kind === "class" && target.kind === "interface") {
     return classImplementsInterface(source, target);
+  }
+
+  if (source.kind === "class" && target.kind === "stream") {
+    return classImplementsStream(source, target);
   }
 
   // Enum: nominal.
@@ -760,6 +779,29 @@ function classImplementsInterface(source: ClassType, target: InterfaceType): boo
   return true;
 }
 
+function classImplementsStream(source: ClassType, target: StreamResolvedType): boolean {
+  const classDecl = source.symbol.declaration;
+  const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_);
+  if (!nextMethod || nextMethod.params.length !== 0) return false;
+
+  let methodType = nextMethod.resolvedType;
+  if (!methodType || methodType.kind !== "function") return false;
+
+  if (source.typeArgs && source.typeArgs.length > 0 && classDecl.typeParams.length > 0) {
+    const paramMap = new Map<string, ResolvedType>();
+    for (let i = 0; i < Math.min(classDecl.typeParams.length, source.typeArgs.length); i++) {
+      paramMap.set(classDecl.typeParams[i], source.typeArgs[i]);
+    }
+    methodType = substituteTypeParams(methodType, paramMap) as FunctionResolvedType;
+  }
+
+  const expectedReturn: ResolvedType = {
+    kind: "union",
+    types: [target.elementType, NULL_TYPE],
+  };
+  return methodType.params.length === 0 && isAssignableTo(methodType.returnType, expectedReturn);
+}
+
 /** Check whether two types are structurally equal. */
 export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
   if (a.kind !== b.kind) return false;
@@ -820,6 +862,8 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       const bs = b as SetResolvedType;
       return a.readonly_ === bs.readonly_ && typesEqual(a.elementType, bs.elementType);
     }
+    case "stream":
+      return typesEqual(a.elementType, (b as StreamResolvedType).elementType);
     case "union": {
       const bu = b as UnionResolvedType;
       if (a.types.length !== bu.types.length) return false;
@@ -940,6 +984,11 @@ export function substituteTypeParams(
         elementType: substituteTypeParams(type.elementType, paramMap),
         readonly_: type.readonly_,
       };
+    case "stream":
+      return {
+        kind: "stream",
+        elementType: substituteTypeParams(type.elementType, paramMap),
+      };
     case "union":
       return {
         kind: "union",
@@ -1009,6 +1058,89 @@ export function substituteTypeParams(
       return { kind: "actor", innerClass: substituteTypeParams(type.innerClass, paramMap) as ClassType };
     default:
       return type;
+  }
+}
+
+export function typeContainsTypeVar(type: ResolvedType): boolean {
+  switch (type.kind) {
+    case "typevar":
+      return true;
+    case "array":
+    case "set":
+    case "stream":
+      return typeContainsTypeVar(type.elementType);
+    case "map":
+      return typeContainsTypeVar(type.keyType) || typeContainsTypeVar(type.valueType);
+    case "union":
+      return type.types.some(typeContainsTypeVar);
+    case "tuple":
+      return type.elements.some(typeContainsTypeVar);
+    case "function":
+      return type.params.some((param) => typeContainsTypeVar(param.type))
+        || typeContainsTypeVar(type.returnType);
+    case "weak":
+      return typeContainsTypeVar(type.inner);
+    case "class":
+    case "interface":
+      return (type.typeArgs ?? []).some(typeContainsTypeVar);
+    case "result":
+      return typeContainsTypeVar(type.successType) || typeContainsTypeVar(type.errorType);
+    case "promise":
+      return typeContainsTypeVar(type.valueType);
+    case "actor":
+      return typeContainsTypeVar(type.innerClass);
+    case "success-wrapper":
+      return typeContainsTypeVar(type.valueType);
+    case "failure-wrapper":
+      return typeContainsTypeVar(type.errorType);
+    case "mock-capture":
+      return type.fields.some((field) => typeContainsTypeVar(field.type));
+    case "class-metadata":
+    case "method-reflection":
+      return typeContainsTypeVar(type.classType);
+    default:
+      return false;
+  }
+}
+
+export function isStreamSensitiveType(type: ResolvedType): boolean {
+  switch (type.kind) {
+    case "stream":
+      return typeContainsTypeVar(type.elementType) || isStreamSensitiveType(type.elementType);
+    case "array":
+    case "set":
+      return isStreamSensitiveType(type.elementType);
+    case "map":
+      return isStreamSensitiveType(type.keyType) || isStreamSensitiveType(type.valueType);
+    case "union":
+      return type.types.some(isStreamSensitiveType);
+    case "tuple":
+      return type.elements.some(isStreamSensitiveType);
+    case "function":
+      return type.params.some((param) => isStreamSensitiveType(param.type))
+        || isStreamSensitiveType(type.returnType);
+    case "weak":
+      return isStreamSensitiveType(type.inner);
+    case "class":
+    case "interface":
+      return (type.typeArgs ?? []).some(isStreamSensitiveType);
+    case "result":
+      return isStreamSensitiveType(type.successType) || isStreamSensitiveType(type.errorType);
+    case "promise":
+      return isStreamSensitiveType(type.valueType);
+    case "actor":
+      return isStreamSensitiveType(type.innerClass);
+    case "success-wrapper":
+      return isStreamSensitiveType(type.valueType);
+    case "failure-wrapper":
+      return isStreamSensitiveType(type.errorType);
+    case "mock-capture":
+      return type.fields.some((field) => isStreamSensitiveType(field.type));
+    case "class-metadata":
+    case "method-reflection":
+      return isStreamSensitiveType(type.classType);
+    default:
+      return false;
   }
 }
 
@@ -1083,6 +1215,9 @@ export function isJSONSerializable(
       // Interfaces are serializable if used for fromJsonValue (checked separately for discriminator).
       // Individual class variants are checked at point of use.
       return true;
+
+    case "stream":
+      return false;
 
     case "function":
     case "void":

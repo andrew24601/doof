@@ -219,6 +219,30 @@ Supported set element types are `string`, `int`, `long`, `char`, `bool`, and enu
 
 When a `Set<long>` is expected, integer literals in the initializer are contextually widened, so `let ids: Set<long> = [1, 2, 3]` is valid.
 
+**Streams:** `Stream<T>` — pull-based iteration via `next(): T | null`.
+
+```doof
+class Counter implements Stream<int> {
+    current = 0
+    end: int
+
+    next(): int | null {
+        if this.current < this.end {
+            value := this.current
+            this.current = this.current + 1
+            return value
+        }
+        return null
+    }
+}
+
+for value of Counter(0, 3) {
+    println(value)
+}
+```
+
+`for-of` accepts `Stream<T>` anywhere an iterable is expected. The loop variable is typed as `T`.
+
 `float`, `double`, tuples, class instances, and other non-supported element types are rejected by the checker with an explicit set-element diagnostic.
 
 Methods: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`.

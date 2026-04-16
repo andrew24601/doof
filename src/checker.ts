@@ -36,6 +36,7 @@ import { validateCollectionTypeAnnotation } from "./checker-collection-annotatio
 import type { ModuleSymbolTable, ModuleSymbol } from "./types.js";
 import {
   buildMockCallMetadata,
+  type ClassType,
   type FunctionResolvedParam,
   type ResolvedType,
   type Binding,
@@ -539,6 +540,14 @@ export class TypeChecker {
           return UNKNOWN_TYPE;
         }
 
+        if (name === "Stream") {
+          if (ann.typeArgs.length === 1) {
+            const elementType = this.resolveTypeAnnotation(ann.typeArgs[0], table);
+            return { kind: "stream", elementType };
+          }
+          return UNKNOWN_TYPE;
+        }
+
         // User-defined symbol
         // Check type parameter scopes first (innermost → outermost).
         for (let i = this.typeParamStack.length - 1; i >= 0; i--) {
@@ -851,10 +860,21 @@ export class TypeChecker {
       this.unifyType(paramType.elementType, argType.elementType, typeParams, result);
       return;
     }
+    if (paramType.kind === "stream" && argType.kind === "stream") {
+      this.unifyType(paramType.elementType, argType.elementType, typeParams, result);
+      return;
+    }
     if (paramType.kind === "tuple" && argType.kind === "tuple") {
       const len = Math.min(paramType.elements.length, argType.elements.length);
       for (let i = 0; i < len; i++) {
         this.unifyType(paramType.elements[i], argType.elements[i], typeParams, result);
+      }
+      return;
+    }
+    if (paramType.kind === "stream" && argType.kind === "class") {
+      const streamElementType = this.extractStreamElementType(argType);
+      if (streamElementType) {
+        this.unifyType(paramType.elementType, streamElementType, typeParams, result);
       }
       return;
     }
@@ -891,6 +911,30 @@ export class TypeChecker {
       inCatchExpressionBody: isNewFunction ? false : parent.inCatchExpressionBody,
       inTrailingLambda: isNewFunction ? false : parent.inTrailingLambda,
     };
+  }
+
+  private extractStreamElementType(classType: ClassType): ResolvedType | null {
+    const classDecl = classType.symbol.declaration;
+    const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_);
+    if (!nextMethod || nextMethod.params.length !== 0 || !nextMethod.resolvedType || nextMethod.resolvedType.kind !== "function") {
+      return null;
+    }
+
+    let methodType = nextMethod.resolvedType;
+    if (classType.typeArgs && classType.typeArgs.length > 0 && classDecl.typeParams.length > 0) {
+      const paramMap = new Map<string, ResolvedType>();
+      for (let i = 0; i < Math.min(classDecl.typeParams.length, classType.typeArgs.length); i++) {
+        paramMap.set(classDecl.typeParams[i], classType.typeArgs[i]);
+      }
+      methodType = substituteTypeParams(methodType, paramMap) as typeof methodType;
+    }
+
+    if (methodType.returnType.kind !== "union") {
+      return null;
+    }
+
+    const nonNullMembers = methodType.returnType.types.filter((type) => type.kind !== "null");
+    return nonNullMembers.length === 1 ? nonNullMembers[0] : null;
   }
 
   // --------------------------------------------------------------------------

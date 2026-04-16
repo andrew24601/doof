@@ -262,40 +262,6 @@ export function checkClass(
     }
   }
 
-  if (classSymbol?.symbolKind === "class") {
-    for (const ifaceName of decl.implements_) {
-      const ifaceSym = table.symbols.get(ifaceName);
-      if (!ifaceSym) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Interface "${ifaceName}" is not defined`,
-          span: decl.span,
-          module: table.path,
-        });
-        continue;
-      }
-      if (ifaceSym.symbolKind !== "interface") {
-        info.diagnostics.push({
-          severity: "error",
-          message: `"${ifaceName}" is not an interface`,
-          span: decl.span,
-          module: table.path,
-        });
-        continue;
-      }
-      const classType: ResolvedType = { kind: "class", symbol: classSymbol };
-      const ifaceType: ResolvedType = { kind: "interface", symbol: ifaceSym };
-      if (!isAssignableTo(classType, ifaceType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Class "${decl.name}" does not satisfy interface "${ifaceName}"`,
-          span: decl.span,
-          module: table.path,
-        });
-      }
-    }
-  }
-
   for (const method of decl.methods) {
     if (method.name === "toJsonValue" || method.name === "fromJsonValue" || method.name === "metadata") {
       info.diagnostics.push({
@@ -309,6 +275,39 @@ export function checkClass(
 
   for (const method of decl.methods) {
     host.checkMethod(method, decl, thisType, parentScope, table, info);
+  }
+
+  if (classSymbol?.symbolKind === "class") {
+    for (const ifaceRef of decl.implements_) {
+      const ifaceType = host.resolveTypeAnnotation(ifaceRef, table);
+      if (ifaceType.kind === "unknown") {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Interface "${ifaceRef.name}" is not defined`,
+          span: ifaceRef.span,
+          module: table.path,
+        });
+        continue;
+      }
+      if (ifaceType.kind !== "interface" && ifaceType.kind !== "stream") {
+        info.diagnostics.push({
+          severity: "error",
+          message: `"${ifaceRef.name}" is not an interface`,
+          span: ifaceRef.span,
+          module: table.path,
+        });
+        continue;
+      }
+      const classType: ResolvedType = { kind: "class", symbol: classSymbol };
+      if (!isAssignableTo(classType, ifaceType)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Class "${decl.name}" does not satisfy interface "${typeToString(ifaceType)}"`,
+          span: ifaceRef.span,
+          module: table.path,
+        });
+      }
+    }
   }
 
   if (decl.typeParams.length > 0) {

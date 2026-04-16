@@ -229,4 +229,5 @@ export const BUILTIN_TYPE_NAMES = new Set([
   "Actor",
   "Promise",
   "Result",
+  "Stream",
 ]);
