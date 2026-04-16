@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { emit, emitSplit } from "./emitter-test-helpers.js";
+import { emit, emitMulti, emitSplit } from "./emitter-test-helpers.js";
 import { emitType } from "./emitter-types.js";
 import type { ResolvedType } from "./checker-types.js";
 
@@ -161,6 +161,39 @@ const base = Counter(1, 4)
 const chain: Chain<int> = { source: base }
 `);
     expect(cpp).toContain("make_shared<Chain<int32_t>>(base)");
+  });
+
+  it("emits inferred type args for imported generic class call syntax", () => {
+    const cpp = emitMulti({
+      "/stream.do": `
+        export class Chain<T> implements Stream<T> {
+          source: Stream<T>
+
+          next(): T | null => this.source.next()
+        }
+      `,
+      "/main.do": `
+        import { Chain } from "./stream"
+
+        class Counter implements Stream<int> {
+          current: int
+          endExclusive: int
+
+          next(): int | null {
+            if this.current < this.endExclusive {
+              value := this.current
+              this.current = this.current + 1
+              return value
+            }
+            return null
+          }
+        }
+
+        const chain = Chain(Counter(1, 4))
+      `,
+    }, "/main.do");
+
+    expect(cpp).toContain("make_shared<Chain<int32_t>>(std::make_shared<Counter>(1, 4))");
   });
 });
 

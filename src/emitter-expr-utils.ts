@@ -105,6 +105,10 @@ export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class
   return `${cppName}<${type.typeArgs.map(emitType).join(", ")}>`;
 }
 
+export function emitStreamNextHelperName(aliasName: string): string {
+  return `__doof_stream_next_${aliasName.replace(/[^A-Za-z0-9]/g, "_")}`;
+}
+
 export function buildConstructorFieldInfoList(
   classSym: ClassSymbol | undefined,
 ): ConstructorFieldInfo[] {

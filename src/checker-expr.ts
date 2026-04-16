@@ -1520,13 +1520,24 @@ function getConstructorParams(
   nominal: boolean,
 ): ConstructorParam[] {
   const params: ConstructorParam[] = [];
-  for (const field of sym.declaration.fields) {
-    if (field.static_) continue;
-    if (nominal && field.const_) continue;
-    const fieldType = field.resolvedType
-      ?? (field.type ? host.resolveTypeAnnotation(field.type, table) : UNKNOWN_TYPE);
-    for (const name of field.names) {
-      params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null });
+  const classDecl = sym.declaration;
+  const classTable = host.analysisResult.modules.get(sym.module) ?? table;
+  if (classDecl.typeParams.length > 0) {
+    host.typeParamStack.push(new Set(classDecl.typeParams));
+  }
+  try {
+    for (const field of classDecl.fields) {
+      if (field.static_) continue;
+      if (nominal && field.const_) continue;
+      const fieldType = field.resolvedType
+        ?? (field.type ? host.resolveTypeAnnotation(field.type, classTable) : UNKNOWN_TYPE);
+      for (const name of field.names) {
+        params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null });
+      }
+    }
+  } finally {
+    if (classDecl.typeParams.length > 0) {
+      host.typeParamStack.pop();
     }
   }
   return params;

@@ -71,4 +71,6 @@ export interface EmitContext {
   emitMethodBodiesInline?: boolean;
   /** Emit a fully qualified function name for out-of-line method definitions. */
   qualifiedFunctionName?: string;
+  /** Force a function definition emitted in a header to be inline. */
+  forceInline?: boolean;
 }

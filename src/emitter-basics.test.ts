@@ -802,7 +802,7 @@ describe("emitter — for-of loops", () => {
     `);
 
     expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<Counter>>;");
-    expect(cpp).toContain("std::visit([](auto&& _obj) { return _obj->next(); }, stream)");
+    expect(cpp).toContain("__doof_stream_next___doof_stream_int(stream)");
   });
 
   it("lowers for-of over streams to next-driven loops", () => {
@@ -832,6 +832,7 @@ describe("emitter — for-of loops", () => {
 
     expect(cpp).toContain("while (true)");
     expect(cpp).toContain("auto _stream_next_");
+    expect(cpp).toContain("__doof_stream_next___doof_stream_int(_stream_");
     expect(cpp).toContain("if (!_stream_next_");
   });
 });

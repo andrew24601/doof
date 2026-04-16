@@ -368,6 +368,46 @@ describe("Checker — generic classes", () => {
       expect(ids[0].type.typeArgs?.map(typeToString)).toEqual(["int"]);
     }
   });
+
+  it("infers generic class type args for imported constructor calls", () => {
+    const cr = check({
+      "/stream.do": `
+        export class Chain<T> implements Stream<T> {
+          source: Stream<T>
+
+          next(): T | null => this.source.next()
+        }
+      `,
+      "/main.do": `
+        import { Chain } from "./stream"
+
+        class Counter implements Stream<int> {
+          current: int
+          endExclusive: int
+
+          next(): int | null {
+            if this.current < this.endExclusive {
+              value := this.current
+              this.current = this.current + 1
+              return value
+            }
+            return null
+          }
+        }
+
+        const chain = Chain(Counter(1, 4))
+        const use = chain
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "chain");
+    expect(ids[0]?.type.kind).toBe("class");
+    if (ids[0]?.type.kind === "class") {
+      expect(ids[0].type.symbol.name).toBe("Chain");
+      expect(ids[0].type.typeArgs?.map(typeToString)).toEqual(["int"]);
+    }
+  });
 });
 
 // ==========================================================================

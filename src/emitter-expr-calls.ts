@@ -23,6 +23,7 @@ import {
   buildFieldTypeList,
   buildFieldTypeMap,
   emitResolvedClassName,
+  emitStreamNextHelperName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
@@ -407,6 +408,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "stream") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = emitIdentifierSafe(memberExpr.property);
+      if (memberExpr.property === "next" && !args) {
+        return `${emitStreamNextHelperName(emitType(objType))}(${obj})`;
+      }
       if (args) {
         return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;
       }

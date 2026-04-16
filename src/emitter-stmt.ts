@@ -22,7 +22,7 @@ import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
-import { resolveTypeAnnotation } from "./emitter-expr-utils.js";
+import { emitStreamNextHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
 import {
   emitFunctionDecl,
   emitClassDecl,
@@ -1130,7 +1130,7 @@ function emitForOfStatement(
     };
     const innerInd = indent(innerCtx);
 
-    ctx.sourceLines.push(`${innerInd}auto ${nextVar} = std::visit([](auto&& _obj) { return _obj->next(); }, ${streamVar});`);
+    ctx.sourceLines.push(`${innerInd}auto ${nextVar} = ${emitStreamNextHelperName(emitType(iterableType))}(${streamVar});`);
 
     if (isMonostateNullable(nextType)) {
       ctx.sourceLines.push(`${innerInd}if (std::holds_alternative<std::monostate>(${nextVar})) break;`);
