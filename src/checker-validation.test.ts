@@ -147,6 +147,98 @@ describe("Assignment validation", () => {
     expect(info.diagnostics[0].message).toContain("readonly map");
   });
 
+  it("rejects readonly declarations of mutable classes", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Foo {
+            x: int
+          }
+
+          readonly a = Foo { x: 1 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain("Readonly declaration requires a deeply immutable type");
+    expect(info.diagnostics[0].message).toContain('field "x" is mutable');
+  });
+
+  it("accepts readonly declarations of deeply immutable classes", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Foo {
+            readonly x: int
+          }
+
+          readonly a = Foo { x: 1 }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects readonly fields whose element type is mutable", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Foo {
+            x: int
+          }
+
+          class Test {
+            readonly items: Foo[]
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Readonly field "items" requires a deeply immutable type');
+    expect(info.diagnostics[0].message).toContain('field "x" is mutable');
+  });
+
+  it("accepts readonly fields whose collection surface is implied readonly", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Foo {
+            readonly x: int
+          }
+
+          class Test {
+            readonly items: Foo[]
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects readonly fields that reference mutable classes transitively", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Bar {
+            y: int
+          }
+
+          class Foo {
+            readonly b: Bar
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Readonly field "b" requires a deeply immutable type');
+    expect(info.diagnostics[0].message).toContain('field "y" is mutable');
+  });
+
   it("accepts tuple destructuring assignment to mutable variables", () => {
     const info = check(
       {

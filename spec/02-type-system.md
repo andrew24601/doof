@@ -1038,9 +1038,9 @@ Parameter names are part of the function type — they define the contract for h
 
 **Readonly is transitive** — it applies to the entire object graph, not just the immediate binding.
 
-### Shallow vs Deep Immutability
+### Shallow Collection Readonly vs Deep Readonly Bindings
 
-Doof distinguishes between **binding immutability** (`:=`) and **deep immutability** (`readonly`):
+Doof distinguishes between collection-level readonly types and deep immutability on `readonly` bindings and fields:
 
 ```javascript
 // := : Shallow immutability (immutable binding, mutable content)
@@ -1048,27 +1048,36 @@ data := [1, 2, 3]              // int[] - binding immutable, content mutable
 data.push(4)                   // ✅ OK - array is mutable
 data = [5, 6]                  // ❌ Error - binding is immutable
 
-// readonly: Deep immutability (immutable binding AND content)
-readonly frozen = [1, 2, 3]    // readonly int[] - binding and content immutable
+// readonly binding: deep immutability
+readonly frozen = [1, 2, 3]    // readonly int[] - binding is deep readonly
 frozen.push(4)                 // ❌ Error - array is readonly
 frozen = [5, 6]                // ❌ Error - binding is immutable
 
-// Collection literal modifier: readonly
-data := readonly [1, 2, 3]     // readonly int[] - readonly via modifier
+// Collection modifier / type: readonly collection only
+data := readonly [1, 2, 3]     // readonly int[] - readonly collection surface
+
+class MutablePoint {
+    x: float
+    y: float
+}
+
+points: readonly MutablePoint[] = readonly [MutablePoint { x: 1.0, y: 2.0 }]  // ✅ OK
+points[0].x = 2.0      // ✅ OK - element objects can still be mutable
+points.push(MutablePoint { x: 3.0, y: 4.0 })  // ❌ Error - readonly array
 ```
 
-### Readonly Compatibility Rules
+### Deep Readonly Compatibility Rules
 
-A type is readonly-compatible if:
+When `readonly` appears on a binding or class field, the referenced value must be deeply immutable. A type is deeply readonly-compatible if:
 
 1. **Primitives** — `int`, `long`, `float`, `double`, `string`, `bool` — always readonly-compatible
 2. **Classes** — all fields must be `readonly`
-3. **Arrays** — must be `readonly T[]` where `T` is readonly-compatible
-4. **Collections** — `ReadonlyMap<K, V>`, `ReadonlySet<T>` where type parameters are readonly-compatible
+3. **Arrays** — are treated as `readonly T[]`, and `T` must itself be deeply readonly-compatible
+4. **Collections** — are treated as `ReadonlyMap<K, V>` / `ReadonlySet<T>`, and nested types must be deeply readonly-compatible
 5. **Unions** — all variants must be readonly-compatible
 6. **Functions** — always readonly-compatible (immutable references)
 
-Readonly collection annotations are not read-only views over mutable values. Collection mutability is part of the type, so `int[]` is not assignable to `readonly int[]`, `ReadonlyArray<int>`, `ReadonlyMap<K, V>`, or `ReadonlySet<T>`, and the reverse conversions are also rejected.
+Readonly collection annotations are shallow at the collection boundary: they stop collection mutation, but they do not require element or value types to be deeply immutable. Collection mutability is still part of the type, so `int[]` is not assignable to `readonly int[]`, `ReadonlyArray<int>`, `ReadonlyMap<K, V>`, or `ReadonlySet<T>`, and the reverse conversions are also rejected.
 
 ### Readonly Classes
 
@@ -1095,12 +1104,16 @@ Readonly classes must contain only readonly-compatible types:
 
 ```javascript
 class Container {
-    readonly items: readonly int[]  // ✅ OK
+    readonly items: int[]           // ✅ OK - implied as readonly int[]
     readonly count: int             // ✅ OK
 }
 
 class BadContainer {
     readonly data: MutablePoint  // ❌ Error: readonly field can't hold mutable type
+}
+
+class BadPoints {
+    readonly items: MutablePoint[]  // ❌ Error: elements are mutable
 }
 ```
 
@@ -1108,7 +1121,7 @@ class BadContainer {
 
 ```javascript
 class Container {
-    readonly items: readonly int[]  // readonly field with readonly array
+    readonly items: int[]           // field surface is treated as readonly int[]
     count: int                      // mutable field
 }
 

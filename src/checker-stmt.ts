@@ -5,6 +5,10 @@ import {
   validateCollectionTypeAnnotation,
 } from "./checker-collection-annotations.js";
 import {
+  applyDeepReadonly,
+  findDeepReadonlyViolation,
+} from "./checker-readonly.js";
+import {
   computeElseNarrowType,
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
@@ -64,14 +68,17 @@ export function checkStatement(
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
       const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
-      const declaredType = stmt.type
+      const resolvedDeclaredType = stmt.type
         ? host.resolveTypeAnnotation(stmt.type, table)
         : null;
+      const declaredType = stmt.kind === "readonly-declaration" && resolvedDeclaredType
+        ? applyDeepReadonly(resolvedDeclaredType)
+        : resolvedDeclaredType;
       if (declaredType) {
         reportUnsupportedHashCollectionConstraint(declaredType, stmt.type?.span ?? stmt.span, table, info);
       }
       const inferredType = host.inferExprType(stmt.value, scope, table, info, declaredType ?? undefined);
-      const type = finalizeDeclaredCollectionType(
+      const finalizedType = finalizeDeclaredCollectionType(
         stmt.type,
         declaredType,
         inferredType,
@@ -79,6 +86,9 @@ export function checkStatement(
         table,
         info,
       );
+      const type = stmt.kind === "readonly-declaration"
+        ? applyDeepReadonly(finalizedType)
+        : finalizedType;
       stmt.resolvedType = type;
 
       const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
@@ -90,6 +100,18 @@ export function checkStatement(
           span: stmt.span,
           module: table.path,
         });
+      }
+
+      if (stmt.kind === "readonly-declaration") {
+        const violation = findDeepReadonlyViolation(host, type, table);
+        if (violation) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Readonly declaration requires a deeply immutable type, but "${typeToString(type)}" is not deeply immutable: ${violation.reason}`,
+            span: stmt.span,
+            module: table.path,
+          });
+        }
       }
 
       reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);

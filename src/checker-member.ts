@@ -774,7 +774,15 @@ export function inferMemberType(
   if (objectType.kind === "array" && property === "length") return INT_TYPE;
   if (objectType.kind === "array") {
     const elem = objectType.elementType;
+    if (objectType.readonly_ && property === "push") {
+      reportMemberDiagnostic(info, table, span, 'Method "push" is not available on readonly array');
+      return UNKNOWN_TYPE;
+    }
     if (property === "push") return { kind: "function", params: [{ name: "element", type: elem }], returnType: VOID_TYPE };
+    if (objectType.readonly_ && property === "pop") {
+      reportMemberDiagnostic(info, table, span, 'Method "pop" is not available on readonly array');
+      return UNKNOWN_TYPE;
+    }
     if (property === "pop") return { kind: "function", params: [], returnType: VOID_TYPE };
     if (property === "contains") return { kind: "function", params: [{ name: "element", type: elem }], returnType: BOOL_TYPE };
     if (property === "slice") {

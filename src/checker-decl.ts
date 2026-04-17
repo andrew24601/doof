@@ -5,6 +5,10 @@ import {
   validateCollectionTypeAnnotation,
 } from "./checker-collection-annotations.js";
 import {
+  applyDeepReadonly,
+  findDeepReadonlyViolation,
+} from "./checker-readonly.js";
+import {
   buildMockCallMetadata,
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
@@ -223,7 +227,10 @@ export function checkClass(
       validateCollectionTypeAnnotation(field.type, field.type.span, table, info, {
         allowOmittedTypeArgs: field.defaultValue !== null,
       });
-      field.resolvedType = host.resolveTypeAnnotation(field.type, table);
+      const resolvedFieldType = host.resolveTypeAnnotation(field.type, table);
+      field.resolvedType = field.readonly_ || field.const_
+        ? applyDeepReadonly(resolvedFieldType)
+        : resolvedFieldType;
       reportUnsupportedHashCollectionConstraint(field.resolvedType, field.type.span, table, info);
     }
     if (field.defaultValue) {
@@ -256,11 +263,28 @@ export function checkClass(
             module: table.path,
           });
         }
-        field.resolvedType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : fieldType;
+        field.resolvedType = collectionAnnotation?.omitsTypeArgs
+          ? ((field.readonly_ || field.const_) ? applyDeepReadonly(finalizedDefaultType) : finalizedDefaultType)
+          : fieldType;
       } else if (!field.resolvedType && finalizedDefaultType.kind !== "unknown") {
-        field.resolvedType = finalizedDefaultType;
+        field.resolvedType = field.readonly_ || field.const_
+          ? applyDeepReadonly(finalizedDefaultType)
+          : finalizedDefaultType;
       }
       addUnsupportedDefaultDiagnostic(info, table, "field", field.defaultValue, field.resolvedType ?? undefined);
+    }
+
+    if ((field.readonly_ || field.const_) && field.resolvedType) {
+      const violation = findDeepReadonlyViolation(host, field.resolvedType, table);
+      if (violation) {
+        const fieldName = field.names[0] ?? "<field>";
+        info.diagnostics.push({
+          severity: "error",
+          message: `Readonly field "${fieldName}" requires a deeply immutable type, but "${typeToString(field.resolvedType)}" is not deeply immutable: ${violation.reason}`,
+          span: field.span,
+          module: table.path,
+        });
+      }
     }
   }
 

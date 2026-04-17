@@ -4296,6 +4296,54 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[0].message).toContain('Method "add" is not available on readonly set');
     expect(cr.diagnostics[1].message).toContain('Method "delete" is not available on readonly set');
   });
+
+  it("rejects mutating methods on readonly arrays", () => {
+    const cr = check({ "/main.do": `
+      function test(a: readonly int[]): void {
+        a.push(4)
+        a.pop()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(2);
+    expect(cr.diagnostics[0].message).toContain('Method "push" is not available on readonly array');
+    expect(cr.diagnostics[1].message).toContain('Method "pop" is not available on readonly array');
+  });
+
+  it("treats readonly bindings as readonly collection surfaces", () => {
+    const cr = check({ "/main.do": `
+      readonly values = [1, 2, 3]
+      values.push(4)
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "push" is not available on readonly array');
+  });
+
+  it("treats readonly fields as readonly collection surfaces even with mutable array annotations", () => {
+    const cr = check({ "/main.do": `
+      class Bag {
+        readonly values: int[] = [1, 2, 3]
+
+        function test(): void {
+          this.values.push(4)
+        }
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "push" is not available on readonly array');
+  });
+
+  it("allows readonly collection types to contain mutable element objects", () => {
+    const cr = check({ "/main.do": `
+      class Foo {
+        x: int
+      }
+
+      function test(items: readonly Foo[]): void {
+        items[0].x = 1
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
 });
 
 // ============================================================================

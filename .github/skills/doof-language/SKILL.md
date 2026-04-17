@@ -113,7 +113,7 @@ names: string[] = ["Alice", "Bob"]
 
 Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sort()`.
 
-`readonly T[]` and `ReadonlyArray<T>` are immutable array types. They are distinct from `T[]`: mutable arrays do not implicitly convert to readonly arrays, and readonly arrays do not implicitly convert to mutable arrays.
+`readonly T[]` and `ReadonlyArray<T>` are readonly collection types. They stop collection mutation, but they do not require element types to be deeply immutable. They are distinct from `T[]`: mutable arrays do not implicitly convert to readonly arrays, and readonly arrays do not implicitly convert to mutable arrays.
 
 **Strings:** `string` — immutable text with built-in methods.
 
@@ -196,7 +196,7 @@ for key, value of scores {
 
 `ReadonlyMap<K, V>` is the immutable variant — no `.set()`, `.delete()`, or index writes.
 
-`Map<K, V>` and `ReadonlyMap<K, V>` are distinct types. Mutable maps do not implicitly convert to readonly maps, and readonly maps do not implicitly convert to mutable maps.
+`Map<K, V>` and `ReadonlyMap<K, V>` are distinct types. `ReadonlyMap<K, V>` makes the map surface readonly, but does not by itself make `K` or `V` deeply immutable. Mutable maps do not implicitly convert to readonly maps, and readonly maps do not implicitly convert to mutable maps.
 
 Empty maps require a full type annotation: `let m: Map<int, string> = {}`
 
@@ -253,7 +253,7 @@ Methods: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`.
 
 `ReadonlySet<T>` is the immutable variant.
 
-`Set<T>` and `ReadonlySet<T>` are distinct types. Mutable sets do not implicitly convert to readonly sets, and readonly sets do not implicitly convert to mutable sets.
+`Set<T>` and `ReadonlySet<T>` are distinct types. `ReadonlySet<T>` makes the set surface readonly, but does not by itself make `T` deeply immutable. Mutable sets do not implicitly convert to readonly sets, and readonly sets do not implicitly convert to mutable sets.
 
 Omit `Set` / `ReadonlySet` type arguments only when the declaration/default has a same-site non-empty homogeneous literal. Empty literals still require a full annotation, and extra type arguments are compile errors.
 
@@ -272,6 +272,8 @@ readonly CONFIG = loadConfig()     // runtime, deeply immutable
 items := [1, 2, 3]                 // immutable binding, mutable array
 let counter = 0                    // fully mutable
 ```
+
+When `readonly` appears on a binding or class field, the value must be deeply immutable. Collection-typed readonly bindings and fields are treated as readonly collections even if the annotation is written as `T[]`, `Map<K, V>`, or `Set<T>`.
 
 **Global scope** allows only `const`, `readonly`, and `function` declarations. `const` and `function` hoist; `readonly` does not.
 

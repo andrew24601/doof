@@ -66,9 +66,14 @@ point = Point(3, 4)       // ❌ Error — binding is immutable
 data := [1, 2, 3]              // int[]
 data.push(4)                   // ✅ OK
 
-// readonly is deep - immutable content required
+// readonly binding is deep
 readonly frozen = [1, 2, 3]    // readonly int[]
 frozen.push(4)                 // ❌ Error
+
+// readonly collection type is shallow at the element boundary
+class Foo { x: int }
+let view: readonly Foo[] = readonly [Foo { x: 1 }]
+view[0].x = 2                  // ✅ OK
 ```
 
 **Rationale:**
@@ -131,6 +136,8 @@ readonly PRIMES = readonly [2, 3, 5, 7] // Deeply immutable array
 readonly data = [1, 2, 3]    // readonly int[] - deeply immutable
 data.push(4)                  // ❌ Error: readonly array
 data = [5, 6]                 // ❌ Error: immutable binding
+
+Deep immutability here means the entire reachable value must be immutable. Collection-typed readonly fields and bindings are therefore treated as readonly collections even if the annotation omits the collection-level `readonly`.
 ```
 
 ### Class Fields
@@ -140,7 +147,7 @@ data = [5, 6]                 // ❌ Error: immutable binding
 ```javascript
 class Entity {
     readonly id: int                        // Set once, never changes
-    readonly tags: readonly string[]        // Deep immutability
+    readonly tags: string[]                 // Treated as readonly string[]
     name: string                            // Mutable field
 }
 
@@ -163,8 +170,8 @@ let data = readonly ["a", "b"]        // readonly string[]
 const BUFFER := [1, 2, 3]             // int[] (mutable)
 
 // Comparison
-readonly x = [1, 2]          // readonly int[] (deep immutability via binding)
-y := readonly [1, 2]         // readonly int[] (deep immutability via modifier)
+readonly x = [1, 2]          // readonly int[] (deep readonly binding)
+y := readonly [1, 2]         // readonly int[] (readonly collection only)
 z := [1, 2]                  // int[] (mutable content, immutable binding)
 ```
 
