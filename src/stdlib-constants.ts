@@ -1,0 +1,1 @@
+export const BUNDLED_STDLIB_ROOT = "/__doof_stdlib__";

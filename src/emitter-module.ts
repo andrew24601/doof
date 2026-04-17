@@ -44,8 +44,8 @@ import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
-import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-target.js";
-import { BUNDLED_STDLIB_ROOT } from "./stdlib.js";
+import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
+import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
 import { emitStreamNextHelperName } from "./emitter-expr-utils.js";
 

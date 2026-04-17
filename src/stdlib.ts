@@ -3,8 +3,7 @@ import { ModuleResolver, type FileSystem, type ResolverOptions } from "./resolve
 import { toVirtualPath } from "./path-utils.js";
 import { materializeRemoteDependencyByUrl } from "./package-manifest.js";
 import { DEFAULT_STD_VERSIONS, getStdPackageShortName } from "./std-packages.js";
-
-export const BUNDLED_STDLIB_ROOT = "/__doof_stdlib__";
+import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 
 const BUNDLED_MODULES = new Map<string, string>();
 

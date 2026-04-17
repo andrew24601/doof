@@ -170,6 +170,8 @@ src/
   checker-features.test.ts      # Checker tests: Result, concurrency, JSON, with
   emitter.ts                    # C++ transpiler orchestrator
   emitter-types.ts              # ResolvedType → C++ type mapping
+  macos-app-support.ts          # Browser-safe macOS app support file generation helpers
+  stdlib-constants.ts           # Browser-safe stdlib constants shared by emitters and loaders
   emitter-expr.ts               # Expression emission dispatcher
   emitter-expr-literals.ts      # Literal formatting and identifier sanitisation
   emitter-expr-ops.ts           # Binary, unary, assignment, member, index expressions
