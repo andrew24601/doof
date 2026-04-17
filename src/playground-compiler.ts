@@ -7,6 +7,13 @@ import { collectSemanticDiagnostics } from "./pipeline-diagnostics.js";
 
 const MODULE_PATH = "/main.do";
 
+function detailFromParseError(error: ParseError): string {
+  const prefix = `Parse error at ${error.line}:${error.column}: `;
+  return error.message.startsWith(prefix)
+    ? error.message.slice(prefix.length)
+    : error.message;
+}
+
 export interface PlaygroundDiagnostic {
   severity: "error" | "warning" | "info";
   message: string;
@@ -32,6 +39,19 @@ function fromDiagnostic(d: Diagnostic): PlaygroundDiagnostic {
   };
 }
 
+function fromParseError(error: ParseError): PlaygroundDiagnostic {
+  const startLine = error.line - 1;
+  const startColumn = error.column - 1;
+  return {
+    severity: "error",
+    message: detailFromParseError(error),
+    startLine,
+    startColumn,
+    endLine: startLine,
+    endColumn: startColumn + 1,
+  };
+}
+
 export function compileDoof(source: string): CompileResult {
   const diagnostics: PlaygroundDiagnostic[] = [];
 
@@ -41,14 +61,7 @@ export function compileDoof(source: string): CompileResult {
     lexerDiagnostics = parsed.lexerDiagnostics;
   } catch (e) {
     if (e instanceof ParseError) {
-      diagnostics.push({
-        severity: "error",
-        message: e.message,
-        startLine: 0,
-        startColumn: 0,
-        endLine: 0,
-        endColumn: 0,
-      });
+      diagnostics.push(fromParseError(e));
     } else {
       diagnostics.push({
         severity: "error",
