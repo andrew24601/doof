@@ -113,6 +113,8 @@ names: string[] = ["Alice", "Bob"]
 
 Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sort()`.
 
+`readonly T[]` and `ReadonlyArray<T>` are immutable array types. They are distinct from `T[]`: mutable arrays do not implicitly convert to readonly arrays, and readonly arrays do not implicitly convert to mutable arrays.
+
 **Strings:** `string` — immutable text with built-in methods.
 
 `string(value)` performs explicit, safe formatting for primitive values (`byte`, `int`, `long`, `float`, `double`, `string`, `char`, `bool`).
@@ -194,6 +196,8 @@ for key, value of scores {
 
 `ReadonlyMap<K, V>` is the immutable variant — no `.set()`, `.delete()`, or index writes.
 
+`Map<K, V>` and `ReadonlyMap<K, V>` are distinct types. Mutable maps do not implicitly convert to readonly maps, and readonly maps do not implicitly convert to mutable maps.
+
 Empty maps require a full type annotation: `let m: Map<int, string> = {}`
 
 Omit `Map` / `ReadonlyMap` type arguments only when both are omitted together and the declaration/default has a same-site non-empty homogeneous literal. Partial annotations such as `Map<string>` are compile errors.
@@ -248,6 +252,8 @@ for value of Counter(0, 3) {
 Methods: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`.
 
 `ReadonlySet<T>` is the immutable variant.
+
+`Set<T>` and `ReadonlySet<T>` are distinct types. Mutable sets do not implicitly convert to readonly sets, and readonly sets do not implicitly convert to mutable sets.
 
 Omit `Set` / `ReadonlySet` type arguments only when the declaration/default has a same-site non-empty homogeneous literal. Empty literals still require a full annotation, and extra type arguments are compile errors.
 

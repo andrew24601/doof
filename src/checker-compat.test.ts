@@ -364,10 +364,40 @@ describe("isAssignableTo", () => {
     expect(isAssignableTo(readonlyArr, mutableArr)).toBe(false);
   });
 
-  it("array: mutable source can go to readonly target", () => {
+  it("array: mutable source cannot go to readonly target", () => {
     const mutableArr: ResolvedType = { kind: "array", elementType: INT_TYPE, readonly_: false };
     const readonlyArr: ResolvedType = { kind: "array", elementType: INT_TYPE, readonly_: true };
-    expect(isAssignableTo(mutableArr, readonlyArr)).toBe(true);
+    expect(isAssignableTo(mutableArr, readonlyArr)).toBe(false);
+  });
+
+  it("map: mutable source cannot go to readonly target", () => {
+    const mutableMap: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: INT_TYPE,
+      readonly_: false,
+    };
+    const readonlyMap: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: INT_TYPE,
+      readonly_: true,
+    };
+    expect(isAssignableTo(mutableMap, readonlyMap)).toBe(false);
+  });
+
+  it("set: mutable source cannot go to readonly target", () => {
+    const mutableSet: ResolvedType = {
+      kind: "set",
+      elementType: INT_TYPE,
+      readonly_: false,
+    };
+    const readonlySet: ResolvedType = {
+      kind: "set",
+      elementType: INT_TYPE,
+      readonly_: true,
+    };
+    expect(isAssignableTo(mutableSet, readonlySet)).toBe(false);
   });
 
   it("array element types are invariant", () => {
@@ -805,6 +835,65 @@ describe("Function argument type checking", () => {
     );
     expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
     expect(info.diagnostics[0].message).toContain("not assignable to parameter");
+  });
+
+  it("rejects passing mutable arrays to readonly array parameters", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(a: readonly int[]): void {
+            println(a.length)
+          }
+
+          function main(): void {
+            let a = [1, 2, 3]
+            test(a)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Argument of type "int[]" is not assignable to parameter "a" of type "readonly int[]"');
+  });
+
+  it("rejects passing mutable arrays to ReadonlyArray parameters", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(a: ReadonlyArray<int>): void {
+            println(a.length)
+          }
+
+          function main(): void {
+            let a = [1, 2, 3]
+            test(a)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Argument of type "int[]" is not assignable to parameter "a" of type "readonly int[]"');
+  });
+
+  it("accepts passing readonly arrays to readonly array parameters", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(a: readonly int[]): void {
+            println(a.length)
+          }
+
+          function main(): void {
+            let a: readonly int[] = [1, 2, 3]
+            test(a)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
   });
 
   it("rejects too many arguments", () => {

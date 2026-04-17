@@ -1068,6 +1068,8 @@ A type is readonly-compatible if:
 5. **Unions** — all variants must be readonly-compatible
 6. **Functions** — always readonly-compatible (immutable references)
 
+Readonly collection annotations are not read-only views over mutable values. Collection mutability is part of the type, so `int[]` is not assignable to `readonly int[]`, `ReadonlyArray<int>`, `ReadonlyMap<K, V>`, or `ReadonlySet<T>`, and the reverse conversions are also rejected.
+
 ### Readonly Classes
 
 ```javascript

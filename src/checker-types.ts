@@ -598,7 +598,7 @@ export function formatUnsupportedMapKeyTypeMessage(
  *   - numeric widening: int→long, float→double, int→float, int→double, long→double
  *   - union target: source must be assignable to at least one member
  *   - union source: every member must be assignable to target
- *   - array/map/set: element/key/value types must match exactly (and readonly source can't go to mutable target)
+ *   - array/map/set: element/key/value types and mutability must match exactly
  *   - tuple: same arity, element-wise compatibility
  *   - function: contra-variant params, co-variant return
  *   - class: nominal — same class symbol, or source implements target interface
@@ -654,21 +654,20 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
 
   // Array compatibility.
   if (source.kind === "array" && target.kind === "array") {
-    // readonly source can't go to mutable target.
-    if (source.readonly_ && !target.readonly_) return false;
+    if (source.readonly_ !== target.readonly_) return false;
     return typesEqual(source.elementType, target.elementType);
   }
 
   // Map compatibility.
   if (source.kind === "map" && target.kind === "map") {
-    if (source.readonly_ && !target.readonly_) return false;
+    if (Boolean(source.readonly_) !== Boolean(target.readonly_)) return false;
     return typesEqual(source.keyType, target.keyType)
       && typesEqual(source.valueType, target.valueType);
   }
 
   // Set compatibility.
   if (source.kind === "set" && target.kind === "set") {
-    if (source.readonly_ && !target.readonly_) return false;
+    if (Boolean(source.readonly_) !== Boolean(target.readonly_)) return false;
     return typesEqual(source.elementType, target.elementType);
   }
 
@@ -856,7 +855,9 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
     }
     case "map": {
       const bm = b as MapResolvedType;
-      return typesEqual(a.keyType, bm.keyType) && typesEqual(a.valueType, bm.valueType);
+      return a.readonly_ === bm.readonly_
+        && typesEqual(a.keyType, bm.keyType)
+        && typesEqual(a.valueType, bm.valueType);
     }
     case "set": {
       const bs = b as SetResolvedType;
