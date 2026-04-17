@@ -97,7 +97,7 @@ b.toJsonValue()  // compile error
 
 ## Deserialization — `.fromJsonValue()`
 
-Every eligible class has a `.fromJsonValue(json: JsonValue)` method accessible on the class name that returns `Result<ClassName, string>`.
+Every eligible class has a `.fromJsonValue(json: JsonValue, lenient: bool = false)` method accessible on the class name that returns `Result<ClassName, string>`.
 
 ```doof
 const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })
@@ -161,6 +161,29 @@ Point.fromJsonValue("not an object")
 ```
 
 If your input starts as text, parse it first with `JSON.parse(...)` and handle that result separately.
+
+### Lenient Mode
+
+Passing `true` for the optional `lenient` parameter enables a limited set of scalar coercions during deserialization while keeping the default strict behaviour unchanged.
+
+```doof
+class Todo {
+  title: string
+  done: bool
+}
+
+Todo.fromJsonValue({ title: null, done: 1 }, true)
+// Success: Todo { title: "", done: true }
+```
+
+When `lenient` is `true`:
+
+- Required `string` fields accept `null` as `""`.
+- `string` fields also accept booleans and numbers via stringification.
+- `bool` fields accept booleans, numbers (`0` => `false`, non-zero => `true`), and strings `"true"`, `"false"`, `"1"`, and `"0"`.
+- Numeric fields accept booleans as `1` or `0`.
+
+Lenient mode does not relax structural requirements: objects must still be objects, arrays must still be arrays, required fields must still be present unless they have defaults, and unsupported coercions still fail.
 
 ## Interface Deserialization
 

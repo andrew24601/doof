@@ -598,7 +598,7 @@ export function formatUnsupportedMapKeyTypeMessage(
  *   - numeric widening: int→long, float→double, int→float, int→double, long→double
  *   - union target: source must be assignable to at least one member
  *   - union source: every member must be assignable to target
- *   - array: element types must match (and readonly source can't go to mutable target)
+ *   - array/map/set: element/key/value types must match exactly (and readonly source can't go to mutable target)
  *   - tuple: same arity, element-wise compatibility
  *   - function: contra-variant params, co-variant return
  *   - class: nominal — same class symbol, or source implements target interface
@@ -656,20 +656,20 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
   if (source.kind === "array" && target.kind === "array") {
     // readonly source can't go to mutable target.
     if (source.readonly_ && !target.readonly_) return false;
-    return isAssignableTo(source.elementType, target.elementType);
+    return typesEqual(source.elementType, target.elementType);
   }
 
   // Map compatibility.
   if (source.kind === "map" && target.kind === "map") {
     if (source.readonly_ && !target.readonly_) return false;
-    return isAssignableTo(source.keyType, target.keyType)
-      && isAssignableTo(source.valueType, target.valueType);
+    return typesEqual(source.keyType, target.keyType)
+      && typesEqual(source.valueType, target.valueType);
   }
 
   // Set compatibility.
   if (source.kind === "set" && target.kind === "set") {
     if (source.readonly_ && !target.readonly_) return false;
-    return isAssignableTo(source.elementType, target.elementType);
+    return typesEqual(source.elementType, target.elementType);
   }
 
   if (source.kind === "stream" && target.kind === "stream") {

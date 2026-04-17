@@ -272,7 +272,10 @@ function inferClassStaticMemberType(
       }
       return {
         kind: "function",
-        params: [{ name: "json", type: JSON_VALUE_TYPE }],
+        params: [
+          { name: "json", type: JSON_VALUE_TYPE },
+          { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
+        ],
         returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
       };
     }
@@ -466,7 +469,10 @@ function inferInterfaceStaticMemberType(
     }
     return {
       kind: "function",
-      params: [{ name: "json", type: JSON_VALUE_TYPE }],
+      params: [
+        { name: "json", type: JSON_VALUE_TYPE },
+        { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
+      ],
       returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
     };
   }
@@ -637,7 +643,10 @@ function inferTypeAliasStaticMemberType(
 
   return {
     kind: "function",
-    params: [{ name: "json", type: JSON_VALUE_TYPE }],
+    params: [
+      { name: "json", type: JSON_VALUE_TYPE },
+      { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
+    ],
     returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
   };
 }

@@ -453,6 +453,11 @@ describe("emitter — type aliases", () => {
     const cpp = emit(`type Predicate = (x: int): bool`);
     expect(cpp).toContain("using Predicate = std::function<bool(int32_t)>;");
   });
+
+  it("emits using for JsonValue type alias", () => {
+    const cpp = emit(`type Payload = JsonValue`);
+    expect(cpp).toContain("using Payload = doof::JsonValue;");
+  });
 });
 
 // ============================================================================
@@ -1062,6 +1067,19 @@ describe("emitter — contextual typing", () => {
     `);
     expect(cpp).toContain("doof::JsonValue(values)");
     expect(cpp).not.toContain("_json_arr_src_");
+  });
+
+  it("wraps supported unions when assigning to JsonValue", () => {
+    const cpp = emit(`
+      type Cell = long | double | string | null
+      function main(): int {
+        value: Cell := "demo"
+        payload: JsonValue := value
+        return 0
+      }
+    `);
+    expect(cpp).toContain("std::visit");
+    expect(cpp).toContain("doof::JsonValue(_value)");
   });
 
   it("emits long JsonValue primitives without widening to double", () => {

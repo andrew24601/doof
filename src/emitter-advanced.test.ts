@@ -673,12 +673,25 @@ describe("emitter — JSON serialization", () => {
       }
       function test(json: JsonValue): Result<Point, string> => Point.fromJsonValue(json)
     `);
-    expect(cpp).toContain("static doof::Result<std::shared_ptr<Point>, std::string> fromJsonValue(const doof::JsonValue& _j) {");
+    expect(cpp).toContain("static doof::Result<std::shared_ptr<Point>, std::string> fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {");
     expect(cpp).toContain('auto _it_x = _obj->find("x");');
     expect(cpp).toContain('auto _it_y = _obj->find("y");');
     expect(cpp).toContain('doof::json_as_int(_it_x->second)');
     expect(cpp).toContain('doof::json_as_int(_it_y->second)');
     expect(cpp).toContain("std::make_shared<Point>(_f_x, _f_y)");
+  });
+
+  it("emits lenient coercions for bool and string fields", () => {
+    const cpp = emit(`
+      class Config {
+        name: string
+        enabled: bool
+      }
+      function test(json: JsonValue): Result<Config, string> => Config.fromJsonValue(json, true)
+    `);
+    expect(cpp).toContain("Config::fromJsonValue(json, true)");
+    expect(cpp).toContain("doof::json_as_string_lenient(_it_name->second)");
+    expect(cpp).toContain("doof::json_as_bool_lenient(_it_enabled->second)");
   });
 
   it("emits toJsonValue for class with string and bool fields", () => {
@@ -753,7 +766,7 @@ describe("emitter — JSON serialization", () => {
       }
       function test(json: JsonValue): Result<Outer, string> => Outer.fromJsonValue(json)
     `);
-    expect(cpp).toContain("Inner::fromJsonValue");
+    expect(cpp).toContain("Inner::fromJsonValue(_it_inner->second, _lenient)");
   });
 
   it("emits toJsonValue for class with array field", () => {
@@ -828,10 +841,11 @@ describe("emitter — JSON serialization", () => {
       function test(json: JsonValue): Result<Shape, string> => Shape.fromJsonValue(json)
     `);
     expect(cpp).toContain("Shape_fromJsonValue");
+    expect(cpp).toContain("Shape_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false)");
     expect(cpp).toContain('_disc == "circle"');
     expect(cpp).toContain('_disc == "square"');
-    expect(cpp).toContain("Circle::fromJsonValue");
-    expect(cpp).toContain("Square::fromJsonValue");
+    expect(cpp).toContain("Circle::fromJsonValue(_j, _lenient)");
+    expect(cpp).toContain("Square::fromJsonValue(_j, _lenient)");
   });
 
   it("emits Interface.fromJsonValue() as free function call", () => {
@@ -871,8 +885,11 @@ describe("emitter — JSON serialization", () => {
     `);
     expect(cpp).toContain("using Shape = std::variant<std::shared_ptr<Circle>, std::shared_ptr<Square>>;");
     expect(cpp).toContain("Shape_fromJsonValue");
+    expect(cpp).toContain("Shape_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false)");
     expect(cpp).toContain('_disc == "circle"');
     expect(cpp).toContain('_disc == "square"');
+    expect(cpp).toContain("Circle::fromJsonValue(_j, _lenient)");
+    expect(cpp).toContain("Square::fromJsonValue(_j, _lenient)");
     expect(cpp).toContain("return doof::Result<Shape, std::string>::success(Shape(_r.value()));");
   });
 

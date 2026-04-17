@@ -1148,6 +1148,23 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe('{"red":5}');
   });
 
+  it("wraps supported unions when assigning to JsonValue", () => {
+    const result = ctx.compileAndRun(`
+      type Cell = long | double | string | null
+      function main(): int {
+        value: Cell := "demo"
+        payload: JsonValue := value
+        println(JSON.stringify(payload))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe('"demo"');
+  });
+
   it("round-trips a simple class through toJsonValue/fromJsonValue", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
@@ -1397,6 +1414,51 @@ describe("E2E — JSON serialization", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.stdout.trim()).toBe("got error");
+  });
+
+  it("supports lenient bool and required string coercions", () => {
+    const result = ctx.compileAndRun(`
+      class Todo { title: string; done: bool }
+      function main(): int {
+        const strict = Todo.fromJsonValue({ title: null, done: 1 })
+        const lenient = Todo.fromJsonValue({ title: null, done: 1 }, true)
+        case strict {
+          s: Success => println("unexpected strict success")
+          f: Failure => println("strict failure")
+        }
+        case lenient {
+          s: Success => {
+            println(s.value.title == "")
+            println(s.value.done)
+          }
+          f: Failure => println("unexpected lenient failure")
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("strict failure\ntrue\ntrue");
+  });
+
+  it("propagates lenient fromJsonValue into nested classes", () => {
+    const result = ctx.compileAndRun(`
+      class Inner { done: bool }
+      class Outer { inner: Inner }
+      function main(): int {
+        const result = Outer.fromJsonValue({ inner: { done: 1 } }, true)
+        case result {
+          s: Success => println(s.value.inner.done)
+          f: Failure => println("unexpected failure")
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("true");
   });
 
   it("round-trips double and float fields", () => {

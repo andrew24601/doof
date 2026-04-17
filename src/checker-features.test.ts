@@ -2063,10 +2063,11 @@ describe("JSON serialization — toJsonValue", () => {
 });
 
 describe("JSON serialization — fromJsonValue", () => {
-  it("resolves fromJsonValue() to (JsonValue) → Result<T, string> on class name", () => {
+  it("resolves fromJsonValue() to (JsonValue, bool = false) → Result<T, string> on class name", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       const result = Point.fromJsonValue({})
+      const lenient = Point.fromJsonValue({}, true)
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
     const stmts = info.program.statements;
@@ -2106,7 +2107,7 @@ describe("JSON serialization — interface fromJsonValue", () => {
         width, height: double
         function area(): double => width * height
       }
-      const r = Shape.fromJsonValue({})
+      const r = Shape.fromJsonValue({}, true)
     ` }, "/main.do");
     expect(info.diagnostics.map(d => d.message)).toEqual([]);
     const stmts = info.program.statements;
@@ -2156,7 +2157,7 @@ describe("JSON serialization — union alias fromJsonValue", () => {
         width, height: double
       }
       type Shape = Circle | Rect
-      const r = Shape.fromJsonValue({})
+      const r = Shape.fromJsonValue({}, true)
     ` }, "/main.do");
     expect(info.diagnostics.map((d) => d.message)).toEqual([]);
     const stmts = info.program.statements;
@@ -3378,6 +3379,19 @@ describe("checker — Map type", () => {
     )).toBe(true);
   });
 
+  it("contextually types mixed array literals to the expected union array type", () => {
+    const cr = check({ "/main.do": `
+      type SqliteParam = int | long | bool | double | string | null
+
+      function run(values: SqliteParam[]): void {}
+
+      function test(title: string, done: bool): void {
+        run([title, done])
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("typeToString formats Map type correctly", () => {
     expect(typeToString({ kind: "map", keyType: STRING_TYPE, valueType: INT_TYPE })).toBe("Map<string, int>");
   });
@@ -4190,6 +4204,17 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(2);
     expect(cr.diagnostics[0].message).toContain('Type "int[]" is not assignable to type "JsonValue"');
     expect(cr.diagnostics[1].message).toContain('Type "Map<string, int>" is not assignable to type "JsonValue"');
+  });
+
+  it("rejects non-exact JsonValue maps in Map<string, JsonValue> positions", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        row: Map<string, long | double | string | null> := { "answer": 42L }
+        jsonRow: Map<string, JsonValue> := row
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Type "Map<string, long | double | string | null>" is not assignable to type "Map<string, JsonValue>"');
   });
 
   it("accepts long values in JsonValue positions", () => {

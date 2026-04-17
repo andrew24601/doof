@@ -564,6 +564,9 @@ export function emitTypeAnnotation(
       if (PRIMITIVE_NAMES[typeAnn.name]) {
         return PRIMITIVE_NAMES[typeAnn.name];
       }
+      if (typeAnn.name === "JsonValue") {
+        return "doof::JsonValue";
+      }
 
       // If analyzer resolved this, look at the symbol kind
       if (typeAnn.resolvedSymbol) {

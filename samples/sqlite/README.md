@@ -4,7 +4,7 @@ This sample keeps the SQLite bridge intentionally small and lets the Doof-facing
 
 Files:
 
-- `main.do` creates an in-memory database, seeds a few rows with a prepared statement, and maps query row maps into `Todo` values.
+- `main.do` creates an in-memory database, seeds a few rows with a prepared statement, and maps query row maps into `Todo` values via `Todo.fromJsonValue(..., true)` so sqlite-style scalar values can be coerced into the class shape.
 - `sqlite.do` defines the Doof-facing `Database`, `Statement`, `ExecResult`, and `SqliteError` types together with helper functions such as `open`, `execute`, `executeInfo`, `run`, `queryAll`, and row readers like `readText` and `readInt`.
 - `native_sqlite.hpp` is a compact header-only bridge around `sqlite3`.
 
@@ -13,16 +13,16 @@ Files:
 From the repository root:
 
 ```bash
-samples/sqlite/build.sh
+node dist/cli.js build samples/sqlite/main.do
 ```
 
-Or build and run immediately:
+Or build and run in one step:
 
 ```bash
-samples/sqlite/build.sh --run
+node dist/cli.js run samples/sqlite/main.do
 ```
 
-The build script prefers `pkg-config sqlite3` when available and otherwise falls back to `-lsqlite3`.
+The sample now declares its native sqlite link dependency in `doof.json`, so the normal manifest-driven CLI path works directly. The helper script remains available if you still want a fixed output directory under `build-sqlite/`.
 
 ## Interface
 

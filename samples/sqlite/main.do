@@ -1,16 +1,15 @@
 import {
   Database,
   SqliteError,
+  SqliteValue,
   Statement,
   execute,
   executeInfo,
   open,
   prepare,
   queryAll,
-  readBool,
-  readText,
-  readInt,
   run,
+  toJsonRow,
 } from "./sqlite"
 
 class Todo {
@@ -29,15 +28,18 @@ function insertTodo(statement: Statement, title: string, done: bool): Result<voi
   return run(statement, [title, done])
 }
 
-function readTodo(row: Map<string, long | double | string | null>): Result<Todo, SqliteError> {
-  try id := readInt(row, "id")
-  try title := readText(row, "title")
-  try done := readBool(row, "done")
-  return Success {
-    value: Todo {
-      id,
-      title,
-      done,
+function readTodo(row: Map<string, SqliteValue>): Result<Todo, SqliteError> {
+  return case Todo.fromJsonValue(toJsonRow(row), true) {
+    s: Success => Success {
+      value: s.value
+    },
+    f: Failure => Failure {
+      error: SqliteError {
+        stage: "read",
+        code: 0,
+        message: f.error,
+        sql: null,
+      }
     }
   }
 }

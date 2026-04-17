@@ -1101,6 +1101,19 @@ describe("e2e — type aliases", () => {
     `);
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
+
+  it("compiles type alias for JsonValue", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      type Payload = JsonValue
+      function unwrap(value: Payload): Payload => value
+      function main(): int {
+        payload: Payload := { answer: 42 }
+        println(JSON.stringify(unwrap(payload)))
+        return 0
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
 });
 
 // ============================================================================

@@ -538,6 +538,43 @@ struct Worker {
     expect(result.exitCode).toBe(1);
     expect(result.stdout.trim()).toBe("ok\nbad");
   });
+
+  it("compiles extern class returning Result<Map<string, JsonValue>, string>", () => {
+    const rowsHeader = `
+#pragma once
+#include <string>
+#include <unordered_map>
+#include "doof_runtime.hpp"
+
+struct NativeRows {
+    static doof::Result<doof::JsonValue::Object, std::string> read() {
+        auto row = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();
+        (*row)["id"] = doof::JsonValue(static_cast<int64_t>(7));
+        (*row)["title"] = doof::JsonValue("demo");
+        return doof::Result<doof::JsonValue::Object, std::string>::success(row);
+    }
+};
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_rows.hpp"), rowsHeader);
+
+    const result = ctx.compileAndRun(`
+      import class NativeRows from "native_rows.hpp" {
+        static read(): Result<Map<string, JsonValue>, string>
+      }
+
+      function main(): int {
+        result := NativeRows.read()
+        return case result {
+          s: Success => if JSON.stringify(s.value).contains("demo") then 0 else 2,
+          _ => 1
+        }
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
 });
 
 describe("e2e — namespace imports", () => {

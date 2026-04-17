@@ -1135,6 +1135,24 @@ function inferExprTypeInner(
           ? expectedType.elementType
           : undefined;
       const elemTypes = expr.elements.map((e) => inferExprType(host, e, scope, table, info, expectedElemType));
+      if (expectedElemType
+        && expectedElemType.kind !== "unknown"
+        && elemTypes.every((elemType) => isAssignableTo(elemType, expectedElemType))) {
+        if (expectedType?.kind === "set") {
+          return {
+            kind: "set",
+            elementType: expectedElemType,
+            readonly_: expectedType.readonly_,
+          };
+        }
+        if (expectedType?.kind === "array") {
+          return {
+            kind: "array",
+            elementType: expectedElemType,
+            readonly_: expectedType.readonly_,
+          };
+        }
+      }
       const elemType = elemTypes.length > 0 ? combineArrayElementTypes(elemTypes) : (expectedElemType ?? UNKNOWN_TYPE);
       if (expectedType?.kind === "set") {
         return { kind: "set", elementType: elemType, readonly_: expectedType.readonly_ };

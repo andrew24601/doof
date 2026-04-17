@@ -281,6 +281,80 @@ inline const std::string& json_as_string(const JsonValue& value) {
     return *result;
 }
 
+inline bool json_is_lenient_boolean(const JsonValue& value) {
+    if (json_is_boolean(value) || json_is_number(value)) return true;
+    if (!json_is_string(value)) return false;
+    std::string lowered = json_as_string(value);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return lowered == "true" || lowered == "false" || lowered == "1" || lowered == "0";
+}
+
+inline bool json_is_lenient_number(const JsonValue& value) {
+    return json_is_number(value) || json_is_boolean(value);
+}
+
+inline bool json_is_lenient_string(const JsonValue& value) {
+    return value.isNull() || json_is_string(value) || json_is_boolean(value) || json_is_number(value);
+}
+
+inline bool json_as_bool_lenient(const JsonValue& value) {
+    if (json_is_boolean(value)) return json_as_bool(value);
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result != 0;
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return *result != 0;
+    if (const auto* result = std::get_if<float>(&value.value)) return *result != 0.0f;
+    if (const auto* result = std::get_if<double>(&value.value)) return *result != 0.0;
+    if (json_is_string(value)) {
+        std::string lowered = json_as_string(value);
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (lowered == "true" || lowered == "1") return true;
+        if (lowered == "false" || lowered == "0") return false;
+    }
+    panic("Expected lenient JSON boolean");
+}
+
+inline int32_t json_as_int_lenient(const JsonValue& value) {
+    if (json_is_boolean(value)) return json_as_bool(value) ? 1 : 0;
+    return json_as_int(value);
+}
+
+inline int64_t json_as_long_lenient(const JsonValue& value) {
+    if (json_is_boolean(value)) return json_as_bool(value) ? 1 : 0;
+    return json_as_long(value);
+}
+
+inline float json_as_float_lenient(const JsonValue& value) {
+    if (json_is_boolean(value)) return json_as_bool(value) ? 1.0f : 0.0f;
+    return json_as_float(value);
+}
+
+inline double json_as_double_lenient(const JsonValue& value) {
+    if (json_is_boolean(value)) return json_as_bool(value) ? 1.0 : 0.0;
+    return json_as_double(value);
+}
+
+inline std::string json_as_string_lenient(const JsonValue& value) {
+    if (value.isNull()) return std::string();
+    if (json_is_string(value)) return json_as_string(value);
+    if (json_is_boolean(value)) return json_as_bool(value) ? "true" : "false";
+    if (const auto* result = std::get_if<int32_t>(&value.value)) return std::to_string(*result);
+    if (const auto* result = std::get_if<int64_t>(&value.value)) return std::to_string(*result);
+    if (const auto* result = std::get_if<float>(&value.value)) {
+        std::ostringstream oss;
+        oss << *result;
+        return oss.str();
+    }
+    if (const auto* result = std::get_if<double>(&value.value)) {
+        std::ostringstream oss;
+        oss << *result;
+        return oss.str();
+    }
+    panic("Expected lenient JSON string");
+}
+
 __DOOF_JSON_SUPPORT__
 
 // ============================================================================

@@ -2,7 +2,7 @@
 
 ## JSON Serialization
 
-Classes with all-serializable fields automatically get `.toJsonValue()` and `.fromJsonValue()`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
+Classes with all-serializable fields automatically get `.toJsonValue()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
 
 ### `.toJsonValue()` — Instance Method
 
@@ -47,6 +47,7 @@ Rules:
 
 ```doof
 const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })  // Result<Point, string>
+const lenient = Point.fromJsonValue({ x: 1, y: null }, true)
 ```
 
 Rules:
@@ -56,6 +57,12 @@ Rules:
 - Extra JSON fields are silently ignored
 - Type mismatches produce `Failure`
 - Non-object JsonValue input produces `Failure`
+
+When `lenient` is `true`:
+- Required `string` fields accept `null` as `""`
+- `string` fields accept booleans and numbers via stringification
+- `bool` fields accept numbers and `"true"` / `"false"` / `"1"` / `"0"`
+- Numeric fields accept booleans as `1` / `0`
 
 ### Interface Deserialization
 
@@ -77,6 +84,7 @@ class Rect implements Shape {
 }
 
 Shape.fromJsonValue({ kind: "circle", radius: 5.0 })  // Result<Shape, string>
+Shape.fromJsonValue({ kind: "circle", radius: 5.0 }, true)
 ```
 
 Compile error if implementing classes lack a shared const discriminator.

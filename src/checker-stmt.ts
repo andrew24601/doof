@@ -1,6 +1,7 @@
 import type { Block, Expression, SourceSpan, Statement } from "./ast.js";
 import {
   finalizeDeclaredCollectionType,
+  getCollectionTypeAnnotationInfo,
   validateCollectionTypeAnnotation,
 } from "./checker-collection-annotations.js";
 import {
@@ -62,6 +63,7 @@ export function checkStatement(
       if (stmt.type) {
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
+      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
       const declaredType = stmt.type
         ? host.resolveTypeAnnotation(stmt.type, table)
         : null;
@@ -79,10 +81,12 @@ export function checkStatement(
       );
       stmt.resolvedType = type;
 
-      if (declaredType && !isAssignableTo(inferredType, declaredType)) {
+      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
+      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
+      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Type "${typeToString(inferredType)}" is not assignable to type "${typeToString(declaredType)}"`,
+          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
           span: stmt.span,
           module: table.path,
         });
@@ -97,6 +101,7 @@ export function checkStatement(
       if (stmt.type) {
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
+      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
       const declaredType = stmt.type
         ? host.resolveTypeAnnotation(stmt.type, table)
         : null;
@@ -114,10 +119,12 @@ export function checkStatement(
       );
       stmt.resolvedType = type;
 
-      if (declaredType && !isAssignableTo(inferredType, declaredType)) {
+      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
+      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
+      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Type "${typeToString(inferredType)}" is not assignable to type "${typeToString(declaredType)}"`,
+          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
           span: stmt.span,
           module: table.path,
         });
@@ -132,6 +139,7 @@ export function checkStatement(
       if (stmt.type) {
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
+      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
       const declaredType = stmt.type
         ? host.resolveTypeAnnotation(stmt.type, table)
         : null;
@@ -149,10 +157,12 @@ export function checkStatement(
       );
       stmt.resolvedType = type;
 
-      if (declaredType && !isAssignableTo(inferredType, declaredType)) {
+      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
+      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
+      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Type "${typeToString(inferredType)}" is not assignable to type "${typeToString(declaredType)}"`,
+          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
           span: stmt.span,
           module: table.path,
         });

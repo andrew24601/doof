@@ -103,6 +103,7 @@ export function checkFunction(
       );
       const resolvedParamType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : paramType;
       const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
+      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? resolvedParamType : paramType;
       if (param.type) {
         param.resolvedType = resolvedParamType;
         fnScope.bindings.set(param.name, {
@@ -114,10 +115,10 @@ export function checkFunction(
           module: table.path,
         });
       }
-      if (param.type && !isAssignableTo(assignabilityType, paramType)) {
+      if (param.type && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(paramType)}"`,
+          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(effectiveDeclaredType)}"`,
           span: param.defaultValue.span,
           module: table.path,
         });
@@ -246,10 +247,11 @@ export function checkClass(
       if (field.type) {
         const fieldType = declaredFieldType!;
         const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
-        if (!isAssignableTo(assignabilityType, fieldType)) {
+        const effectiveFieldType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : fieldType;
+        if (!isAssignableTo(assignabilityType, effectiveFieldType)) {
           info.diagnostics.push({
             severity: "error",
-            message: `Type "${typeToString(assignabilityType)}" is not assignable to field type "${typeToString(fieldType)}"`,
+            message: `Type "${typeToString(assignabilityType)}" is not assignable to field type "${typeToString(effectiveFieldType)}"`,
             span: field.defaultValue.span,
             module: table.path,
           });
@@ -414,6 +416,7 @@ export function checkMethod(
       );
       const resolvedParamType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : paramType;
       const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
+      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? resolvedParamType : paramType;
       if (param.type) {
         param.resolvedType = resolvedParamType;
         methodScope.bindings.set(param.name, {
@@ -425,10 +428,10 @@ export function checkMethod(
           module: table.path,
         });
       }
-      if (param.type && !isAssignableTo(assignabilityType, paramType)) {
+      if (param.type && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(paramType)}"`,
+          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(effectiveDeclaredType)}"`,
           span: param.defaultValue.span,
           module: table.path,
         });

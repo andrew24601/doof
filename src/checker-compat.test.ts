@@ -14,6 +14,7 @@ import {
   VOID_TYPE,
   NULL_TYPE,
   UNKNOWN_TYPE,
+  JSON_VALUE_TYPE,
 } from "./checker-types.js";
 import { check, findId, findTypes } from "./checker-test-helpers.js";
 
@@ -369,7 +370,7 @@ describe("isAssignableTo", () => {
     expect(isAssignableTo(mutableArr, readonlyArr)).toBe(true);
   });
 
-  it("array elements can widen from a narrower union to a broader union", () => {
+  it("array element types are invariant", () => {
     const source: ResolvedType = {
       kind: "array",
       readonly_: false,
@@ -387,7 +388,58 @@ describe("isAssignableTo", () => {
       },
     };
 
-    expect(isAssignableTo(source, target)).toBe(true);
+    expect(isAssignableTo(source, target)).toBe(false);
+  });
+
+  it("requires exact JsonValue arrays for JsonValue[] targets", () => {
+    const source: ResolvedType = { kind: "array", elementType: INT_TYPE, readonly_: false };
+    const target: ResolvedType = { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: false };
+    expect(isAssignableTo(source, target)).toBe(false);
+  });
+
+  it("requires exact JsonValue maps for Map<string, JsonValue> targets", () => {
+    const source: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: {
+        kind: "union",
+        types: [LONG_TYPE, DOUBLE_TYPE, STRING_TYPE, NULL_TYPE],
+      },
+    };
+    const target: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: JSON_VALUE_TYPE,
+    };
+    expect(isAssignableTo(source, target)).toBe(false);
+  });
+
+  it("map value types are invariant", () => {
+    const source: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: INT_TYPE,
+    };
+    const target: ResolvedType = {
+      kind: "map",
+      keyType: STRING_TYPE,
+      valueType: LONG_TYPE,
+    };
+    expect(isAssignableTo(source, target)).toBe(false);
+  });
+
+  it("set element types are invariant", () => {
+    const source: ResolvedType = {
+      kind: "set",
+      elementType: INT_TYPE,
+      readonly_: false,
+    };
+    const target: ResolvedType = {
+      kind: "set",
+      elementType: LONG_TYPE,
+      readonly_: false,
+    };
+    expect(isAssignableTo(source, target)).toBe(false);
   });
 
   it("tuple compatibility: same arity and element types", () => {

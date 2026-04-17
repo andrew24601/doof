@@ -24,7 +24,7 @@ export import class NativeSqliteStatement from "./native_sqlite.hpp" {
   bindDouble(index: int, value: double): Result<void, string>
   bindNull(index: int): Result<void, string>
   step(): Result<bool, string>
-  readCurrentRow(): Result<Map<string, long | double | string | null>, string>
+  readCurrentRow(): Result<Map<string, SqliteValue>, string>
   reset(): Result<void, string>
   finalize(): Result<void, string>
 }
@@ -148,11 +148,11 @@ function toExecResult(result: NativeExecResult): ExecResult {
   }
 }
 
-function emptyRow(): Map<string, long | double | string | null> | null {
+function emptyRow(): Map<string, SqliteValue> | null {
   return null
 }
 
-function readCurrentRow(statement: Statement): Result<Map<string, long | double | string | null>, SqliteError> {
+function readCurrentRow(statement: Statement): Result<Map<string, SqliteValue>, SqliteError> {
   return case statement.native.readCurrentRow() {
     s: Success => Success {
       value: s.value
@@ -290,7 +290,7 @@ export function run(statement: Statement, values: SqliteParam[] = []): Result<vo
   return reset(statement)
 }
 
-export function stepWith(statement: Statement, values: SqliteParam[] = []): Result<Map<string, long | double | string | null> | null, SqliteError> {
+export function stepWith(statement: Statement, values: SqliteParam[] = []): Result<Map<string, SqliteValue> | null, SqliteError> {
   try bindValues(statement, values)
   return step(statement)
 }
@@ -313,7 +313,7 @@ export function finalize(statement: Statement): Result<void, SqliteError> {
   }
 }
 
-export function step(statement: Statement): Result<Map<string, long | double | string | null> | null, SqliteError> {
+export function step(statement: Statement): Result<Map<string, SqliteValue> | null, SqliteError> {
   return case statement.native.step() {
     s: Success => if s.value then readCurrentRow(statement) else Success {
       value: emptyRow()
@@ -324,11 +324,11 @@ export function step(statement: Statement): Result<Map<string, long | double | s
   }
 }
 
-export function queryAll(database: Database, sql: string, values: SqliteParam[] = []): Result<Map<string, long | double | string | null>[], SqliteError> {
+export function queryAll(database: Database, sql: string, values: SqliteParam[] = []): Result<Map<string, SqliteValue>[], SqliteError> {
   try statement := prepare(database, sql)
   try bindValues(statement, values)
 
-  rows: Map<string, long | double | string | null>[] := []
+  rows: Map<string, SqliteValue>[] := []
   while true {
     try row := step(statement)
     if row == null {
@@ -341,7 +341,7 @@ export function queryAll(database: Database, sql: string, values: SqliteParam[] 
   }
 }
 
-export function queryOne(database: Database, sql: string, values: SqliteParam[] = []): Result<Map<string, long | double | string | null> | null, SqliteError> {
+export function queryOne(database: Database, sql: string, values: SqliteParam[] = []): Result<Map<string, SqliteValue> | null, SqliteError> {
   try rows := queryAll(database, sql, values)
   if rows.length == 0 {
     return Success {
@@ -354,22 +354,24 @@ export function queryOne(database: Database, sql: string, values: SqliteParam[] 
   }
 }
 
-export function columnCount(row: Map<string, long | double | string | null>): int {
+export function toJsonRow(row: Map<string, SqliteValue>): Map<string, JsonValue> {
+  jsonRow: Map<string, JsonValue> := {}
+  for key, value of row {
+    jsonRow[key] = value
+  }
+  return jsonRow
+}
+
+export function columnCount(row: Map<string, SqliteValue>): int {
   return row.size
 }
 
-export function hasColumn(row: Map<string, long | double | string | null>, name: string): bool {
+export function hasColumn(row: Map<string, SqliteValue>, name: string): bool {
   return row.has(name)
 }
 
-export function readText(row: Map<string, long | double | string | null>, name: string): Result<string, SqliteError> {
+export function readText(row: Map<string, SqliteValue>, name: string): Result<string, SqliteError> {
   try value := readValue(row, name)
-  if value == null {
-    return Failure {
-      error: nullColumnError(name)
-    }
-  }
-
   return case value {
     text: string => Success {
       value: text
@@ -380,14 +382,8 @@ export function readText(row: Map<string, long | double | string | null>, name: 
   }
 }
 
-export function readLong(row: Map<string, long | double | string | null>, name: string): Result<long, SqliteError> {
+export function readLong(row: Map<string, SqliteValue>, name: string): Result<long, SqliteError> {
   try value := readValue(row, name)
-  if value == null {
-    return Failure {
-      error: nullColumnError(name)
-    }
-  }
-
   return case value {
     number: long => Success {
       value: number
@@ -398,21 +394,15 @@ export function readLong(row: Map<string, long | double | string | null>, name: 
   }
 }
 
-export function readInt(row: Map<string, long | double | string | null>, name: string): Result<int, SqliteError> {
+export function readInt(row: Map<string, SqliteValue>, name: string): Result<int, SqliteError> {
   try value := readLong(row, name)
   return Success {
     value: int(value)
   }
 }
 
-export function readDouble(row: Map<string, long | double | string | null>, name: string): Result<double, SqliteError> {
+export function readDouble(row: Map<string, SqliteValue>, name: string): Result<double, SqliteError> {
   try value := readValue(row, name)
-  if value == null {
-    return Failure {
-      error: nullColumnError(name)
-    }
-  }
-
   return case value {
     decimal: double => Success {
       value: decimal
@@ -426,14 +416,14 @@ export function readDouble(row: Map<string, long | double | string | null>, name
   }
 }
 
-export function readBool(row: Map<string, long | double | string | null>, name: string): Result<bool, SqliteError> {
+export function readBool(row: Map<string, SqliteValue>, name: string): Result<bool, SqliteError> {
   try value := readLong(row, name)
   return Success {
     value: value != 0L
   }
 }
 
-function readValue(row: Map<string, long | double | string | null>, name: string): Result<SqliteValue, SqliteError> {
+function readValue(row: Map<string, SqliteValue>, name: string): Result<SqliteValue, SqliteError> {
   if !row.has(name) {
     return Failure {
       error: missingColumnError(name)

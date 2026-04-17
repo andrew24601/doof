@@ -194,35 +194,40 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
  * given ResolvedType. `jsonExpr` is a C++ expression of type doof::JsonValue.
  * Returns a C++ expression string that produces the target type.
  */
-export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: EmitContext): string {
+export function emitDeserializeExpr(
+  jsonExpr: string,
+  type: ResolvedType,
+  ctx: EmitContext,
+  lenientExpr = "false",
+): string {
   switch (type.kind) {
     case "json-value":
       return jsonExpr;
 
     case "primitive":
       switch (type.name) {
-        case "byte": return `static_cast<uint8_t>(doof::json_as_int(${jsonExpr}))`;
-        case "int": return `doof::json_as_int(${jsonExpr})`;
-        case "long": return `doof::json_as_long(${jsonExpr})`;
-        case "float": return `doof::json_as_float(${jsonExpr})`;
-        case "double": return `doof::json_as_double(${jsonExpr})`;
-        case "string": return `doof::json_as_string(${jsonExpr})`;
+        case "byte": return `static_cast<uint8_t>((${lenientExpr}) ? doof::json_as_int_lenient(${jsonExpr}) : doof::json_as_int(${jsonExpr}))`;
+        case "int": return `((${lenientExpr}) ? doof::json_as_int_lenient(${jsonExpr}) : doof::json_as_int(${jsonExpr}))`;
+        case "long": return `((${lenientExpr}) ? doof::json_as_long_lenient(${jsonExpr}) : doof::json_as_long(${jsonExpr}))`;
+        case "float": return `((${lenientExpr}) ? doof::json_as_float_lenient(${jsonExpr}) : doof::json_as_float(${jsonExpr}))`;
+        case "double": return `((${lenientExpr}) ? doof::json_as_double_lenient(${jsonExpr}) : doof::json_as_double(${jsonExpr}))`;
+        case "string": return `((${lenientExpr}) ? doof::json_as_string_lenient(${jsonExpr}) : doof::json_as_string(${jsonExpr}))`;
         case "char": return `static_cast<char32_t>(doof::json_as_string(${jsonExpr})[0])`;
-        case "bool": return `doof::json_as_bool(${jsonExpr})`;
+        case "bool": return `((${lenientExpr}) ? doof::json_as_bool_lenient(${jsonExpr}) : doof::json_as_bool(${jsonExpr}))`;
       }
       throw new Error("Unsupported primitive JSON deserialization type");
 
     case "class":
-      return `${type.symbol.name}::fromJsonValue(${jsonExpr}).value()`;
+      return `${type.symbol.name}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
 
     case "array": {
       const elementType = emitType(type.elementType);
-      return `[&]() { const auto* _arr = doof::json_as_array(${jsonExpr}); if (_arr == nullptr) { doof::panic("Expected JSON array"); } auto _vec = std::make_shared<std::vector<${elementType}>>(); _vec->reserve(_arr->size()); for (const auto& _el : *_arr) { _vec->push_back(${emitDeserializeExpr("_el", type.elementType, ctx)}); } return _vec; }()`;
+      return `[&]() { const auto* _arr = doof::json_as_array(${jsonExpr}); if (_arr == nullptr) { doof::panic("Expected JSON array"); } auto _vec = std::make_shared<std::vector<${elementType}>>(); _vec->reserve(_arr->size()); for (const auto& _el : *_arr) { _vec->push_back(${emitDeserializeExpr("_el", type.elementType, ctx, lenientExpr)}); } return _vec; }()`;
     }
 
     case "tuple": {
       const parts = type.elements.map((element, index) =>
-        emitDeserializeExpr(`(*_arr)[${index}]`, element, ctx),
+        emitDeserializeExpr(`(*_arr)[${index}]`, element, ctx, lenientExpr),
       );
       return `[&]() { const auto* _arr = doof::json_as_array(${jsonExpr}); if (_arr == nullptr) { doof::panic("Expected JSON array"); } return std::make_tuple(${parts.join(", ")}); }()`;
     }
@@ -239,9 +244,9 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "class") {
-          return `((${jsonExpr}).isNull() ? ${emitType(type)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx)})`;
+          return `((${jsonExpr}).isNull() ? ${emitType(type)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)})`;
         }
-        return `((${jsonExpr}).isNull() ? ${emitType(type)}{std::nullopt} : ${emitType(type)}{${emitDeserializeExpr(jsonExpr, inner, ctx)}})`;
+        return `((${jsonExpr}).isNull() ? ${emitType(type)}{std::nullopt} : ${emitType(type)}{${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)}})`;
       }
       throw new Error("General union JSON deserialization is not supported");
     }
@@ -256,7 +261,7 @@ export function emitDeserializeExpr(jsonExpr: string, type: ResolvedType, ctx: E
 // ============================================================================
 
 /** Emit the expected JsonValue type check for a field type. */
-export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string {
+export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType, lenientExpr = "false"): string {
   switch (type.kind) {
     case "json-value":
       return "true";
@@ -267,12 +272,13 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string 
         case "long":
         case "float":
         case "double":
-          return `doof::json_is_number(${jsonExpr})`;
+          return `((${lenientExpr}) ? doof::json_is_lenient_number(${jsonExpr}) : doof::json_is_number(${jsonExpr}))`;
         case "string":
+          return `((${lenientExpr}) ? doof::json_is_lenient_string(${jsonExpr}) : doof::json_is_string(${jsonExpr}))`;
         case "char":
           return `doof::json_is_string(${jsonExpr})`;
         case "bool":
-          return `doof::json_is_boolean(${jsonExpr})`;
+          return `((${lenientExpr}) ? doof::json_is_lenient_boolean(${jsonExpr}) : doof::json_is_boolean(${jsonExpr}))`;
       }
       return "true";
     case "class":
@@ -288,7 +294,7 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType): string 
       const nonNull = type.types.filter((inner) => inner.kind !== "null");
       const hasNull = type.types.some((inner) => inner.kind === "null");
       if (hasNull && nonNull.length === 1) {
-        return `((${jsonExpr}).isNull() || ${emitJsonTypeCheck(jsonExpr, nonNull[0])})`;
+        return `((${jsonExpr}).isNull() || ${emitJsonTypeCheck(jsonExpr, nonNull[0], lenientExpr)})`;
       }
       return "true";
     }
@@ -377,7 +383,7 @@ export function emitFromJSON(
   const resultType = `doof::Result<std::shared_ptr<${cppName}>, std::string>`;
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JsonValue& _j) {`);
+  ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
@@ -397,10 +403,10 @@ export function emitFromJSON(
       const defaultValue = emitDefaultExpression(constructorField.field.defaultValue, fieldType);
       ctx.sourceLines.push(`${bodyInd}${emitType(fieldType)} _f_${safeName};`);
       ctx.sourceLines.push(`${bodyInd}if (auto ${iterName} = _obj->find("${constructorField.name}"); ${iterName} != _obj->end()) {`);
-      ctx.sourceLines.push(`${bodyInd}    if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType)}) {`);
+      ctx.sourceLines.push(`${bodyInd}    if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType, "_lenient")}) {`);
       ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure("Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second)));`);
       ctx.sourceLines.push(`${bodyInd}    }`);
-      ctx.sourceLines.push(`${bodyInd}    _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx)};`);
+      ctx.sourceLines.push(`${bodyInd}    _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx, "_lenient")};`);
       ctx.sourceLines.push(`${bodyInd}} else {`);
       ctx.sourceLines.push(`${bodyInd}    _f_${safeName} = ${defaultValue};`);
       ctx.sourceLines.push(`${bodyInd}}`);
@@ -411,10 +417,10 @@ export function emitFromJSON(
     ctx.sourceLines.push(`${bodyInd}if (${iterName} == _obj->end()) {`);
     ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Missing required field \\"${constructorField.name}\\"");`);
     ctx.sourceLines.push(`${bodyInd}}`);
-    ctx.sourceLines.push(`${bodyInd}if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType)}) {`);
+    ctx.sourceLines.push(`${bodyInd}if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType, "_lenient")}) {`);
     ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second)));`);
     ctx.sourceLines.push(`${bodyInd}}`);
-    ctx.sourceLines.push(`${bodyInd}auto _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx)};`);
+    ctx.sourceLines.push(`${bodyInd}auto _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx, "_lenient")};`);
   }
 
   for (const field of decl.fields) {
@@ -467,7 +473,7 @@ export function emitInterfaceFromJSON(
   const resultType = `doof::Result<${ifaceName}, std::string>`;
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${ind}inline ${resultType} ${ifaceName}_fromJsonValue(const doof::JsonValue& _j) {`);
+  ctx.sourceLines.push(`${ind}inline ${resultType} ${ifaceName}_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
@@ -483,7 +489,7 @@ export function emitInterfaceFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${ifaceName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);
@@ -507,7 +513,7 @@ export function emitTypeAliasFromJSON(
   const resultType = `doof::Result<${aliasName}, std::string>`;
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${ind}inline ${resultType} ${aliasName}_fromJsonValue(const doof::JsonValue& _j) {`);
+  ctx.sourceLines.push(`${ind}inline ${resultType} ${aliasName}_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
   ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
@@ -523,7 +529,7 @@ export function emitTypeAliasFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${aliasName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);

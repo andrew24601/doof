@@ -926,13 +926,14 @@ struct NativeSwitch {
 
 ## JSON Serialization
 
-Classes with all-serializable fields get `.toJsonValue()` and `.fromJsonValue()` automatically (generated on-demand):
+Classes with all-serializable fields get `.toJsonValue()` and `.fromJsonValue(json, lenient = false)` automatically (generated on-demand):
 
 ```doof
 class Point { x, y: float }
 
 json := Point(1.5, 2.5).toJsonValue()       // JsonValue
 result := Point.fromJsonValue(json)         // Result<Point, string>
+lenient := Point.fromJsonValue(json, true)  // enables scalar coercions
 ```
 
 Interface deserialization uses shared `const` discriminator fields. See [references/json-and-metadata.md](references/json-and-metadata.md) for details.

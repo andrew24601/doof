@@ -1180,6 +1180,56 @@ describe("manifest-derived pipeline metadata", () => {
     }
   });
 
+  it("copies root-package local native headers referenced by extern imports", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-root-native-copy-"));
+    const appDir = path.join(workspaceDir, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+      name: "app",
+      build: {
+        native: {
+          extraCopyPaths: ["./native_greeting.hpp"],
+        },
+      },
+      dependencies: {},
+    }, null, 2));
+    fs.writeFileSync(path.join(appDir, "main.do"), [
+      'export import function nativeGreeting(): string from "./native_greeting.hpp" as native::greeting',
+      "function main(): int => 0",
+    ].join("\n") + "\n", "utf8");
+    fs.writeFileSync(path.join(appDir, "native_greeting.hpp"), [
+      "#pragma once",
+      "#include <string>",
+      "namespace native { inline std::string greeting() { return \"hi\"; } }",
+      "",
+    ].join("\n"), "utf8");
+
+    const result = runPipelineWithFs(
+      new RealFS(),
+      path.join(appDir, "main.do"),
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.project.outputNativeCopies).toContainEqual({
+      sourcePath: path.join(appDir, "native_greeting.hpp"),
+      relativePath: "native_greeting.hpp",
+      kind: "auto",
+    });
+
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-root-native-copy-out-"));
+    try {
+      writeProject(result.project, outDir, false, () => {}, result.provenance, result.buildManifest);
+      expect(fs.readFileSync(path.join(outDir, "native_greeting.hpp"), "utf8")).toContain("greeting");
+      expect(fs.readFileSync(path.join(outDir, "main.hpp"), "utf8")).toContain('#include "./native_greeting.hpp"');
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("emits bundle-aware metadata and support files for macos-app targets", () => {
     const virtualFs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
