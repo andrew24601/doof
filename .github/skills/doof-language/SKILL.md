@@ -449,6 +449,19 @@ user := User { id, name }
 user := User(1, "Alice")
 ```
 
+Imported native classes can also participate in direct construction. When an `import class` declaration includes `static create(...): SameClass`, `Type(...)` and `Type { ... }` bind to that factory instead of requiring a matching native constructor.
+
+```doof
+export import class BlobReader from "blob_reader.hpp" as native::BlobReader {
+    static create(data: readonly byte[], offset: int = 0): BlobReader
+    current(): byte
+}
+
+bytes: readonly byte[] := [7, 9]
+first := BlobReader(bytes)
+second := BlobReader { data: bytes, offset: 1 }
+```
+
 Each class field must provide either a type annotation or a default value so its type is known at compile time.
 
 ### Key Features

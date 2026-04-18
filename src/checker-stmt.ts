@@ -203,6 +203,22 @@ export function checkStatement(
       host.checkClass(stmt, scope, table, info);
       break;
 
+    case "extern-class-declaration": {
+      const symbol = table.symbols.get(stmt.name);
+      if (symbol?.symbolKind === "class") {
+        host.checkClass(symbol.declaration, scope, table, info);
+      }
+      break;
+    }
+
+    case "extern-function-declaration": {
+      const symbol = table.symbols.get(stmt.name);
+      if (symbol?.symbolKind === "function") {
+        host.checkFunction(symbol.declaration, scope, table, info);
+      }
+      break;
+    }
+
     case "if-statement": {
       const condType = host.inferExprType(stmt.condition, scope, table, info);
       host.checkConditionIsBool(condType, stmt.condition, table, info);

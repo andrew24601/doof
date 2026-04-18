@@ -2,7 +2,7 @@
  * Shared utility functions used across emitter sub-modules.
  */
 
-import type { Expression, ObjectProperty, TypeAnnotation } from "./ast.js";
+import type { Expression, FunctionDeclaration, ObjectProperty, TypeAnnotation } from "./ast.js";
 import { isPrimitiveName, type ResolvedType } from "./checker-types.js";
 import type { ClassSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -60,13 +60,9 @@ export function resolveTypeAnnotation(
  */
 export function buildFieldTypeMap(classSym: ClassSymbol | undefined): Map<string, ResolvedType> {
   const map = new Map<string, ResolvedType>();
-  if (!classSym) return map;
-
-  for (const field of classSym.declaration.fields) {
-    if (!field.const_ && !field.static_ && field.resolvedType) {
-      for (const name of field.names) {
-        map.set(name, field.resolvedType);
-      }
+  for (const field of buildConstructorFieldInfoList(classSym)) {
+    if (field.type) {
+      map.set(field.name, field.type);
     }
   }
 
@@ -77,24 +73,35 @@ export function buildFieldTypeMap(classSym: ClassSymbol | undefined): Map<string
  * Build an ordered list of resolved types for a class's instance construction fields.
  */
 export function buildFieldTypeList(classSym: ClassSymbol | undefined): ResolvedType[] {
-  const types: ResolvedType[] = [];
-  if (!classSym) return types;
-
-  for (const field of classSym.declaration.fields) {
-    if (!field.const_ && !field.static_ && field.resolvedType) {
-      for (const _name of field.names) {
-        types.push(field.resolvedType);
-      }
-    }
-  }
-
-  return types;
+  return buildConstructorFieldInfoList(classSym)
+    .flatMap((field) => field.type ? [field.type] : []);
 }
 
 export interface ConstructorFieldInfo {
   name: string;
   type: ResolvedType | undefined;
   defaultValue: Expression | null;
+}
+
+function findExternConstructorFactoryMethod(
+  classSym: ClassSymbol | undefined,
+): FunctionDeclaration | null {
+  if (!classSym?.extern_) return null;
+
+  for (const method of classSym.declaration.methods) {
+    if (!method.static_ || method.name !== "create") continue;
+    const returnType = method.returnType;
+    if (!returnType || returnType.kind !== "named-type") continue;
+    if (returnType.resolvedSymbol === classSym || returnType.name === classSym.name) {
+      return method;
+    }
+  }
+
+  return null;
+}
+
+export function hasExternConstructorFactory(classSym: ClassSymbol | undefined): boolean {
+  return findExternConstructorFactoryMethod(classSym) !== null;
 }
 
 export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>): string {
@@ -112,6 +119,15 @@ export function emitStreamNextHelperName(aliasName: string): string {
 export function buildConstructorFieldInfoList(
   classSym: ClassSymbol | undefined,
 ): ConstructorFieldInfo[] {
+  const factoryMethod = findExternConstructorFactoryMethod(classSym);
+  if (factoryMethod) {
+    return factoryMethod.params.map((param) => ({
+      name: param.name,
+      type: param.resolvedType,
+      defaultValue: param.defaultValue,
+    }));
+  }
+
   const fields: ConstructorFieldInfo[] = [];
   if (!classSym) return fields;
 
@@ -139,14 +155,7 @@ export function sortNamedArgsByFieldOrder(
 ): ObjectProperty[] {
   if (!classSym) return props;
 
-  const fieldOrder: string[] = [];
-  for (const field of classSym.declaration.fields) {
-    if (!field.const_ && !field.static_) {
-      for (const name of field.names) {
-        fieldOrder.push(name);
-      }
-    }
-  }
+  const fieldOrder = buildConstructorFieldInfoList(classSym).map((field) => field.name);
 
   const propMap = new Map<string, ObjectProperty>();
   for (const prop of props) {
@@ -167,4 +176,42 @@ export function sortNamedArgsByFieldOrder(
   }
 
   return sorted;
+}
+
+export function buildPositionalConstructorArgList(
+  classSym: ClassSymbol | undefined,
+  providedArgs: string[],
+  emitDefaultValue: (expr: Expression, targetType?: ResolvedType) => string,
+): string[] {
+  if (!hasExternConstructorFactory(classSym)) {
+    return providedArgs;
+  }
+
+  const params = buildConstructorFieldInfoList(classSym);
+  const args: string[] = [];
+  for (let index = 0; index < params.length; index++) {
+    if (index < providedArgs.length) {
+      args.push(providedArgs[index]);
+      continue;
+    }
+
+    const param = params[index];
+    if (param.defaultValue) {
+      args.push(emitDefaultValue(param.defaultValue, param.type));
+    }
+  }
+
+  return args;
+}
+
+export function emitClassConstruction(
+  className: string,
+  classSym: ClassSymbol | undefined,
+  args: string[],
+): string {
+  if (hasExternConstructorFactory(classSym)) {
+    return `${className}::create(${args.join(", ")})`;
+  }
+
+  return `std::make_shared<${className}>(${args.join(", ")})`;
 }

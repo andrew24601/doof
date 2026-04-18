@@ -19,9 +19,11 @@ import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitTypeAnnotation } from "./emitter-decl.js";
 import {
+  buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitClassConstruction,
   emitResolvedClassName,
   emitStreamNextHelperName,
   sortNamedArgsByFieldOrder,
@@ -232,8 +234,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
         return emitExpression(field.defaultValue, ctx, field.type);
       }
       throw new Error(`Missing constructor field "${field.name}" during call emission`);
-    }).join(", ");
-    return `std::make_shared<${cppName}>(${args})`;
+    });
+    return emitClassConstruction(cppName, calleeType.symbol, args);
   }
 
   if (expr.callee.kind === "identifier"
@@ -261,7 +263,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Build argument list, passing parameter target types for null coercion.
   const paramTypes = calleeType?.kind === "function" ? calleeType.params : undefined;
-  const args = buildPositionalCallValues(paramTypes, expr.args, ctx).join(", ");
+  const positionalCallValues = buildPositionalCallValues(paramTypes, expr.args, ctx);
+  const args = positionalCallValues.join(", ");
   const explicitGenericMethodCall = emitExplicitGenericMethodCall(expr, ctx, args);
 
   // Positional Success(value) → doof::Result<T, E>::success(val)
@@ -297,10 +300,15 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   }
 
   if (calleeType && calleeType.kind === "class") {
-    // Constructor call → std::make_shared<ClassName>(args...)
+    // Constructor call → std::make_shared<ClassName>(args...) or extern create(...)
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType);
-    return `std::make_shared<${cppName}>(${args})`;
+    const positionalArgs = buildPositionalConstructorArgList(
+      calleeType.symbol,
+      positionalCallValues,
+      (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
+    );
+    return emitClassConstruction(cppName, calleeType.symbol, positionalArgs);
   }
 
   // Check if this is a method call on an interface-typed object → std::visit
@@ -609,8 +617,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
         return emitExpression(field.defaultValue, ctx, field.type);
       }
       throw new Error(`Missing constructor field \"${field.name}\" during construct emission`);
-    }).join(", ");
-    return `std::make_shared<${typeName}>(${args})`;
+    });
+    return emitClassConstruction(typeName, sym, args);
   }
 
   // Positional construction: Type(arg1, arg2, ...)
@@ -618,8 +626,13 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   const args = (expr.args as Expression[]).map((a, i) => {
     const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
     return emitExpression(a, ctx, fieldType);
-  }).join(", ");
-  return `std::make_shared<${typeName}>(${args})`;
+  });
+  const positionalArgs = buildPositionalConstructorArgList(
+    sym,
+    args,
+    (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
+  );
+  return emitClassConstruction(typeName, sym, positionalArgs);
 }
 
 // ============================================================================

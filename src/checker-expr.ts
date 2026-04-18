@@ -4,6 +4,7 @@ import type {
   CallArgument,
   ConstructExpression,
   Expression,
+  FunctionDeclaration,
   ObjectLiteral,
   ObjectProperty,
   SourceSpan,
@@ -1537,6 +1538,11 @@ function getConstructorParams(
   table: ModuleSymbolTable,
   nominal: boolean,
 ): ConstructorParam[] {
+  const externFactoryParams = getExternConstructorFactoryParams(host, sym, table);
+  if (externFactoryParams) {
+    return externFactoryParams;
+  }
+
   const params: ConstructorParam[] = [];
   const classDecl = sym.declaration;
   const classTable = host.analysisResult.modules.get(sym.module) ?? table;
@@ -1550,7 +1556,7 @@ function getConstructorParams(
       const fieldType = field.resolvedType
         ?? (field.type ? host.resolveTypeAnnotation(field.type, classTable) : UNKNOWN_TYPE);
       for (const name of field.names) {
-        params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null });
+        params.push({ name, type: fieldType, hasDefault: field.defaultValue !== null, source: "field" });
       }
     }
   } finally {
@@ -1559,6 +1565,54 @@ function getConstructorParams(
     }
   }
   return params;
+}
+
+function getExternConstructorFactoryParams(
+  host: CheckerHost,
+  sym: ClassSymbol,
+  table: ModuleSymbolTable,
+): ConstructorParam[] | null {
+  const factoryMethod = findExternConstructorFactoryMethod(host, sym, table);
+  if (!factoryMethod) return null;
+
+  const classTable = host.analysisResult.modules.get(sym.module) ?? table;
+  return factoryMethod.params.map((param) => ({
+    name: param.name,
+    type: param.resolvedType
+      ?? (param.type ? host.resolveTypeAnnotation(param.type, classTable) : UNKNOWN_TYPE),
+    hasDefault: param.defaultValue !== null,
+    source: "parameter",
+  }));
+}
+
+function findExternConstructorFactoryMethod(
+  host: CheckerHost,
+  sym: ClassSymbol,
+  table: ModuleSymbolTable,
+): FunctionDeclaration | null {
+  if (!sym.extern_) return null;
+
+  const classTable = host.analysisResult.modules.get(sym.module) ?? table;
+  for (const method of sym.declaration.methods) {
+    if (!method.static_ || method.name !== "create") continue;
+
+    const resolvedReturnType = method.returnType
+      ? host.resolveTypeAnnotation(method.returnType, classTable)
+      : UNKNOWN_TYPE;
+    if (resolvedReturnType.kind === "class" && resolvedReturnType.symbol === sym) {
+      return method;
+    }
+
+    if (method.returnType?.kind === "named-type" && method.returnType.name === sym.name) {
+      return method;
+    }
+  }
+
+  return null;
+}
+
+function describeConstructorParam(param: ConstructorParam): string {
+  return param.source === "parameter" ? "parameter" : "field";
 }
 
 function validateConstructorArgs(
@@ -1589,9 +1643,10 @@ function validateConstructorArgs(
 
   for (let i = 0; i < argTypes.length; i++) {
     if (!isAssignableTo(argTypes[i], params[i].type)) {
+      const paramKind = describeConstructorParam(params[i]);
       info.diagnostics.push({
         severity: "error",
-        message: `Argument ${i + 1}: type "${typeToString(argTypes[i])}" is not assignable to field "${params[i].name}" of type "${typeToString(params[i].type)}"`,
+        message: `Argument ${i + 1}: type "${typeToString(argTypes[i])}" is not assignable to ${paramKind} "${params[i].name}" of type "${typeToString(params[i].type)}"`,
         span: argSpans[i] ?? callSpan,
         module: table.path,
       });
@@ -1611,12 +1666,15 @@ function validateNamedConstructorArgs(
 ): void {
   const params = paramsOverride ?? getConstructorParams(host, sym, table, nominal);
   const paramMap = new Map(params.map((p) => [p.name, p]));
+  const constructorSource = params.some((param) => param.source === "parameter") ? "parameter" : "field";
 
   for (const prop of props) {
     if (!paramMap.has(prop.name)) {
       info.diagnostics.push({
         severity: "error",
-        message: `Class "${sym.name}" does not have a field "${prop.name}"`,
+        message: constructorSource === "parameter"
+          ? `Class "${sym.name}" does not have a constructor parameter "${prop.name}"`
+          : `Class "${sym.name}" does not have a field "${prop.name}"`,
         span: prop.span,
         module: table.path,
       });
@@ -1624,9 +1682,10 @@ function validateNamedConstructorArgs(
       const param = paramMap.get(prop.name)!;
       const valueType = prop.value?.resolvedType ?? (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType ?? UNKNOWN_TYPE;
       if (!isAssignableTo(valueType, param.type)) {
+        const paramKind = describeConstructorParam(param);
         info.diagnostics.push({
           severity: "error",
-          message: `Field "${prop.name}": type "${typeToString(valueType)}" is not assignable to type "${typeToString(param.type)}"`,
+          message: `${paramKind === "parameter" ? "Parameter" : "Field"} "${prop.name}": type "${typeToString(valueType)}" is not assignable to type "${typeToString(param.type)}"`,
           span: prop.span,
           module: table.path,
         });
@@ -1637,9 +1696,10 @@ function validateNamedConstructorArgs(
   const providedNames = new Set(props.map((p) => p.name));
   for (const param of params) {
     if (!param.hasDefault && !providedNames.has(param.name)) {
+      const paramKind = describeConstructorParam(param);
       info.diagnostics.push({
         severity: "error",
-        message: `Missing required field "${param.name}" in construction of "${sym.name}"`,
+        message: `Missing required ${paramKind} "${param.name}" in construction of "${sym.name}"`,
         span: callSpan,
         module: table.path,
       });

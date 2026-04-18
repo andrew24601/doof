@@ -112,6 +112,23 @@ let u = User { ... }  // ❌ Error: User is a type-only import
 
 Useful for avoiding circular import issues with values while still using types.
 
+### Native Class Imports
+
+Doof can import native C++ classes directly:
+
+```javascript
+export import class BlobReader from "blob_reader.hpp" as native::BlobReader {
+    static create(data: readonly byte[], offset: int = 0): BlobReader
+    current(): byte
+}
+
+payload: readonly byte[] := [7, 9]
+first := BlobReader(payload)
+second := BlobReader { data: payload, offset: 1 }
+```
+
+When an imported class declares a `static create(...): SameClass` method, direct construction routes through that factory. Positional construction follows the factory parameter order, named construction uses the factory parameter names, and omitted arguments use the Doof defaults declared on the imported signature.
+
 ---
 
 ## Module Paths

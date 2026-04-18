@@ -33,9 +33,11 @@ import { emitCallExpression, emitConstructExpression } from "./emitter-expr-call
 import { emitIfExpression, emitCaseExpression, emitCatchExpressionIIFE } from "./emitter-expr-control.js";
 import { emitLambdaExpression, emitAsyncExpression, emitActorCreationExpression } from "./emitter-expr-lambda.js";
 import {
+  buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitClassConstruction,
   emitResolvedClassName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
@@ -260,8 +262,13 @@ function emitTupleLiteral(expr: TupleLiteral, ctx: EmitContext): string {
     const elements = expr.elements.map((e, i) => {
       const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
       return emitExpression(e, ctx, fieldType);
-    }).join(", ");
-    return `std::make_shared<${cppName}>(${elements})`;
+    });
+    const args = buildPositionalConstructorArgList(
+      sym,
+      elements,
+      (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
+    );
+    return emitClassConstruction(cppName, sym, args);
   }
   const elements = expr.elements.map((e) => emitExpression(e, ctx)).join(", ");
   return `std::make_tuple(${elements})`;
@@ -297,8 +304,8 @@ function emitObjectLiteral(
         return emitExpression(field.defaultValue, ctx, field.type);
       }
       throw new Error(`Missing constructor field \"${field.name}\" during object literal emission`);
-    }).join(", ");
-    return `std::make_shared<${cppName}>(${args})`;
+    });
+    return emitClassConstruction(cppName, sym, args);
   }
   if (expr.resolvedType?.kind === "map") {
     const mapType = expr.resolvedType;

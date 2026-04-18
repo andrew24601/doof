@@ -5,9 +5,11 @@ import { emitType } from "./emitter-types.js";
 import { escapeChar, escapeString, formatDouble, formatFloat, emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitNullForType } from "./emitter-types.js";
 import {
+  buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
   buildFieldTypeList,
   buildFieldTypeMap,
+  emitClassConstruction,
   emitResolvedClassName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
@@ -104,10 +106,10 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (tupleType.kind === "class") {
         const className = emitResolvedClassName(tupleType);
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
-        const args = expr.elements
-          .map((element, index) => emitDefaultExpression(element, fieldTypes[index]))
-          .join(", ");
-        return `std::make_shared<${className}>(${args})`;
+        const providedArgs = expr.elements
+          .map((element, index) => emitDefaultExpression(element, fieldTypes[index]));
+        const args = buildPositionalConstructorArgList(tupleType.symbol, providedArgs, emitDefaultExpression);
+        return emitClassConstruction(className, tupleType.symbol, args);
       }
 
       return unsupportedDefault(expr, contextType);
@@ -120,10 +122,10 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       }
       const className = emitResolvedClassName(callType);
       const fieldTypes = buildFieldTypeList(callType.symbol);
-      const args = expr.args
-        .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index]))
-        .join(", ");
-      return `std::make_shared<${className}>(${args})`;
+      const providedArgs = expr.args
+        .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index]));
+      const args = buildPositionalConstructorArgList(callType.symbol, providedArgs, emitDefaultExpression);
+      return emitClassConstruction(className, callType.symbol, args);
     }
 
     case "construct-expression": {
@@ -145,16 +147,14 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
           }
           throw new Error(`Missing constructor field \"${field.name}\" during default construct emission`);
         });
-        return `std::make_shared<${className}>(${args.join(", ")})`;
+        return emitClassConstruction(className, ctorType.symbol, args);
       }
 
       const fieldTypes = buildFieldTypeList(ctorType.symbol);
-      const args = expr.args
-        .map((arg, index) => emitDefaultExpression(arg as Expression, fieldTypes[index]))
-        .join(", ");
-      return args.length > 0
-        ? `std::make_shared<${className}>(${args})`
-        : `std::make_shared<${className}>()`;
+      const providedArgs = expr.args
+        .map((arg, index) => emitDefaultExpression(arg as Expression, fieldTypes[index]));
+      const args = buildPositionalConstructorArgList(ctorType.symbol, providedArgs, emitDefaultExpression);
+      return emitClassConstruction(className, ctorType.symbol, args);
     }
 
     case "unary-expression":
@@ -179,8 +179,8 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
             }
             throw new Error(`Missing constructor field \"${field.name}\" during object default emission`);
           })
-          .join(", ");
-        return `std::make_shared<${className}>(${args})`;
+        ;
+        return emitClassConstruction(className, objectType.symbol, args);
       }
 
       if (objectType?.kind === "map" && expr.properties.length === 0) {

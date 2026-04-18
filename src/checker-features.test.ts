@@ -2743,6 +2743,32 @@ describe("checker — constructor validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("uses extern static create params for direct construction", () => {
+    const info = check({ "/main.do": `
+      import class BlobReader from "blob.hpp" as native::BlobReader {
+        static create(data: readonly byte[], endianness: int = 0): BlobReader
+        length(): long
+      }
+
+      payload: readonly byte[] := [1, 2, 3]
+      a := BlobReader(payload)
+      b := BlobReader { data: payload, endianness: 1 }
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("validates extern static create arity for direct construction", () => {
+    const info = check({ "/main.do": `
+      import class BlobReader from "blob.hpp" as native::BlobReader {
+        static create(data: readonly byte[], endianness: int = 0): BlobReader
+      }
+
+      reader := BlobReader()
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("expects 1-2 constructor argument(s) but got 0");
+  });
+
   it("allows numeric literal narrowing in constructor args", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }

@@ -458,6 +458,59 @@ struct MathBridge {
     expect(result.exitCode).toBe(1);
   });
 
+  it("compiles extern class direct construction through static create", () => {
+    const readerHeader = `
+#pragma once
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+namespace native {
+class BlobReader {
+public:
+    static std::shared_ptr<BlobReader> create(const std::shared_ptr<std::vector<uint8_t>>& data, int32_t offset) {
+        return std::shared_ptr<BlobReader>(new BlobReader(data, offset));
+    }
+
+    uint8_t current() const {
+        return (*data_)[offset_];
+    }
+
+    int32_t offset() const {
+        return offset_;
+    }
+
+private:
+    BlobReader(const std::shared_ptr<std::vector<uint8_t>>& data, int32_t offset)
+        : data_(data), offset_(offset) {}
+
+    std::shared_ptr<std::vector<uint8_t>> data_;
+    int32_t offset_;
+};
+}
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "blob_reader.hpp"), readerHeader);
+
+    const result = ctx.compileAndRun(`
+      import class BlobReader from "blob_reader.hpp" as native::BlobReader {
+        static create(data: readonly byte[], offset: int = 0): BlobReader
+        current(): byte
+        offset(): int
+      }
+
+      function main(): int {
+        payload: readonly byte[] := [7, 9]
+        first := BlobReader(payload)
+        second := BlobReader { data: payload, offset: 1 }
+        return int(first.current()) + int(second.current()) + second.offset()
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(17);
+  });
+
   it("compiles extern class method returning imported enum type", () => {
     const nativeHeader = `
 #pragma once

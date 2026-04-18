@@ -116,6 +116,7 @@ export interface ConstructorParam {
   name: string;
   type: ResolvedType;
   hasDefault: boolean;
+  source: "field" | "parameter";
 }
 
 export interface BuiltinFunctionSpec {

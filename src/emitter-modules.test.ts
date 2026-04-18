@@ -739,6 +739,25 @@ describe("emitter — extern class imports", () => {
     expect(cpp).toContain("return native::MathBridge::cos(x);");
   });
 
+  it("emits extern class direct construction through static create", () => {
+    const cpp = emit(`
+      import class BlobReader from "blob.hpp" as native::BlobReader {
+        static create(data: readonly byte[], endianness: int = 0): BlobReader
+        length(): long
+      }
+
+      function make(payload: readonly byte[]): BlobReader {
+        return BlobReader(payload)
+      }
+
+      function makeNamed(payload: readonly byte[]): BlobReader {
+        return BlobReader { data: payload, endianness: 1 }
+      }
+    `);
+    expect(cpp).toContain("return native::BlobReader::create(payload, 0);");
+    expect(cpp).toContain("return native::BlobReader::create(payload, 1);");
+  });
+
   it("emits #include for exported extern class", () => {
     const cpp = emit(`
       export import class Mat4 from "matrix_bridge.hpp" as ns::Mat4 {
