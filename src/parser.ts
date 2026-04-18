@@ -2236,8 +2236,30 @@ export class Parser {
       if (inner.kind === "array-type") {
         return { ...inner, readonly_: true };
       }
-      // readonly on its own — treat as named type (may be readonly before a type)
-      return inner;
+      if (inner.kind === "named-type") {
+        if (inner.name === "Array" || inner.name === "ReadonlyArray") {
+          return {
+            ...inner,
+            name: "ReadonlyArray",
+            span: this.span(startLoc),
+          };
+        }
+        if (inner.name === "Map" || inner.name === "ReadonlyMap") {
+          return {
+            ...inner,
+            name: "ReadonlyMap",
+            span: this.span(startLoc),
+          };
+        }
+        if (inner.name === "Set" || inner.name === "ReadonlySet") {
+          return {
+            ...inner,
+            name: "ReadonlySet",
+            span: this.span(startLoc),
+          };
+        }
+      }
+      throw this.error("Unexpected readonly type modifier; expected an array, Array<T>, Map<K, V>, or Set<T> type");
     }
 
     // weak T

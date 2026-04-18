@@ -3551,6 +3551,27 @@ describe("checker — Map type", () => {
     });
   });
 
+  it("treats readonly Map annotations as ReadonlyMap in bindings and constructor calls", () => {
+    const cr = check({ "/main.do": `
+      class Foo {
+        readonly x: Map<int, int>
+      }
+
+      y: ReadonlyMap<int, int> := { 1: 1, 2: 4, 3: 9 }
+      z: readonly Map<int, int> := { 1: 1, 2: 4, 3: 9 }
+
+      f := Foo(y)
+      g := Foo(z)
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    expect(findId(cr, "z")[0]?.type).toEqual({
+      kind: "map",
+      keyType: { kind: "primitive", name: "int" },
+      valueType: { kind: "primitive", name: "int" },
+      readonly_: true,
+    });
+  });
+
   it("rejects bare Map annotation with an empty literal", () => {
     const cr = check({ "/main.do": `
       m: Map := {}
@@ -3748,6 +3769,19 @@ describe("checker — Map type", () => {
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
     expect(findId(cr, "unique")[0]?.type).toEqual({
+      kind: "set",
+      elementType: { kind: "primitive", name: "int" },
+      readonly_: true,
+    });
+  });
+
+  it("treats readonly Set annotations as ReadonlySet", () => {
+    const cr = check({ "/main.do": `
+      values: readonly Set<int> := [1, 2, 3]
+      print(values)
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    expect(findId(cr, "values")[0]?.type).toEqual({
       kind: "set",
       elementType: { kind: "primitive", name: "int" },
       readonly_: true,
@@ -4307,6 +4341,23 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(2);
     expect(cr.diagnostics[0].message).toContain('Method "push" is not available on readonly array');
     expect(cr.diagnostics[1].message).toContain('Method "pop" is not available on readonly array');
+  });
+
+  it("treats readonly Array annotations as ReadonlyArray", () => {
+    const cr = check({ "/main.do": `
+      function test(a: readonly Array<int>): void {
+        println(a.length)
+      }
+
+      values: readonly Array<int> := [1, 2, 3]
+      test(values)
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    expect(findId(cr, "values")[0]?.type).toEqual({
+      kind: "array",
+      elementType: { kind: "primitive", name: "int" },
+      readonly_: true,
+    });
   });
 
   it("treats readonly bindings as readonly collection surfaces", () => {

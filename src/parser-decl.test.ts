@@ -119,6 +119,51 @@ describe("Parser — type annotations", () => {
       expect(stmt.type).toMatchObject({ kind: "array-type", readonly_: true });
     }
   });
+
+  it("parses readonly Array type as ReadonlyArray", () => {
+    const stmt = firstStmt("let x: readonly Array<int> = []");
+    if (stmt.kind === "let-declaration" && stmt.type) {
+      expect(stmt.type).toMatchObject({
+        kind: "named-type",
+        name: "ReadonlyArray",
+      });
+      if (stmt.type.kind === "named-type") {
+        expect(stmt.type.typeArgs).toHaveLength(1);
+      }
+    }
+  });
+
+  it("parses readonly Map type as ReadonlyMap", () => {
+    const stmt = firstStmt("let x: readonly Map<string, int> = {}");
+    if (stmt.kind === "let-declaration" && stmt.type) {
+      expect(stmt.type).toMatchObject({
+        kind: "named-type",
+        name: "ReadonlyMap",
+      });
+      if (stmt.type.kind === "named-type") {
+        expect(stmt.type.typeArgs).toHaveLength(2);
+      }
+    }
+  });
+
+  it("parses readonly Set type as ReadonlySet", () => {
+    const stmt = firstStmt("let x: readonly Set<int> = []");
+    if (stmt.kind === "let-declaration" && stmt.type) {
+      expect(stmt.type).toMatchObject({
+        kind: "named-type",
+        name: "ReadonlySet",
+      });
+      if (stmt.type.kind === "named-type") {
+        expect(stmt.type.typeArgs).toHaveLength(1);
+      }
+    }
+  });
+
+  it("rejects unexpected readonly type modifiers", () => {
+    expect(() => parse("let x: readonly int = 0")).toThrow(
+      "Unexpected readonly type modifier; expected an array, Array<T>, Map<K, V>, or Set<T> type",
+    );
+  });
 });
 
 // ==========================================================================

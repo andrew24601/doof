@@ -785,6 +785,7 @@ When the annotation omits type arguments entirely, non-empty homogeneous literal
 ```javascript
 scores: Map := { "Alice": 100, "Bob": 95 }        // Map<string, int>
 scores: ReadonlyMap := { "Alice": 100 }            // ReadonlyMap<string, int>
+scores: readonly Map<string, int> = { "Alice": 100 } // Same as ReadonlyMap<string, int>
 scores: Map<string, int> = { "Alice": 100 }        // Also valid
 ```
 
@@ -853,6 +854,7 @@ let palette: Set<Color> = [Color.Red, Color.Blue, Color.Red]
 let ids: Set<long> = [1, 2, 3]  // int literals widen to long in Set<long> context
 unique: Set := [1, 2, 3]        // Set<int>
 frozen: ReadonlySet := [1, 2, 3] // ReadonlySet<int>
+frozen2: readonly Set<int> = [1, 2, 3] // Same as ReadonlySet<int>
 ```
 
 When the annotation omits type arguments entirely, the checker may infer `T` only from a same-site non-empty homogeneous literal. Empty literals still require a full annotation:
@@ -1078,6 +1080,8 @@ When `readonly` appears on a binding or class field, the referenced value must b
 6. **Functions** — always readonly-compatible (immutable references)
 
 Readonly collection annotations are shallow at the collection boundary: they stop collection mutation, but they do not require element or value types to be deeply immutable. Collection mutability is still part of the type, so `int[]` is not assignable to `readonly int[]`, `ReadonlyArray<int>`, `ReadonlyMap<K, V>`, or `ReadonlySet<T>`, and the reverse conversions are also rejected.
+
+The parser also accepts `readonly Array<T>`, `readonly Map<K, V>`, and `readonly Set<T>` as equivalents of `ReadonlyArray<T>`, `ReadonlyMap<K, V>`, and `ReadonlySet<T>`. Other uses of `readonly` in type position are parse errors.
 
 ### Readonly Classes
 
