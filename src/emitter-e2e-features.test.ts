@@ -259,6 +259,19 @@ describe("e2e — optional chaining", () => {
 // ============================================================================
 
 describe("e2e — array safety", () => {
+  it("panics on explicit panic calls", () => {
+    const result = ctx.compileAndRun(`
+      function main() {
+        panic("aieee")
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("panic: aieee");
+  });
+
   it("runs in-bounds array indexing", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

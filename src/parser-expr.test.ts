@@ -234,6 +234,15 @@ describe("Parser — member access and calls", () => {
     }
   });
 
+  it("parses panic builtin calls", () => {
+    const expr = parseExpr('panic("aieee")');
+    expect(expr.kind).toBe("call-expression");
+    if (expr.kind === "call-expression") {
+      expect(expr.callee).toMatchObject({ kind: "identifier", name: "panic" });
+      expect(expr.args).toHaveLength(1);
+    }
+  });
+
   it("parses method calls", () => {
     const expr = parseExpr("obj.method(x)");
     expect(expr.kind).toBe("call-expression");

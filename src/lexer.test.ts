@@ -54,6 +54,12 @@ describe("Lexer", () => {
       expect(tokens[0].type).toBe(TokenType.Identifier);
       expect(tokens[0].value).toBe("any");
     });
+
+    it("lexes panic as an identifier", () => {
+      const tokens = new Lexer("panic").tokenize();
+      expect(tokens[0].type).toBe(TokenType.Identifier);
+      expect(tokens[0].value).toBe("panic");
+    });
   });
 
   describe("string literals", () => {
