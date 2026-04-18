@@ -214,6 +214,27 @@ npx doof run   samples/hello.do
 
 Each project needs a [`doof.json`](docs/packages.md) at its root. This repository includes one, so the samples above work as-is.
 
+### Local global install for cross-repo testing
+
+If you want the current checkout available across other local repositories, run:
+
+```bash
+npm run dev:install-global
+```
+
+That does two things:
+
+- builds this repo and runs `npm link`, which makes the `doof` CLI available globally on your machine
+- symlinks the Doof personal Copilot skill into `~/.copilot/skills/doof-language`, which makes it available across workspaces in VS Code
+
+If another local repo needs `doof` as a linked package dependency instead of only a global CLI, run `npm link doof` in that repo.
+
+To remove the global link and personal skill symlink later:
+
+```bash
+npm run dev:uninstall-global
+```
+
 Full CLI reference → [docs/cli.md](docs/cli.md)  
 Package system → [docs/packages.md](docs/packages.md)  
 Testing → [docs/testing.md](docs/testing.md)

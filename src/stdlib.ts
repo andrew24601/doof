@@ -4,6 +4,7 @@ import { toVirtualPath } from "./path-utils.js";
 import { materializeRemoteDependencyByUrl } from "./package-manifest.js";
 import { DEFAULT_STD_VERSIONS, getStdPackageShortName } from "./std-packages.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
+export { BUNDLED_STDLIB_ROOT };
 
 const BUNDLED_MODULES = new Map<string, string>();
 
