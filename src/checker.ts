@@ -755,14 +755,13 @@ export class TypeChecker {
       case "type-alias": {
         const declTypeParams = sym.declaration.typeParams;
         if (declTypeParams.length > 0 && typeArgs && typeArgs.length > 0) {
-          // Substitute type parameters with the provided type arguments.
           const paramMap = new Map<string, ResolvedType>();
-          this.typeParamStack.push(new Set(declTypeParams));
           for (let i = 0; i < declTypeParams.length && i < typeArgs.length; i++) {
             paramMap.set(declTypeParams[i], this.resolveTypeAnnotation(typeArgs[i], table));
           }
-          this.typeParamStack.pop();
+          this.typeParamStack.push(new Set(declTypeParams));
           const baseType = this.resolveTypeAnnotation(sym.declaration.type, table);
+          this.typeParamStack.pop();
           return substituteTypeParams(baseType, paramMap);
         }
         // Non-generic alias or no args provided — resolve with type params in scope

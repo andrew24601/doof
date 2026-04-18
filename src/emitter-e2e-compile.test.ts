@@ -385,7 +385,10 @@ describe("e2e — static member access", () => {
 describe("e2e — readonly class bindings", () => {
   it("compiles readonly class binding as shared_ptr<const T>", () => {
     const { success, error, code } = ctx.compileOnly(`
-      class Point { x, y: float }
+      class Point {
+        readonly x: float
+        readonly y: float
+      }
       function main(): int {
         readonly p = Point { x: 1.0f, y: 2.0f }
         return 0

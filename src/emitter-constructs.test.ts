@@ -408,7 +408,10 @@ describe("emitter — try operators", () => {
 describe("emitter — readonly class bindings", () => {
   it("emits shared_ptr<const T> for readonly class binding", () => {
     const cpp = emit(`
-      class Point { x, y: float }
+      class Point {
+        readonly x: float
+        readonly y: float
+      }
       function main(): void {
         readonly p = Point { x: 1.0f, y: 2.0f }
       }

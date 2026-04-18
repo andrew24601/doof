@@ -12,7 +12,7 @@ import type {
   QualifiedMemberExpression,
 } from "./ast.js";
 import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
-import { emitType } from "./emitter-types.js";
+import { emitType, isPointerType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -162,9 +162,13 @@ function emitExplicitGenericMethodCall(
   if (expr.callee.kind === "member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
     if (!objectType || objectType.kind !== "class") return null;
-    const object = emitExpression(expr.callee.object, ctx);
-    const accessor = objectType.symbol ? "->" : ".";
+    const staticMethod = getStaticClassMethodCall(expr.callee);
     const typeArgs = methodTypeArgs.map(emitType).join(", ");
+    if (staticMethod) {
+      return `${staticMethod}<${typeArgs}>(${args})`;
+    }
+    const object = emitExpression(expr.callee.object, ctx);
+    const accessor = isPointerType(objectType) ? "->" : ".";
     return `${object}${accessor}${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
   }
 

@@ -36,6 +36,8 @@ describe("std package metadata", () => {
       "std/assert",
       "std/fs",
       "std/path",
+      "std/regex",
+      "std/stream",
     ]);
   });
 

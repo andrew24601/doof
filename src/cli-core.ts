@@ -1368,7 +1368,9 @@ function buildNativeObjectFilePath(
   platform: NodeJS.Platform,
 ): string {
   const objectExtension = platform === "win32" ? ".obj" : ".o";
-  const objectRoot = outDir;
+  const objectRoot = platform === "win32"
+    ? path.win32.join(outDir, ".doof-native-objects")
+    : joinFsPath(outDir, ".doof-native-objects");
   const relativeSourcePath = getNativeObjectRelativeSourcePath(outDir, sourceFile, index, platform);
 
   return platform === "win32"
