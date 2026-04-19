@@ -13,6 +13,7 @@ import {
   writeProject,
 } from "./cli-core.js";
 import type { NativeBuildOptions } from "./emitter-module.js";
+import { findDoofManifestPath } from "./package-manifest.js";
 import { loadPackageGraph } from "./package-manifest.js";
 import { collectSemanticDiagnostics } from "./pipeline-diagnostics.js";
 import type { FileSystem } from "./resolver.js";
@@ -236,6 +237,7 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
     const harnessSource = generateTestHarnessSource(harnessPath, group.tests);
     const overlay = new Map<string, string>([[harnessPath, harnessSource]]);
     const fileSystem = new OverlayFS(overlay);
+    const executionRoot = determineExecutionRoot(group.modulePath, fileSystem);
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-test-"));
 
     try {
@@ -266,6 +268,7 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
           execFileSync(binary, [test.id], {
             stdio: "pipe",
             timeout: 30000,
+            cwd: executionRoot,
             env: options.compiler.env ?? process.env,
           });
           passed++;
@@ -362,6 +365,11 @@ function renderDiscoveryFailure(testFile: string, diagnostics: readonly Diagnost
 function determineRootDir(targetPath: string): string {
   const stat = fs.statSync(targetPath);
   return stat.isDirectory() ? targetPath : path.dirname(targetPath);
+}
+
+function determineExecutionRoot(modulePath: string, fileSystem: FileSystem): string {
+  const manifestPath = findDoofManifestPath(fileSystem, modulePath);
+  return manifestPath ? path.dirname(manifestPath) : path.dirname(modulePath);
 }
 
 function buildHarnessPath(rootDir: string, moduleDisplayPath: string): string {

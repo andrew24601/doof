@@ -248,6 +248,55 @@ describe("test runner execution", () => {
     expect(reporter.errors.some((line) => line.includes("FAIL calc.test.do::testFail"))).toBe(true);
     expect(reporter.errors.some((line) => line.includes("Assertion failed: expected failure: expected values to be equal"))).toBe(true);
   });
+
+  it("runs tests from the owning package root", () => {
+    let compiler;
+    try {
+      compiler = resolveCompilerToolchain(null);
+    } catch {
+      return;
+    }
+
+    const workspaceDir = createTempDir();
+    const packageDir = path.join(workspaceDir, "pkg");
+    const invocationDir = path.join(workspaceDir, "pkg", "tests");
+    const outsideDir = path.join(workspaceDir, "somewhere-else");
+    fs.mkdirSync(path.join(packageDir, "build", "tests"), { recursive: true });
+    fs.mkdirSync(path.join(outsideDir, "build", "tests"), { recursive: true });
+
+    writeFile(packageDir, "doof.json", JSON.stringify({ name: "pkg-tests" }));
+    writeFile(packageDir, "tests/runtime.test.do", [
+      'import { writeText } from "std/fs"',
+      "",
+      "export function testWritesRelativeArtifact(): void {",
+      '    try! writeText("build/tests/runtime-cwd.txt", "ok")',
+      "}",
+      "",
+    ].join("\n"));
+
+    const reporter = createReporter();
+    const originalCwd = process.cwd();
+    process.chdir(outsideDir);
+
+    try {
+      const result = runTestCommand({
+        targetPath: path.join(invocationDir, "runtime.test.do"),
+        compiler,
+        nativeBuild: emptyNativeBuildOptions(),
+        filter: null,
+        listOnly: false,
+        verbose: false,
+        reporter,
+      });
+
+      expect(result).toMatchObject({ passed: 1, failed: 0 });
+    } finally {
+      process.chdir(originalCwd);
+    }
+
+    expect(fs.readFileSync(path.join(packageDir, "build", "tests", "runtime-cwd.txt"), "utf8")).toBe("ok");
+    expect(fs.existsSync(path.join(outsideDir, "build", "tests", "runtime-cwd.txt"))).toBe(false);
+  });
 });
 
 function createTempDir(): string {
