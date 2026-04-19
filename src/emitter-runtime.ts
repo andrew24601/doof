@@ -749,6 +749,24 @@ std::shared_ptr<std::vector<T>> array_slice(const std::shared_ptr<std::vector<T>
     );
 }
 
+template <typename T>
+std::shared_ptr<std::vector<T>> array_buildReadonly(const std::shared_ptr<std::vector<T>>& arr) {
+    if (!arr) {
+        panic("Attempted to buildReadonly from null array");
+    }
+    // Move-drain: transfer contents to a new allocation; original vector is left empty.
+    auto result = std::make_shared<std::vector<T>>(std::move(*arr));
+    return result;
+}
+
+template <typename T>
+std::shared_ptr<std::vector<T>> array_cloneMutable(const std::shared_ptr<std::vector<T>>& arr) {
+    if (!arr) {
+        panic("Attempted to cloneMutable from null array");
+    }
+    return std::make_shared<std::vector<T>>(*arr);
+}
+
 // Map helpers — bridge Doof's Map methods to std::unordered_map
 template <typename K, typename V>
 std::optional<V> map_get(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {

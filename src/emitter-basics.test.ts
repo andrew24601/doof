@@ -1102,6 +1102,33 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain("doof::array_slice(values, 1, 3)");
   });
 
+  it("emits array buildReadonly via runtime helper", () => {
+    const cpp = emit(`
+      function freeze(values: int[]): readonly int[] {
+        return values.buildReadonly()
+      }
+    `);
+    expect(cpp).toContain("doof::array_buildReadonly(values)");
+  });
+
+  it("emits array cloneMutable on mutable array via runtime helper", () => {
+    const cpp = emit(`
+      function copyMut(values: int[]): int[] {
+        return values.cloneMutable()
+      }
+    `);
+    expect(cpp).toContain("doof::array_cloneMutable(values)");
+  });
+
+  it("emits array cloneMutable on readonly array via runtime helper", () => {
+    const cpp = emit(`
+      function copyMut(values: readonly int[]): int[] {
+        return values.cloneMutable()
+      }
+    `);
+    expect(cpp).toContain("doof::array_cloneMutable(values)");
+  });
+
   it("emits contextual Set literals as unordered_set", () => {
     const cpp = emit(`
       function makeSet(): Set<int> {

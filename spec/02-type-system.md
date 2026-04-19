@@ -177,6 +177,41 @@ s.split(", ")         // ["Hello", "World!"]
 "foo bar".replace("foo", "baz")  // "baz bar"
 ```
 
+### Array Properties and Methods
+
+Arrays support a `.length` property and the following built-in methods:
+
+| Method | Available on | Signature | Description |
+|--------|--------------|-----------|-------------|
+| `.length` | both | `int` (property) | Number of elements |
+| `.push(element)` | mutable only | `(T): void` | Append an element |
+| `.pop()` | mutable only | `(): void` | Remove the last element |
+| `.contains(element)` | both | `(T): bool` | Whether the array contains the value |
+| `.slice(start, end)` | both | `(int, int): T[]` or `readonly T[]` | Sub-array (preserves mutability) |
+| `.buildReadonly()` | mutable only | `(): readonly T[]` | Drain the array into a new readonly array (leaves original empty) |
+| `.cloneMutable()` | both | `(): T[]` | Shallow-copy into a new mutable array |
+
+`push` and `pop` are rejected on `readonly T[]` arrays at compile time. `buildReadonly` is also rejected on readonly arrays — use `cloneMutable` then `buildReadonly` if needed.
+
+```javascript
+nums := [1, 2, 3, 4]
+nums.push(5)                      // nums is now [1, 2, 3, 4, 5]
+nums.pop()                        // nums is now [1, 2, 3, 4]
+tail := nums.slice(1, 3)          // [2, 3]  (int[])
+hasTwo := nums.contains(2)        // true
+
+// Build pattern: accumulate into mutable, then freeze
+let builder: int[] = []
+builder.push(1)
+builder.push(2)
+result := builder.buildReadonly() // readonly int[], builder is now empty
+
+// Clone into a mutable copy
+readonly frozen: readonly int[] = [1, 2, 3]
+let copy := frozen.cloneMutable() // int[]
+copy.push(4)                      // ✅ OK
+```
+
 ### Non-Null Assertion
 
 The postfix `!` operator asserts that a nullable expression is non-null. It strips `null` from the type at compile time. At runtime, if the value is actually null, the program will panic.

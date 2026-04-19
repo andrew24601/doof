@@ -111,7 +111,17 @@ numbers := [1, 2, 3]                 // int[]
 names: string[] = ["Alice", "Bob"]
 ```
 
-Methods: `.length`, `.push()`, `.pop()`, `.contains()`, `.slice(start, end)`, `.map()`, `.filter()`, `.reduce()`, `.forEach()`, `.sort()`.
+**Array methods:**
+
+| Method | Available on | Description |
+|--------|--------------|-------------|
+| `.length` | both | Number of elements |
+| `.push(e)` | mutable only | Append element |
+| `.pop()` | mutable only | Remove last element |
+| `.contains(e)` | both | Test membership |
+| `.slice(start, end)` | both | Sub-array (preserves mutability) |
+| `.buildReadonly()` | mutable only | Drain into a new `readonly T[]`, leaving original empty |
+| `.cloneMutable()` | both | Shallow-copy into a new `T[]` |
 
 `readonly T[]` and `ReadonlyArray<T>` are readonly collection types. They stop collection mutation, but they do not require element types to be deeply immutable. They are distinct from `T[]`: mutable arrays do not implicitly convert to readonly arrays, and readonly arrays do not implicitly convert to mutable arrays.
 

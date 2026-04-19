@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <curl/curl.h>
 #include "doof_runtime.hpp"
 
@@ -114,7 +116,8 @@ long normalizedTimeoutMs(int32_t timeoutMs) {
 
 class NativeHttpClient {
 public:
-    NativeHttpClient() {
+    NativeHttpClient()
+        : responseBody_(std::make_shared<std::vector<uint8_t>>()) {
         ensureCurlGlobalInit();
     }
 
@@ -122,14 +125,14 @@ public:
         const std::string& method,
         const std::string& url,
         const std::string& requestHeaders,
-        const std::string& body,
-        bool hasBody,
+        std::shared_ptr<std::vector<uint8_t>> body,
         int32_t timeoutMs,
         bool followRedirects
     ) {
+        const bool hasBody = body != nullptr;
         responseStatusText_.clear();
         responseHeadersText_.clear();
-        responseBodyText_.clear();
+        responseBody_ = std::make_shared<std::vector<uint8_t>>();
 
         CURL* handle = curl_easy_init();
         if (handle == nullptr) {
@@ -158,15 +161,15 @@ public:
         const bool isPost = method == "POST";
         if (isPost) {
             curl_easy_setopt(handle, CURLOPT_POST, 1L);
-        } else if (isGet && !hasBody) {
+        } else if (isGet && body == nullptr) {
             curl_easy_setopt(handle, CURLOPT_HTTPGET, 1L);
         } else {
             curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, method.c_str());
         }
 
         if (hasBody) {
-            curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body.c_str());
-            curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
+            curl_easy_setopt(handle, CURLOPT_POSTFIELDS, reinterpret_cast<const char*>(body->data()));
+            curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body->size()));
         }
 
         const CURLcode result = curl_easy_perform(handle);
@@ -198,15 +201,15 @@ public:
         return responseHeadersText_;
     }
 
-    std::string responseBodyText() const {
-        return responseBodyText_;
+    std::shared_ptr<std::vector<uint8_t>> responseBody() const {
+        return responseBody_;
     }
 
 private:
     static size_t writeBodyCallback(char* data, size_t size, size_t count, void* userData) {
         const std::size_t bytes = size * count;
         auto* self = static_cast<NativeHttpClient*>(userData);
-        self->responseBodyText_.append(data, bytes);
+        self->responseBody_->insert(self->responseBody_->end(), data, data + bytes);
         return bytes;
     }
 
@@ -230,5 +233,5 @@ private:
 
     std::string responseStatusText_;
     std::string responseHeadersText_;
-    std::string responseBodyText_;
+    std::shared_ptr<std::vector<uint8_t>> responseBody_;
 };

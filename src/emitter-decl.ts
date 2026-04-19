@@ -222,8 +222,15 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
 
   if (constructorFields.length > 0) {
     ctx.sourceLines.push("");
+    // C++ requires that once a parameter has a default, all subsequent parameters must too.
+    // Find the last field that has no default — only fields after it (in the trailing all-defaulted
+    // suffix) are allowed to carry default argument values.
+    const lastRequiredIdx = constructorFields.reduceRight(
+      (acc: number, cf, idx) => (acc >= 0 ? acc : cf.field.defaultValue ? acc : idx),
+      -1,
+    );
     const ctorParams = constructorFields
-      .map((cf) => {
+      .map((cf, idx) => {
         let fType: string;
         const resolvedFieldType = substituteEmitType(cf.field.resolvedType, ctx);
         if (cf.field.weak_) {
@@ -237,8 +244,8 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
         } else {
           fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
         }
-        // Add default parameter value if the field has a default
-        if (cf.field.defaultValue) {
+        // Only emit a default if this field is in the trailing all-defaulted suffix
+        if (idx > lastRequiredIdx && cf.field.defaultValue) {
           const defaultVal = emitExpression(cf.field.defaultValue, ctx, resolvedFieldType ?? undefined);
           return `${fType} ${emitIdentifierSafe(cf.name)} = ${defaultVal}`;
         }

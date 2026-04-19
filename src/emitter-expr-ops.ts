@@ -230,8 +230,13 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
     case ">>>":
       return `static_cast<int32_t>(static_cast<uint32_t>(${left}) >> ${right})`;
 
-    case "??":
-      return `(${left} ? *${left} : ${right})`;
+    case "??": {
+      // shared_ptr (pointer-type nullable) — no dereference needed; both sides are the same shared_ptr type.
+      // optional<T> — must dereference to extract the T value.
+      const lhsType = expr.left.resolvedType;
+      const deref = lhsType && isPointerType(lhsType) ? "" : "*";
+      return `(${left} ? ${deref}${left} : ${right})`;
+    }
 
     case "..":
       return `doof::range(${left}, ${right})`;

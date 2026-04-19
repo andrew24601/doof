@@ -1,16 +1,18 @@
-import { HttpError, HttpResponse, createClient, get } from "./http"
+import { HttpError, HttpResponse, createClient, get } from "http"
 
 function formatResponse(response: HttpResponse): string {
   server := response.header("Server") ?? "(missing)"
   contentType := response.header("Content-Type") ?? "(missing)"
+  bodyText := response.getText()
   let text = "Status: ${response.status} ${response.statusText}\n"
   text += "OK: ${response.ok()}\n"
   text += "Server: ${server}\n"
   text += "Content-Type: ${contentType}\n"
   text += "Header count: ${response.headers.length}\n"
+  text += "Body bytes: ${response.getBlob().length}\n"
   text += "\nBody preview:\n"
-  text += response.body.substring(0, 240)
-  if response.body.length > 240 {
+  text += bodyText.substring(0, 240)
+  if bodyText.length > 240 {
     text += "\n..."
   }
   return text

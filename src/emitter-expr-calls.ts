@@ -333,6 +333,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "pop") return `doof::array_pop(${obj})`;
       if (method === "contains") return `doof::array_contains(${obj}, ${args})`;
       if (method === "slice") return `doof::array_slice(${obj}, ${args})`;
+      if (method === "buildReadonly") return `doof::array_buildReadonly(${obj})`;
+      if (method === "cloneMutable") return `doof::array_cloneMutable(${obj})`;
     }
 
     // String methods

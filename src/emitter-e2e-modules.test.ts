@@ -511,6 +511,44 @@ private:
     expect(result.exitCode).toBe(17);
   });
 
+  it("compiles extern methods returning readonly byte arrays", () => {
+    const sourceHeader = `
+#pragma once
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+namespace native {
+class BodySource {
+public:
+    std::shared_ptr<std::vector<uint8_t>> bytes() const {
+        return std::make_shared<std::vector<uint8_t>>(std::initializer_list<uint8_t>{65, 10, 66});
+    }
+};
+}
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "body_source.hpp"), sourceHeader);
+
+    const result = ctx.compileAndRun(`
+      import class BodySource from "body_source.hpp" as native::BodySource {
+        bytes(): readonly byte[]
+      }
+
+      function main(): int {
+        payload := BodySource().bytes()
+        println(payload.length)
+        println(payload[0])
+        println(payload[2])
+        return int(payload[0]) + int(payload[2])
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("3\n65\n66");
+    expect(result.exitCode).toBe(131);
+  });
+
   it("compiles extern class method returning imported enum type", () => {
     const nativeHeader = `
 #pragma once

@@ -1,26 +1,42 @@
-// Shared HTTP client types and a small Doof-first wrapper around a libcurl bridge.
+import { BlobReader, BlobBuilder } from "std/blob"
+import { blobStreamToLineStream } from "std/stream"
+
+// Candidate HTTP client library backed by a small libcurl bridge.
 
 export import class NativeHttpClient from "./native_http_client.hpp" {
-  perform(method: string, url: string, requestHeaders: string, body: string,
-          hasBody: bool, timeoutMs: int, followRedirects: bool): Result<int, string>
+  perform(method: string, url: string, requestHeaders: string, body: readonly byte[] | null,
+          timeoutMs: int, followRedirects: bool): Result<int, string>
   responseStatusText(): string
   responseHeadersText(): string
-  responseBodyText(): string
+  responseBody(): readonly byte[]
+}
+
+class BodyChunkStream implements Stream<readonly byte[]> {
+  chunk: readonly byte[] = []
+  consumed: bool = false
+
+  next(): readonly byte[] | null {
+    if this.consumed {
+      return null
+    }
+
+    this.consumed = true
+    return this.chunk
+  }
 }
 
 export class HttpHeader {
-  name: string
-  value: string
+  readonly name: string
+  readonly value: string
 }
 
 export class HttpRequest {
-  method: string
-  url: string
-  headers: HttpHeader[]
-  body: string
-  hasBody: bool
-  timeoutMs: int
-  followRedirects: bool
+  readonly method: string
+  readonly url: string
+  readonly headers: HttpHeader[] = []
+  readonly body: readonly byte[] | null = null
+  readonly timeoutMs: int = 30000
+  readonly followRedirects: bool = true
 
   header(name: string): string | null {
     lowerName := name.toLowerCase()
@@ -34,10 +50,10 @@ export class HttpRequest {
 }
 
 export class HttpResponse {
-  status: int
-  statusText: string
-  headers: HttpHeader[]
-  body: string
+  readonly status: int
+  readonly statusText: string
+  readonly headers: HttpHeader[]
+  readonly body: readonly byte[]
 
   ok(): bool {
     return this.status >= 200 && this.status < 300
@@ -52,16 +68,35 @@ export class HttpResponse {
     }
     return null
   }
+
+  getBlob(): readonly byte[] {
+    return this.body
+  }
+
+  getText(): string {
+    reader := BlobReader(this.body)
+    return reader.readString(reader.remaining())
+  }
+
+  getLineStream(): Stream<string> {
+    return blobStreamToLineStream(BodyChunkStream {
+      chunk: this.body,
+    })
+  }
+
+  getJsonValue(): Result<JsonValue, string> {
+    return JSON.parse(this.getText())
+  }
 }
 
 export class HttpError {
-  kind: string
-  code: string
-  message: string
+  readonly kind: string
+  readonly code: string
+  readonly message: string
 }
 
 export class HttpClient {
-  native: NativeHttpClient
+  readonly native: NativeHttpClient
 }
 
 export function createClient(): HttpClient {
@@ -70,16 +105,11 @@ export function createClient(): HttpClient {
   }
 }
 
-export function newRequest(method: string, url: string): HttpRequest {
-  headers: HttpHeader[] := []
+function newRequest(method: string, url: string): HttpRequest {
   return HttpRequest {
     method,
     url,
-    headers,
-    body: "",
-    hasBody: false,
-    timeoutMs: 30000,
-    followRedirects: true,
+    body: null,
   }
 }
 
@@ -87,19 +117,19 @@ export function get(client: HttpClient, url: string): Result<HttpResponse, HttpE
   return send(client, newRequest("GET", url))
 }
 
-export function post(client: HttpClient, url: string, body: string, contentType: string): Result<HttpResponse, HttpError> {
-  headers: HttpHeader[] := []
-  headers.push(HttpHeader {
+export function postJsonValue(client: HttpClient, url: string, body: JsonValue): Result<HttpResponse, HttpError> {
+  builder := BlobBuilder()
+  builder.writeString(JSON.stringify(body))
+  headers := readonly [HttpHeader {
     name: "Content-Type",
-    value: contentType,
-  })
+    value: "application/json",
+  }]
 
   return send(client, HttpRequest {
     method: "POST",
     url,
     headers,
-    body,
-    hasBody: true,
+    body: builder.build(),
     timeoutMs: 30000,
     followRedirects: true,
   })
@@ -111,7 +141,6 @@ export function send(client: HttpClient, request: HttpRequest): Result<HttpRespo
     request.url,
     renderHeaders(request.headers),
     request.body,
-    request.hasBody,
     request.timeoutMs,
     request.followRedirects,
   )
@@ -122,7 +151,7 @@ export function send(client: HttpClient, request: HttpRequest): Result<HttpRespo
         status: s.value,
         statusText: client.native.responseStatusText(),
         headers: parseHeaders(client.native.responseHeadersText()),
-        body: client.native.responseBodyText(),
+        body: client.native.responseBody(),
       }
     },
     f: Failure => Failure {
@@ -131,7 +160,7 @@ export function send(client: HttpClient, request: HttpRequest): Result<HttpRespo
   }
 }
 
-function renderHeaders(headers: HttpHeader[]): string {
+function renderHeaders(headers: readonly HttpHeader[]): string {
   let text = ""
   for header of headers {
     text += "${header.name}: ${header.value}\r\n"
@@ -139,7 +168,7 @@ function renderHeaders(headers: HttpHeader[]): string {
   return text
 }
 
-function parseHeaders(headerText: string): HttpHeader[] {
+function parseHeaders(headerText: string): readonly HttpHeader[] {
   headers: HttpHeader[] := []
   lines := headerText.split("\r\n")
   for line of lines {
@@ -157,7 +186,7 @@ function parseHeaders(headerText: string): HttpHeader[] {
       value: line.slice(separator + 1).trim(),
     })
   }
-  return headers
+  return headers.buildReadonly()
 }
 
 function parseError(raw: string): HttpError {

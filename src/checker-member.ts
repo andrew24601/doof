@@ -792,6 +792,12 @@ export function inferMemberType(
         returnType: { kind: "array", elementType: elem, readonly_: objectType.readonly_ },
       };
     }
+    if (objectType.readonly_ && property === "buildReadonly") {
+      reportMemberDiagnostic(info, table, span, 'Method "buildReadonly" is not available on readonly array');
+      return UNKNOWN_TYPE;
+    }
+    if (property === "buildReadonly") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: true } };
+    if (property === "cloneMutable") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: false } };
   }
   if (objectType.kind === "map") {
     const k = objectType.keyType;

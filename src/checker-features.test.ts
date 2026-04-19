@@ -4369,6 +4369,43 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[1].message).toContain('Method "pop" is not available on readonly array');
   });
 
+  it("resolves buildReadonly() type on mutable array", () => {
+    const cr = check({ "/main.do": `
+      function freeze(a: int[]): readonly int[] {
+        return a.buildReadonly()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects buildReadonly() on readonly array", () => {
+    const cr = check({ "/main.do": `
+      function test(a: readonly int[]): void {
+        a.buildReadonly()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "buildReadonly" is not available on readonly array');
+  });
+
+  it("resolves cloneMutable() type on mutable array", () => {
+    const cr = check({ "/main.do": `
+      function copy(a: int[]): int[] {
+        return a.cloneMutable()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("resolves cloneMutable() type on readonly array", () => {
+    const cr = check({ "/main.do": `
+      function copy(a: readonly int[]): int[] {
+        return a.cloneMutable()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("treats readonly Array annotations as ReadonlyArray", () => {
     const cr = check({ "/main.do": `
       function test(a: readonly Array<int>): void {
