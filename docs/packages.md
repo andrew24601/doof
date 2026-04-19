@@ -48,6 +48,16 @@ The compiler materializes remote packages into `~/.doof/packages/` by default. G
 
 See [`samples/hello-package/`](../samples/hello-package/) for a working remote package example.
 
+## Local stdlib Override
+
+When working on the standard library itself, set `DOOF_STDLIB_ROOT` to a checkout that contains package directories such as `assert/`, `fs/`, `path/`, `regex/`, and `stream/`.
+
+```bash
+export DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib
+```
+
+With that override in place, `import { writeText } from "std/fs"` resolves against `/Users/andrew/develop/doof-stdlib/fs` instead of materializing `https://github.com/doof-lang/fs.git`. The same override also applies to implicit std package loading during `doof emit`, `doof build`, `doof run`, and `doof check`.
+
 ## Build Defaults
 
 Packages can declare a default entrypoint and output directory for `doof emit`, `doof build`, `doof run`, and `doof check`:

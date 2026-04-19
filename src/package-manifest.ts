@@ -27,6 +27,7 @@ import {
 } from "./path-utils.js";
 import {
   getImplicitStdDependencyConfig,
+  getImplicitStdDependencyLocalRoot,
   getImplicitStdDependencyNames,
   getStdPackageShortName,
   isImplicitStdSelfReference,
@@ -602,6 +603,23 @@ function discoverPackageFromManifest(
 
         const shortName = getStdPackageShortName(dependencyName);
         if (!shortName) {
+          continue;
+        }
+
+        const localStdDependencyRoot = getImplicitStdDependencyLocalRoot(shortName);
+        if (localStdDependencyRoot) {
+          const dependencyManifestPath = joinFsPath(localStdDependencyRoot, MANIFEST_FILENAME);
+          const loadedDependency = discoverPackageFromManifest(
+            fileSystem,
+            dependencyManifestPath,
+            loadingStack,
+            context,
+          );
+          discovered.dependencies.push({
+            kind: "local",
+            dependencyName,
+            rootDir: loadedDependency.rootDir,
+          });
           continue;
         }
 

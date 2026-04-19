@@ -1,13 +1,17 @@
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DOOF_STDLIB_ROOT_ENV,
   DEFAULT_STD_VERSIONS,
   getImplicitStdDependencyConfig,
+  getImplicitStdDependencyLocalRoot,
   getImplicitStdDependencyNames,
   getStdPackageShortName,
+  getStdlibRootOverride,
   isImplicitStdSelfReference,
+  resolveStdlibOverridePath,
 } from "./std-packages.js";
 
 const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
@@ -15,6 +19,10 @@ const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
   "..",
   "stdlib-packages.json",
 );
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("std package metadata", () => {
   it("loads default std versions from the shared manifest", () => {
@@ -31,9 +39,20 @@ describe("std package metadata", () => {
     expect(getImplicitStdDependencyConfig("missing")).toBeNull();
   });
 
+  it("resolves a rooted stdlib override when configured", () => {
+    vi.stubEnv(DOOF_STDLIB_ROOT_ENV, "/workspace/doof-stdlib");
+
+    expect(getStdlibRootOverride()).toBe("/workspace/doof-stdlib");
+    expect(resolveStdlibOverridePath("std/fs")).toBe("/workspace/doof-stdlib/fs");
+    expect(resolveStdlibOverridePath("std/fs/runtime")).toBe("/workspace/doof-stdlib/fs/runtime");
+    expect(getImplicitStdDependencyLocalRoot("fs")).toBe("/workspace/doof-stdlib/fs");
+    expect(resolveStdlibOverridePath("std/missing")).toBeNull();
+  });
+
   it("lists implicit std dependency names", () => {
     expect(getImplicitStdDependencyNames()).toEqual([
       "std/assert",
+      "std/blob",
       "std/fs",
       "std/path",
       "std/regex",

@@ -64,6 +64,8 @@ doof <command> [options] [entry.do | package-dir]
 
 Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` subtree instead of mirroring the cache path from `~/.doof/packages/`.
 
+When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that local checkout root instead of fetching the compiler's default GitHub-backed std packages. For example, `DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib` makes `std/fs` resolve from `/Users/andrew/develop/doof-stdlib/fs`.
+
 For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations.
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.

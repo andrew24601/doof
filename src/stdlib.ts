@@ -1,8 +1,7 @@
-import * as nodePath from "node:path";
 import { ModuleResolver, type FileSystem, type ResolverOptions } from "./resolver.js";
-import { toVirtualPath } from "./path-utils.js";
+import { joinFsPath, toVirtualPath } from "./path-utils.js";
 import { materializeRemoteDependencyByUrl } from "./package-manifest.js";
-import { DEFAULT_STD_VERSIONS, getStdPackageShortName } from "./std-packages.js";
+import { DEFAULT_STD_VERSIONS, getStdPackageShortName, resolveStdlibOverridePath } from "./std-packages.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 export { BUNDLED_STDLIB_ROOT };
 
@@ -15,6 +14,11 @@ class StdlibFS implements FileSystem {
     // virtualPath is normalized via toVirtualPath by callers
     if (!virtualPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) return null;
     const rel = virtualPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
+    const overridePath = resolveStdlibOverridePath(`std/${rel}`);
+    if (overridePath) {
+      return { realPath: overridePath };
+    }
+
     const parts = rel.split("/");
     const pkgName = getStdPackageShortName(`std/${parts[0]}`);
     const rest = parts.slice(1).join("/");
@@ -31,7 +35,7 @@ class StdlibFS implements FileSystem {
     try {
       const resolved = materializeRemoteDependencyByUrl(url, version, this.cacheRoot);
       const rootDir = resolved.rootDir;
-      const target = nodePath.join(rootDir, rest);
+      const target = joinFsPath(rootDir, rest);
       return { realPath: target };
     } catch {
       return null;

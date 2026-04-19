@@ -1,8 +1,11 @@
 import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
+import { joinFsPath, resolveFsPath } from "./path-utils.js";
 
 export type StdPackageVersions = Record<string, string>;
+
+export const DOOF_STDLIB_ROOT_ENV = "DOOF_STDLIB_ROOT";
 
 const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
   nodePath.dirname(fileURLToPath(import.meta.url)),
@@ -41,6 +44,46 @@ export function getImplicitStdDependencyConfig(packageName: string): { url: stri
     url: `https://github.com/doof-lang/${packageName}.git`,
     version,
   };
+}
+
+export function getStdlibRootOverride(env: NodeJS.ProcessEnv = process.env): string | null {
+  const configuredRoot = env[DOOF_STDLIB_ROOT_ENV]?.trim();
+  if (!configuredRoot) {
+    return null;
+  }
+
+  return resolveFsPath(configuredRoot);
+}
+
+export function resolveStdlibOverridePath(specifier: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const rootOverride = getStdlibRootOverride(env);
+  if (!rootOverride) {
+    return null;
+  }
+
+  const shortName = getStdPackageShortName(specifier);
+  if (!shortName) {
+    return null;
+  }
+
+  const segments = shortName.split("/");
+  const packageName = segments[0];
+  if (!packageName || !DEFAULT_STD_VERSIONS[packageName]) {
+    return null;
+  }
+
+  return joinFsPath(rootOverride, packageName, ...segments.slice(1));
+}
+
+export function getImplicitStdDependencyLocalRoot(
+  packageName: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (!DEFAULT_STD_VERSIONS[packageName]) {
+    return null;
+  }
+
+  return resolveStdlibOverridePath(`std/${packageName}`, env);
 }
 
 export function getImplicitStdDependencyNames(): string[] {

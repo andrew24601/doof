@@ -21,6 +21,7 @@ import {
   resolveFsPath,
   resolveFsPathFrom,
 } from "./path-utils.js";
+import { resolveStdlibOverridePath } from "./std-packages.js";
 
 // ============================================================================
 // File system abstraction
@@ -188,6 +189,11 @@ export class ModuleResolver {
   }
 
   private resolveStdlib(specifier: string): string | null {
+    const overrideBase = resolveStdlibOverridePath(specifier);
+    if (overrideBase) {
+      return this.tryResolveFile(overrideBase);
+    }
+
     if (!this.stdlibRoot) return null;
     const base = joinFsPath(this.stdlibRoot, specifier);
     return this.tryResolveFile(base);
