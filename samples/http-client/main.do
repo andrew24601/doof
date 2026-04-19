@@ -1,4 +1,4 @@
-import { HttpError, HttpResponse, createClient, get } from "http"
+import { HttpError, HttpResponse, createClient, get } from "std/http"
 
 function formatResponse(response: HttpResponse): string {
   server := response.header("Server") ?? "(missing)"

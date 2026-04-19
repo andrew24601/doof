@@ -13,7 +13,7 @@ import {
   narrowPackageGraphForBuild,
   resolvePackageBuildContext,
 } from "./package-manifest.js";
-import { DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
+import { DEFAULT_STD_VERSIONS, DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
 import { VirtualFS } from "./test-helpers.js";
 
 afterEach(() => {
@@ -171,103 +171,38 @@ describe("local package graphs", () => {
   });
 
   it("injects implicit std dependencies when a package does not declare them", () => {
+    vi.stubEnv(DOOF_STDLIB_ROOT_ENV, "");
+
+    const stdFiles = Object.fromEntries(
+      Object.keys(DEFAULT_STD_VERSIONS).flatMap((shortName) => [
+        [`/cache/std-${shortName}/doof.json`, JSON.stringify({ name: `std/${shortName}` })],
+        [`/cache/std-${shortName}/index.do`, `export function noop(): void {}`],
+      ]),
+    );
+
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
         name: "app",
         dependencies: {},
       }),
       "/app/main.do": 'import { writeText } from "std/fs"\nfunction main(): void => writeText("out.txt", "ok")',
-      "/cache/std-fs/doof.json": JSON.stringify({ name: "std/fs" }),
-      "/cache/std-fs/index.do": "export function writeText(path: string, value: string): void {}",
-      "/cache/std-blob/doof.json": JSON.stringify({ name: "std/blob" }),
-      "/cache/std-blob/index.do": "export class Blob {}",
-      "/cache/std-path/doof.json": JSON.stringify({ name: "std/path" }),
-      "/cache/std-path/index.do": "export function join(parts: string[]): string => \"\"",
-      "/cache/std-assert/doof.json": JSON.stringify({ name: "std/assert" }),
-      "/cache/std-assert/index.do": "export class Assert {}",
-      "/cache/std-regex/doof.json": JSON.stringify({ name: "std/regex" }),
-      "/cache/std-regex/index.do": "export class Regex {}",
-      "/cache/std-stream/doof.json": JSON.stringify({ name: "std/stream" }),
-      "/cache/std-stream/index.do": "export interface Stream<T> {}",
+      ...stdFiles,
     });
 
     const graph = loadPackageGraph(fs, "/app/main.do", {
       implicitStdDependencies: true,
       resolveRemoteDependency(dependency, context) {
-        if (context.dependencyName === "std/fs") {
-          return {
-            rootDir: "/cache/std-fs",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "fs-commit",
-              pathSegments: ["doof-lang", "fs"],
-            },
-          };
-        }
-        if (context.dependencyName === "std/path") {
-          return {
-            rootDir: "/cache/std-path",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "path-commit",
-              pathSegments: ["doof-lang", "path"],
-            },
-          };
-        }
-        if (context.dependencyName === "std/assert") {
-          return {
-            rootDir: "/cache/std-assert",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "assert-commit",
-              pathSegments: ["doof-lang", "assert"],
-            },
-          };
-        }
-        if (context.dependencyName === "std/blob") {
-          return {
-            rootDir: "/cache/std-blob",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "blob-commit",
-              pathSegments: ["doof-lang", "blob"],
-            },
-          };
-        }
-        if (context.dependencyName === "std/regex") {
-          return {
-            rootDir: "/cache/std-regex",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "regex-commit",
-              pathSegments: ["doof-lang", "regex"],
-            },
-          };
-        }
-        if (context.dependencyName === "std/stream") {
-          return {
-            rootDir: "/cache/std-stream",
-            package: {
-              kind: "git",
-              url: dependency.url,
-              version: dependency.version,
-              commit: "stream-commit",
-              pathSegments: ["doof-lang", "stream"],
-            },
-          };
-        }
-
-        throw new Error(`unexpected dependency ${context.dependencyName}`);
+        const shortName = context.dependencyName.slice("std/".length);
+        return {
+          rootDir: `/cache/std-${shortName}`,
+          package: {
+            kind: "git",
+            url: dependency.url,
+            version: dependency.version,
+            commit: `${shortName}-commit`,
+            pathSegments: ["doof-lang", shortName],
+          },
+        };
       },
     });
 
@@ -277,24 +212,20 @@ describe("local package graphs", () => {
   it("loads implicit std dependencies from DOOF_STDLIB_ROOT before remote resolution", () => {
     vi.stubEnv(DOOF_STDLIB_ROOT_ENV, "/stdlib");
 
+    const stdFiles = Object.fromEntries(
+      Object.keys(DEFAULT_STD_VERSIONS).flatMap((shortName) => [
+        [`/stdlib/${shortName}/doof.json`, JSON.stringify({ name: `std/${shortName}`, dependencies: {} })],
+        [`/stdlib/${shortName}/index.do`, `export function noop(): void {}`],
+      ]),
+    );
+
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
         name: "app",
         dependencies: {},
       }),
       "/app/main.do": 'import { writeText } from "std/fs"\nfunction main(): void => writeText("out.txt", "ok")',
-      "/stdlib/assert/doof.json": JSON.stringify({ name: "std/assert", dependencies: {} }),
-      "/stdlib/assert/index.do": "export class Assert {}",
-      "/stdlib/blob/doof.json": JSON.stringify({ name: "std/blob", dependencies: {} }),
-      "/stdlib/blob/index.do": "export class Blob {}",
-      "/stdlib/fs/doof.json": JSON.stringify({ name: "std/fs", dependencies: {} }),
-      "/stdlib/fs/index.do": "export function writeText(path: string, value: string): void {}",
-      "/stdlib/path/doof.json": JSON.stringify({ name: "std/path", dependencies: {} }),
-      "/stdlib/path/index.do": 'export function join(parts: string[]): string => ""',
-      "/stdlib/regex/doof.json": JSON.stringify({ name: "std/regex", dependencies: {} }),
-      "/stdlib/regex/index.do": "export class Regex {}",
-      "/stdlib/stream/doof.json": JSON.stringify({ name: "std/stream", dependencies: {} }),
-      "/stdlib/stream/index.do": "export interface Stream<T> {}",
+      ...stdFiles,
     });
 
     let remoteResolutionCalls = 0;
@@ -306,20 +237,25 @@ describe("local package graphs", () => {
       },
     });
 
+    const expectedRootDirs = ["/app", ...Object.keys(DEFAULT_STD_VERSIONS).sort().map((name) => `/stdlib/${name}`)];
     expect(remoteResolutionCalls).toBe(0);
     expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/stdlib/fs");
-    expect(graph.packages.map((pkg) => pkg.rootDir)).toEqual([
-      "/app",
-      "/stdlib/assert",
-      "/stdlib/blob",
-      "/stdlib/fs",
-      "/stdlib/path",
-      "/stdlib/regex",
-      "/stdlib/stream",
-    ]);
+    expect(graph.packages.map((pkg) => pkg.rootDir)).toEqual(expectedRootDirs);
   });
 
   it("narrows implicit std package graphs to analyzed modules for build metadata", () => {
+    vi.stubEnv(DOOF_STDLIB_ROOT_ENV, "");
+
+    const explicitPackages = new Set(["assert", "blob", "fs", "path", "regex", "stream"]);
+    const extraStdFiles = Object.fromEntries(
+      Object.keys(DEFAULT_STD_VERSIONS)
+        .filter((name) => !explicitPackages.has(name))
+        .flatMap((name) => [
+          [`/cache/std-${name}/doof.json`, JSON.stringify({ name: `std/${name}` })],
+          [`/cache/std-${name}/index.do`, `export function noop(): void {}`],
+        ]),
+    );
+
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
         name: "app",
@@ -389,26 +325,15 @@ describe("local package graphs", () => {
       }),
       "/cache/std-stream/index.do": "export interface Stream<T> {}",
       "/cache/std-stream/include/stream.hpp": "#pragma once\n",
+      ...extraStdFiles,
     });
 
     const graph = loadPackageGraph(fs, "/app/main.do", {
       implicitStdDependencies: true,
       resolveRemoteDependency(dependency, context) {
-        const rootDirByName: Record<string, string> = {
-          "std/assert": "/cache/std-assert",
-          "std/blob": "/cache/std-blob",
-          "std/fs": "/cache/std-fs",
-          "std/path": "/cache/std-path",
-          "std/regex": "/cache/std-regex",
-          "std/stream": "/cache/std-stream",
-        };
-        const rootDir = rootDirByName[context.dependencyName];
-        if (!rootDir) {
-          throw new Error(`unexpected dependency ${context.dependencyName}`);
-        }
         const shortName = context.dependencyName.slice("std/".length);
         return {
-          rootDir,
+          rootDir: `/cache/std-${shortName}`,
           package: {
             kind: "git",
             url: dependency.url,
@@ -420,15 +345,8 @@ describe("local package graphs", () => {
       },
     });
 
-    expect(graph.packages.map((pkg) => pkg.rootDir)).toEqual([
-      "/app",
-      "/cache/std-assert",
-      "/cache/std-blob",
-      "/cache/std-fs",
-      "/cache/std-path",
-      "/cache/std-regex",
-      "/cache/std-stream",
-    ]);
+    const allExpectedRootDirs = ["/app", ...Object.keys(DEFAULT_STD_VERSIONS).sort().map((name) => `/cache/std-${name}`)];
+    expect(graph.packages.map((pkg) => pkg.rootDir)).toEqual(allExpectedRootDirs);
 
     const buildGraph = narrowPackageGraphForBuild(graph, [
       "/app/main.do",
