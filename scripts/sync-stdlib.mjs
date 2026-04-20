@@ -6,19 +6,29 @@ import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 
+export const DOOF_STDLIB_ROOT_ENV = "DOOF_STDLIB_ROOT";
+
 const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = nodePath.join(repoRoot, "stdlib-packages.json");
 const stdlibRoot = nodePath.join(repoRoot, "stdlib");
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exitCode = 1;
-});
+if (isMainModule(import.meta.url, process.argv[1])) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
+}
 
-async function main() {
+export async function main(env = process.env) {
   const manifest = loadStdPackageManifest();
-  ensureTarAvailable();
+  const syncSource = resolveStdlibSyncSource(env, stdlibRoot);
+
+  if (syncSource.kind === "remote") {
+    ensureTarAvailable();
+  } else {
+    console.log(`Using ${DOOF_STDLIB_ROOT_ENV}=${syncSource.root} as stdlib sync source`);
+  }
 
   nodeFs.rmSync(stdlibRoot, { recursive: true, force: true });
   nodeFs.mkdirSync(stdlibRoot, { recursive: true });
@@ -27,9 +37,15 @@ async function main() {
 
   for (const packageName of Object.keys(manifest).sort()) {
     const version = manifest[packageName];
-    const resolved = await materializeStdPackage(packageName, version);
+    const resolved = syncSource.kind === "remote"
+      ? await materializeRemoteStdPackage(packageName, version)
+      : materializeLocalStdPackage(syncSource.root, packageName, version);
     resolvedPackages[packageName] = resolved;
-    console.log(`Synced std/${packageName}@${version} from ${resolved.resolvedRef}`);
+    if (resolved.sourceKind === "remote") {
+      console.log(`Synced std/${packageName}@${version} from ${resolved.resolvedRef}`);
+    } else {
+      console.log(`Synced std/${packageName}@${version} from local override ${resolved.localPath}`);
+    }
   }
 
   nodeFs.writeFileSync(
@@ -41,6 +57,42 @@ async function main() {
   );
 
   console.log(`Wrote stdlib mirror to ${stdlibRoot}`);
+}
+
+function isMainModule(moduleUrl, entryPath) {
+  if (!entryPath) {
+    return false;
+  }
+
+  return nodePath.resolve(entryPath) === fileURLToPath(moduleUrl);
+}
+
+export function getStdlibRootOverride(env = process.env) {
+  const configuredRoot = env[DOOF_STDLIB_ROOT_ENV]?.trim();
+  if (!configuredRoot) {
+    return null;
+  }
+
+  return nodePath.resolve(configuredRoot);
+}
+
+export function resolveStdlibSyncSource(env = process.env, targetRoot = stdlibRoot) {
+  const overrideRoot = getStdlibRootOverride(env);
+  if (!overrideRoot) {
+    return { kind: "remote" };
+  }
+
+  const resolvedTargetRoot = nodePath.resolve(targetRoot);
+  if (overrideRoot === resolvedTargetRoot) {
+    throw new Error(
+      `${DOOF_STDLIB_ROOT_ENV} cannot point at the stdlib mirror directory (${resolvedTargetRoot}) while running sync:stdlib`,
+    );
+  }
+
+  return {
+    kind: "local-override",
+    root: overrideRoot,
+  };
 }
 
 function loadStdPackageManifest() {
@@ -69,7 +121,30 @@ function ensureTarAvailable() {
   }
 }
 
-async function materializeStdPackage(packageName, version) {
+function materializeLocalStdPackage(sourceRoot, packageName, version) {
+  const sourceDir = nodePath.join(sourceRoot, packageName);
+  if (!nodeFs.existsSync(sourceDir) || !nodeFs.statSync(sourceDir).isDirectory()) {
+    throw new Error(
+      `Failed to sync std/${packageName}@${version}: local override package directory not found at ${sourceDir}`,
+    );
+  }
+
+  const targetDir = nodePath.join(stdlibRoot, packageName);
+  nodeFs.cpSync(sourceDir, targetDir, {
+    recursive: true,
+    filter(entryPath) {
+      return nodePath.basename(entryPath) !== ".git";
+    },
+  });
+
+  return {
+    version,
+    sourceKind: "local-override",
+    localPath: sourceDir,
+  };
+}
+
+async function materializeRemoteStdPackage(packageName, version) {
   const archiveTempDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), `doof-stdlib-${packageName}-`));
   const extractDir = nodeFs.mkdtempSync(nodePath.join(stdlibRoot, `${packageName}.tmp-`));
   const targetDir = nodePath.join(stdlibRoot, packageName);
@@ -97,6 +172,7 @@ async function materializeStdPackage(packageName, version) {
         nodeFs.renameSync(extractDir, targetDir);
         return {
           version,
+          sourceKind: "remote",
           resolvedRef: ref,
           archiveUrl,
         };

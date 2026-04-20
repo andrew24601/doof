@@ -291,7 +291,7 @@ npm test        # run compiler test suite
 npm run sync:stdlib  # mirror implicit std/* repos into ./stdlib for local reference
 ```
 
-`npm run sync:stdlib` reads the shared [stdlib-packages.json](stdlib-packages.json) manifest, downloads the matching `https://github.com/doof-lang/*` tag archives, and expands them into the ignored `stdlib/` directory so local docs tooling and AI agents can inspect the current implicit standard library sources.
+`npm run sync:stdlib` reads the shared [stdlib-packages.json](stdlib-packages.json) manifest and writes the ignored `stdlib/` mirror used for local docs tooling and AI inspection. By default it downloads the matching `https://github.com/doof-lang/*` tag archives, but when `DOOF_STDLIB_ROOT` points at a local stdlib checkout it copies packages from that checkout instead.
 
 ## Status
 

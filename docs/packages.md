@@ -58,6 +58,8 @@ export DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib
 
 With that override in place, `import { writeText } from "std/fs"` resolves against `/Users/andrew/develop/doof-stdlib/fs` instead of materializing `https://github.com/doof-lang/fs.git`. The same override also applies to implicit std package loading during `doof emit`, `doof build`, `doof run`, and `doof check`.
 
+The local development override also affects `npm run sync:stdlib`: when `DOOF_STDLIB_ROOT` is set, the command refreshes this repository's ignored `stdlib/` mirror by copying from that local checkout instead of downloading GitHub archives.
+
 ## Build Defaults
 
 Packages can declare a default entrypoint and output directory for `doof emit`, `doof build`, `doof run`, and `doof check`:
