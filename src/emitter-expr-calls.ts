@@ -399,15 +399,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (objType && objType.kind === "builtin-namespace" && memberExpr.property === "parse") {
-      if (objType.name === "JSON") {
-        return `doof::JSON::parse(${args})`;
-      }
       const helper = `parse_${objType.name}`;
       return `doof::${helper}(${args})`;
-    }
-
-    if (objType && objType.kind === "builtin-namespace" && objType.name === "JSON" && memberExpr.property === "stringify") {
-      return `doof::JSON::stringify(${args})`;
     }
 
     if (objType && objType.kind === "interface") {

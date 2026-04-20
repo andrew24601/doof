@@ -9,13 +9,15 @@ Classes with all-serializable fields automatically get `.toJsonValue()` and `.fr
 Returns a `JsonValue` representation.
 
 ```doof
+import { formatJsonValue } from "std/json"
+
 class User {
     name: string
     age: int
     private email: string
 }
 
-println(JSON.stringify(User("Alice", 30, "a@b.com").toJsonValue()))
+println(formatJsonValue(User("Alice", 30, "a@b.com").toJsonValue()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
 

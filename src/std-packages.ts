@@ -13,6 +13,12 @@ const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
   "stdlib-packages.json",
 );
 
+const CHECKED_IN_STDLIB_ROOT = nodePath.resolve(
+  nodePath.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "stdlib",
+);
+
 export const DEFAULT_STD_VERSIONS: StdPackageVersions = loadDefaultStdVersions();
 
 function loadDefaultStdVersions(): StdPackageVersions {
@@ -56,11 +62,6 @@ export function getStdlibRootOverride(env: NodeJS.ProcessEnv = process.env): str
 }
 
 export function resolveStdlibOverridePath(specifier: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  const rootOverride = getStdlibRootOverride(env);
-  if (!rootOverride) {
-    return null;
-  }
-
   const shortName = getStdPackageShortName(specifier);
   if (!shortName) {
     return null;
@@ -72,7 +73,17 @@ export function resolveStdlibOverridePath(specifier: string, env: NodeJS.Process
     return null;
   }
 
-  return joinFsPath(rootOverride, packageName, ...segments.slice(1));
+  const rootOverride = getStdlibRootOverride(env);
+  if (rootOverride) {
+    return joinFsPath(rootOverride, packageName, ...segments.slice(1));
+  }
+
+  const checkedInPackageRoot = nodePath.join(CHECKED_IN_STDLIB_ROOT, packageName);
+  if (nodeFs.existsSync(checkedInPackageRoot)) {
+    return joinFsPath(resolveFsPath(checkedInPackageRoot), ...segments.slice(1));
+  }
+
+  return null;
 }
 
 export function getImplicitStdDependencyLocalRoot(
@@ -83,7 +94,17 @@ export function getImplicitStdDependencyLocalRoot(
     return null;
   }
 
-  return resolveStdlibOverridePath(`std/${packageName}`, env);
+  if (getStdlibRootOverride(env)) {
+    return joinFsPath(getStdlibRootOverride(env)!, packageName);
+  }
+
+  const resolvedRoot = resolveStdlibOverridePath(`std/${packageName}`, env);
+  if (!resolvedRoot) {
+    return null;
+  }
+
+  const manifestPath = joinFsPath(resolvedRoot, "doof.json");
+  return nodeFs.existsSync(manifestPath) ? resolvedRoot : null;
 }
 
 export function getImplicitStdDependencyNames(): string[] {

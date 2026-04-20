@@ -649,6 +649,8 @@ struct NativeRows {
     fs.writeFileSync(path.join(ctx.tmpDir, "native_rows.hpp"), rowsHeader);
 
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       import class NativeRows from "native_rows.hpp" {
         static read(): Result<Map<string, JsonValue>, string>
       }
@@ -656,7 +658,7 @@ struct NativeRows {
       function main(): int {
         result := NativeRows.read()
         return case result {
-          s: Success => if JSON.stringify(s.value).contains("demo") then 0 else 2,
+          s: Success => if formatJsonValue(s.value).contains("demo") then 0 else 2,
           _ => 1
         }
       }

@@ -1,5 +1,6 @@
 import { parseJsonText } from "./json_support"
 import { RemindersTools, toolsListResultJson } from "./reminders"
+import { formatJsonValue } from "std/json"
 
 export import class NativeMcpServer from "./native_mcp_stdio.hpp" {
   isOpen(): bool
@@ -31,7 +32,7 @@ function chooseProtocolVersion(requestedVersion: string): string {
 
 function initializeResultJson(requestedVersion: string): string {
   version := chooseProtocolVersion(requestedVersion)
-  return JSON.stringify({
+  return formatJsonValue({
     protocolVersion: version,
     capabilities: {
       tools: {
@@ -46,7 +47,7 @@ function initializeResultJson(requestedVersion: string): string {
 }
 
 function callToolResultJson(isError: bool, text: string): string {
-  return JSON.stringify({
+  return formatJsonValue({
     content: [{
       "type": "text",
       text: text,
@@ -56,13 +57,13 @@ function callToolResultJson(isError: bool, text: string): string {
 }
 
 function toolErrorText(error: JsonValue): string {
-  return JSON.stringify(error)
+  return formatJsonValue(error)
 }
 
 function invokeToolCallResultJson(tools: RemindersTools, toolName: string, argsJson: string): string {
   return case parseJsonText(argsJson) {
     s: Success => case RemindersTools.metadata.invoke(tools, toolName, s.value) {
-      value: Success => callToolResultJson(false, JSON.stringify(value.value)),
+      value: Success => callToolResultJson(false, formatJsonValue(value.value)),
       error: Failure => callToolResultJson(true, toolErrorText(error.error))
     },
     f: Failure => callToolResultJson(true, "Invalid tool args JSON: " + f.error)

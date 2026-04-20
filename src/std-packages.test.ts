@@ -55,6 +55,7 @@ describe("std package metadata", () => {
       "std/blob",
       "std/fs",
       "std/http",
+      "std/json",
       "std/path",
       "std/regex",
       "std/stream",

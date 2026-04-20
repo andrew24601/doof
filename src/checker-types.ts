@@ -32,7 +32,7 @@ export interface JsonValueResolvedType {
   kind: "json-value";
 }
 
-export type BuiltinNamespaceName = PrimitiveName | "JSON";
+export type BuiltinNamespaceName = PrimitiveName;
 
 export interface BuiltinNamespaceType {
   kind: "builtin-namespace";

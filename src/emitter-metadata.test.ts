@@ -40,16 +40,16 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain('"Runs the tool."');
   });
 
-  it("includes schema strings for methods", () => {
+  it("includes direct JsonValue schema literals for methods", () => {
     const cpp = emit(`
       class Tool {
         function run(input "The input.": string): string => input
       }
       const m = Tool.metadata
     `);
-    // inputSchema and outputSchema are embedded JSON constants parsed to JsonValue
-    expect(cpp).toContain("_doof_schema_");
+    expect(cpp).toContain("std::unordered_map<std::string, doof::JsonValue>");
     expect(cpp).toContain('"input"');
+    expect(cpp).not.toContain("json_parse_or_panic");
   });
 
   it("includes int64 schema format for long metadata surfaces", () => {
@@ -59,7 +59,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain('"format":"int64"');
+    expect(cpp).toContain('{"format", doof::JsonValue("int64")}');
   });
 
   it("excludes private methods from metadata", () => {
@@ -142,7 +142,7 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain("if (_result.isFailure()) {");
     expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::failure(_result.error())");
     expect(cpp).toContain("auto _success = _result.value();");
-    expect(cpp).toContain('"type":"string"');
+    expect(cpp).toContain('{"type", doof::JsonValue("string")}');
   });
 
   it("redacts non-JsonValue Result failures to a generic 500 JSON error", () => {
@@ -158,7 +158,7 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain("if (_result.isFailure()) {");
     expect(cpp).toContain('doof::json_error(500, "An error occurred")');
     expect(cpp).toContain("auto _success = _result.value();");
-    expect(cpp).toContain('"type":"string"');
+    expect(cpp).toContain('{"type", doof::JsonValue("string")}');
   });
 
   it("treats Result<void, E> success as JSON null", () => {
@@ -170,7 +170,7 @@ describe("emitter — structured metadata", () => {
     `);
     expect(cpp).toContain("_result.value();");
     expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::success(doof::JsonValue(nullptr))");
-    expect(cpp).toContain('"type":"null"');
+    expect(cpp).toContain('{"type", doof::JsonValue("null")}');
   });
 
   it("emits metadata access as ClassName::_metadata", () => {
@@ -219,8 +219,9 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("_doof_defs_");
+    expect(cpp).toContain("std::unordered_map<std::string, doof::JsonValue>");
     expect(cpp).toContain('"Config"');
+    expect(cpp).not.toContain("std::nullopt");
   });
 
   it("omits $defs when no class types referenced", () => {
@@ -230,8 +231,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    // Empty string for defs when no class types
-    expect(cpp).not.toContain("_doof_defs_");
+      expect(cpp).toContain("std::nullopt");
   });
 
   it("handles multiple methods with separate reflection entries", () => {

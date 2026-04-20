@@ -4170,15 +4170,17 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[0].message).toContain("Builtin namespace \"string\" has no member \"parse\"");
   });
 
-  it("JSON.parse returns Result<JsonValue, string>", () => {
+  it("parseJsonValue returns Result<JsonValue, string>", () => {
     const cr = check({ "/main.do": `
+      import { parseJsonValue } from "std/json"
+
       function test(): void {
-        value := JSON.parse("{\\"ok\\":true}")
+        value := parseJsonValue("{\\"ok\\":true}")
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
-    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "parse" && e.callee.object.resolvedType?.kind === "builtin-namespace" && e.callee.object.resolvedType.name === "JSON");
+    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "identifier" && e.callee.name === "parseJsonValue");
     expect(call?.resolvedType).toEqual({
       kind: "result",
       successType: JSON_VALUE_TYPE,
@@ -4186,26 +4188,28 @@ describe("checker — string methods", () => {
     });
   });
 
-  it("JSON.stringify returns string", () => {
+  it("formatJsonValue returns string", () => {
     const cr = check({ "/main.do": `
+      import { formatJsonValue } from "std/json"
+
       function test(value: JsonValue): void {
-        text := JSON.stringify(value)
+        text := formatJsonValue(value)
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
-    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "stringify");
+    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "identifier" && e.callee.name === "formatJsonValue");
     expect(call?.resolvedType).toEqual(STRING_TYPE);
   });
 
-  it("rejects using JSON builtin namespace as a value", () => {
+  it("rejects using JSON without importing std/json", () => {
     const cr = check({ "/main.do": `
       function test(): void {
         value := JSON
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(1);
-    expect(cr.diagnostics[0].message).toContain("Builtin namespace \"JSON\" cannot be used as a value");
+    expect(cr.diagnostics[0].message).toContain("Undefined identifier \"JSON\"");
   });
 
   it("accepts direct JsonValue construction with primitives and nested literals", () => {

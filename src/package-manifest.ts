@@ -609,18 +609,20 @@ function discoverPackageFromManifest(
         const localStdDependencyRoot = getImplicitStdDependencyLocalRoot(shortName);
         if (localStdDependencyRoot) {
           const dependencyManifestPath = joinFsPath(localStdDependencyRoot, MANIFEST_FILENAME);
-          const loadedDependency = discoverPackageFromManifest(
-            fileSystem,
-            dependencyManifestPath,
-            loadingStack,
-            context,
-          );
-          discovered.dependencies.push({
-            kind: "local",
-            dependencyName,
-            rootDir: loadedDependency.rootDir,
-          });
-          continue;
+          if (fileSystem.readFile(dependencyManifestPath) !== null) {
+            const loadedDependency = discoverPackageFromManifest(
+              fileSystem,
+              dependencyManifestPath,
+              loadingStack,
+              context,
+            );
+            discovered.dependencies.push({
+              kind: "local",
+              dependencyName,
+              rootDir: loadedDependency.rootDir,
+            });
+            continue;
+          }
         }
 
         const dependency = getImplicitStdDependencyConfig(shortName);

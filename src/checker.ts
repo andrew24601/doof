@@ -644,7 +644,7 @@ export class TypeChecker {
   }
 
   private addBuiltinBindings(scope: Scope): void {
-    const primitiveNamespaces = ["byte", "int", "long", "float", "double", "string", "char", "bool", "JSON"] as const;
+    const primitiveNamespaces = ["byte", "int", "long", "float", "double", "string", "char", "bool"] as const;
     for (const name of primitiveNamespaces) {
       if (scope.bindings.has(name)) continue;
       scope.bindings.set(name, {

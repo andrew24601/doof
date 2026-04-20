@@ -1,6 +1,7 @@
 import { createOpenAIClient, createResponse } from "./openai"
 import { jsonArrayValues, jsonIsArray, jsonIsObject, jsonObjectGet, jsonStringValue } from "./json_bridge"
 import { invokeWeeknightTool, openAITools, WeeknightKitchenTools } from "./tools"
+import { parseJsonValue, formatJsonValue } from "std/json"
 
 export import class NativeEnv from "./native_env.hpp" {
   get(name: string): string
@@ -81,7 +82,7 @@ function main(args: string[]): int {
 
     if calls.length == 0 {
       println("Assistant:")
-      println(extractAssistantText(current) ?? JSON.stringify(current))
+      println(extractAssistantText(current) ?? formatJsonValue(current))
       return 0
     }
 
@@ -175,7 +176,7 @@ function collectToolCalls(items: JsonValue[]): Result<PendingToolCall[], string>
       return Failure("OpenAI returned a function_call item without call_id, name, or arguments")
     }
 
-    case JSON.parse(argumentsText!) {
+    case parseJsonValue(argumentsText!) {
       parsed: Success => {
         calls.push(PendingToolCall {
           callId: callId!,
@@ -225,10 +226,10 @@ function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]
   outputs: JsonValue[] := []
 
   for call of calls {
-    println("- ${call.name}(${JSON.stringify(call.args)})")
+    println("- ${call.name}(${formatJsonValue(call.args)})")
     case invokeWeeknightTool(tools, call.name, call.args) {
       s: Success => {
-        outputText := JSON.stringify(s.value)
+        outputText := formatJsonValue(s.value)
         println("  -> ${outputText}")
         outputs.push({
           "type": "function_call_output",
@@ -242,7 +243,7 @@ function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]
         outputs.push({
           "type": "function_call_output",
           call_id: call.callId,
-          output: JSON.stringify({ error: errorText }),
+          output: formatJsonValue({ error: errorText }),
         })
       }
     }

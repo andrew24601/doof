@@ -495,6 +495,19 @@ function writeProjectArtifacts(tmpDir: string, project: ReturnType<typeof emitPr
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, supportFile.content);
   }
+  for (const outputNativeCopy of project.outputNativeCopies) {
+    const destinationPath = path.join(tmpDir, outputNativeCopy.relativePath);
+    const stat = fs.statSync(outputNativeCopy.sourcePath);
+    const kind = outputNativeCopy.kind === "auto"
+      ? (stat.isDirectory() ? "directory" : "file")
+      : outputNativeCopy.kind;
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    if (kind === "directory") {
+      fs.cpSync(outputNativeCopy.sourcePath, destinationPath, { recursive: true });
+    } else {
+      fs.copyFileSync(outputNativeCopy.sourcePath, destinationPath);
+    }
+  }
 }
 
 function missingCompilerMessage(): string {

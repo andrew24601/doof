@@ -154,16 +154,16 @@ export function emitMetadataDefinition(
     const safeName = emitIdentifierSafe(method.name);
     const comma = mi < methods.length - 1 ? "," : "";
 
-    // Build inputSchema and outputSchema as JsonValue literals.
+    // Build inputSchema and outputSchema as direct JsonValue literals.
     const methodMeta = (metadata.methods as Record<string, unknown>[])[mi];
-    const inputSchemaJson = methodMeta.inputSchema ? JSON.stringify(methodMeta.inputSchema) : "{}";
-    const outputSchemaJson = methodMeta.outputSchema ? JSON.stringify(methodMeta.outputSchema) : "{}";
+    const inputSchemaValue = emitJsonLiteralValue(methodMeta.inputSchema ?? {});
+    const outputSchemaValue = emitJsonLiteralValue(methodMeta.outputSchema ?? {});
 
     ctx.sourceLines.push(`${ind}        doof::MethodReflection<${cppName}>{`);
     ctx.sourceLines.push(`${ind}            "${escapeStringLiteral(method.name)}",`);
     ctx.sourceLines.push(`${ind}            "${method.description ? escapeStringLiteral(method.description) : ""}",`);
-    ctx.sourceLines.push(`${ind}            doof::json_parse_or_panic(R"_doof_schema_(${inputSchemaJson})_doof_schema_"),`);
-    ctx.sourceLines.push(`${ind}            doof::json_parse_or_panic(R"_doof_schema_(${outputSchemaJson})_doof_schema_"),`);
+    ctx.sourceLines.push(`${ind}            ${inputSchemaValue},`);
+    ctx.sourceLines.push(`${ind}            ${outputSchemaValue},`);
 
     // Invoke lambda: (std::shared_ptr<T>, const doof::JsonValue&) -> Result<JsonValue, JsonValue>
     ctx.sourceLines.push(`${ind}            [](std::shared_ptr<${cppName}> _instance, const doof::JsonValue& _params) -> ${METADATA_RESULT_TYPE} {`);
@@ -242,8 +242,7 @@ export function emitMetadataDefinition(
 
   // $defs — structured JsonValue (or null)
   if (metadata.$defs) {
-    const defsJson = JSON.stringify(metadata.$defs);
-    ctx.sourceLines.push(`${ind}    doof::JsonValue(doof::json_parse_or_panic(R"_doof_defs_(${defsJson})_doof_defs_"))`);
+    ctx.sourceLines.push(`${ind}    ${emitJsonLiteralValue(metadata.$defs)}`);
   } else {
     ctx.sourceLines.push(`${ind}    std::nullopt`);
   }
@@ -253,6 +252,43 @@ export function emitMetadataDefinition(
 
 function escapeStringLiteral(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
+function emitJsonLiteralValue(value: unknown): string {
+  if (value === null) {
+    return "doof::JsonValue(nullptr)";
+  }
+
+  if (typeof value === "boolean") {
+    return `doof::JsonValue(${value ? "true" : "false"})`;
+  }
+
+  if (typeof value === "number") {
+    if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
+      return `doof::JsonValue(static_cast<int32_t>(${value}))`;
+    }
+    return `doof::JsonValue(${String(value)})`;
+  }
+
+  if (typeof value === "string") {
+    return `doof::JsonValue("${escapeStringLiteral(value)}")`;
+  }
+
+  if (Array.isArray(value)) {
+    const items = value.map((item) => emitJsonLiteralValue(item)).join(", ");
+    return `doof::JsonValue(std::make_shared<std::vector<doof::JsonValue>>(std::vector<doof::JsonValue>{${items}}))`;
+  }
+
+  if (isPlainJsonObject(value)) {
+    const entries = Object.entries(value).map(([key, inner]) => `{"${escapeStringLiteral(key)}", ${emitJsonLiteralValue(inner)}}`);
+    return `doof::JsonValue(std::make_shared<std::unordered_map<std::string, doof::JsonValue>>(std::unordered_map<std::string, doof::JsonValue>{${entries.join(", ")}}))`;
+  }
+
+  throw new Error(`Unsupported metadata JSON literal: ${String(value)}`);
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function emitTypeForMetadata(type: ResolvedType): string {

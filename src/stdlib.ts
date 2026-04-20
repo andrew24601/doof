@@ -1,11 +1,37 @@
+import * as nodeFs from "node:fs";
+import * as nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { ModuleResolver, type FileSystem, type ResolverOptions } from "./resolver.js";
 import { joinFsPath, toVirtualPath } from "./path-utils.js";
 import { materializeRemoteDependencyByUrl } from "./package-manifest.js";
+import type { ProjectSupportFile } from "./macos-app-support.js";
 import { DEFAULT_STD_VERSIONS, getStdPackageShortName, resolveStdlibOverridePath } from "./std-packages.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 export { BUNDLED_STDLIB_ROOT };
 
-const BUNDLED_MODULES = new Map<string, string>();
+function resolveBundledStdlibAsset(...segments: string[]): string {
+  return nodeFs.readFileSync(
+    nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "stdlib", ...segments),
+    "utf8",
+  );
+}
+
+const BUNDLED_STD_JSON_MODULE_PATH = `${BUNDLED_STDLIB_ROOT}/std/json/index.do`;
+const BUNDLED_STD_JSON_NATIVE_HEADER_PATH = "__doof_stdlib__/std/json/native_json.hpp";
+const BUNDLED_STD_JSON_NATIVE_HEADER = resolveBundledStdlibAsset("json", "native_json.hpp");
+
+const BUNDLED_MODULES = new Map<string, string>([
+  [
+    BUNDLED_STD_JSON_MODULE_PATH,
+    [
+      'export import function parseJsonValue(text: string): Result<JsonValue, string>',
+      '  from "./native_json.hpp" as doof_json::parse',
+      "",
+      'export import function formatJsonValue(value: JsonValue): string',
+      '  from "doof_runtime.hpp" as doof::to_string',
+    ].join("\n"),
+  ],
+]);
 
 class StdlibFS implements FileSystem {
   constructor(private readonly fallback: FileSystem, private readonly cacheRoot?: string) {}
@@ -44,7 +70,6 @@ class StdlibFS implements FileSystem {
 
   readFile(absolutePath: string): string | null {
     const normalizedPath = toVirtualPath(absolutePath);
-    // In-memory bundled modules still take precedence
     const inMem = BUNDLED_MODULES.get(normalizedPath);
     if (inMem !== undefined) return inMem;
 
@@ -68,6 +93,18 @@ class StdlibFS implements FileSystem {
 
 export function withBundledStdlib(fileSystem: FileSystem, cacheRoot?: string): FileSystem {
   return new StdlibFS(fileSystem, cacheRoot);
+}
+
+export function getBundledStdlibSupportFiles(modulePaths: Iterable<string>): ProjectSupportFile[] {
+  for (const modulePath of modulePaths) {
+    if (modulePath === BUNDLED_STD_JSON_MODULE_PATH) {
+      return [{
+        relativePath: BUNDLED_STD_JSON_NATIVE_HEADER_PATH,
+        content: BUNDLED_STD_JSON_NATIVE_HEADER,
+      }];
+    }
+  }
+  return [];
 }
 
 export function createBundledModuleResolver(

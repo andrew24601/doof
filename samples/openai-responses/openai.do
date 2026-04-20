@@ -1,5 +1,6 @@
 import { HttpClient, HttpError, HttpHeader, HttpRequest, HttpResponse, createClient, send } from "./http"
 import { parseJsonText } from "./json_support"
+import { formatJsonValue } from "std/json"
 
 export class OpenAIClient {
   http: HttpClient
@@ -23,7 +24,7 @@ export function createResponse(client: OpenAIClient, body: JsonValue): Result<Js
     method: "POST",
     url: client.baseUrl + "/responses",
     headers,
-    body: JSON.stringify(body),
+    body: formatJsonValue(body),
     hasBody: true,
     timeoutMs: 60000,
     followRedirects: true,

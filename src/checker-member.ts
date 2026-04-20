@@ -855,26 +855,6 @@ export function inferMemberType(
     if (property === "repeat") return { kind: "function", params: [{ name: "count", type: INT_TYPE }], returnType: STRING_TYPE };
   }
   if (objectType.kind === "builtin-namespace") {
-    if (objectType.name === "JSON") {
-      if (property === "parse") {
-        return {
-          kind: "function",
-          params: [{ name: "text", type: STRING_TYPE }],
-          returnType: {
-            kind: "result",
-            successType: JSON_VALUE_TYPE,
-            errorType: STRING_TYPE,
-          },
-        };
-      }
-      if (property === "stringify") {
-        return {
-          kind: "function",
-          params: [{ name: "value", type: JSON_VALUE_TYPE }],
-          returnType: STRING_TYPE,
-        };
-      }
-    }
     if (property === "parse" && ["byte", "int", "long", "float", "double"].includes(objectType.name)) {
       const primitiveName = objectType.name as "byte" | "int" | "long" | "float" | "double";
       return {

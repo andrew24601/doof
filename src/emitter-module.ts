@@ -45,6 +45,7 @@ import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } fro
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
+import { getBundledStdlibSupportFiles } from "./stdlib.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
 import { emitStreamNextHelperName } from "./emitter-expr-utils.js";
@@ -211,6 +212,7 @@ export function emitProject(
   }
 
   const supportFiles = [
+    ...getBundledStdlibSupportFiles(analysisResult.modules.keys()),
     ...(buildMetadata.buildTarget?.kind === "macos-app"
       ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
       : []),

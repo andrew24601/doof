@@ -1,4 +1,5 @@
 import { parseJsonResult } from "./json_support"
+import { formatJsonValue } from "std/json"
 
 export import class NativeRemindersStore from "./reminders_bridge.hpp" {
   authorizationStatus(): string
@@ -91,5 +92,5 @@ export function toolsListResultJson(): string {
     })
   }
 
-  return JSON.stringify({ tools })
+  return formatJsonValue({ tools })
 }

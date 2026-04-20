@@ -191,7 +191,10 @@ export class ModuleResolver {
   private resolveStdlib(specifier: string): string | null {
     const overrideBase = resolveStdlibOverridePath(specifier);
     if (overrideBase) {
-      return this.tryResolveFile(overrideBase);
+      const resolvedOverride = this.tryResolveFile(overrideBase);
+      if (resolvedOverride) {
+        return resolvedOverride;
+      }
     }
 
     if (!this.stdlibRoot) return null;

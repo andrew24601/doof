@@ -1,10 +1,14 @@
-export function parseJsonText(text: string): Result<JsonValue, string> => JSON.parse(text)
+import { formatJsonValue, parseJsonValue } from "std/json"
 
-export function parseJsonTextOrPanic(text: string): JsonValue => try! JSON.parse(text)
+export function parseJsonText(text: string): Result<JsonValue, string> => parseJsonValue(text)
+
+export function parseJsonTextOrPanic(text: string): JsonValue => try! parseJsonValue(text)
+
+export function formatJsonText(value: JsonValue): string => formatJsonValue(value)
 
 export function parseJsonResult(result: Result<string, string>): Result<JsonValue, string> {
   return case result {
-    s: Success => case JSON.parse(s.value) {
+    s: Success => case parseJsonValue(s.value) {
       parsed: Success => Success(parsed.value),
       failed: Failure => Failure("Native reminders bridge returned invalid JSON: " + failed.error)
     },

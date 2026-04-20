@@ -17,8 +17,10 @@ const result = Point.fromJsonValue(json)    // Result<Point, string>
 When you need text rather than structured JSON, use the standard JSON helpers:
 
 ```doof
-const text = JSON.stringify(p.toJsonValue())
-const parsed = JSON.parse(text)             // Result<JsonValue, string>
+import { parseJsonValue, formatJsonValue } from "std/json"
+
+const text = formatJsonValue(p.toJsonValue())
+const parsed = parseJsonValue(text)         // Result<JsonValue, string>
 ```
 
 ## On-Demand Generation
@@ -46,7 +48,7 @@ class User {
 }
 
 const u = User { name: "Alice", age: 30, email: "alice@example.com" }
-println(JSON.stringify(u.toJsonValue()))
+println(formatJsonValue(u.toJsonValue()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
 
@@ -160,7 +162,7 @@ Point.fromJsonValue("not an object")
 // Failure: "Expected JSON object"
 ```
 
-If your input starts as text, parse it first with `JSON.parse(...)` and handle that result separately.
+If your input starts as text, import `parseJsonValue` from `std/json` and handle that result separately.
 
 ### Lenient Mode
 
@@ -297,7 +299,7 @@ const poly = Polygon {
   vertices: [Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }]
 }
 
-println(JSON.stringify(poly.toJsonValue()))
+println(formatJsonValue(poly.toJsonValue()))
 // {"vertices":[{"x":0.0,"y":0.0},{"x":1.0,"y":0.0},{"x":0.0,"y":1.0}]}
 ```
 
@@ -308,7 +310,7 @@ class Pair {
   value: Tuple<string, int>
 }
 
-println(JSON.stringify(Pair { value: ("hello", 42) }.toJsonValue()))
+println(formatJsonValue(Pair { value: ("hello", 42) }.toJsonValue()))
 // {"value":["hello",42]}
 ```
 
@@ -322,8 +324,14 @@ class Pixel {
   color: Color
 }
 
-println(JSON.stringify(Pixel { x: 10, y: 20, color: Color.Green }.toJsonValue()))
+println(formatJsonValue(Pixel { x: 10, y: 20, color: Color.Green }.toJsonValue()))
 // {"x":10,"y":20,"color":"Green"}
+```
+
+Examples in this chapter that call `formatJsonValue(...)` assume:
+
+```doof
+import { formatJsonValue } from "std/json"
 ```
 
 ## Reserved Method Names

@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "doof_runtime.hpp"
+#include "samples/reminders-mcp/json_support.hpp"
 
 struct NativeMcpRequest {
     std::string kind;
@@ -159,7 +160,7 @@ inline bool read_frame(std::istream& input, std::string& body, bool& reachedEof,
 }
 
 inline NativeMcpRequest parse_request(const std::string& body) {
-    const auto parsedResult = doof::JSON::parse(body);
+    const auto parsedResult = parseJsonText(body);
     if (parsedResult.isFailure()) {
         return make_error_request(-32700, "Invalid JSON in MCP request");
     }
@@ -177,7 +178,7 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 
     NativeMcpRequest request;
     if (const auto* id = object_member(root, "id")) {
-        request.requestIdJson = doof::JSON::stringify(*id);
+        request.requestIdJson = formatJsonText(*id);
     }
 
     if (const auto* method = object_member(root, "method"); method != nullptr && doof::json_is_string(*method)) {
@@ -227,7 +228,7 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 
         request.toolName = doof::json_as_string(*name);
         if (const auto* arguments = object_member(paramsObject, "arguments")) {
-            request.argsJson = doof::JSON::stringify(*arguments);
+            request.argsJson = formatJsonText(*arguments);
         } else {
             request.argsJson = "{}";
         }
@@ -239,7 +240,7 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 }
 
 inline doof::JsonValue parse_json_fragment(const std::string& text) {
-    const auto parsed = doof::JSON::parse(text);
+    const auto parsed = parseJsonText(text);
     if (parsed.isFailure()) {
         return doof::JsonValue(text);
     }
@@ -247,7 +248,7 @@ inline doof::JsonValue parse_json_fragment(const std::string& text) {
 }
 
 inline void write_message(const doof::JsonValue& payload) {
-    const std::string encoded = doof::JSON::stringify(payload);
+    const std::string encoded = formatJsonText(payload);
     std::cout << encoded << '\n';
     std::cout.flush();
 }

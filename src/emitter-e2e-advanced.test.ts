@@ -1082,11 +1082,13 @@ describe("e2e — builtin parsing and formatting", () => {
 describe("E2E — JSON serialization", () => {
   it("preserves long JsonValue precision through direct assignment and parse/stringify", () => {
     const result = ctx.compileAndRun(`
+      import { parseJsonValue, formatJsonValue } from "std/json"
+
       function main(): int {
         direct: JsonValue := 9007199254740993L
-        parsed := try! JSON.parse("9007199254740993")
-        println(JSON.stringify(direct))
-        println(JSON.stringify(parsed))
+        parsed := try! parseJsonValue("9007199254740993")
+        println(formatJsonValue(direct))
+        println(formatJsonValue(parsed))
         return 0
       }
     `);
@@ -1098,9 +1100,11 @@ describe("E2E — JSON serialization", () => {
 
   it("parses and re-stringifies escaped JSON strings", () => {
     const result = ctx.compileAndRun(`
+      import { parseJsonValue, formatJsonValue } from "std/json"
+
       function main(): int {
-        parsed := try! JSON.parse("{\\\"quote\\\":\\\"a\\\\\\\"b\\\",\\\"line\\\":\\\"x\\\\ny\\\",\\\"snowman\\\":\\\"\\\\u2603\\\"}")
-        println(JSON.stringify(parsed))
+        parsed := try! parseJsonValue("{\\\"quote\\\":\\\"a\\\\\\\"b\\\",\\\"line\\\":\\\"x\\\\ny\\\",\\\"snowman\\\":\\\"\\\\u2603\\\"}")
+        println(formatJsonValue(parsed))
         return 0
       }
     `);
@@ -1116,8 +1120,10 @@ describe("E2E — JSON serialization", () => {
 
   it("returns a descriptive error for malformed JSON text", () => {
     const result = ctx.compileAndRun(`
+      import { parseJsonValue } from "std/json"
+
       function main(): int {
-        case JSON.parse("{\\\"broken\\\":") {
+        case parseJsonValue("{\\\"broken\\\":") {
           s: Success => println("unexpected")
           f: Failure => println(f.error)
         }
@@ -1133,12 +1139,14 @@ describe("E2E — JSON serialization", () => {
 
   it("preserves map aliasing when assigning Map<string, JsonValue> to JsonValue", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       function main(): int {
         d: JsonValue := 4
         let m: Map<string, JsonValue> = { "red": d }
         n: JsonValue := m
         m["red"] = 5
-        println(JSON.stringify(n))
+        println(formatJsonValue(n))
         return 0
       }
     `);
@@ -1150,11 +1158,13 @@ describe("E2E — JSON serialization", () => {
 
   it("wraps supported unions when assigning to JsonValue", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       type Cell = long | double | string | null
       function main(): int {
         value: Cell := "demo"
         payload: JsonValue := value
-        println(JSON.stringify(payload))
+        println(formatJsonValue(payload))
         return 0
       }
     `);
@@ -1740,6 +1750,8 @@ describe("E2E — Metadata", () => {
 
   it("metadata invoke returns failure on unknown method", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Calculator {
         function add(a: int, b: int): int => a + b
       }
@@ -1748,7 +1760,7 @@ describe("E2E — Metadata", () => {
         const calc = Calculator { }
         const result = meta.invoke(calc, "subtract", { })
         if result.isFailure() {
-          println(JSON.stringify(result.error))
+          println(formatJsonValue(result.error))
         }
         return 0
       }
@@ -1809,6 +1821,8 @@ describe("E2E — Metadata", () => {
 
   it("invoke returns failure on invalid JSON params", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Tool {
         function run(input: string): string => input
       }
@@ -1817,7 +1831,7 @@ describe("E2E — Metadata", () => {
         const t = Tool { }
         const result = meta.methods[0].invoke(t, "not json")
         if result.isFailure() {
-          println(JSON.stringify(result.error))
+          println(formatJsonValue(result.error))
         }
         return 0
       }
@@ -1833,6 +1847,8 @@ describe("E2E — Metadata", () => {
 
   it("invoke redacts non-JsonValue Result failures while keeping success JSON", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class ToolError {
         message: string
       }
@@ -1855,7 +1871,7 @@ describe("E2E — Metadata", () => {
 
         const failure = meta.invoke(tool, "run", { flag: false })
         if failure.isFailure() {
-          println(JSON.stringify(failure.error))
+          println(formatJsonValue(failure.error))
         }
 
         return 0
@@ -1874,6 +1890,8 @@ describe("E2E — Metadata", () => {
 
   it("invoke passes through JsonValue Result failures", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Tool {
         function run(flag: bool): Result<string, JsonValue> {
           if flag {
@@ -1894,7 +1912,7 @@ describe("E2E — Metadata", () => {
 
         const failure = meta.invoke(tool, "run", { flag: false })
         if failure.isFailure() {
-          println(JSON.stringify(failure.error))
+          println(formatJsonValue(failure.error))
         }
 
         return 0
@@ -1913,6 +1931,8 @@ describe("E2E — Metadata", () => {
 
   it("invoke returns JSON null for Result<void, E> success", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Tool {
         function reset(flag: bool): Result<void, string> {
           if flag {
@@ -1932,7 +1952,7 @@ describe("E2E — Metadata", () => {
 
         const failure = meta.invoke(tool, "reset", { flag: false })
         if failure.isFailure() {
-          println(JSON.stringify(failure.error))
+          println(formatJsonValue(failure.error))
         }
         return 0
       }

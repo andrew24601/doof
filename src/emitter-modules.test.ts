@@ -65,7 +65,7 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(cppCode).toContain("return a + b");
   });
 
-  it("always emits runtime JSON support", () => {
+  it("always emits runtime JsonValue and stringification support", () => {
     const project = emitProjectHelper({
       "/main.do": `
         function main(): int {
@@ -75,8 +75,11 @@ describe("emitter-module — hpp/cpp split", () => {
       `,
     }, "/main.do");
 
-    expect(project.runtime).toContain("struct Parser {");
-    expect(project.runtime).toContain("struct JSON {");
+    expect(project.runtime).toContain("struct JsonValue");
+    expect(project.runtime).toContain("append_stringified");
+    expect(project.runtime).toContain("to_string(const JsonValue& value)");
+    expect(project.runtime).not.toContain("struct Parser {");
+    expect(project.runtime).not.toContain("struct JSON {");
   });
 
   it("emits macos-app support files", () => {

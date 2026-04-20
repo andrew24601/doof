@@ -1107,11 +1107,13 @@ describe("e2e — type aliases", () => {
 
   it("compiles type alias for JsonValue", () => {
     const { success, error, code } = ctx.compileOnly(`
+      import { formatJsonValue } from "std/json"
+
       type Payload = JsonValue
       function unwrap(value: Payload): Payload => value
       function main(): int {
         payload: Payload := { answer: 42 }
-        println(JSON.stringify(unwrap(payload)))
+        println(formatJsonValue(unwrap(payload)))
         return 0
       }
     `);
