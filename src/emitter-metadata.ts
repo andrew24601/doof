@@ -281,7 +281,7 @@ function emitJsonLiteralValue(value: unknown): string {
 
   if (isPlainJsonObject(value)) {
     const entries = Object.entries(value).map(([key, inner]) => `{"${escapeStringLiteral(key)}", ${emitJsonLiteralValue(inner)}}`);
-    return `doof::JsonValue(std::make_shared<std::unordered_map<std::string, doof::JsonValue>>(std::unordered_map<std::string, doof::JsonValue>{${entries.join(", ")}}))`;
+    return `doof::JsonValue(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(doof::ordered_map<std::string, doof::JsonValue>{${entries.join(", ")}}))`;
   }
 
   throw new Error(`Unsupported metadata JSON literal: ${String(value)}`);

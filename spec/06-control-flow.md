@@ -169,6 +169,8 @@ for score of scores.values() {
 }
 ```
 
+Map iteration follows insertion order. Updating an existing key keeps its current position; deleting and reinserting a key moves it to the end.
+
 ### For-Of with Sets
 
 ```javascript
@@ -178,6 +180,8 @@ for n of unique {
 }
 
 ```
+
+Set iteration follows first-insertion order. Re-adding an existing value keeps its current position; deleting and adding it again moves it to the end.
 
 ---
 

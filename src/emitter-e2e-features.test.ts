@@ -574,9 +574,85 @@ describe("e2e — map safety", () => {
     }
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim().split("\n")).toEqual([
-      "{color: red, kind: toy}",
+      "{kind: toy, color: red}",
       "[1, 2, 3, 4]",
       "Green",
+    ]);
+  });
+
+  it("preserves map insertion order across keys values and iteration", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let scores: Map<string, int> = { "alice": 1, "bob": 2, "carol": 3 }
+        scores.set("bob", 20)
+
+        println(scores.keys())
+        println(scores.values())
+        for name, score of scores {
+          println("\${name}=\${score}")
+        }
+
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "[alice, bob, carol]",
+      "[1, 20, 3]",
+      "alice=1",
+      "bob=20",
+      "carol=3",
+    ]);
+  });
+
+  it("moves deleted and reinserted map keys to the end", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let scores: Map<string, int> = { "alice": 1, "bob": 2, "carol": 3 }
+        scores.delete("bob")
+        scores.set("bob", 20)
+        println(scores.keys())
+        println(scores.values())
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "[alice, carol, bob]",
+      "[1, 3, 20]",
+    ]);
+  });
+
+  it("preserves set insertion order and appends re-added values", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let values: Set<int> = [3, 1, 2, 1]
+        println(values.values())
+        values.delete(1)
+        values.add(1)
+        println(values.values())
+        for value of values {
+          println(value)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "[3, 1, 2]",
+      "[3, 2, 1]",
+      "3",
+      "2",
+      "1",
     ]);
   });
 });

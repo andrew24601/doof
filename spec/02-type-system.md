@@ -51,6 +51,8 @@ This has two important consequences:
 
 When a `Map<string, JsonValue>` or `JsonValue[]` is assigned to `JsonValue`, the runtime preserves reference semantics for the underlying shared container rather than copying it.
 
+`JsonValue` objects preserve insertion order for their string keys. Formatting with `formatJsonValue(...)`, iterating through the underlying map, and generated class/object JSON emission all follow that insertion order.
+
 ### Numeric Literals
 
 ```javascript
@@ -809,7 +811,7 @@ This inference does **not** apply outside same-site literal contexts. Return typ
 
 ### Map Type
 
-`Map<K, V>` is an intrinsic generic type for key-value mappings. Maps are backed by hash tables and provide O(1) average-case access.
+`Map<K, V>` is an intrinsic generic type for key-value mappings with insertion-order iteration.
 
 #### Map Literal Syntax
 
@@ -855,6 +857,10 @@ The same key restrictions apply in all map initialization contexts, including de
 
 Bare map inference is limited to same-site literals on declarations and defaults. For example, `function getMap(): Map { ... }` is rejected because there is no same-site literal attached to the return type annotation.
 
+Map iteration order is defined by first insertion order. `.keys()`, `.values()`, `for (key, value) of map`, direct map printing, and `JsonValue` object formatting all expose that order.
+
+Replacing the value for an existing key does not move it. Deleting a key and then inserting it again appends it to the end.
+
 Integer literals are contextually widened when a `long` key type is expected, so this is valid:
 
 ```javascript
@@ -879,7 +885,7 @@ let badPoint: Map<Point, int> = {}               // Error
 
 ### Set Type
 
-`Set<T>` is an intrinsic generic type for unique values. When a `Set<T>` is expected, array literal syntax initializes the set and duplicate values are coalesced by the runtime representation.
+`Set<T>` is an intrinsic generic type for unique values with insertion-order iteration. When a `Set<T>` is expected, array literal syntax initializes the set and duplicate values are coalesced by the runtime representation.
 
 ```javascript
 let unique: Set<int> = [1, 2, 3, 2, 1]
@@ -906,6 +912,10 @@ Extra type arguments such as `Set<int, string>` or `ReadonlySet<int, string>` ar
 Supported set element types are `string`, `int`, `long`, `char`, `bool`, and enums. The same rule applies to declaration initializers, return-context literals, argument-context literals, parameter defaults, and field defaults.
 
 `float`, `double`, tuples, class instances, and other non-supported element types are rejected by the checker with an explicit set-element diagnostic.
+
+Set iteration order is defined by first insertion order. `.values()`, `for value of set`, and direct set printing follow that order.
+
+Adding a value that is already present does not move it. Deleting a value and then adding it again appends it to the end.
 
 #### Set Methods
 

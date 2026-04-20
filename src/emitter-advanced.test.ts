@@ -662,7 +662,7 @@ describe("emitter — JSON serialization", () => {
       function test(p: Point): JsonValue => p.toJsonValue()
     `);
     expect(cpp).toContain("doof::JsonValue toJsonValue() const {");
-    expect(cpp).toContain("std::make_shared<std::unordered_map<std::string, doof::JsonValue>>()");
+    expect(cpp).toContain("std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>()");
     expect(cpp).toContain('(*_j)["x"] = doof::JsonValue(this->x);');
     expect(cpp).toContain('(*_j)["y"] = doof::JsonValue(this->y);');
   });
@@ -1155,13 +1155,13 @@ describe("description metadata comments", () => {
 // ============================================================================
 
 describe("emitType — Map", () => {
-  it("emits Map<string, int> as shared_ptr<unordered_map>", () => {
+  it("emits Map<string, int> as shared_ptr<ordered_map>", () => {
     const t: ResolvedType = {
       kind: "map",
       keyType: { kind: "primitive", name: "string" },
       valueType: { kind: "primitive", name: "int" },
     };
-    expect(emitType(t)).toBe("std::shared_ptr<std::unordered_map<std::string, int32_t>>");
+    expect(emitType(t)).toBe("std::shared_ptr<doof::ordered_map<std::string, int32_t>>");
   });
 });
 
@@ -1170,21 +1170,21 @@ describe("emitter — Map literal", () => {
     const cpp = emit(`
       let m: Map<string, int> = { "a": 1, "b": 2 }
     `);
-    expect(cpp).toContain("std::unordered_map<std::string, int32_t>");
+    expect(cpp).toContain("doof::ordered_map<std::string, int32_t>");
   });
 
   it("emits bracket-keyed map literal", () => {
     const cpp = emit(`
       let m: Map<int, string> = { [1]: "one", [2]: "two" }
     `);
-    expect(cpp).toContain("std::unordered_map<int32_t, std::string>");
+    expect(cpp).toContain("doof::ordered_map<int32_t, std::string>");
   });
 
   it("emits long-keyed map literal", () => {
     const cpp = emit(`
       let m: Map<long, string> = { 1L: "one", 2L: "two" }
     `);
-    expect(cpp).toContain("std::unordered_map<int64_t, std::string>");
+    expect(cpp).toContain("doof::ordered_map<int64_t, std::string>");
   });
 
   it("emits dot-shorthand enum-keyed map literal", () => {
@@ -1192,7 +1192,7 @@ describe("emitter — Map literal", () => {
       enum Color { Red, Green, Blue }
       let m: Map<Color, int> = { .Red: 1, .Green: 2, .Blue: 3 }
     `);
-    expect(cpp).toContain("std::unordered_map<Color, int32_t>");
+    expect(cpp).toContain("doof::ordered_map<Color, int32_t>");
     expect(cpp).toContain("Color::Red");
     expect(cpp).toContain("Color::Green");
     expect(cpp).toContain("Color::Blue");
@@ -1203,7 +1203,7 @@ describe("emitter — Map literal", () => {
       enum Color { Red, Green, Blue }
       let m: Map<Color, int> = { Color.Red: 1, Color.Green: 2 }
     `);
-    expect(cpp).toContain("std::unordered_map<Color, int32_t>");
+    expect(cpp).toContain("doof::ordered_map<Color, int32_t>");
     expect(cpp).toContain("Color::Red");
     expect(cpp).toContain("Color::Green");
   });
@@ -1279,7 +1279,7 @@ describe("emitter — Map methods", () => {
     expect(cpp).toContain("doof::map_values(");
   });
 
-  it("emits Set members with unordered_set operations", () => {
+  it("emits Set members with ordered_set operations", () => {
     const cpp = emit(`
       function main(): void {
         let unique: Set<int> = [1, 2, 3]
@@ -1302,7 +1302,7 @@ describe("emitter — Map methods", () => {
       enum Color { Red, Blue }
       let palette: Set<Color> = [Color.Red, Color.Blue]
     `);
-    expect(cpp).toContain("std::unordered_set<Color>");
+    expect(cpp).toContain("doof::ordered_set<Color>");
     expect(cpp).toContain("Color::Red");
     expect(cpp).toContain("Color::Blue");
   });
@@ -1311,16 +1311,16 @@ describe("emitter — Map methods", () => {
     const cpp = emit(`
       let ids: Set<long> = [1, 2, 3]
     `);
-    expect(cpp).toContain("std::unordered_set<int64_t>");
-    expect(cpp).toContain("std::unordered_set<int64_t>{1, 2, 3}");
+    expect(cpp).toContain("doof::ordered_set<int64_t>");
+    expect(cpp).toContain("doof::ordered_set<int64_t>{1, 2, 3}");
   });
 
   it("emits bare inferred Set literals with concrete element types", () => {
     const cpp = emit(`
       unique: Set := [1, 2, 3]
     `);
-    expect(cpp).toContain("std::unordered_set<int32_t>");
-    expect(cpp).toContain("std::unordered_set<int32_t>{1, 2, 3}");
+    expect(cpp).toContain("doof::ordered_set<int32_t>");
+    expect(cpp).toContain("doof::ordered_set<int32_t>{1, 2, 3}");
   });
 });
 
@@ -1329,28 +1329,28 @@ describe("emitter — Map bare-key and empty literal", () => {
     const cpp = emit(`
       let m: Map<int, string> = { 1: "one", 2: "two" }
     `);
-    expect(cpp).toContain("std::unordered_map<int32_t, std::string>");
+    expect(cpp).toContain("doof::ordered_map<int32_t, std::string>");
   });
 
   it("emits empty map literal with Map expected type", () => {
     const cpp = emit(`
       let m: Map<string, int> = {}
     `);
-    expect(cpp).toContain("std::make_shared<std::unordered_map<std::string, int32_t>>()");
+    expect(cpp).toContain("std::make_shared<doof::ordered_map<std::string, int32_t>>()");
   });
 
   it("emits contextual int keys for Map<long, int>", () => {
     const cpp = emit(`
       let m: Map<long, int> = { 1: 10, 2: 20 }
     `);
-    expect(cpp).toContain("std::unordered_map<int64_t, int32_t>");
+    expect(cpp).toContain("doof::ordered_map<int64_t, int32_t>");
   });
 
   it("emits bare inferred Map literals with concrete key and value types", () => {
     const cpp = emit(`
       scores: Map := { "Alice": 100, "Bob": 95 }
     `);
-    expect(cpp).toContain("std::unordered_map<std::string, int32_t>");
+    expect(cpp).toContain("doof::ordered_map<std::string, int32_t>");
     expect(cpp).toContain('{std::string("Alice"), 100}');
     expect(cpp).toContain('{std::string("Bob"), 95}');
   });
@@ -1361,7 +1361,7 @@ describe("emitter — Map bare-key and empty literal", () => {
         return { 1: "one", 2: "two" }
       }
     `);
-    expect(cpp).toContain("std::unordered_map<int32_t, std::string>");
+    expect(cpp).toContain("doof::ordered_map<int32_t, std::string>");
   });
 
   it("emits empty map returned from function", () => {
@@ -1370,7 +1370,7 @@ describe("emitter — Map bare-key and empty literal", () => {
         return {}
       }
     `);
-    expect(cpp).toContain("std::make_shared<std::unordered_map<int32_t, std::string>>()");
+    expect(cpp).toContain("std::make_shared<doof::ordered_map<int32_t, std::string>>()");
   });
 });
 

@@ -598,7 +598,7 @@ export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): st
     return `doof::array_at(${object}, ${index})`;
   }
 
-  // Maps are shared_ptr<unordered_map> and route through a runtime helper so
+  // Maps are shared_ptr<doof::ordered_map> and route through a runtime helper so
   // missing-key reads become a Doof panic instead of implicit insertion.
   if (mapType) {
     return `doof::map_at(${object}, ${index})`;

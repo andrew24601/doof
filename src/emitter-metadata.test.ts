@@ -47,7 +47,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("std::unordered_map<std::string, doof::JsonValue>");
+    expect(cpp).toContain("doof::ordered_map<std::string, doof::JsonValue>");
     expect(cpp).toContain('"input"');
     expect(cpp).not.toContain("json_parse_or_panic");
   });
@@ -219,7 +219,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("std::unordered_map<std::string, doof::JsonValue>");
+    expect(cpp).toContain("doof::ordered_map<std::string, doof::JsonValue>");
     expect(cpp).toContain('"Config"');
     expect(cpp).not.toContain("std::nullopt");
   });

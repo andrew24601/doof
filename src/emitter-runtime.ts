@@ -47,8 +47,8 @@ const RUNTIME_HEADER = `#pragma once
 #include <thread>
 #include <type_traits>
 #include <typeinfo>
+#include <utility>
 #include <unordered_map>
-#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -79,6 +79,228 @@ inline void assert_(bool condition, const std::string& message) {
         panic("Assertion failed: " + message);
     }
 }
+
+// ============================================================================
+// Ordered collections — insertion-order preserving Map/Set runtime types
+// ============================================================================
+
+template <typename K, typename V>
+class ordered_map {
+public:
+    using value_type = std::pair<K, V>;
+    using storage_type = std::vector<value_type>;
+    using iterator = typename storage_type::iterator;
+    using const_iterator = typename storage_type::const_iterator;
+    using size_type = typename storage_type::size_type;
+
+    ordered_map() = default;
+
+    ordered_map(std::initializer_list<value_type> init) {
+        for (const auto& entry : init) {
+            insert_or_assign(entry.first, entry.second);
+        }
+    }
+
+    ordered_map(const ordered_map& other)
+        : entries_(other.entries_) {
+        rebuild_index();
+    }
+
+    ordered_map& operator=(const ordered_map& other) {
+        if (this != &other) {
+            entries_ = other.entries_;
+            rebuild_index();
+        }
+        return *this;
+    }
+
+    ordered_map(ordered_map&&) = default;
+    ordered_map& operator=(ordered_map&&) = default;
+
+    iterator begin() { return entries_.begin(); }
+    iterator end() { return entries_.end(); }
+    const_iterator begin() const { return entries_.begin(); }
+    const_iterator end() const { return entries_.end(); }
+    const_iterator cbegin() const { return entries_.cbegin(); }
+    const_iterator cend() const { return entries_.cend(); }
+
+    [[nodiscard]] bool empty() const { return entries_.empty(); }
+    [[nodiscard]] size_type size() const { return entries_.size(); }
+
+    iterator find(const K& key) {
+        const auto pos = index_.find(key);
+        if (pos == index_.end()) {
+            return entries_.end();
+        }
+        return entries_.begin() + static_cast<typename storage_type::difference_type>(pos->second);
+    }
+
+    const_iterator find(const K& key) const {
+        const auto pos = index_.find(key);
+        if (pos == index_.end()) {
+            return entries_.end();
+        }
+        return entries_.begin() + static_cast<typename storage_type::difference_type>(pos->second);
+    }
+
+    [[nodiscard]] size_type count(const K& key) const {
+        return index_.count(key);
+    }
+
+    V& operator[](const K& key) {
+        const auto pos = index_.find(key);
+        if (pos != index_.end()) {
+            return entries_[pos->second].second;
+        }
+
+        index_[key] = entries_.size();
+        entries_.push_back(value_type{key, V{}});
+        return entries_.back().second;
+    }
+
+    void insert_or_assign(const K& key, const V& value) {
+        const auto pos = index_.find(key);
+        if (pos != index_.end()) {
+            entries_[pos->second].second = value;
+            return;
+        }
+
+        index_[key] = entries_.size();
+        entries_.push_back(value_type{key, value});
+    }
+
+    size_type erase(const K& key) {
+        const auto pos = index_.find(key);
+        if (pos == index_.end()) {
+            return 0;
+        }
+
+        const auto index = pos->second;
+        index_.erase(pos);
+        entries_.erase(entries_.begin() + static_cast<typename storage_type::difference_type>(index));
+        for (size_type current = index; current < entries_.size(); ++current) {
+            index_[entries_[current].first] = current;
+        }
+        return 1;
+    }
+
+private:
+    void rebuild_index() {
+        index_.clear();
+        for (size_type index = 0; index < entries_.size(); ++index) {
+            index_[entries_[index].first] = index;
+        }
+    }
+
+    storage_type entries_;
+    std::unordered_map<K, size_type> index_;
+};
+
+template <typename K, typename V>
+ordered_map(std::initializer_list<std::pair<K, V>>) -> ordered_map<K, V>;
+
+template <typename T>
+class ordered_set {
+public:
+    using value_type = T;
+    using storage_type = std::vector<T>;
+    using iterator = typename storage_type::iterator;
+    using const_iterator = typename storage_type::const_iterator;
+    using size_type = typename storage_type::size_type;
+
+    ordered_set() = default;
+
+    ordered_set(std::initializer_list<T> init) {
+        for (const auto& value : init) {
+            insert(value);
+        }
+    }
+
+    ordered_set(const ordered_set& other)
+        : values_(other.values_) {
+        rebuild_index();
+    }
+
+    ordered_set& operator=(const ordered_set& other) {
+        if (this != &other) {
+            values_ = other.values_;
+            rebuild_index();
+        }
+        return *this;
+    }
+
+    ordered_set(ordered_set&&) = default;
+    ordered_set& operator=(ordered_set&&) = default;
+
+    iterator begin() { return values_.begin(); }
+    iterator end() { return values_.end(); }
+    const_iterator begin() const { return values_.begin(); }
+    const_iterator end() const { return values_.end(); }
+    const_iterator cbegin() const { return values_.cbegin(); }
+    const_iterator cend() const { return values_.cend(); }
+
+    [[nodiscard]] bool empty() const { return values_.empty(); }
+    [[nodiscard]] size_type size() const { return values_.size(); }
+
+    iterator find(const T& value) {
+        const auto pos = index_.find(value);
+        if (pos == index_.end()) {
+            return values_.end();
+        }
+        return values_.begin() + static_cast<typename storage_type::difference_type>(pos->second);
+    }
+
+    const_iterator find(const T& value) const {
+        const auto pos = index_.find(value);
+        if (pos == index_.end()) {
+            return values_.end();
+        }
+        return values_.begin() + static_cast<typename storage_type::difference_type>(pos->second);
+    }
+
+    [[nodiscard]] size_type count(const T& value) const {
+        return index_.count(value);
+    }
+
+    bool insert(const T& value) {
+        if (index_.count(value) > 0) {
+            return false;
+        }
+
+        index_[value] = values_.size();
+        values_.push_back(value);
+        return true;
+    }
+
+    size_type erase(const T& value) {
+        const auto pos = index_.find(value);
+        if (pos == index_.end()) {
+            return 0;
+        }
+
+        const auto index = pos->second;
+        index_.erase(pos);
+        values_.erase(values_.begin() + static_cast<typename storage_type::difference_type>(index));
+        for (size_type current = index; current < values_.size(); ++current) {
+            index_[values_[current]] = current;
+        }
+        return 1;
+    }
+
+private:
+    void rebuild_index() {
+        index_.clear();
+        for (size_type index = 0; index < values_.size(); ++index) {
+            index_[values_[index]] = index;
+        }
+    }
+
+    storage_type values_;
+    std::unordered_map<T, size_type> index_;
+};
+
+template <typename T>
+ordered_set(std::initializer_list<T>) -> ordered_set<T>;
 
 // ============================================================================
 // Result<T, E> — variant-based error handling
@@ -162,7 +384,7 @@ inline std::optional<ParseError> ParseError_fromValue(int32_t value) {
 
 struct JsonValue {
     using Array = std::shared_ptr<std::vector<JsonValue>>;
-    using Object = std::shared_ptr<std::unordered_map<std::string, JsonValue>>;
+    using Object = std::shared_ptr<ordered_map<std::string, JsonValue>>;
     using Storage = std::variant<std::monostate, bool, int32_t, int64_t, float, double, std::string, Array, Object>;
 
     Storage value;
@@ -231,7 +453,7 @@ inline const JsonValue::Object::element_type* json_as_object(const JsonValue& va
 }
 
 inline JsonValue json_error(int32_t code, std::string message) {
-    auto object = std::make_shared<std::unordered_map<std::string, JsonValue>>();
+    auto object = std::make_shared<ordered_map<std::string, JsonValue>>();
     (*object)["code"] = JsonValue(code);
     (*object)["message"] = JsonValue(std::move(message));
     return JsonValue(std::move(object));
@@ -397,38 +619,28 @@ inline std::string to_string(const std::shared_ptr<std::vector<T>>& val) {
 }
 
 template <typename K, typename V>
-inline std::string to_string(const std::shared_ptr<std::unordered_map<K, V>>& val) {
+inline std::string to_string(const std::shared_ptr<ordered_map<K, V>>& val) {
     if (!val) return "null";
-    std::vector<std::string> entries;
-    entries.reserve(val->size());
-    for (const auto& entry : *val) {
-        entries.push_back(to_string(entry.first) + ": " + to_string(entry.second));
-    }
-    std::sort(entries.begin(), entries.end());
-
     std::string result = "{";
-    for (size_t i = 0; i < entries.size(); ++i) {
-        if (i > 0) result += ", ";
-        result += entries[i];
+    bool first = true;
+    for (const auto& entry : *val) {
+        if (!first) result += ", ";
+        first = false;
+        result += to_string(entry.first) + ": " + to_string(entry.second);
     }
     result += "}";
     return result;
 }
 
 template <typename T>
-inline std::string to_string(const std::shared_ptr<std::unordered_set<T>>& val) {
+inline std::string to_string(const std::shared_ptr<ordered_set<T>>& val) {
     if (!val) return "null";
-    std::vector<std::string> items;
-    items.reserve(val->size());
-    for (const auto& item : *val) {
-        items.push_back(to_string(item));
-    }
-    std::sort(items.begin(), items.end());
-
     std::string result = "{";
-    for (size_t i = 0; i < items.size(); ++i) {
-        if (i > 0) result += ", ";
-        result += items[i];
+    bool first = true;
+    for (const auto& item : *val) {
+        if (!first) result += ", ";
+        first = false;
+        result += to_string(item);
     }
     result += "}";
     return result;
@@ -767,16 +979,19 @@ std::shared_ptr<std::vector<T>> array_cloneMutable(const std::shared_ptr<std::ve
     return std::make_shared<std::vector<T>>(*arr);
 }
 
-// Map helpers — bridge Doof's Map methods to std::unordered_map
+// Map helpers — bridge Doof's Map methods to ordered_map
 template <typename K, typename V>
-std::optional<V> map_get(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {
+std::optional<V> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
+    if (!m) {
+        panic("Attempted to access null map");
+    }
     auto it = m->find(key);
     if (it != m->end()) return it->second;
     return std::nullopt;
 }
 
 template <typename K, typename V>
-V& map_at(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {
+V& map_at(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
     if (!m) {
         panic("Attempted to index null map");
     }
@@ -788,7 +1003,7 @@ V& map_at(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {
 }
 
 template <typename K, typename V>
-V& map_index(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {
+V& map_index(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
     if (!m) {
         panic("Attempted to index null map");
     }
@@ -796,7 +1011,10 @@ V& map_index(const std::shared_ptr<std::unordered_map<K, V>>& m, const K& key) {
 }
 
 template <typename K, typename V>
-std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<std::unordered_map<K, V>>& m) {
+std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>>& m) {
+    if (!m) {
+        panic("Attempted to read keys from null map");
+    }
     auto result = std::make_shared<std::vector<K>>();
     result->reserve(m->size());
     for (const auto& [k, v] : *m) result->push_back(k);
@@ -804,7 +1022,10 @@ std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<std::unordered_ma
 }
 
 template <typename K, typename V>
-std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<std::unordered_map<K, V>>& m) {
+std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, V>>& m) {
+    if (!m) {
+        panic("Attempted to read values from null map");
+    }
     auto result = std::make_shared<std::vector<V>>();
     result->reserve(m->size());
     for (const auto& [k, v] : *m) result->push_back(v);
@@ -812,7 +1033,10 @@ std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<std::unordered_
 }
 
 template <typename T>
-std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<std::unordered_set<T>>& s) {
+std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>& s) {
+    if (!s) {
+        panic("Attempted to read values from null set");
+    }
     auto result = std::make_shared<std::vector<T>>();
     result->reserve(s->size());
     for (const auto& value : *s) result->push_back(value);

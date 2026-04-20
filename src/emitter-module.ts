@@ -257,8 +257,6 @@ function emitHpp(
     "#include <variant>",
     "#include <optional>",
     "#include <functional>",
-    "#include <unordered_map>",
-    "#include <unordered_set>",
     "#include <tuple>",
     "#include <type_traits>",
     "#include <cmath>",

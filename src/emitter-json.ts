@@ -352,7 +352,7 @@ export function emitToJSON(
 
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`${memberInd}doof::JsonValue toJsonValue() const {`);
-  ctx.sourceLines.push(`${bodyInd}auto _j = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();`);
+  ctx.sourceLines.push(`${bodyInd}auto _j = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();`);
 
   for (const field of decl.fields) {
     if (field.static_) continue;

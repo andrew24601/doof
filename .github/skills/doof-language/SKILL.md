@@ -65,6 +65,8 @@ Pre-built typed collections do not implicitly convert. For example, `int[]` and 
 
 Assignments from `JsonValue[]` and `Map<string, JsonValue>` into `JsonValue` preserve reference semantics for the underlying shared container.
 
+`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)`, generated `.toJsonValue()` methods, and direct `JsonValue` object literals all expose that order.
+
 ### Nullability
 
 No implicit null. Nullability is explicit via union types:
@@ -155,7 +157,7 @@ pair: (int, string) = (1, "one")
 (id, label) := pair
 ```
 
-**Maps:** `Map<K, V>` — hash-based key-value collection with O(1) average-case access.
+**Maps:** `Map<K, V>` — insertion-order-preserving key-value collection.
 
 ```doof
 // Bare annotation with same-site literal inference
@@ -186,6 +188,10 @@ When a `Map<long, V>` is expected, integer literals in the initializer are conte
 
 `float`, `double`, tuples, class instances, and other non-supported key types are rejected by the checker with an explicit map-key diagnostic instead of falling through to generated C++ errors.
 
+Map iteration follows first insertion order. `.keys()`, `.values()`, `for key, value of map`, direct printing, and `JsonValue` object formatting expose that order.
+
+Replacing the value for an existing key does not move it. Deleting and reinserting a key appends it to the end.
+
 | Method | Return Type | Description |
 |--------|------------|-------------|
 | `.get(key)` | `V \| null` | Lookup (null if missing) |
@@ -212,7 +218,7 @@ Empty maps require a full type annotation: `let m: Map<int, string> = {}`
 
 Omit `Map` / `ReadonlyMap` type arguments only when both are omitted together and the declaration/default has a same-site non-empty homogeneous literal. Partial annotations such as `Map<string>` are compile errors.
 
-**Sets:** `Set<T>` — hash-based unique-value collection.
+**Sets:** `Set<T>` — insertion-order-preserving unique-value collection.
 
 ```doof
 // Bare annotation with same-site literal inference
@@ -232,6 +238,10 @@ count := unique.size
 Supported set element types are `string`, `int`, `long`, `char`, `bool`, and enums. The same rule applies to declaration initializers, return-context literals, argument-context literals, parameter defaults, and field defaults.
 
 When a `Set<long>` is expected, integer literals in the initializer are contextually widened, so `let ids: Set<long> = [1, 2, 3]` is valid.
+
+Set iteration follows first insertion order. `.values()`, `for value of set`, and direct printing expose that order.
+
+Adding an existing value does not move it. Deleting and re-adding a value appends it to the end.
 
 **Streams:** `Stream<T>` — pull-based iteration via `next(): T | null`.
 

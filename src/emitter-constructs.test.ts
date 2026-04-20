@@ -507,14 +507,14 @@ describe("emitter — default parameters", () => {
     const cpp = emit(`
       function dedupe(values: Set<int> = []): Set<int> => values
     `);
-    expect(cpp).toContain("std::shared_ptr<std::unordered_set<int32_t>> values = std::make_shared<std::unordered_set<int32_t>>()");
+    expect(cpp).toContain("std::shared_ptr<doof::ordered_set<int32_t>> values = std::make_shared<doof::ordered_set<int32_t>>()");
   });
 
   it("emits default Map parameter value with supported keys", () => {
     const cpp = emit(`
       function lookup(values: Map<long, string> = { 1L: "one", 2L: "two" }): Map<long, string> => values
     `);
-    expect(cpp).toContain("std::shared_ptr<std::unordered_map<int64_t, std::string>> values = std::make_shared<std::unordered_map<int64_t, std::string>>");
+    expect(cpp).toContain("std::shared_ptr<doof::ordered_map<int64_t, std::string>> values = std::make_shared<doof::ordered_map<int64_t, std::string>>");
   });
 
   it("emits nullable string parameter defaults as std::nullopt", () => {
@@ -877,14 +877,14 @@ describe("emitter — for-of with arrays", () => {
 });
 
 describe("emitter — map literal", () => {
-  it("emits unordered_map for map literal", () => {
+  it("emits ordered_map for map literal", () => {
     const cpp = emit(`
       function main(): int {
         let scores = {["alice"]: 10, ["bob"]: 20}
         return 0
       }
     `);
-    expect(cpp).toContain("std::unordered_map");
+    expect(cpp).toContain("doof::ordered_map");
   });
 });
 
@@ -1042,7 +1042,7 @@ describe("emitter — contextual typing", () => {
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JsonValue(std::make_shared<std::unordered_map<std::string, doof::JsonValue>>");
+    expect(cpp).toContain("doof::JsonValue(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>");
     expect(cpp).not.toContain("_json_obj_src_");
   });
 

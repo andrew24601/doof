@@ -220,9 +220,9 @@ function emitArrayLiteral(expr: ArrayLiteral, ctx: EmitContext, targetType?: Res
   if (collectionType?.kind === "set") {
     const elType = emitType(collectionType.elementType);
     if (expr.elements.length === 0) {
-      return `std::make_shared<std::unordered_set<${elType}>>()`;
+      return `std::make_shared<doof::ordered_set<${elType}>>()`;
     }
-    return `std::make_shared<std::unordered_set<${elType}>>(std::unordered_set<${elType}>{${elements}})`;
+    return `std::make_shared<doof::ordered_set<${elType}>>(doof::ordered_set<${elType}>{${elements}})`;
   }
   if (expr.elements.length === 0) {
     return `std::make_shared<std::vector<int32_t>>()`;
@@ -246,12 +246,12 @@ function emitMapLiteral(expr: MapLiteral, ctx: EmitContext, targetType?: Resolve
   if (mapType?.kind === "map") {
     const k = emitType(mapType.keyType);
     const v = emitType(mapType.valueType);
-    return `std::make_shared<std::unordered_map<${k}, ${v}>>(std::unordered_map<${k}, ${v}>{${entries}})`;
+    return `std::make_shared<doof::ordered_map<${k}, ${v}>>(doof::ordered_map<${k}, ${v}>{${entries}})`;
   }
   if (expr.entries.length === 0) {
-    return `doof::share(std::unordered_map<int32_t, int32_t>{})`;
+    return `doof::share(doof::ordered_map<int32_t, int32_t>{})`;
   }
-  return `doof::share(std::unordered_map{${entries}})`;
+  return `doof::share(doof::ordered_map{${entries}})`;
 }
 
 function emitTupleLiteral(expr: TupleLiteral, ctx: EmitContext): string {
@@ -289,7 +289,7 @@ function emitObjectLiteral(
   if (expr.resolvedType?.kind === "map" && expr.properties.length === 0) {
     const k = emitType(expr.resolvedType.keyType);
     const v = emitType(expr.resolvedType.valueType);
-    return `std::make_shared<std::unordered_map<${k}, ${v}>>()`;
+    return `std::make_shared<doof::ordered_map<${k}, ${v}>>()`;
   }
   if (expr.resolvedType?.kind === "class") {
     const sym = expr.resolvedType.symbol;
@@ -320,7 +320,7 @@ function emitObjectLiteral(
         return `{${key}, ${value}}`;
       })
       .join(", ");
-    return `std::make_shared<std::unordered_map<${k}, ${v}>>(std::unordered_map<${k}, ${v}>{${entries}})`;
+    return `std::make_shared<doof::ordered_map<${k}, ${v}>>(doof::ordered_map<${k}, ${v}>{${entries}})`;
   }
   const props = expr.properties
     .map((p) => {

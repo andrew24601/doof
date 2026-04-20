@@ -72,7 +72,7 @@ inline const doof::JsonValue* object_member(
 }
 
 inline doof::JsonValue make_object(std::initializer_list<std::pair<std::string, doof::JsonValue>> fields) {
-    auto object = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();
+    auto object = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();
     for (const auto& [key, value] : fields) {
         (*object)[key] = value;
     }

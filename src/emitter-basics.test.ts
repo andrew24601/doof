@@ -552,8 +552,8 @@ describe("emitter — classes", () => {
         colours: Set<int> = []
       }
     `);
-    expect(cpp).toContain("std::shared_ptr<std::unordered_set<int32_t>> colours = std::make_shared<std::unordered_set<int32_t>>()");
-    expect(cpp).toContain("std::shared_ptr<std::unordered_set<int32_t>> colours = std::make_shared<std::unordered_set<int32_t>>()");
+    expect(cpp).toContain("std::shared_ptr<doof::ordered_set<int32_t>> colours = std::make_shared<doof::ordered_set<int32_t>>()");
+    expect(cpp).toContain("std::shared_ptr<doof::ordered_set<int32_t>> colours = std::make_shared<doof::ordered_set<int32_t>>()");
   });
 
   it("emits const fields as instance const members", () => {
@@ -1129,13 +1129,13 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain("doof::array_cloneMutable(values)");
   });
 
-  it("emits contextual Set literals as unordered_set", () => {
+  it("emits contextual Set literals as ordered_set", () => {
     const cpp = emit(`
       function makeSet(): Set<int> {
         return [1, 2, 3, 2]
       }
     `);
-    expect(cpp).toContain("std::unordered_set<int32_t>{1, 2, 3, 2}");
+    expect(cpp).toContain("doof::ordered_set<int32_t>{1, 2, 3, 2}");
   });
 
 });

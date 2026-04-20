@@ -23,6 +23,8 @@ const text = formatJsonValue(p.toJsonValue())
 const parsed = parseJsonValue(text)         // Result<JsonValue, string>
 ```
 
+`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonValue()` methods emit class fields in declaration order.
+
 ## On-Demand Generation
 
 JSON methods are only generated for classes and interfaces where user code actually accesses `.toJsonValue()` or `.fromJsonValue()`. If a program never calls these methods, no class JSON code is generated.

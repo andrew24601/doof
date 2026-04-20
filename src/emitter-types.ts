@@ -88,12 +88,12 @@ export function emitType(type: ResolvedType): string {
     case "map": {
       const k = emitType(type.keyType);
       const v = emitType(type.valueType);
-      return `std::shared_ptr<std::unordered_map<${k}, ${v}>>`;
+      return `std::shared_ptr<doof::ordered_map<${k}, ${v}>>`;
     }
 
     case "set": {
       const el = emitType(type.elementType);
-      return `std::shared_ptr<std::unordered_set<${el}>>`;
+      return `std::shared_ptr<doof::ordered_set<${el}>>`;
     }
 
     case "stream":
@@ -253,10 +253,10 @@ function emitUnionType(types: ResolvedType[]): string {
       return `std::shared_ptr<std::vector<${emitType(inner.elementType)}>>`;
     }
     if (inner.kind === "map") {
-      return `std::shared_ptr<std::unordered_map<${emitType(inner.keyType)}, ${emitType(inner.valueType)}>>`;
+      return `std::shared_ptr<doof::ordered_map<${emitType(inner.keyType)}, ${emitType(inner.valueType)}>>`;
     }
     if (inner.kind === "set") {
-      return `std::shared_ptr<std::unordered_set<${emitType(inner.elementType)}>>`;
+      return `std::shared_ptr<doof::ordered_set<${emitType(inner.elementType)}>>`;
     }
     // weak Class | null → weak_ptr (already nullable)
     if (inner.kind === "weak" && inner.inner.kind === "class") {

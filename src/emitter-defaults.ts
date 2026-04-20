@@ -79,7 +79,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         if (collectionType.kind === "array") {
           return `std::make_shared<std::vector<${elementType}>>()`;
         }
-        return `std::make_shared<std::unordered_set<${elementType}>>()`;
+        return `std::make_shared<doof::ordered_set<${elementType}>>()`;
       }
       const elements = expr.elements
         .map((element) => emitDefaultExpression(element, collectionType.elementType))
@@ -87,7 +87,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (collectionType.kind === "array") {
         return `std::make_shared<std::vector<${elementType}>>(std::vector<${elementType}>{${elements}})`;
       }
-      return `std::make_shared<std::unordered_set<${elementType}>>(std::unordered_set<${elementType}>{${elements}})`;
+      return `std::make_shared<doof::ordered_set<${elementType}>>(doof::ordered_set<${elementType}>{${elements}})`;
     }
 
     case "tuple-literal": {
@@ -186,7 +186,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (objectType?.kind === "map" && expr.properties.length === 0) {
         const keyType = emitType(objectType.keyType);
         const valueType = emitType(objectType.valueType);
-        return `std::make_shared<std::unordered_map<${keyType}, ${valueType}>>()`;
+        return `std::make_shared<doof::ordered_map<${keyType}, ${valueType}>>()`;
       }
 
       return unsupportedDefault(expr, contextType);
@@ -203,7 +203,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         .map((entry) => `{
 ${emitDefaultExpression(entry.key, mapType.keyType)}, ${emitDefaultExpression(entry.value, mapType.valueType)}}`)
         .join(", ");
-      return `std::make_shared<std::unordered_map<${keyType}, ${valueType}>>(std::unordered_map<${keyType}, ${valueType}>{${entries}})`;
+      return `std::make_shared<doof::ordered_map<${keyType}, ${valueType}>>(doof::ordered_map<${keyType}, ${valueType}>{${entries}})`;
     }
 
     default:

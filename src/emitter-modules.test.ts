@@ -500,7 +500,7 @@ describe("emitter-module — function signature with defaults", () => {
     const { hppCode } = emitSplit(`
       export function dedupe(values: Set<int> = []): Set<int> => values
     `);
-    expect(hppCode).toContain("std::shared_ptr<std::unordered_set<int32_t>> values = std::make_shared<std::unordered_set<int32_t>>()");
+    expect(hppCode).toContain("std::shared_ptr<doof::ordered_set<int32_t>> values = std::make_shared<doof::ordered_set<int32_t>>()");
   });
 });
 

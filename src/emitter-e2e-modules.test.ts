@@ -634,12 +634,11 @@ struct Worker {
     const rowsHeader = `
 #pragma once
 #include <string>
-#include <unordered_map>
 #include "doof_runtime.hpp"
 
 struct NativeRows {
     static doof::Result<doof::JsonValue::Object, std::string> read() {
-        auto row = std::make_shared<std::unordered_map<std::string, doof::JsonValue>>();
+    auto row = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();
         (*row)["id"] = doof::JsonValue(static_cast<int64_t>(7));
         (*row)["title"] = doof::JsonValue("demo");
         return doof::Result<doof::JsonValue::Object, std::string>::success(row);
