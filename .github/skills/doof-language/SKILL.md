@@ -39,7 +39,10 @@ Integer literals default to `int`, decimal literals to `double`. Use `L` suffix 
 x: float := 3.14        // narrowed to float from context
 b: byte := 42           // narrowed to byte from context
 n: long := 42           // widened to long from context
+count := 30_000         // underscores may separate digits
 ```
+
+Numeric literals may include underscores between digits for readability. Leading, trailing, and consecutive underscores are invalid.
 
 ### `JsonValue`
 

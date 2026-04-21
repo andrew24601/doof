@@ -507,9 +507,7 @@ export class Lexer {
     if (this.peek() === "0" && (this.peek(1) === "x" || this.peek(1) === "X")) {
       num += this.advance(); // 0
       num += this.advance(); // x
-      while (this.pos < this.source.length && this.isHexDigit(this.peek())) {
-        num += this.advance();
-      }
+      num += this.readDigitsWithSeparators(ch => this.isHexDigit(ch));
       this.checkNumericSuffix(num, startLine, startCol);
       return;
     }
@@ -517,24 +515,18 @@ export class Lexer {
     if (this.peek() === "0" && (this.peek(1) === "b" || this.peek(1) === "B")) {
       num += this.advance(); // 0
       num += this.advance(); // b
-      while (this.pos < this.source.length && (this.peek() === "0" || this.peek() === "1")) {
-        num += this.advance();
-      }
+      num += this.readDigitsWithSeparators(ch => ch === "0" || ch === "1");
       this.checkNumericSuffix(num, startLine, startCol);
       return;
     }
 
     // Integer or float
-    while (this.pos < this.source.length && this.isDigit(this.peek())) {
-      num += this.advance();
-    }
+    num += this.readDigitsWithSeparators(ch => this.isDigit(ch));
 
     if (this.peek() === "." && this.peek(1) !== "." && this.peek(1) !== "<") {
       // Float
       num += this.advance(); // .
-      while (this.pos < this.source.length && this.isDigit(this.peek())) {
-        num += this.advance();
-      }
+      num += this.readDigitsWithSeparators(ch => this.isDigit(ch));
       // Check for float suffix
       if (this.peek() === "f" || this.peek() === "F") {
         this.advance();
@@ -545,6 +537,43 @@ export class Lexer {
     } else {
       this.checkNumericSuffix(num, startLine, startCol);
     }
+  }
+
+  private readDigitsWithSeparators(isDigit: (ch: string) => boolean): string {
+    let digits = "";
+    let sawDigit = false;
+
+    while (this.pos < this.source.length) {
+      const ch = this.peek();
+      if (isDigit(ch)) {
+        digits += this.advance();
+        sawDigit = true;
+        continue;
+      }
+
+      if (ch !== "_") {
+        break;
+      }
+
+      if (sawDigit && isDigit(this.peek(1))) {
+        this.advance();
+        continue;
+      }
+
+      const separatorLine = this.line;
+      const separatorColumn = this.column;
+      while (this.peek() === "_") {
+        this.advance();
+      }
+      this.diagnostics.push({
+        severity: "error",
+        message: "Numeric separators must appear between digits",
+        line: separatorLine,
+        column: separatorColumn,
+      });
+    }
+
+    return digits;
   }
 
   private checkNumericSuffix(num: string, startLine: number, startCol: number): void {

@@ -60,12 +60,16 @@ let a = 42       // int (default for integer literals)
 let b = 42L      // long (explicit suffix)
 let c = 3.14     // double (default for decimal literals)
 let d = 3.14f    // float (explicit suffix)
+let e = 30_000   // int with digit separators
+let f = 3.141_59 // double with digit separators
 
 // Context can influence literal interpretation
 let b: byte = 42    // Literal interpreted as byte
 let x: long = 42    // Literal interpreted as long
 let y: float = 3.14 // Literal interpreted as float
 ```
+
+Underscores may appear between two digits in numeric literals to improve readability. Leading, trailing, and consecutive underscores are rejected.
 
 ### Implicit Numeric Widening
 

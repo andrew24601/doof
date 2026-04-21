@@ -58,6 +58,26 @@ describe("Parser — literals", () => {
     }
   });
 
+  it("parses numeric literals with separators", () => {
+    const intExpr = parseExpr("30_000");
+    expect(intExpr.kind).toBe("int-literal");
+    if (intExpr.kind === "int-literal") {
+      expect(intExpr.value).toBe(30000);
+    }
+
+    const longExpr = parseExpr("30_000L");
+    expect(longExpr.kind).toBe("long-literal");
+    if (longExpr.kind === "long-literal") {
+      expect(longExpr.value).toBe(30000n);
+    }
+
+    const floatExpr = parseExpr("3.1_4f");
+    expect(floatExpr.kind).toBe("float-literal");
+    if (floatExpr.kind === "float-literal") {
+      expect(floatExpr.value).toBeCloseTo(3.14);
+    }
+  });
+
   it("parses string literals", () => {
     const expr = parseExpr('"hello"');
     expect(expr.kind).toBe("string-literal");

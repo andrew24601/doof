@@ -46,6 +46,45 @@ describe("Lexer", () => {
       expect(tokens[0].type).toBe(TokenType.IntLiteral);
       expect(tokens[0].value).toBe("0b1010");
     });
+
+    it("lexes numeric separators between digits", () => {
+      const tokens = new Lexer("30_000 300_00 3_0_0_0_0_0 3.1_4f 0b1010_0001 0xFF_FF").tokenize();
+      expect(tokens[0]).toMatchObject({ type: TokenType.IntLiteral, value: "30000" });
+      expect(tokens[1]).toMatchObject({ type: TokenType.IntLiteral, value: "30000" });
+      expect(tokens[2]).toMatchObject({ type: TokenType.IntLiteral, value: "300000" });
+      expect(tokens[3]).toMatchObject({ type: TokenType.FloatLiteral, value: "3.14" });
+      expect(tokens[4]).toMatchObject({ type: TokenType.IntLiteral, value: "0b10100001" });
+      expect(tokens[5]).toMatchObject({ type: TokenType.IntLiteral, value: "0xFFFF" });
+    });
+
+    it("reports invalid numeric separators", () => {
+      const leading = new Lexer("3._14");
+      leading.tokenize();
+      expect(leading.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: "error",
+          message: "Numeric separators must appear between digits",
+        }),
+      ]);
+
+      const trailing = new Lexer("30_000_");
+      trailing.tokenize();
+      expect(trailing.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: "error",
+          message: "Numeric separators must appear between digits",
+        }),
+      ]);
+
+      const consecutive = new Lexer("30__000");
+      consecutive.tokenize();
+      expect(consecutive.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: "error",
+          message: "Numeric separators must appear between digits",
+        }),
+      ]);
+    });
   });
 
   describe("keywords", () => {
