@@ -9,7 +9,6 @@
   },
   "files": [
     "dist",
-    "stdlib-packages.json",
     "README.md"
   ],
   "scripts": {
@@ -19,7 +18,7 @@
     "dev:install-global": "node scripts/local-global-dev.mjs install",
     "dev:uninstall-global": "node scripts/local-global-dev.mjs uninstall",
     "build:solitaire:mac": "bash scripts/build-solitaire-macos.sh",
-    "sync:stdlib": "node scripts/sync-stdlib.mjs",
+    "sync:stdlib": "npm run build && node dist/sync-stdlib.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

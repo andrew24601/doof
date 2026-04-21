@@ -1,50 +1,23 @@
-import * as nodeFs from "node:fs";
-import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import { joinFsPath, resolveFsPath } from "./path-utils.js";
+import { STDLIB_PACKAGE_VERSIONS } from "./stdlib-packages.js";
 
-export type StdPackageVersions = Record<string, string>;
+export type StdPackageVersions = typeof STDLIB_PACKAGE_VERSIONS;
+export type StdPackageName = keyof StdPackageVersions;
 
 export const DOOF_STDLIB_ROOT_ENV = "DOOF_STDLIB_ROOT";
 
-const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
-  nodePath.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "stdlib-packages.json",
-);
+export const DEFAULT_STD_VERSIONS: StdPackageVersions = STDLIB_PACKAGE_VERSIONS;
 
-const CHECKED_IN_STDLIB_ROOT = nodePath.resolve(
-  nodePath.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "stdlib",
-);
-
-export const DEFAULT_STD_VERSIONS: StdPackageVersions = loadDefaultStdVersions();
-
-function loadDefaultStdVersions(): StdPackageVersions {
-  const manifest = JSON.parse(nodeFs.readFileSync(STDLIB_PACKAGES_MANIFEST_PATH, "utf8")) as unknown;
-  if (!isStdPackageVersions(manifest)) {
-    throw new Error(`Invalid stdlib package manifest at ${STDLIB_PACKAGES_MANIFEST_PATH}`);
-  }
-
-  return Object.freeze({ ...manifest });
-}
-
-function isStdPackageVersions(value: unknown): value is StdPackageVersions {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(([packageName, version]) => (
-    packageName.length > 0 && typeof version === "string" && version.length > 0
-  ));
+export function isStdPackageName(value: string): value is StdPackageName {
+  return Object.hasOwn(DEFAULT_STD_VERSIONS, value);
 }
 
 export function getImplicitStdDependencyConfig(packageName: string): { url: string; version: string } | null {
-  const version = DEFAULT_STD_VERSIONS[packageName];
-  if (!version) {
+  if (!isStdPackageName(packageName)) {
     return null;
   }
+
+  const version = DEFAULT_STD_VERSIONS[packageName];
 
   return {
     url: `https://github.com/doof-lang/${packageName}.git`,
@@ -68,43 +41,15 @@ export function resolveStdlibOverridePath(specifier: string, env: NodeJS.Process
   }
 
   const segments = shortName.split("/");
-  const packageName = segments[0];
-  if (!packageName || !DEFAULT_STD_VERSIONS[packageName]) {
+  const [packageName, ...subpath] = segments;
+  if (!packageName || !isStdPackageName(packageName)) {
     return null;
   }
 
   const rootOverride = getStdlibRootOverride(env);
-  if (rootOverride) {
-    return joinFsPath(rootOverride, packageName, ...segments.slice(1));
-  }
-
-  const checkedInPackageRoot = nodePath.join(CHECKED_IN_STDLIB_ROOT, packageName);
-  if (nodeFs.existsSync(checkedInPackageRoot)) {
-    return joinFsPath(resolveFsPath(checkedInPackageRoot), ...segments.slice(1));
-  }
-
-  return null;
-}
-
-export function getImplicitStdDependencyLocalRoot(
-  packageName: string,
-  env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  if (!DEFAULT_STD_VERSIONS[packageName]) {
-    return null;
-  }
-
-  if (getStdlibRootOverride(env)) {
-    return joinFsPath(getStdlibRootOverride(env)!, packageName);
-  }
-
-  const resolvedRoot = resolveStdlibOverridePath(`std/${packageName}`, env);
-  if (!resolvedRoot) {
-    return null;
-  }
-
-  const manifestPath = joinFsPath(resolvedRoot, "doof.json");
-  return nodeFs.existsSync(manifestPath) ? resolvedRoot : null;
+  return rootOverride
+    ? joinFsPath(rootOverride, packageName, ...subpath)
+    : null;
 }
 
 export function getImplicitStdDependencyNames(): string[] {

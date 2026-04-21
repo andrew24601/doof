@@ -18,7 +18,7 @@ import {
   mergePackageNativeBuild,
   type ResolvedPackageNativeBuild,
 } from "./package-manifest.js";
-import { createBundledModuleResolver, withBundledStdlib } from "./stdlib.js";
+import { createNodeBundledModuleResolver, withNodeBundledStdlib } from "./stdlib-node.js";
 
 export class RealFS implements FileSystem {
   readFile(absolutePath: string): string | null {
@@ -269,7 +269,7 @@ export function runPipelineWithFs(
   onDiagnostic: (diagnostic: DiagnosticLike) => void,
 ): PipelineResult {
   const normalizedEntryPath = resolveFsPath(entryPath);
-  const pipelineFileSystem = withBundledStdlib(fileSystem);
+  const pipelineFileSystem = withNodeBundledStdlib(fileSystem);
   if (!pipelineFileSystem.fileExists(normalizedEntryPath)) {
     throw new Error(`File not found: ${normalizedEntryPath}`);
   }
@@ -277,7 +277,7 @@ export function runPipelineWithFs(
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath, {
     implicitStdDependencies: fileSystem instanceof RealFS,
   });
-  const resolver = createBundledModuleResolver(fileSystem, {
+  const resolver = createNodeBundledModuleResolver(fileSystem, {
     packages: packageGraph.packages.map((pkg) => ({
       rootDir: pkg.rootDir,
       dependencies: pkg.dependencyRoots,

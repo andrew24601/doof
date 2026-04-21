@@ -27,11 +27,11 @@ import {
 } from "./path-utils.js";
 import {
   getImplicitStdDependencyConfig,
-  getImplicitStdDependencyLocalRoot,
   getImplicitStdDependencyNames,
   getStdPackageShortName,
   isImplicitStdSelfReference,
 } from "./std-packages.js";
+import { getImplicitStdDependencyLocalRoot } from "./std-packages-node.js";
 
 export interface ResolvedPackageNativeBuild extends Pick<
   NativeBuildOptions,

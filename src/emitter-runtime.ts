@@ -80,6 +80,20 @@ inline void assert_(bool condition, const std::string& message) {
     }
 }
 
+[[noreturn]] inline void panic_ordered_collection_invariant(
+    const char* collection,
+    const char* context,
+    const std::string& detail
+) {
+    std::ostringstream message;
+    message << collection << " invariant failed";
+    if (context && context[0] != '\0') {
+        message << " in " << context;
+    }
+    message << ": " << detail;
+    panic(message.str());
+}
+
 // ============================================================================
 // Ordered collections — insertion-order preserving Map/Set runtime types
 // ============================================================================
@@ -99,17 +113,20 @@ public:
         for (const auto& entry : init) {
             insert_or_assign(entry.first, entry.second);
         }
+        validate_invariants("ordered_map::initializer_list");
     }
 
     ordered_map(const ordered_map& other)
         : entries_(other.entries_) {
         rebuild_index();
+        validate_invariants("ordered_map::copy_ctor");
     }
 
     ordered_map& operator=(const ordered_map& other) {
         if (this != &other) {
             entries_ = other.entries_;
             rebuild_index();
+            validate_invariants("ordered_map::copy_assign");
         }
         return *this;
     }
@@ -117,17 +134,36 @@ public:
     ordered_map(ordered_map&&) = default;
     ordered_map& operator=(ordered_map&&) = default;
 
-    iterator begin() { return entries_.begin(); }
-    iterator end() { return entries_.end(); }
-    const_iterator begin() const { return entries_.begin(); }
-    const_iterator end() const { return entries_.end(); }
-    const_iterator cbegin() const { return entries_.cbegin(); }
-    const_iterator cend() const { return entries_.cend(); }
+    iterator begin() {
+        validate_invariants("ordered_map::begin");
+        return entries_.begin();
+    }
+    iterator end() {
+        validate_invariants("ordered_map::end");
+        return entries_.end();
+    }
+    const_iterator begin() const {
+        validate_invariants("ordered_map::begin const");
+        return entries_.begin();
+    }
+    const_iterator end() const {
+        validate_invariants("ordered_map::end const");
+        return entries_.end();
+    }
+    const_iterator cbegin() const {
+        validate_invariants("ordered_map::cbegin");
+        return entries_.cbegin();
+    }
+    const_iterator cend() const {
+        validate_invariants("ordered_map::cend");
+        return entries_.cend();
+    }
 
     [[nodiscard]] bool empty() const { return entries_.empty(); }
     [[nodiscard]] size_type size() const { return entries_.size(); }
 
     iterator find(const K& key) {
+        validate_invariants("ordered_map::find");
         const auto pos = index_.find(key);
         if (pos == index_.end()) {
             return entries_.end();
@@ -136,6 +172,7 @@ public:
     }
 
     const_iterator find(const K& key) const {
+        validate_invariants("ordered_map::find const");
         const auto pos = index_.find(key);
         if (pos == index_.end()) {
             return entries_.end();
@@ -144,10 +181,12 @@ public:
     }
 
     [[nodiscard]] size_type count(const K& key) const {
+        validate_invariants("ordered_map::count");
         return index_.count(key);
     }
 
     V& operator[](const K& key) {
+        validate_invariants("ordered_map::operator[] pre");
         const auto pos = index_.find(key);
         if (pos != index_.end()) {
             return entries_[pos->second].second;
@@ -155,21 +194,26 @@ public:
 
         index_[key] = entries_.size();
         entries_.push_back(value_type{key, V{}});
+        validate_invariants("ordered_map::operator[] post");
         return entries_.back().second;
     }
 
     void insert_or_assign(const K& key, const V& value) {
+        validate_invariants("ordered_map::insert_or_assign pre");
         const auto pos = index_.find(key);
         if (pos != index_.end()) {
             entries_[pos->second].second = value;
+            validate_invariants("ordered_map::insert_or_assign update");
             return;
         }
 
         index_[key] = entries_.size();
         entries_.push_back(value_type{key, value});
+        validate_invariants("ordered_map::insert_or_assign insert");
     }
 
     size_type erase(const K& key) {
+        validate_invariants("ordered_map::erase pre");
         const auto pos = index_.find(key);
         if (pos == index_.end()) {
             return 0;
@@ -181,7 +225,35 @@ public:
         for (size_type current = index; current < entries_.size(); ++current) {
             index_[entries_[current].first] = current;
         }
+        validate_invariants("ordered_map::erase post");
         return 1;
+    }
+
+    void validate_invariants(const char* context = "ordered_map") const {
+#if defined(DOOF_RUNTIME_VALIDATE_ORDERED_COLLECTIONS)
+        if (index_.size() != entries_.size()) {
+            panic_ordered_collection_invariant("ordered_map", context, "index size does not match entry count");
+        }
+        for (size_type index = 0; index < entries_.size(); ++index) {
+            const auto pos = index_.find(entries_[index].first);
+            if (pos == index_.end()) {
+                panic_ordered_collection_invariant("ordered_map", context, "entry key missing from index");
+            }
+            if (pos->second != index) {
+                panic_ordered_collection_invariant("ordered_map", context, "entry key mapped to stale position");
+            }
+        }
+        for (const auto& [key, index] : index_) {
+            if (index >= entries_.size()) {
+                panic_ordered_collection_invariant("ordered_map", context, "index points past end of entries");
+            }
+            if (!(entries_[index].first == key)) {
+                panic_ordered_collection_invariant("ordered_map", context, "index points at mismatched entry key");
+            }
+        }
+#else
+        (void)context;
+#endif
     }
 
 private:
@@ -214,17 +286,20 @@ public:
         for (const auto& value : init) {
             insert(value);
         }
+        validate_invariants("ordered_set::initializer_list");
     }
 
     ordered_set(const ordered_set& other)
         : values_(other.values_) {
         rebuild_index();
+        validate_invariants("ordered_set::copy_ctor");
     }
 
     ordered_set& operator=(const ordered_set& other) {
         if (this != &other) {
             values_ = other.values_;
             rebuild_index();
+            validate_invariants("ordered_set::copy_assign");
         }
         return *this;
     }
@@ -232,17 +307,36 @@ public:
     ordered_set(ordered_set&&) = default;
     ordered_set& operator=(ordered_set&&) = default;
 
-    iterator begin() { return values_.begin(); }
-    iterator end() { return values_.end(); }
-    const_iterator begin() const { return values_.begin(); }
-    const_iterator end() const { return values_.end(); }
-    const_iterator cbegin() const { return values_.cbegin(); }
-    const_iterator cend() const { return values_.cend(); }
+    iterator begin() {
+        validate_invariants("ordered_set::begin");
+        return values_.begin();
+    }
+    iterator end() {
+        validate_invariants("ordered_set::end");
+        return values_.end();
+    }
+    const_iterator begin() const {
+        validate_invariants("ordered_set::begin const");
+        return values_.begin();
+    }
+    const_iterator end() const {
+        validate_invariants("ordered_set::end const");
+        return values_.end();
+    }
+    const_iterator cbegin() const {
+        validate_invariants("ordered_set::cbegin");
+        return values_.cbegin();
+    }
+    const_iterator cend() const {
+        validate_invariants("ordered_set::cend");
+        return values_.cend();
+    }
 
     [[nodiscard]] bool empty() const { return values_.empty(); }
     [[nodiscard]] size_type size() const { return values_.size(); }
 
     iterator find(const T& value) {
+        validate_invariants("ordered_set::find");
         const auto pos = index_.find(value);
         if (pos == index_.end()) {
             return values_.end();
@@ -251,6 +345,7 @@ public:
     }
 
     const_iterator find(const T& value) const {
+        validate_invariants("ordered_set::find const");
         const auto pos = index_.find(value);
         if (pos == index_.end()) {
             return values_.end();
@@ -259,20 +354,24 @@ public:
     }
 
     [[nodiscard]] size_type count(const T& value) const {
+        validate_invariants("ordered_set::count");
         return index_.count(value);
     }
 
     bool insert(const T& value) {
+        validate_invariants("ordered_set::insert pre");
         if (index_.count(value) > 0) {
             return false;
         }
 
         index_[value] = values_.size();
         values_.push_back(value);
+        validate_invariants("ordered_set::insert post");
         return true;
     }
 
     size_type erase(const T& value) {
+        validate_invariants("ordered_set::erase pre");
         const auto pos = index_.find(value);
         if (pos == index_.end()) {
             return 0;
@@ -284,7 +383,35 @@ public:
         for (size_type current = index; current < values_.size(); ++current) {
             index_[values_[current]] = current;
         }
+        validate_invariants("ordered_set::erase post");
         return 1;
+    }
+
+    void validate_invariants(const char* context = "ordered_set") const {
+#if defined(DOOF_RUNTIME_VALIDATE_ORDERED_COLLECTIONS)
+        if (index_.size() != values_.size()) {
+            panic_ordered_collection_invariant("ordered_set", context, "index size does not match value count");
+        }
+        for (size_type index = 0; index < values_.size(); ++index) {
+            const auto pos = index_.find(values_[index]);
+            if (pos == index_.end()) {
+                panic_ordered_collection_invariant("ordered_set", context, "value missing from index");
+            }
+            if (pos->second != index) {
+                panic_ordered_collection_invariant("ordered_set", context, "value mapped to stale position");
+            }
+        }
+        for (const auto& [value, index] : index_) {
+            if (index >= values_.size()) {
+                panic_ordered_collection_invariant("ordered_set", context, "index points past end of values");
+            }
+            if (!(values_[index] == value)) {
+                panic_ordered_collection_invariant("ordered_set", context, "index points at mismatched value");
+            }
+        }
+#else
+        (void)context;
+#endif
     }
 
 private:
@@ -985,6 +1112,7 @@ std::optional<V> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& k
     if (!m) {
         panic("Attempted to access null map");
     }
+    m->validate_invariants("map_get");
     auto it = m->find(key);
     if (it != m->end()) return it->second;
     return std::nullopt;
@@ -995,6 +1123,7 @@ V& map_at(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
     if (!m) {
         panic("Attempted to index null map");
     }
+    m->validate_invariants("map_at");
     auto it = m->find(key);
     if (it == m->end()) {
         panic("Map key not found");
@@ -1007,6 +1136,7 @@ V& map_index(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
     if (!m) {
         panic("Attempted to index null map");
     }
+    m->validate_invariants("map_index");
     return (*m)[key];
 }
 
@@ -1015,6 +1145,7 @@ std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>
     if (!m) {
         panic("Attempted to read keys from null map");
     }
+    m->validate_invariants("map_keys");
     auto result = std::make_shared<std::vector<K>>();
     result->reserve(m->size());
     for (const auto& [k, v] : *m) result->push_back(k);
@@ -1026,6 +1157,7 @@ std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, 
     if (!m) {
         panic("Attempted to read values from null map");
     }
+    m->validate_invariants("map_values");
     auto result = std::make_shared<std::vector<V>>();
     result->reserve(m->size());
     for (const auto& [k, v] : *m) result->push_back(v);
@@ -1037,6 +1169,7 @@ std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>
     if (!s) {
         panic("Attempted to read values from null set");
     }
+    s->validate_invariants("set_values");
     auto result = std::make_shared<std::vector<T>>();
     result->reserve(s->size());
     for (const auto& value : *s) result->push_back(value);

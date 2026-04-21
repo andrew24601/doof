@@ -1,7 +1,7 @@
 import * as nodePath from "node:path";
 import { describe, expect, it } from "vitest";
 import { DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
-import { getStdlibRootOverride, resolveStdlibSyncSource } from "../scripts/sync-stdlib.mjs";
+import { getStdlibRootOverride, resolveStdlibSyncSource } from "./sync-stdlib.js";
 
 describe("sync stdlib source selection", () => {
   it("uses remote archives when DOOF_STDLIB_ROOT is unset", () => {

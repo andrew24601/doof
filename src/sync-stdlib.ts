@@ -1,15 +1,13 @@
-#!/usr/bin/env node
-
 import { execFileSync } from "node:child_process";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-
-export const DOOF_STDLIB_ROOT_ENV = "DOOF_STDLIB_ROOT";
+import { DOOF_STDLIB_ROOT_ENV, getStdlibRootOverride } from "./std-packages.js";
+import { STDLIB_PACKAGE_VERSIONS, type StdlibPackageVersions } from "./stdlib-packages.js";
+export { getStdlibRootOverride };
 
 const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
-const manifestPath = nodePath.join(repoRoot, "stdlib-packages.json");
 const stdlibRoot = nodePath.join(repoRoot, "stdlib");
 
 if (isMainModule(import.meta.url, process.argv[1])) {
@@ -33,9 +31,9 @@ export async function main(env = process.env) {
   nodeFs.rmSync(stdlibRoot, { recursive: true, force: true });
   nodeFs.mkdirSync(stdlibRoot, { recursive: true });
 
-  const resolvedPackages = {};
+  const resolvedPackages: Record<string, unknown> = {};
 
-  for (const packageName of Object.keys(manifest).sort()) {
+  for (const packageName of Object.keys(manifest).sort() as Array<keyof StdlibPackageVersions>) {
     const version = manifest[packageName];
     const resolved = syncSource.kind === "remote"
       ? await materializeRemoteStdPackage(packageName, version)
@@ -59,7 +57,7 @@ export async function main(env = process.env) {
   console.log(`Wrote stdlib mirror to ${stdlibRoot}`);
 }
 
-function isMainModule(moduleUrl, entryPath) {
+function isMainModule(moduleUrl: string, entryPath: string | undefined): boolean {
   if (!entryPath) {
     return false;
   }
@@ -67,19 +65,10 @@ function isMainModule(moduleUrl, entryPath) {
   return nodePath.resolve(entryPath) === fileURLToPath(moduleUrl);
 }
 
-export function getStdlibRootOverride(env = process.env) {
-  const configuredRoot = env[DOOF_STDLIB_ROOT_ENV]?.trim();
-  if (!configuredRoot) {
-    return null;
-  }
-
-  return nodePath.resolve(configuredRoot);
-}
-
-export function resolveStdlibSyncSource(env = process.env, targetRoot = stdlibRoot) {
+export function resolveStdlibSyncSource(env: NodeJS.ProcessEnv = process.env, targetRoot = stdlibRoot) {
   const overrideRoot = getStdlibRootOverride(env);
   if (!overrideRoot) {
-    return { kind: "remote" };
+    return { kind: "remote" as const };
   }
 
   const resolvedTargetRoot = nodePath.resolve(targetRoot);
@@ -90,30 +79,16 @@ export function resolveStdlibSyncSource(env = process.env, targetRoot = stdlibRo
   }
 
   return {
-    kind: "local-override",
+    kind: "local-override" as const,
     root: overrideRoot,
   };
 }
 
-function loadStdPackageManifest() {
-  const manifest = JSON.parse(nodeFs.readFileSync(manifestPath, "utf8"));
-  if (!isStdPackageManifest(manifest)) {
-    throw new Error(`Invalid stdlib package manifest at ${manifestPath}`);
-  }
-  return manifest;
+function loadStdPackageManifest(): StdlibPackageVersions {
+  return STDLIB_PACKAGE_VERSIONS;
 }
 
-function isStdPackageManifest(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(([packageName, version]) => (
-    packageName.length > 0 && typeof version === "string" && version.length > 0
-  ));
-}
-
-function ensureTarAvailable() {
+function ensureTarAvailable(): void {
   try {
     execFileSync("tar", ["--version"], { stdio: "pipe" });
   } catch {
@@ -121,7 +96,7 @@ function ensureTarAvailable() {
   }
 }
 
-function materializeLocalStdPackage(sourceRoot, packageName, version) {
+function materializeLocalStdPackage(sourceRoot: string, packageName: string, version: string) {
   const sourceDir = nodePath.join(sourceRoot, packageName);
   if (!nodeFs.existsSync(sourceDir) || !nodeFs.statSync(sourceDir).isDirectory()) {
     throw new Error(
@@ -139,16 +114,16 @@ function materializeLocalStdPackage(sourceRoot, packageName, version) {
 
   return {
     version,
-    sourceKind: "local-override",
+    sourceKind: "local-override" as const,
     localPath: sourceDir,
   };
 }
 
-async function materializeRemoteStdPackage(packageName, version) {
+async function materializeRemoteStdPackage(packageName: string, version: string) {
   const archiveTempDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), `doof-stdlib-${packageName}-`));
   const extractDir = nodeFs.mkdtempSync(nodePath.join(stdlibRoot, `${packageName}.tmp-`));
   const targetDir = nodePath.join(stdlibRoot, packageName);
-  const failures = [];
+  const failures: string[] = [];
 
   try {
     for (const ref of buildRemoteRefCandidates(version)) {
@@ -172,7 +147,7 @@ async function materializeRemoteStdPackage(packageName, version) {
         nodeFs.renameSync(extractDir, targetDir);
         return {
           version,
-          sourceKind: "remote",
+          sourceKind: "remote" as const,
           resolvedRef: ref,
           archiveUrl,
         };
@@ -194,11 +169,11 @@ async function materializeRemoteStdPackage(packageName, version) {
   );
 }
 
-function buildArchiveUrl(packageName, ref) {
+function buildArchiveUrl(packageName: string, ref: string): string {
   return `https://github.com/doof-lang/${packageName}/archive/refs/tags/${encodeURIComponent(ref)}.tar.gz`;
 }
 
-function buildRemoteRefCandidates(version) {
+function buildRemoteRefCandidates(version: string): string[] {
   const candidates = [version];
   if (version.startsWith("v")) {
     candidates.push(version.slice(1));

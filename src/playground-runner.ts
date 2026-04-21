@@ -18,7 +18,7 @@ import {
   collectSemanticDiagnostics,
   throwIfErrorDiagnostics,
 } from "./pipeline-diagnostics.js";
-import { createBundledModuleResolver, withBundledStdlib } from "./stdlib.js";
+import { createNodeBundledModuleResolver, withNodeBundledStdlib } from "./stdlib-node.js";
 import { VirtualFS } from "./test-helpers.js";
 
 const ENTRY_PATH = "/main.do";
@@ -237,8 +237,8 @@ function createDefaultHost(): PlaygroundRunnerHost {
 
 function emitPlaygroundArtifacts(source: string): EmittedArtifacts {
   const fileSystem = new VirtualFS({ [ENTRY_PATH]: source });
-  const resolver = createBundledModuleResolver(fileSystem);
-  const analyzer = new ModuleAnalyzer(withBundledStdlib(fileSystem), resolver);
+  const resolver = createNodeBundledModuleResolver(fileSystem);
+  const analyzer = new ModuleAnalyzer(withNodeBundledStdlib(fileSystem), resolver);
   const analysisResult = analyzer.analyzeModule(ENTRY_PATH);
   const diagnostics = collectSemanticDiagnostics(analysisResult);
 

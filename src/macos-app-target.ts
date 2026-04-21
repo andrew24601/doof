@@ -25,7 +25,7 @@ export interface AssembleMacOSAppBundleOptions {
   config: ResolvedDoofMacOSAppConfig;
   log?: (message: string) => void;
   platform?: NodeJS.Platform;
-  generateIcon?: (iconPath: string, outputPath: string) => void;
+  generateIcon?: (iconPath: string, outputPath: string, scriptPath: string) => void;
 }
 
 export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): MacOSAppBundleResult {
@@ -62,18 +62,13 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
     nodeFs.chmodSync(iconScriptPath, 0o755);
   }
 
-  if (generateIcon) {
-    generateIcon(config.iconPath, iconOutputPath);
-  } else {
-    try {
-      const { execFileSync } = requireChildProcess();
-      execFileSync("/bin/bash", [iconScriptPath, config.iconPath, iconOutputPath], {
-        stdio: "pipe",
-        timeout: 30000,
-      });
-    } catch (error: any) {
-      throw new Error(formatProcessFailure("Failed to generate macOS app icon", error));
+  try {
+    if (!generateIcon) {
+      throw new Error("No macOS icon generator is available in this runtime");
     }
+    generateIcon(config.iconPath, iconOutputPath, iconScriptPath);
+  } catch (error: any) {
+    throw new Error(formatProcessFailure("Failed to generate macOS app icon", error));
   }
 
   const seenDestinations = new Set<string>();
@@ -100,10 +95,6 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
 
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };
-}
-
-function requireChildProcess(): typeof import("node:child_process") {
-  return new Function("return require('node:child_process')")() as typeof import("node:child_process");
 }
 
 function expandResourcePattern(pattern: string): string[] {

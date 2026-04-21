@@ -1,34 +1,35 @@
 import * as nodeFs from "node:fs";
+import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DOOF_STDLIB_ROOT_ENV,
   DEFAULT_STD_VERSIONS,
   getImplicitStdDependencyConfig,
-  getImplicitStdDependencyLocalRoot,
   getImplicitStdDependencyNames,
   getStdPackageShortName,
   getStdlibRootOverride,
   isImplicitStdSelfReference,
   resolveStdlibOverridePath,
 } from "./std-packages.js";
+import { getImplicitStdDependencyLocalRoot } from "./std-packages-node.js";
+import { STDLIB_PACKAGE_VERSIONS } from "./stdlib-packages.js";
 
-const STDLIB_PACKAGES_MANIFEST_PATH = nodePath.resolve(
-  nodePath.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "stdlib-packages.json",
-);
+const tmpDirs: string[] = [];
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  while (tmpDirs.length > 0) {
+    const dir = tmpDirs.pop();
+    if (dir) {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 describe("std package metadata", () => {
-  it("loads default std versions from the shared manifest", () => {
-    const manifest = JSON.parse(nodeFs.readFileSync(STDLIB_PACKAGES_MANIFEST_PATH, "utf8")) as Record<string, string>;
-
-    expect(DEFAULT_STD_VERSIONS).toEqual(manifest);
+  it("loads default std versions from the shared TypeScript manifest", () => {
+    expect(DEFAULT_STD_VERSIONS).toEqual(STDLIB_PACKAGE_VERSIONS);
   });
 
   it("returns implicit dependency config for known std packages", () => {
@@ -45,8 +46,20 @@ describe("std package metadata", () => {
     expect(getStdlibRootOverride()).toBe("/workspace/doof-stdlib");
     expect(resolveStdlibOverridePath("std/fs")).toBe("/workspace/doof-stdlib/fs");
     expect(resolveStdlibOverridePath("std/fs/runtime")).toBe("/workspace/doof-stdlib/fs/runtime");
-    expect(getImplicitStdDependencyLocalRoot("fs")).toBe("/workspace/doof-stdlib/fs");
     expect(resolveStdlibOverridePath("std/missing")).toBeNull();
+  });
+
+  it("finds an implicit local std dependency root when the override contains a package manifest", () => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "doof-std-packages-"));
+    tmpDirs.push(dir);
+
+    const packageRoot = nodePath.join(dir, "fs");
+    nodeFs.mkdirSync(packageRoot, { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(packageRoot, "doof.json"), JSON.stringify({ name: "std/fs" }), "utf8");
+
+    vi.stubEnv(DOOF_STDLIB_ROOT_ENV, dir);
+
+    expect(getImplicitStdDependencyLocalRoot("fs")).toBe(packageRoot);
   });
 
   it("lists implicit std dependency names", () => {

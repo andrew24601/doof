@@ -655,6 +655,65 @@ describe("e2e — map safety", () => {
       "1",
     ]);
   });
+
+  it("runs map and set churn with ordered collection validation enabled", () => {
+    const result = ctx.compileAndRunProject({
+      "/main.do": `
+        function main(): int {
+          let scores: Map<int, int> = {}
+          for let i = 0; i < 32; i += 1 {
+            scores.set(i, i + 1)
+          }
+          for let i = 0; i < 32; i += 2 {
+            scores.delete(i)
+          }
+          for let i = 0; i < 32; i += 2 {
+            scores.set(i, i * 10)
+          }
+
+          let values: Set<int> = []
+          for let i = 0; i < 32; i += 1 {
+            values.add(i % 7)
+          }
+          for let i = 0; i < 7; i += 2 {
+            values.delete(i)
+            values.add(i)
+          }
+
+          let total = 0
+          for key, value of scores {
+            total += value
+          }
+          for value of values {
+            total += value
+          }
+
+          println(scores.size)
+          println(scores.keys().length)
+          println(scores.values().length)
+          println(values.size)
+          println(values.values().length)
+          println(total)
+          return 0
+        }
+      `,
+    }, "/main.do", {
+      defines: ["DOOF_RUNTIME_VALIDATE_ORDERED_COLLECTIONS"],
+      compilerFlags: ["-O2"],
+    });
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "32",
+      "32",
+      "32",
+      "7",
+      "7",
+      "2693",
+    ]);
+  });
 });
 
 // ============================================================================

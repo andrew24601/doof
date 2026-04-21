@@ -3,7 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectEmitResult } from "./emitter-module.js";
-import { buildCompileArgs, buildCompilePlan, getCliVersion, parseArgs, resolveCliPipelineInputs } from "./cli.js";
+import {
+  buildCompileArgs,
+  buildCompilePlan,
+  formatRunTimeoutMessage,
+  getCliVersion,
+  parseArgs,
+  resolveCliPipelineInputs,
+  resolveRunTimeoutMs,
+} from "./cli.js";
 import { VirtualFS } from "./test-helpers.js";
 
 const tmpDirs: string[] = [];
@@ -159,6 +167,27 @@ describe("CLI package resolution", () => {
       entry: "/workspace/demo/main.do",
       outDir: "custom-out",
     });
+  });
+});
+
+describe("CLI run settings", () => {
+  it("defaults doof run timeout to unlimited", () => {
+    expect(resolveRunTimeoutMs({})).toBe(0);
+  });
+
+  it("accepts an explicit doof run timeout", () => {
+    expect(resolveRunTimeoutMs({ DOOF_RUN_TIMEOUT_MS: "45000" })).toBe(45000);
+  });
+
+  it("ignores invalid doof run timeout values", () => {
+    expect(resolveRunTimeoutMs({ DOOF_RUN_TIMEOUT_MS: "nope" })).toBe(0);
+    expect(resolveRunTimeoutMs({ DOOF_RUN_TIMEOUT_MS: "-10" })).toBe(0);
+  });
+
+  it("formats a clear timeout message", () => {
+    expect(formatRunTimeoutMessage(45000)).toBe(
+      "Program exceeded DOOF_RUN_TIMEOUT_MS=45000 and was terminated",
+    );
   });
 });
 

@@ -17,7 +17,7 @@ import { findDoofManifestPath } from "./package-manifest.js";
 import { loadPackageGraph } from "./package-manifest.js";
 import { collectSemanticDiagnostics } from "./pipeline-diagnostics.js";
 import type { FileSystem } from "./resolver.js";
-import { createBundledModuleResolver, withBundledStdlib } from "./stdlib.js";
+import { createNodeBundledModuleResolver, withNodeBundledStdlib } from "./stdlib-node.js";
 import type { Diagnostic, FunctionSymbol, ModuleSymbolTable } from "./types.js";
 
 const TEST_FILE_SUFFIX = ".test.do";
@@ -104,7 +104,7 @@ export function discoverTests(
   fileSystem: FileSystem = new RealFS(),
 ): DiscoveredTest[] {
   const discovered: DiscoveredTest[] = [];
-  const pipelineFileSystem = withBundledStdlib(fileSystem);
+  const pipelineFileSystem = withNodeBundledStdlib(fileSystem);
 
   for (const testFile of testFiles) {
     const packageGraph = loadPackageGraph(fileSystem, testFile, {
@@ -112,7 +112,7 @@ export function discoverTests(
     });
     const analyzer = new ModuleAnalyzer(
       pipelineFileSystem,
-      createBundledModuleResolver(fileSystem, {
+      createNodeBundledModuleResolver(fileSystem, {
         packages: packageGraph.packages.map((pkg) => ({
           rootDir: pkg.rootDir,
           dependencies: pkg.dependencyRoots,

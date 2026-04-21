@@ -27,6 +27,7 @@ import { findDoofManifestPath, resolvePackageBuildContext } from "./package-mani
 import { joinFsPath, resolveFsPath, resolveFsPathFrom } from "./path-utils.js";
 import type { FileSystem } from "./resolver.js";
 import { assembleMacOSAppBundle } from "./macos-app-target.js";
+import { generateMacOSAppIconWithShell } from "./macos-app-target-node.js";
 import {
   buildCompileArgs,
   buildCompilePlan,
@@ -92,6 +93,9 @@ Options:
   -v, --verbose        Print detailed progress information
   -h, --help           Show this help message
   --version            Show version
+
+Environment:
+  DOOF_RUN_TIMEOUT_MS  Max runtime in ms for doof run (default: unlimited)
 
 Examples:
   doof run samples/hello.do
@@ -292,6 +296,7 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
       executableName: outputBinaryName,
       config: buildTarget.config,
       log: args.verbose ? log : undefined,
+      generateIcon: generateMacOSAppIconWithShell,
     });
     builtArtifactPath = bundle.appPath;
     runBinaryPath = bundle.binaryPath;
@@ -303,13 +308,18 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
   }
 
   if (args.verbose) log(`Running: ${runBinaryPath}`);
+  const runTimeout = resolveRunTimeoutMs(process.env);
   try {
     execFileSync(runBinaryPath, [], {
       stdio: "inherit",
-      timeout: 30000,
+      timeout: runTimeout,
       env: toolchain.env ?? process.env,
     });
   } catch (e: any) {
+    if (runTimeout > 0 && isTimedOutRunError(e)) {
+      error(formatRunTimeoutMessage(runTimeout));
+      process.exit(124);
+    }
     process.exit(e.status ?? 1);
   }
 }
@@ -347,6 +357,40 @@ function normalizeDefine(value: string): string {
 
 function normalizeLinkLibrary(value: string): string {
   return value.startsWith("-l") ? value.slice(2) : value;
+}
+
+export function resolveRunTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.DOOF_RUN_TIMEOUT_MS?.trim();
+  if (!raw) {
+    return 0;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return Math.floor(parsed);
+}
+
+function isTimedOutRunError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    errno?: unknown;
+    message?: unknown;
+  };
+
+  return candidate.code === "ETIMEDOUT"
+    || candidate.errno === "ETIMEDOUT"
+    || (typeof candidate.message === "string" && candidate.message.includes("ETIMEDOUT"));
+}
+
+export function formatRunTimeoutMessage(timeoutMs: number): string {
+  return `Program exceeded DOOF_RUN_TIMEOUT_MS=${timeoutMs} and was terminated`;
 }
 
 function isPipelineCommand(command: Command): command is PipelineCommand {

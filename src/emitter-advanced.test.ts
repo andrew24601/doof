@@ -103,6 +103,14 @@ describe("emitter — Result type", () => {
     expect(header).not.toContain("struct JSON {");
     expect(header).not.toContain("struct Parser {");
   });
+
+  it("includes opt-in ordered collection invariant validation hooks", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("DOOF_RUNTIME_VALIDATE_ORDERED_COLLECTIONS");
+    expect(header).toContain("panic_ordered_collection_invariant");
+    expect(header).toContain('validate_invariants(const char* context = "ordered_map") const');
+    expect(header).toContain('validate_invariants(const char* context = "ordered_set") const');
+  });
 });
 
 // ============================================================================
