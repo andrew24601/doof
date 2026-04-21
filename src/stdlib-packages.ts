@@ -7,6 +7,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   path: "0.1",
   regex: "0.1",
   stream: "0.1",
+  time: "0.1",
 });
 
 export type StdlibPackageVersions = typeof STDLIB_PACKAGE_VERSIONS;
