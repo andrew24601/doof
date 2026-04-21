@@ -1023,6 +1023,24 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain("doof::string_trimEnd(");
   });
 
+  it("emits trimEnd with a fill character", () => {
+    const cpp = emit(`
+      function test(s: string): string {
+        return s.trimEnd('0')
+      }
+    `);
+    expect(cpp).toContain("doof::string_trimEnd(s, U'0')");
+  });
+
+  it("emits padStart", () => {
+    const cpp = emit(`
+      function test(s: string): string {
+        return s.padStart(4, '0')
+      }
+    `);
+    expect(cpp).toContain("doof::string_padStart(");
+  });
+
   it("emits toUpperCase and toLowerCase", () => {
     const cpp = emit(`
       function test(s: string): string {

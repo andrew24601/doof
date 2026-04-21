@@ -166,7 +166,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       throw new Error(`Cannot emit unresolved dot shorthand ".${expr.name}"`);
 
     case "this-expression":
-      return "this";
+      return "this->shared_from_this()";
 
     case "object-literal":
       return emitObjectLiteral(expr, ctx);

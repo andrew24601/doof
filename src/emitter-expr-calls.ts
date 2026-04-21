@@ -347,9 +347,12 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "endsWith") return `doof::string_endsWith(${obj}, ${args})`;
       if (method === "substring") return `doof::string_substring(${obj}, ${args})`;
       if (method === "slice") return `doof::string_slice(${obj}, ${args})`;
+      if (method === "padStart") return `doof::string_padStart(${obj}, ${args})`;
       if (method === "trim") return `doof::string_trim(${obj})`;
       if (method === "trimStart") return `doof::string_trimStart(${obj})`;
-      if (method === "trimEnd") return `doof::string_trimEnd(${obj})`;
+      if (method === "trimEnd") return expr.args.length === 0
+        ? `doof::string_trimEnd(${obj})`
+        : `doof::string_trimEnd(${obj}, ${args})`;
       if (method === "toUpperCase") return `doof::string_toUpperCase(${obj})`;
       if (method === "toLowerCase") return `doof::string_toLowerCase(${obj})`;
       if (method === "replace") return `doof::string_replace(${obj}, ${args})`;

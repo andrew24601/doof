@@ -228,6 +228,7 @@ export function validateEmitReadyDeclarations(
 
 export class TypeChecker {
   private analysisResult: AnalysisResult;
+  private moduleInfoCache = new Map<string, ModuleTypeInfo>();
   /**
    * Stack of error-type collectors for nested catch expressions.
    * When non-empty, `try` statements inside the innermost catch push their
@@ -289,9 +290,14 @@ export class TypeChecker {
    * per-identifier binding resolutions.
    */
   checkModule(modulePath: string): ModuleTypeInfo {
+    const cached = this.moduleInfoCache.get(modulePath);
+    if (cached) {
+      return cached;
+    }
+
     const table = this.analysisResult.modules.get(modulePath);
     if (!table) {
-      return {
+      const info: ModuleTypeInfo = {
         diagnostics: [{
           severity: "error",
           message: `Module not found: ${modulePath}`,
@@ -299,11 +305,27 @@ export class TypeChecker {
           module: modulePath,
         }],
       };
+      this.moduleInfoCache.set(modulePath, info);
+      return info;
     }
 
     const info: ModuleTypeInfo = {
       diagnostics: [],
     };
+    this.moduleInfoCache.set(modulePath, info);
+
+    // Imported modules may define fields whose types are inferred from default
+    // values. Check dependencies first so member lookup sees decorated types.
+    for (const imp of table.imports) {
+      if (imp.symbol && imp.symbol.module !== modulePath) {
+        this.checkModule(imp.symbol.module);
+      }
+    }
+    for (const nsImp of table.namespaceImports) {
+      if (nsImp.sourceModule !== modulePath) {
+        this.checkModule(nsImp.sourceModule);
+      }
+    }
 
     const moduleScope = this.buildModuleScope(table);
     this.checkStatements(table.program.statements, moduleScope, table, info);

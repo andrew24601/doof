@@ -845,6 +845,15 @@ describe("emitter — this capture in lambdas", () => {
     // The lambda should capture `this` since it accesses `value` (a field)
     expect(cpp).toContain("[this]");
   });
+
+  it("emits shared_from_this when this is used as a value", () => {
+    const cpp = emit(`
+      export class Counter {
+        function self(): Counter => this
+      }
+    `);
+    expect(cpp).toContain("return this->shared_from_this();");
+  });
 });
 
 describe("emitter — for-of with arrays", () => {

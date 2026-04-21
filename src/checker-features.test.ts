@@ -2784,6 +2784,33 @@ describe("checker — constructor validation", () => {
 // ============================================================================
 
 describe("checker — contextual typing", () => {
+  it("resolves imported static readonly fields with inferred class types", () => {
+    const info = check({
+      "/main.do": `
+        import { Token } from "./tokens"
+
+        function readDefault(): int {
+          token := Token.DEFAULT
+          return token.value
+        }
+      `,
+      "/tokens.do": `
+        export class Token {
+          value = 1
+          static readonly DEFAULT = Token { value: 7 }
+        }
+      `,
+    }, "/main.do");
+
+    expect(info.diagnostics).toHaveLength(0);
+
+    const table = info.result.modules.get("/main.do")!;
+    const fn = table.program.statements[1] as any;
+    const decl = fn.body.statements[0] as any;
+    expect(decl.resolvedType?.kind).toBe("class");
+    expect(decl.value.resolvedType?.kind).toBe("class");
+  });
+
   it("infers object literal as class when expected type is class (immutable binding)", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
@@ -3973,6 +4000,15 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("string.padStart returns string", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        s := "7".padStart(3, '0')
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("string.trim returns string", () => {
     const cr = check({ "/main.do": `
       function test(): void {
@@ -3987,6 +4023,15 @@ describe("checker — string methods", () => {
       function test(): void {
         a := "  hello  ".trimStart()
         b := "  hello  ".trimEnd()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("string.trimEnd accepts an optional fill character", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        s := "1200".trimEnd('0')
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);

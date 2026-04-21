@@ -933,6 +933,11 @@ inline std::string string_slice(const std::string& s, int32_t start) {
     return s.substr(static_cast<size_t>(start));
 }
 
+inline std::string string_padStart(const std::string& s, int32_t length, char fill) {
+    if (length <= static_cast<int32_t>(s.size())) return s;
+    return std::string(static_cast<size_t>(length - static_cast<int32_t>(s.size())), fill) + s;
+}
+
 inline std::string string_trim(const std::string& s) {
     auto start = s.find_first_not_of(" \\t\\n\\r\\f\\v");
     if (start == std::string::npos) return "";
@@ -948,6 +953,12 @@ inline std::string string_trimStart(const std::string& s) {
 
 inline std::string string_trimEnd(const std::string& s) {
     auto end = s.find_last_not_of(" \\t\\n\\r\\f\\v");
+    if (end == std::string::npos) return "";
+    return s.substr(0, end + 1);
+}
+
+inline std::string string_trimEnd(const std::string& s, char fill) {
+    auto end = s.find_last_not_of(fill);
     if (end == std::string::npos) return "";
     return s.substr(0, end + 1);
 }

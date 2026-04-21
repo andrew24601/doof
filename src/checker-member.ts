@@ -10,6 +10,7 @@ import {
   JSON_VALUE_TYPE,
   STRING_TYPE,
   BOOL_TYPE,
+  CHAR_TYPE,
   INT_TYPE,
   NULL_TYPE,
   substituteTypeParams,
@@ -843,9 +844,10 @@ export function inferMemberType(
     if (property === "endsWith") return { kind: "function", params: [{ name: "suffix", type: STRING_TYPE }], returnType: BOOL_TYPE };
     if (property === "substring") return { kind: "function", params: [{ name: "start", type: INT_TYPE }, { name: "end", type: INT_TYPE }], returnType: STRING_TYPE };
     if (property === "slice") return { kind: "function", params: [{ name: "start", type: INT_TYPE }], returnType: STRING_TYPE };
+    if (property === "padStart") return { kind: "function", params: [{ name: "length", type: INT_TYPE }, { name: "fill", type: CHAR_TYPE }], returnType: STRING_TYPE };
     if (property === "trim") return { kind: "function", params: [], returnType: STRING_TYPE };
     if (property === "trimStart") return { kind: "function", params: [], returnType: STRING_TYPE };
-    if (property === "trimEnd") return { kind: "function", params: [], returnType: STRING_TYPE };
+    if (property === "trimEnd") return { kind: "function", params: [{ name: "fill", type: CHAR_TYPE, hasDefault: true, defaultValue: null }], returnType: STRING_TYPE };
     if (property === "toUpperCase") return { kind: "function", params: [], returnType: STRING_TYPE };
     if (property === "toLowerCase") return { kind: "function", params: [], returnType: STRING_TYPE };
     if (property === "replace") return { kind: "function", params: [{ name: "search", type: STRING_TYPE }, { name: "replacement", type: STRING_TYPE }], returnType: STRING_TYPE };
