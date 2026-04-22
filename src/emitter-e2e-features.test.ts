@@ -443,6 +443,52 @@ describe("e2e — array safety", () => {
 });
 
 describe("e2e — map safety", () => {
+  it("runs Map.get() through Result case matching", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let m: Map<string, int> = { "a": 10, "b": 20 }
+        const found = case m.get("b") {
+          s: Success => s.value,
+          _: Failure => -1
+        }
+        const missing = case m.get("missing") {
+          s: Success => s.value,
+          _: Failure => -1
+        }
+        println(found)
+        println(missing)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("20\n-1");
+  });
+
+  it("runs try? on Map.get() failures", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let m: Map<string, int> = { "a": 10 }
+        const found = try? m.get("a")
+        const missing = try? m.get("missing")
+        if found != null {
+          println(found)
+        }
+        if missing == null {
+          println("missing")
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("10\nmissing");
+  });
+
   it("runs map index read for existing key", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

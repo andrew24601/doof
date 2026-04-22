@@ -3416,7 +3416,7 @@ describe("checker — Map type", () => {
     expect(bindings[0]?.type.kind).toBe("primitive");
   });
 
-  it("resolves Map .get() return type as nullable value", () => {
+  it("resolves Map .get() return type as Result<V, string>", () => {
     const cr = check({ "/main.do": `
       let m: Map<string, int> = { "a": 1 }
       x := m.get("a")
@@ -3424,7 +3424,11 @@ describe("checker — Map type", () => {
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
     const bindings = findId(cr, "x");
-    expect(bindings[0]?.type.kind).toBe("union");
+    expect(bindings[0]?.type.kind).toBe("result");
+    expect((bindings[0]?.type as any)?.successType.kind).toBe("primitive");
+    expect((bindings[0]?.type as any)?.successType.name).toBe("int");
+    expect((bindings[0]?.type as any)?.errorType.kind).toBe("primitive");
+    expect((bindings[0]?.type as any)?.errorType.name).toBe("string");
   });
 
   it("resolves Map .has() return type as bool", () => {

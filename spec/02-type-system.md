@@ -944,7 +944,7 @@ print(unique.size)
 | Method | Return Type | Description |
 |--------|-------------|-------------|
 | `.size` | `int` | Number of entries |
-| `.get(key)` | `V \| null` | Retrieve value or null |
+| `.get(key)` | `Result<V, string>` | Retrieve value or a missing-key failure |
 | `.set(key, value)` | `void` | Insert or update entry |
 | `.has(key)` | `bool` | Check if key exists |
 | `.delete(key)` | `void` | Remove entry by key |
@@ -954,7 +954,10 @@ print(unique.size)
 ```javascript
 let m: Map<string, int> = { "a": 1, "b": 2 }
 m.set("c", 3)
-print(m.get("a"))     // 1
+case m.get("a") {
+    s: Success => print(s.value),
+    _: Failure => print("missing")
+}
 print(m.has("d"))     // false
 print(m.size)         // 3
 m.delete("b")

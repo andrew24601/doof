@@ -803,9 +803,9 @@ export function inferMemberType(
   if (objectType.kind === "map") {
     const k = objectType.keyType;
     const v = objectType.valueType;
-    const nullableV: ResolvedType = { kind: "union", types: [v, { kind: "null" }] };
+    const resultV: ResolvedType = { kind: "result", successType: v, errorType: STRING_TYPE };
     if (property === "size") return INT_TYPE;
-    if (property === "get") return { kind: "function", params: [{ name: "key", type: k }], returnType: nullableV };
+    if (property === "get") return { kind: "function", params: [{ name: "key", type: k }], returnType: resultV };
     if (objectType.readonly_ && property === "set") {
       reportMemberDiagnostic(info, table, span, 'Method "set" is not available on readonly map');
       return UNKNOWN_TYPE;

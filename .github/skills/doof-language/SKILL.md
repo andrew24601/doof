@@ -197,13 +197,15 @@ Replacing the value for an existing key does not move it. Deleting and reinserti
 
 | Method | Return Type | Description |
 |--------|------------|-------------|
-| `.get(key)` | `V \| null` | Lookup (null if missing) |
+| `.get(key)` | `Result<V, string>` | Lookup (failure when key is missing) |
 | `.set(key, value)` | `void` | Insert or update |
 | `.has(key)` | `bool` | Check key existence |
 | `.delete(key)` | `void` | Remove entry |
 | `.keys()` | `K[]` | All keys |
 | `.values()` | `V[]` | All values |
 | `.size` | `int` | Entry count |
+
+Use `case`, `try!`, or `try?` to consume the lookup result when you want a value, a panic-on-miss, or a nullable wrapper.
 
 Index access: `m[key]` reads/writes directly (auto-inserts on write). For-of iteration yields `(key, value)` pairs:
 

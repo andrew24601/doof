@@ -87,7 +87,7 @@ inline void assert_(bool condition, const std::string& message) {
 ) {
     std::ostringstream message;
     message << collection << " invariant failed";
-    if (context && context[0] != '\0') {
+    if (context && context[0] != '\\0') {
         message << " in " << context;
     }
     message << ": " << detail;
@@ -1119,14 +1119,14 @@ std::shared_ptr<std::vector<T>> array_cloneMutable(const std::shared_ptr<std::ve
 
 // Map helpers — bridge Doof's Map methods to ordered_map
 template <typename K, typename V>
-std::optional<V> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
+doof::Result<V, std::string> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
     if (!m) {
         panic("Attempted to access null map");
     }
     m->validate_invariants("map_get");
     auto it = m->find(key);
-    if (it != m->end()) return it->second;
-    return std::nullopt;
+    if (it != m->end()) return doof::Result<V, std::string>::success(it->second);
+    return doof::Result<V, std::string>::failure("Map key not found");
 }
 
 template <typename K, typename V>

@@ -76,7 +76,7 @@ isolated function circleArea(radius: float): float {
 }
 
 let cache: Map<string, int> = {}
-isolated function lookup(key: string): int {
+isolated function lookup(key: string): Result<int, string> {
     return cache.get(key)  // ❌ Error: accesses mutable global
 }
 ```
@@ -374,7 +374,7 @@ class Cache {
     data: Map<string, readonly Data> = {}
     
     get(key: readonly string): readonly Data | null {
-        return data.get(key).valueOr(null)
+        return try? data.get(key)
     }
     
     set(key: readonly string, value: readonly Data): void {

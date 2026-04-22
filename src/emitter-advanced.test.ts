@@ -95,6 +95,12 @@ describe("emitter — Result type", () => {
     expect(cpp).toContain("std::nullopt");
   });
 
+  it("generates map_get as Result<V, string>", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("doof::Result<V, std::string> map_get");
+    expect(header).toContain('doof::Result<V, std::string>::failure("Map key not found")');
+  });
+
   it("always includes JSON runtime support", () => {
     const header = generateRuntimeHeader();
     expect(header).toContain("struct JsonValue");
