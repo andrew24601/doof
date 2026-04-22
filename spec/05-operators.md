@@ -436,6 +436,7 @@ r := value as string   // Result<string, string>
 |-----------------|----------------|----------------------------------------|
 | `T \| null`     | `T`            | Null check                            |
 | `U1 \| U2`      | `Ui`           | `std::holds_alternative<Ui>` variant check |
+| `JsonValue`      | Exact JSON member (`string`, `int`, `long`, `float`, `double`, `bool`, `null`, `JsonValue[]`, `Map<string, JsonValue>`, readonly variants) | JSON carrier tag check |
 | Interface       | Class          | `std::holds_alternative<Class>` variant check |
 | `T`             | `T`            | Identity — always succeeds            |
 
@@ -449,6 +450,9 @@ try s := value as string
 
 // With else-narrow:
 s := value as string else { return defaultValue }
+
+// Else blocks may also terminate with panic:
+object := value as readonly Map<string, JsonValue> else { panic("Expected object") }
 
 // With try! (panic on failure):
 s := try! value as string

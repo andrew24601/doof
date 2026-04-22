@@ -1522,6 +1522,17 @@ describe("emitter — as expression", () => {
     expect(cpp).toContain("std::get<std::shared_ptr<Circle>>");
   });
 
+  it("emits JsonValue→readonly Map<string, JsonValue> narrowing via canonical union checks", () => {
+    const cpp = emit(`
+      function test(x: JsonValue): Result<readonly Map<string, JsonValue>, string> {
+        return x as readonly Map<string, JsonValue>
+      }
+    `);
+    expect(cpp).toContain("auto _as_0 = x.value");
+    expect(cpp).toContain("std::holds_alternative<std::shared_ptr<doof::ordered_map<std::string, doof::JsonValue>>>");
+    expect(cpp).toContain("std::get<std::shared_ptr<doof::ordered_map<std::string, doof::JsonValue>>>");
+  });
+
   it("works with try binding on as expression", () => {
     const cpp = emit(`
       function test(x: int | string): Result<string, string> {

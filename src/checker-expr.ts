@@ -19,6 +19,8 @@ import {
   formatUnsupportedHashCollectionConstraintMessage,
   INT_TYPE,
   isAssignableTo,
+  getJsonValueNarrowCarrierType,
+  getJsonValueRuntimeUnionType,
   isSupportedHashCollectionElementType,
   isSupportedMapKeyType,
   JSON_VALUE_TYPE,
@@ -1995,6 +1997,12 @@ function inferAsNarrowType(
 function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {
   // Identity: T -> T is always valid
   if (typesEqual(sourceType, targetType)) return true;
+
+  // JsonValue -> exact runtime member, treated as a canonical JSON sum type
+  if (sourceType.kind === "json-value") {
+    const targetCarrier = getJsonValueNarrowCarrierType(targetType);
+    return targetCarrier !== null && isValidAsNarrow(getJsonValueRuntimeUnionType(), targetCarrier);
+  }
 
   // T | null -> T (nullable narrowing: target is the non-null part)
   if (sourceType.kind === "union") {

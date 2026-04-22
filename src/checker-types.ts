@@ -584,6 +584,56 @@ export function formatUnsupportedMapKeyTypeMessage(
   );
 }
 
+export function getJsonValueNarrowCarrierType(type: ResolvedType): ResolvedType | null {
+  switch (type.kind) {
+    case "json-value":
+    case "null":
+      return type;
+
+    case "primitive":
+      return type.name === "bool"
+        || type.name === "int"
+        || type.name === "long"
+        || type.name === "float"
+        || type.name === "double"
+        || type.name === "string"
+        ? type
+        : null;
+
+    case "array":
+      return type.elementType.kind === "json-value"
+        ? { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: false }
+        : null;
+
+    case "map":
+      return type.keyType.kind === "primitive"
+        && type.keyType.name === "string"
+        && type.valueType.kind === "json-value"
+        ? { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE }
+        : null;
+
+    default:
+      return null;
+  }
+}
+
+export function getJsonValueRuntimeUnionType(): UnionResolvedType {
+  return {
+    kind: "union",
+    types: [
+      NULL_TYPE,
+      BOOL_TYPE,
+      INT_TYPE,
+      LONG_TYPE,
+      FLOAT_TYPE,
+      DOUBLE_TYPE,
+      STRING_TYPE,
+      { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: false },
+      { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE },
+    ],
+  };
+}
+
 // ============================================================================
 // Type compatibility
 // ============================================================================

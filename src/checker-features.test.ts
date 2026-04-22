@@ -4956,6 +4956,38 @@ describe("checker — as expression", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("treats JsonValue as narrowable to readonly Map<string, JsonValue>", () => {
+    const cr = check({ "/main.do": `
+      function main(): void {
+        v: JsonValue := { a: 1, b: 2 }
+
+        m := v as readonly Map<string, JsonValue> else {
+          panic("Not a map")
+          return
+        }
+
+        println(m.size)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("accepts else-narrow blocks that exit via panic", () => {
+    const cr = check({ "/main.do": `
+      function maybeValue(): int | null { return null }
+
+      function main(): int {
+        value := maybeValue() else {
+          panic("missing value")
+        }
+      }
+    ` }, "/main.do");
+    const diag = cr.diagnostics.find(
+      (d) => d.message.includes("Else-narrow block must exit scope"),
+    );
+    expect(diag).toBeUndefined();
+  });
+
   it("works with try! to panic-unwrap", () => {
     const cr = check({ "/main.do": `
       function test(x: int | string): string {

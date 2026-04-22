@@ -634,7 +634,7 @@ Expression-form `case` arms are comma-separated. Statement-form `case` arms are 
 
 ### Else-Narrow Statement
 
-`name := expr else { ... }` unwraps Result and nullable types. The else block runs when the value is null or a Failure and must exit scope:
+`name := expr else { ... }` unwraps Result and nullable types. The else block runs when the value is null or a Failure and must exit scope, for example via `return`, `break`, `continue`, or `panic(...)`:
 
 ```doof
 // Narrow nullable
@@ -735,9 +735,13 @@ r := x as string              // Result<string, string>
 // Narrow interface to class
 s: Shape := Circle { radius: 5.0 }
 r := s as Circle              // Result<Circle, string>
+
+// Narrow JsonValue to an exact JSON carrier member
+payload: JsonValue := { ok: true }
+obj := payload as readonly Map<string, JsonValue>  // Result<readonly Map<string, JsonValue>, string>
 ```
 
-Supported sources: unions, nullable types, interfaces. Invalid narrowing is a compile error.
+Supported sources: unions, nullable types, interfaces, and `JsonValue` when the target is an exact JSON carrier member. Invalid narrowing is a compile error.
 
 ### Catch Expression
 

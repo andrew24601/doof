@@ -1174,6 +1174,8 @@ export class TypeChecker {
       case "break-statement":
       case "continue-statement":
         return true;
+      case "expression-statement":
+        return this.expressionAlwaysExits(last.expression);
       case "case-statement": {
         const hasWildcardArm = last.arms.some((arm) => arm.patterns.some((pattern) => pattern.kind === "wildcard-pattern"));
         if (!hasWildcardArm) return false;
@@ -1190,6 +1192,13 @@ export class TypeChecker {
       default:
         return false;
     }
+  }
+
+  private expressionAlwaysExits(expression: import("./ast.js").Expression): boolean {
+    if (expression.kind !== "call-expression") return false;
+    if (expression.callee.kind !== "identifier") return false;
+    return expression.callee.name === "panic"
+      && expression.callee.resolvedBinding?.module === "<builtin>";
   }
 
   private blockAlwaysYields(block: Block): boolean {

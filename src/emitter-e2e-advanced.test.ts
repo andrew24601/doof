@@ -2284,6 +2284,23 @@ describe("e2e — as expression", () => {
     }
     expect(result.exitCode).toBe(5);
   });
+
+  it("narrows JsonValue to readonly Map<string, JsonValue>", () => {
+    const result = ctx.compileAndRun(`
+      function narrow(x: JsonValue): Result<readonly Map<string, JsonValue>, string> {
+        return x as readonly Map<string, JsonValue>
+      }
+      function main(): int {
+        value: JsonValue := { a: 1, b: 2 }
+        const map = try! narrow(value)
+        return map.size
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(2);
+  });
 });
 
 describe("e2e — mock call capture", () => {

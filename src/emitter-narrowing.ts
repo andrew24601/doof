@@ -1,5 +1,10 @@
 import type { ResolvedType } from "./checker-types.js";
-import { typeToString, typesEqual } from "./checker-types.js";
+import {
+  getJsonValueNarrowCarrierType,
+  getJsonValueRuntimeUnionType,
+  typeToString,
+  typesEqual,
+} from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitType, isMonostateNullable, isOptionalNullable, isPointerType } from "./emitter-types.js";
 
@@ -47,17 +52,14 @@ export function emitAsNarrowExpression(
   const tmp = `_as_${ctx.tempCounter++}`;
 
   if (sourceType.kind === "union") {
-    const nonNull = sourceType.types.filter((t) => t.kind !== "null");
-    const hasNull = nonNull.length < sourceType.types.length;
-    if (hasNull && nonNull.length === 1 && typesEqual(nonNull[0], targetType)) {
-      if (isPointerType(targetType)) {
-        return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}) return ${resultCpp}::success(${tmp}); return ${resultCpp}::failure("Narrowing from nullable to ${escapeStringForCpp(typeToString(targetType))} failed: value is null"); }()`;
-      }
-      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}.has_value()) return ${resultCpp}::success(${tmp}.value()); return ${resultCpp}::failure("Narrowing from nullable to ${escapeStringForCpp(typeToString(targetType))} failed: value is null"); }()`;
-    }
-
-    const memberCpp = emitType(targetType);
-    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${memberCpp}>(${tmp})) return ${resultCpp}::success(std::get<${memberCpp}>(${tmp})); return ${resultCpp}::failure("Narrowing from union to ${escapeStringForCpp(typeToString(targetType))} failed"); }()`;
+    return emitUnionNarrowExpression(
+      sourceExpr,
+      sourceType,
+      targetType,
+      resultCpp,
+      tmp,
+      `Narrowing from union to ${escapeStringForCpp(typeToString(targetType))} failed`,
+    );
   }
 
   if (sourceType.kind === "interface" && targetType.kind === "class") {
@@ -65,7 +67,46 @@ export function emitAsNarrowExpression(
     return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${classCpp}>(${tmp})) return ${resultCpp}::success(std::get<${classCpp}>(${tmp})); return ${resultCpp}::failure("Narrowing from ${escapeStringForCpp(sourceType.symbol.name)} to ${escapeStringForCpp(targetType.symbol.name)} failed"); }()`;
   }
 
+  if (sourceType.kind === "json-value") {
+    const targetCarrier = getJsonValueNarrowCarrierType(targetType);
+    if (targetCarrier) {
+      return emitUnionNarrowExpression(
+        `${sourceExpr}.value`,
+        getJsonValueRuntimeUnionType(),
+        targetCarrier,
+        resultCpp,
+        tmp,
+        `Narrowing from JsonValue to ${escapeStringForCpp(typeToString(targetType))} failed`,
+      );
+    }
+  }
+
   return `${resultCpp}::failure("Unsupported narrowing")`;
+}
+
+function emitUnionNarrowExpression(
+  sourceExpr: string,
+  sourceType: ResolvedType,
+  targetType: ResolvedType,
+  resultCpp: string,
+  tmp: string,
+  failureMessage: string,
+): string {
+  if (sourceType.kind !== "union") {
+    return `${resultCpp}::failure("Unsupported narrowing")`;
+  }
+
+  const nonNull = sourceType.types.filter((t) => t.kind !== "null");
+  const hasNull = nonNull.length < sourceType.types.length;
+  if (hasNull && nonNull.length === 1 && typesEqual(nonNull[0], targetType)) {
+    if (isPointerType(targetType)) {
+      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}) return ${resultCpp}::success(${tmp}); return ${resultCpp}::failure("${failureMessage}: value is null"); }()`;
+    }
+    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}.has_value()) return ${resultCpp}::success(${tmp}.value()); return ${resultCpp}::failure("${failureMessage}: value is null"); }()`;
+  }
+
+  const memberCpp = emitType(targetType);
+  return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${memberCpp}>(${tmp})) return ${resultCpp}::success(std::get<${memberCpp}>(${tmp})); return ${resultCpp}::failure("${failureMessage}"); }()`;
 }
 
 function escapeStringForCpp(s: string): string {
