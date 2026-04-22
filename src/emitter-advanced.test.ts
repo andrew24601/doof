@@ -171,6 +171,24 @@ describe("emitter — Success/Failure construction", () => {
     expect(cpp).not.toContain("make_shared<Failure>");
   });
 
+  it("emits { value: expr } as Result::success()", () => {
+    const cpp = emit(`
+      function f(): Result<int, string> {
+        return { value: 42 }
+      }
+    `);
+    expect(cpp).toContain("::success(42)");
+  });
+
+  it("emits { error: expr } as Result::failure()", () => {
+    const cpp = emit(`
+      function f(): Result<int, string> {
+        return { error: "something went wrong" }
+      }
+    `);
+    expect(cpp).toContain('::failure(std::string("something went wrong"))');
+  });
+
   it("emits Success() as Result<void, E>::success()", () => {
     const cpp = emit(`
       function f(): Result<void, string> {
@@ -184,6 +202,15 @@ describe("emitter — Success/Failure construction", () => {
     const cpp = emit(`
       function f(): Result<void, string> {
         return Success {}
+      }
+    `);
+    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+  });
+
+  it("emits {} as Result<void, E>::success()", () => {
+    const cpp = emit(`
+      function f(): Result<void, string> {
+        return {}
       }
     `);
     expect(cpp).toContain("doof::Result<void, std::string>::success()");

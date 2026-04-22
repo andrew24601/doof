@@ -30,6 +30,7 @@ import {
   getImplicitStdDependencyNames,
   getStdPackageShortName,
   isImplicitStdSelfReference,
+  resolveStdlibOverridePath,
 } from "./std-packages.js";
 import { getImplicitStdDependencyLocalRoot } from "./std-packages-node.js";
 
@@ -606,7 +607,7 @@ function discoverPackageFromManifest(
           continue;
         }
 
-        const localStdDependencyRoot = getImplicitStdDependencyLocalRoot(shortName);
+        const localStdDependencyRoot = getImplicitStdDependencyRootForFileSystem(fileSystem, shortName);
         if (localStdDependencyRoot) {
           const dependencyManifestPath = joinFsPath(localStdDependencyRoot, MANIFEST_FILENAME);
           if (fileSystem.readFile(dependencyManifestPath) !== null) {
@@ -690,6 +691,24 @@ function selectRemotePackageRoots(
   }
 
   return selected;
+}
+
+function getImplicitStdDependencyRootForFileSystem(
+  fileSystem: FileSystem,
+  packageName: string,
+): string | null {
+  const localStdDependencyRoot = getImplicitStdDependencyLocalRoot(packageName);
+  if (localStdDependencyRoot) {
+    return localStdDependencyRoot;
+  }
+
+  const overrideRoot = resolveStdlibOverridePath(`std/${packageName}`);
+  if (!overrideRoot) {
+    return null;
+  }
+
+  const manifestPath = joinFsPath(overrideRoot, MANIFEST_FILENAME);
+  return fileSystem.readFile(manifestPath) !== null ? overrideRoot : null;
 }
 
 function finalizeLoadedPackage(

@@ -104,6 +104,95 @@ function inferObjectLiteralProperties(
   }
 }
 
+function getObjectPropertyResolvedType(prop: ObjectProperty): ResolvedType {
+  return prop.value?.resolvedType ?? (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType ?? UNKNOWN_TYPE;
+}
+
+function inferResultObjectLiteral(
+  host: CheckerHost,
+  expr: ObjectLiteral,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  resultType: Extract<ResolvedType, { kind: "result" }>,
+): ResolvedType {
+  inferObjectLiteralProperties(host, expr, scope, table, info, (propName) => {
+    if (propName === "value" && !isVoidResultType(resultType)) return resultType.successType;
+    if (propName === "error") return resultType.errorType;
+    return undefined;
+  });
+
+  const valueProp = expr.properties.find((prop) => prop.name === "value");
+  const errorProp = expr.properties.find((prop) => prop.name === "error");
+  const recognizedPropCount = expr.properties.filter((prop) => prop.name === "value" || prop.name === "error").length;
+
+  if (valueProp && errorProp) {
+    info.diagnostics.push({
+      severity: "error",
+      message: 'Result object literal must contain either a "value" field or an "error" field, but not both',
+      span: expr.span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+
+  if (!valueProp && !errorProp) {
+    if (expr.properties.length === 0 && isVoidResultType(resultType)) {
+      return resultType;
+    }
+    info.diagnostics.push({
+      severity: "error",
+      message: 'Result object literal must contain a "value" field or an "error" field',
+      span: expr.span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+
+  if (recognizedPropCount !== expr.properties.length) {
+    info.diagnostics.push({
+      severity: "error",
+      message: 'Result object literal only supports "value" and "error" fields',
+      span: expr.span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+
+  if (valueProp) {
+    if (isVoidResultType(resultType)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: 'Result<void, E> object literal must not specify a "value" field',
+        span: valueProp.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    }
+    const valueType = getObjectPropertyResolvedType(valueProp);
+    if (!isAssignableTo(valueType, resultType.successType)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Field "value": type "${typeToString(valueType)}" is not assignable to type "${typeToString(resultType.successType)}"`,
+        span: valueProp.span,
+        module: table.path,
+      });
+    }
+    return resultType;
+  }
+
+  const errorType = getObjectPropertyResolvedType(errorProp!);
+  if (!isAssignableTo(errorType, resultType.errorType)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Field "error": type "${typeToString(errorType)}" is not assignable to type "${typeToString(resultType.errorType)}"`,
+      span: errorProp!.span,
+      module: table.path,
+    });
+  }
+  return resultType;
+}
+
 function isStringConvertibleType(type: ResolvedType): boolean {
   switch (type.kind) {
     case "primitive":
@@ -917,10 +1006,19 @@ function inferExprTypeInner(
     case "construct-expression": {
       if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Success") {
         const props = expr.args as ObjectProperty[];
-        for (const prop of props) {
-          if (prop.value) inferExprType(host, prop.value, scope, table, info);
-        }
         const resultContext = resolveExpectedResultContext(host, scope, expectedType);
+        for (const prop of props) {
+          if (prop.value) {
+            inferExprType(
+              host,
+              prop.value,
+              scope,
+              table,
+              info,
+              prop.name === "value" ? resultContext?.successType : undefined,
+            );
+          }
+        }
         if (!resultContext) {
           reportMissingResultContext(info, table, expr.span, "Success");
           return UNKNOWN_TYPE;
@@ -953,8 +1051,18 @@ function inferExprTypeInner(
 
       if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Failure") {
         const props = expr.args as ObjectProperty[];
+        const resultContext = resolveExpectedResultContext(host, scope, expectedType);
         for (const prop of props) {
-          if (prop.value) inferExprType(host, prop.value, scope, table, info);
+          if (prop.value) {
+            inferExprType(
+              host,
+              prop.value,
+              scope,
+              table,
+              info,
+              prop.name === "error" ? resultContext?.errorType : undefined,
+            );
+          }
         }
         const errorProp = props.find((p) => p.name === "error");
         if (!errorProp || !errorProp.value) {
@@ -967,7 +1075,6 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const errorType = errorProp.value.resolvedType ?? UNKNOWN_TYPE;
-        const resultContext = resolveExpectedResultContext(host, scope, expectedType);
         if (!resultContext) {
           reportMissingResultContext(info, table, expr.span, "Failure");
           return UNKNOWN_TYPE;
@@ -1187,6 +1294,9 @@ function inferExprTypeInner(
         inferObjectLiteralProperties(host, expr, scope, table, info, () => JSON_VALUE_TYPE);
         return { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE };
       }
+      if (expectedType?.kind === "result") {
+        return inferResultObjectLiteral(host, expr, scope, table, info, expectedType);
+      }
       if (expectedType?.kind === "map" && expr.properties.length === 0 && !expr.spread) {
         return expectedType;
       }
@@ -1213,14 +1323,14 @@ function inferExprTypeInner(
         return UNKNOWN_TYPE;
       }
       inferObjectLiteralProperties(host, expr, scope, table, info);
-      if (!expectedType) {
-        info.diagnostics.push({
-          severity: "error",
-          message: "Object literal requires contextual type information or an explicit annotation",
-          span: expr.span,
-          module: table.path,
-        });
-      }
+      info.diagnostics.push({
+        severity: "error",
+        message: expectedType
+          ? `Object literal is not compatible with type "${typeToString(expectedType)}"`
+          : "Object literal requires contextual type information or an explicit annotation",
+        span: expr.span,
+        module: table.path,
+      });
       return UNKNOWN_TYPE;
     }
 
@@ -1680,7 +1790,7 @@ function validateNamedConstructorArgs(
       });
     } else {
       const param = paramMap.get(prop.name)!;
-      const valueType = prop.value?.resolvedType ?? (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType ?? UNKNOWN_TYPE;
+      const valueType = getObjectPropertyResolvedType(prop);
       if (!isAssignableTo(valueType, param.type)) {
         const paramKind = describeConstructorParam(param);
         info.diagnostics.push({

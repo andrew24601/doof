@@ -72,6 +72,7 @@ describe("std package metadata", () => {
       "std/path",
       "std/regex",
       "std/stream",
+      "std/time",
     ]);
   });
 

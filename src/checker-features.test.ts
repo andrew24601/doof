@@ -684,6 +684,67 @@ describe("Result<T, E> type integration", () => {
     expect(diag).toBeDefined();
   });
 
+  it("infers enum shorthand in Failure named construction from Result error type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          enum JwtError {
+            SignatureInvalid,
+          }
+
+          function f(): Result<int, JwtError> {
+            return Failure { error: .SignatureInvalid }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("supports Result failure object literals with enum shorthand", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          enum JwtError {
+            SignatureInvalid,
+          }
+
+          function f(): Result<int, JwtError> {
+            return { error: .SignatureInvalid }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const fnDecl = cr.program.statements[1] as FunctionDeclaration;
+    const body = fnDecl.body;
+    if (body.kind === "block") {
+      const ret = body.statements[0];
+      if (ret.kind === "return-statement" && ret.value) {
+        expect(ret.value.resolvedType?.kind).toBe("result");
+      }
+    }
+  });
+
+  it("reports incompatible object literal types with a span in typed contexts", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function f(): Result<int, string> {
+            return { foo: 12 }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const diag = cr.diagnostics.find((d) => d.message.includes("Result object literal"));
+    expect(diag).toBeDefined();
+    expect(diag?.span).toBeDefined();
+  });
+
   it("infers positional Success(value) as Result<T, E>", () => {
     const cr = check(
       {

@@ -285,6 +285,30 @@ function emitObjectLiteral(
   if (!expr.resolvedType || expr.resolvedType.kind === "unknown") {
     throw new Error("Object literal requires contextual type information or an explicit annotation");
   }
+  if (expr.resolvedType.kind === "result") {
+    const resultType = expr.resolvedType;
+    if (resultType.successType.kind === "void" && expr.properties.length === 0) {
+      return `${emitType(resultType)}::success()`;
+    }
+
+    const valueProp = expr.properties.find((prop) => prop.name === "value");
+    if (valueProp) {
+      const value = valueProp.value
+        ? emitExpression(valueProp.value, ctx, resultType.successType)
+        : emitIdentifierSafe(valueProp.name);
+      return `${emitType(resultType)}::success(${value})`;
+    }
+
+    const errorProp = expr.properties.find((prop) => prop.name === "error");
+    if (errorProp) {
+      const error = errorProp.value
+        ? emitExpression(errorProp.value, ctx, resultType.errorType)
+        : emitIdentifierSafe(errorProp.name);
+      return `${emitType(resultType)}::failure(${error})`;
+    }
+
+    throw new Error("Result object literal is missing a value or error property during emission");
+  }
   // Empty object literal with Map expected type → empty map
   if (expr.resolvedType?.kind === "map" && expr.properties.length === 0) {
     const k = emitType(expr.resolvedType.keyType);

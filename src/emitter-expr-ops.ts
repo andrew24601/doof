@@ -387,6 +387,10 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
   const prop = emitIdentifierSafe(expr.property);
   const objType = expr.object.resolvedType;
 
+  if (expr.object.kind === "this-expression") {
+    return `this->${prop}`;
+  }
+
   if (expr.property === "calls" && objType && objType.kind === "function" && objType.mockCall) {
     if (expr.object.kind === "identifier") {
       return objType.mockCall.storageName;

@@ -854,6 +854,28 @@ describe("emitter — this capture in lambdas", () => {
     `);
     expect(cpp).toContain("return this->shared_from_this();");
   });
+
+  it("emits direct field access for explicit this member reads", () => {
+    const cpp = emit(`
+      export class Counter {
+        value: int
+        function get(): int => this.value
+      }
+    `);
+    expect(cpp).toContain("return this->value;");
+    expect(cpp).not.toContain("shared_from_this()->value");
+  });
+
+  it("emits direct method calls for explicit this method invocations", () => {
+    const cpp = emit(`
+      export class Counter {
+        function read(): int => 1
+        function get(): int => this.read()
+      }
+    `);
+    expect(cpp).toContain("return this->read();");
+    expect(cpp).not.toContain("shared_from_this()->read()");
+  });
 });
 
 describe("emitter — for-of with arrays", () => {

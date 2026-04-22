@@ -316,6 +316,11 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const memberExpr = expr.callee as MemberExpression;
     const objType = substituteEmitType(memberExpr.object.resolvedType, ctx);
 
+    if (memberExpr.object.kind === "this-expression") {
+      const method = emitIdentifierSafe(memberExpr.property);
+      return `this->${method}(${args})`;
+    }
+
     if (explicitGenericMethodCall) {
       return explicitGenericMethodCall;
     }
