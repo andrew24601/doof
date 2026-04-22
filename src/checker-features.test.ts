@@ -4960,6 +4960,45 @@ describe("checker — as expression", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("narrows Result success type and widens the error type with string", () => {
+    const cr = check({ "/main.do": `
+      function test(x: Result<int | string, bool>): Result<string, bool | string> => x as string
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const fnDecl = cr.program.statements[0] as FunctionDeclaration;
+    expect(fnDecl.body.kind).not.toBe("block");
+    if (fnDecl.body.kind !== "block") {
+      expect(typeToString(fnDecl.body.resolvedType!)).toBe("Result<string, bool | string>");
+    }
+  });
+
+  it("allows checked numeric conversion from a union member", () => {
+    const cr = check({ "/main.do": `
+      function test(x: int | string): Result<long, string> => x as long
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const fnDecl = cr.program.statements[0] as FunctionDeclaration;
+    expect(fnDecl.body.kind).not.toBe("block");
+    if (fnDecl.body.kind !== "block") {
+      expect(typeToString(fnDecl.body.resolvedType!)).toBe("Result<long, string>");
+    }
+  });
+
+  it("allows checked numeric conversion on Result success channels", () => {
+    const cr = check({ "/main.do": `
+      function test(x: Result<long | string, bool>): Result<int, bool | string> => x as int
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const fnDecl = cr.program.statements[0] as FunctionDeclaration;
+    expect(fnDecl.body.kind).not.toBe("block");
+    if (fnDecl.body.kind !== "block") {
+      expect(typeToString(fnDecl.body.resolvedType!)).toBe("Result<int, bool | string>");
+    }
+  });
+
   it("treats JsonValue as narrowable to readonly Map<string, JsonValue>", () => {
     const cr = check({ "/main.do": `
       function main(): void {

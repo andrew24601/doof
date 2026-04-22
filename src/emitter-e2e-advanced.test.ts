@@ -2285,6 +2285,91 @@ describe("e2e — as expression", () => {
     expect(result.exitCode).toBe(5);
   });
 
+  it("narrows Result success channel and preserves source failures", () => {
+    const result = ctx.compileAndRun(`
+      function okValue(): Result<int | string, bool> {
+        value: int | string := "hello"
+        return Success(value)
+      }
+      function passthroughValue(): Result<int | string, bool> {
+        return Failure(true)
+      }
+      function mismatchValue(): Result<int | string, bool> {
+        value: int | string := 42
+        return Success(value)
+      }
+      function narrow(x: Result<int | string, bool>): Result<string, bool | string> {
+        return x as string
+      }
+      function describe(result: Result<string, bool | string>): string {
+        return case result {
+          s: Success => "ok " + s.value,
+          f: Failure => case f.error {
+            flag: bool => if flag then "bool true" else "bool false",
+            text: string => "text " + text
+          }
+        }
+      }
+      function main(): int {
+        println(describe(narrow(okValue())))
+        println(describe(narrow(passthroughValue())))
+        println(describe(narrow(mismatchValue())))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("ok hello\nbool true\ntext Narrowing from union to string failed");
+  });
+
+  it("performs checked numeric widening and narrowing in as expressions", () => {
+    const result = ctx.compileAndRun(`
+      function widen(x: int | string): Result<long, string> => x as long
+      function narrowInt(x: long | string): Result<int, string> => x as int
+      function narrowFloat(x: double | string): Result<int, string> => x as int
+
+      function describeLong(result: Result<long, string>): string {
+        return case result {
+          s: Success => "ok " + string(s.value),
+          f: Failure => "err " + f.error
+        }
+      }
+
+      function describeInt(result: Result<int, string>): string {
+        return case result {
+          s: Success => "ok " + string(s.value),
+          f: Failure => "err " + f.error
+        }
+      }
+
+      function main(): int {
+        intValue: int | string := 42
+        inRange: long | string := 42L
+        outOfRange: long | string := 2147483648L
+        whole: double | string := 42.0
+        fractional: double | string := 42.5
+
+        println(describeLong(widen(intValue)))
+        println(describeInt(narrowInt(inRange)))
+        println(describeInt(narrowInt(outOfRange)))
+        println(describeInt(narrowFloat(whole)))
+        println(describeInt(narrowFloat(fractional)))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe([
+      "ok 42",
+      "ok 42",
+      "err Narrowing from union to int failed",
+      "ok 42",
+      "err Narrowing from union to int failed",
+    ].join("\n"));
+  });
+
   it("narrows JsonValue to readonly Map<string, JsonValue>", () => {
     const result = ctx.compileAndRun(`
       function narrow(x: JsonValue): Result<readonly Map<string, JsonValue>, string> {

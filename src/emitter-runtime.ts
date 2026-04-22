@@ -466,6 +466,67 @@ struct Result<void, E> {
     static Result failure(E err) { return Result{std::variant<std::monostate, E>{std::in_place_index<1>, std::move(err)}}; }
 };
 
+template <typename Target, typename Source>
+inline std::optional<Target> checked_numeric_as(Source value) {
+    static_assert(std::is_arithmetic_v<Target>, "checked_numeric_as target must be numeric");
+    static_assert(std::is_arithmetic_v<Source>, "checked_numeric_as source must be numeric");
+
+    if constexpr (std::is_same_v<Target, Source>) {
+        return value;
+    } else if constexpr (std::is_integral_v<Source> && std::is_integral_v<Target>) {
+        if constexpr (std::is_signed_v<Source> == std::is_signed_v<Target>) {
+            if constexpr (std::numeric_limits<Target>::digits >= std::numeric_limits<Source>::digits) {
+                return static_cast<Target>(value);
+            } else {
+                if (value < static_cast<Source>(std::numeric_limits<Target>::lowest())
+                    || value > static_cast<Source>(std::numeric_limits<Target>::max())) {
+                    return std::nullopt;
+                }
+            }
+        } else if constexpr (std::is_signed_v<Source>) {
+            if (value < 0) return std::nullopt;
+            using UnsignedSource = std::make_unsigned_t<Source>;
+            if (static_cast<UnsignedSource>(value) > std::numeric_limits<Target>::max()) {
+                return std::nullopt;
+            }
+        } else {
+            using UnsignedTarget = std::make_unsigned_t<Target>;
+            if (value > static_cast<UnsignedTarget>(std::numeric_limits<Target>::max())) {
+                return std::nullopt;
+            }
+        }
+        return static_cast<Target>(value);
+    } else if constexpr (std::is_floating_point_v<Source> && std::is_integral_v<Target>) {
+        if (!std::isfinite(value) || std::trunc(value) != value) return std::nullopt;
+        if (value < static_cast<Source>(std::numeric_limits<Target>::lowest())
+            || value > static_cast<Source>(std::numeric_limits<Target>::max())) {
+            return std::nullopt;
+        }
+        return static_cast<Target>(value);
+    } else if constexpr (std::is_integral_v<Source> && std::is_floating_point_v<Target>) {
+        const auto narrowed = static_cast<Target>(value);
+        if (!std::isfinite(narrowed)) return std::nullopt;
+        if (static_cast<Source>(narrowed) != value) return std::nullopt;
+        return narrowed;
+    } else {
+        if constexpr (sizeof(Target) >= sizeof(Source)) {
+            return static_cast<Target>(value);
+        }
+
+        const auto narrowed = static_cast<Target>(value);
+        if (std::isnan(value)) {
+            return std::isnan(narrowed) ? std::optional<Target>(narrowed) : std::nullopt;
+        }
+        if (!std::isfinite(value)) {
+            return (std::isinf(narrowed) && ((value > 0) == (narrowed > 0)))
+                ? std::optional<Target>(narrowed)
+                : std::nullopt;
+        }
+        if (static_cast<Source>(narrowed) != value) return std::nullopt;
+        return narrowed;
+    }
+}
+
 // ============================================================================
 // ParseError — builtin parse failure classification
 // ============================================================================

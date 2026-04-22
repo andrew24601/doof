@@ -1560,4 +1560,26 @@ describe("emitter — as expression", () => {
     expect(cpp).toContain("std::holds_alternative<std::string>");
     expect(cpp).toContain("doof::panic");
   });
+
+  it("emits Result success narrowing that preserves source failures", () => {
+    const cpp = emit(`
+      function test(x: Result<int | string, bool>): Result<string, bool | string> {
+        return x as string
+      }
+    `);
+    expect(cpp).toContain("doof::Result<std::string, std::variant<bool, std::string>>");
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("::failure(_as_");
+    expect(cpp).toContain("std::holds_alternative<std::string>");
+  });
+
+  it("emits checked numeric narrowing for numeric union members", () => {
+    const cpp = emit(`
+      function test(x: int | string): Result<long, string> {
+        return x as long
+      }
+    `);
+    expect(cpp).toContain("std::holds_alternative<int32_t>");
+    expect(cpp).toContain("doof::checked_numeric_as<int64_t>");
+  });
 });

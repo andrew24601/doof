@@ -307,11 +307,17 @@ result := foo()?.bar()   // Result<B, E1 | E2>
 
 ## Type Narrowing with `as`
 
-The `as` operator performs runtime type narrowing and returns a `Result<T, string>`:
+The `as` operator performs checked runtime type narrowing/conversion. For plain values it returns `Result<T, string>`. For `Result<V, F>` sources it narrows the success channel and returns `Result<T, F | string>`:
 
 ```javascript
 value: int | string := "hello"
 r := value as string       // Result<string, string>
+
+input: Result<int | string, bool> := Success("hello")
+next := input as string    // Result<string, bool | string>
+
+numeric: int | string := 42
+wide := numeric as long    // Result<long, string>
 ```
 
 This integrates naturally with all Result handling patterns:
@@ -336,7 +342,7 @@ const len = case value as string {
 }
 ```
 
-Supported narrowing sources: unions (`A | B`), nullable types (`T | null`), and interfaces (to implementing classes). See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full support matrix.
+Supported narrowing sources: unions (`A | B`), nullable types (`T | null`), interfaces (to implementing classes), numeric primitives and numeric union members when the runtime value can be converted exactly to the target numeric type, `JsonValue` exact carrier members, and `Result<V, F>` when `V` is one of those same narrowable source forms. See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full support matrix.
 
 ---
 

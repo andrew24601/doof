@@ -189,11 +189,8 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "as-expression": {
       const sourceType = expr.expression.resolvedType!;
-      const targetType = expr.resolvedType!;
-      // resolvedType is Result<T, string>; extract the successType
-      const narrowTarget = targetType.kind === "result" ? targetType.successType : targetType;
       const sourceExpr = emitExpression(expr.expression, ctx);
-      return emitAsNarrowExpression(sourceExpr, sourceType, narrowTarget, ctx);
+      return emitAsNarrowExpression(sourceExpr, sourceType, expr.resolvedType!, ctx);
     }
 
     default:

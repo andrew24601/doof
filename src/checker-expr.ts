@@ -1960,6 +1960,7 @@ function resolveUnionForObjectLiteral(
  * - `U1 | U2 | ... -> T` — T must be an exact union member
  * - `Interface -> ConcreteClass` — interface lowers to closed-world variant
  * - `T | null -> T` — nullable narrowing
+ * - `Result<V, F> -> Result<T, F | string>` — narrow the success channel
  * - `T -> T` — identity fast path (unconditional success)
  */
 function inferAsNarrowType(
@@ -1973,10 +1974,28 @@ function inferAsNarrowType(
     return UNKNOWN_TYPE;
   }
 
+  if (sourceType.kind === "result") {
+    if (!isValidAsNarrow(sourceType.successType, targetType)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be a union, an interface, nullable, or Result thereof`,
+        span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
+    }
+
+    return {
+      kind: "result",
+      successType: targetType,
+      errorType: widenAsNarrowErrorType(sourceType.errorType),
+    };
+  }
+
   if (!isValidAsNarrow(sourceType, targetType)) {
     info.diagnostics.push({
       severity: "error",
-      message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be a union, an interface, or nullable`,
+      message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be a union, an interface, nullable, or Result thereof`,
       span,
       module: table.path,
     });
@@ -1991,12 +2010,37 @@ function inferAsNarrowType(
   return resultType;
 }
 
+function widenAsNarrowErrorType(errorType: ResolvedType): ResolvedType {
+  const combinedTypes: ResolvedType[] = [];
+  const seen = new Set<string>();
+
+  const pushUnique = (type: ResolvedType) => {
+    if (type.kind === "union") {
+      for (const member of type.types) pushUnique(member);
+      return;
+    }
+
+    const key = typeToString(type);
+    if (!seen.has(key)) {
+      seen.add(key);
+      combinedTypes.push(type);
+    }
+  };
+
+  pushUnique(errorType);
+  pushUnique(STRING_TYPE);
+
+  return combinedTypes.length === 1 ? combinedTypes[0] : { kind: "union", types: combinedTypes };
+}
+
 /**
  * Check whether `expr as T` is a valid narrowing in v1.
  */
 function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {
   // Identity: T -> T is always valid
   if (typesEqual(sourceType, targetType)) return true;
+
+  if (isNumericAsTarget(sourceType, targetType)) return true;
 
   // JsonValue -> exact runtime member, treated as a canonical JSON sum type
   if (sourceType.kind === "json-value") {
@@ -2013,11 +2057,19 @@ function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): bo
     if (hasNull && nonNull.length === 1 && typesEqual(nonNull[0], targetType)) return true;
 
     // Union member extraction: U1 | U2 | ... -> T where T is an exact member
-    if (sourceType.types.some((member) => typesEqual(member, targetType))) return true;
+    // or a numeric member can be converted to T with checked runtime conversion.
+    if (sourceType.types.some((member) => isValidAsNarrow(member, targetType))) return true;
   }
 
   // Interface -> ConcreteClass
   if (sourceType.kind === "interface" && targetType.kind === "class") return true;
 
   return false;
+}
+
+function isNumericAsTarget(sourceType: ResolvedType, targetType: ResolvedType): boolean {
+  return sourceType.kind === "primitive"
+    && targetType.kind === "primitive"
+    && NUMERIC_PRIMITIVE_NAMES.has(sourceType.name)
+    && NUMERIC_PRIMITIVE_NAMES.has(targetType.name);
 }

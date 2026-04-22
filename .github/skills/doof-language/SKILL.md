@@ -720,7 +720,7 @@ Result values **must be used** — silently discarding a `Result` is a compile e
 
 ### Type Narrowing with `as`
 
-The `as` operator performs runtime type narrowing, yielding `Result<T, string>`:
+The `as` operator performs checked runtime type narrowing/conversion. For plain values it yields `Result<T, string>`. For `Result<V, F>` sources it narrows the success channel and yields `Result<T, F | string>`:
 
 ```doof
 // Narrow from union
@@ -738,12 +738,22 @@ r := x as string              // Result<string, string>
 s: Shape := Circle { radius: 5.0 }
 r := s as Circle              // Result<Circle, string>
 
+// Narrow the success channel of a Result
+input: Result<int | string, bool> := Success("hello")
+next := input as string       // Result<string, bool | string>
+
+// Checked numeric conversion
+numeric: int | string := 42
+wide := numeric as long       // Result<long, string>
+
 // Narrow JsonValue to an exact JSON carrier member
 payload: JsonValue := { ok: true }
 obj := payload as readonly Map<string, JsonValue>  // Result<readonly Map<string, JsonValue>, string>
 ```
 
-Supported sources: unions, nullable types, interfaces, and `JsonValue` when the target is an exact JSON carrier member. Invalid narrowing is a compile error.
+Supported sources: unions, nullable types, interfaces, numeric primitives and numeric union members when the runtime value can be converted exactly to the target numeric type, `JsonValue` when the target is an exact JSON carrier member, and `Result<V, F>` when `V` is one of those same narrowable source forms. Invalid narrowing is a compile error.
+
+Numeric `as` is checked, unlike direct numeric casts such as `int(x)` or `double(x)`. For example, `x as int` fails when a `long` is out of range or a floating-point value has a fractional component.
 
 ### Catch Expression
 
@@ -766,7 +776,7 @@ const err = catch {
 - Logical: `&&`, `||`, `!` (require `bool` operands)
 - Null: `??` (null-coalescing), `?.` (optional chaining), `?[]` (optional indexing)
 - Force: `!` (non-null assertion), `!.` (unwrap or panic), `try!`/`try?`
-- Narrowing: `as` — runtime type narrowing yielding `Result<T, string>` (e.g. `x as string`)
+- Narrowing: `as` — checked runtime narrowing/conversion yielding `Result<T, string>` for plain values and `Result<T, F | string>` for `Result<V, F>` sources, including exact numeric conversions when the runtime value fits the target type (e.g. `x as string`, `x as long`)
 - No operator overloading — use methods instead
 
 ## Modules

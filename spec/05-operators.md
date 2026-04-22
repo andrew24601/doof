@@ -423,11 +423,17 @@ msg := "Hello, ${name}!"
 
 ## Type Narrowing Operator (`as`)
 
-The `as` operator performs runtime type narrowing, yielding `Result<T, string>`:
+The `as` operator performs checked runtime narrowing/conversion. For plain values it yields `Result<T, string>`. For `Result<V, F>` sources it narrows the success channel and yields `Result<T, F | string>`:
 
 ```javascript
 value: int | string := "hello"
 r := value as string   // Result<string, string>
+
+input: Result<int | string, bool> := Success("hello")
+next := input as string  // Result<string, bool | string>
+
+numeric: int | string := 42
+wide := numeric as long  // Result<long, string>
 ```
 
 ### Supported Narrowing
@@ -436,13 +442,17 @@ r := value as string   // Result<string, string>
 |-----------------|----------------|----------------------------------------|
 | `T \| null`     | `T`            | Null check                            |
 | `U1 \| U2`      | `Ui`           | `std::holds_alternative<Ui>` variant check |
+| Numeric primitive or numeric union member | Numeric primitive | Checked numeric conversion; succeeds only when the runtime value is exactly representable in the target type |
 | `JsonValue`      | Exact JSON member (`string`, `int`, `long`, `float`, `double`, `bool`, `null`, `JsonValue[]`, `Map<string, JsonValue>`, readonly variants) | JSON carrier tag check |
 | Interface       | Class          | `std::holds_alternative<Class>` variant check |
+| `Result<V, F>`  | `T`            | If failure: pass through `F`; if success: narrow `V` to `T` |
 | `T`             | `T`            | Identity — always succeeds            |
 
 ### Result Handling
 
-Since `as` returns `Result<T, string>`, use standard Result patterns:
+Since `as` always returns a `Result`, use standard Result patterns:
+
+Unlike `int(x)` / `long(x)` / `float(x)` / `double(x)`, which are direct casts, numeric `as` is checked. For example, `x as int` fails when a `long` is out of range or a floating-point value has a fractional component.
 
 ```javascript
 // With try (in Result-returning function):
