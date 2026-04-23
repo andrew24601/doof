@@ -1,0 +1,23 @@
+{
+  "name": "obj-viewer",
+  "version": "0.1.0",
+  "license": "ISC",
+  "build": {
+    "native": {
+      "extraCopyPaths": [
+        "./native_obj_viewer.hpp"
+      ],
+      "macos": {
+        "pkgConfigPackages": [
+          "sdl3"
+        ]
+      },
+      "linux": {
+        "pkgConfigPackages": [
+          "sdl3"
+        ]
+      }
+    }
+  },
+  "dependencies": {}
+}

@@ -8,6 +8,7 @@ A small interactive 3D OBJ wireframe viewer with the parsing, camera math, proje
 - `obj.do` parses a practical subset of Wavefront OBJ: `v` and `f` records, including negative face indices.
 - `viewer.do` owns the camera, transforms vertices, performs perspective projection, and draws the wireframe.
 - `native_obj_viewer.hpp` is the tiny SDL3 bridge for windowing, input, and lines.
+- `doof.json` wires native header copying and SDL3 pkg-config metadata so `doof run` works from the package directory.
 - `obj.test.do` exercises the OBJ parser without depending on SDL.
 - `models/cube.obj` is a small built-in model so the sample runs immediately.
 
@@ -29,7 +30,7 @@ The sample intentionally keeps the parser small and readable. It supports:
 
 It ignores materials, groups, smoothing markers, texture coordinates, and normals. Those lines are skipped rather than treated as hard errors.
 
-## Build
+## Run
 
 Build the compiler first from the repository root if needed:
 
@@ -38,25 +39,37 @@ npm install
 npm run build
 ```
 
-Then build the sample:
+Run the sample directly:
 
 ```bash
-bash samples/obj-viewer/build.sh
+doof run samples/obj-viewer
+```
+
+Build only:
+
+```bash
+doof build samples/obj-viewer
 ```
 
 Run the built binary with the checked-in cube model:
 
 ```bash
-bash samples/obj-viewer/build.sh --run
+samples/obj-viewer/build/a.out samples/obj-viewer/models/cube.obj
 ```
 
 Run a different OBJ file:
 
 ```bash
-build-obj-viewer/a.out /absolute/path/to/model.obj
+samples/obj-viewer/build/a.out /absolute/path/to/model.obj
 ```
 
-The build helper looks for SDL3 through `pkg-config sdl3` first and falls back to a Homebrew install on macOS.
+The package manifest resolves SDL3 through `pkg-config sdl3` on macOS and Linux.
+
+If you prefer the helper script, it now wraps package-based build output:
+
+```bash
+bash samples/obj-viewer/build.sh --run
+```
 
 ## Test
 
