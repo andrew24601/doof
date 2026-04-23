@@ -147,7 +147,11 @@ function test(node: Node): int {
     makeCase(9, "array property and mutable methods compile", true, `
 nums := [1, 2, 3, 4]
 nums.push(5)
-nums.pop()
+popped := nums.pop()
+last := case popped {
+  s: Success => s.value,
+  _: Failure => -1,
+}
 tail := nums.slice(1, 3)
 hasTwo := nums.contains(2)
 `),

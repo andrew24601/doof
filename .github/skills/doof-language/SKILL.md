@@ -124,7 +124,7 @@ names: string[] = ["Alice", "Bob"]
 |--------|--------------|-------------|
 | `.length` | both | Number of elements |
 | `.push(e)` | mutable only | Append element |
-| `.pop()` | mutable only | Remove last element |
+| `.pop()` | mutable only | `Result<T, string>`: remove and return the last element, or a failure message when empty |
 | `.contains(e)` | both | Test membership |
 | `.slice(start, end)` | both | Sub-array (preserves mutability) |
 | `.buildReadonly()` | mutable only | Drain into a new `readonly T[]`, leaving original empty |

@@ -1100,8 +1100,8 @@ describe("emitter — string methods", () => {
 
   it("emits array pop via runtime helper", () => {
     const cpp = emit(`
-      function trim(values: int[]): void {
-        values.pop()
+      function trim(values: int[]): Result<int, string> {
+        return values.pop()
       }
     `);
     expect(cpp).toContain("doof::array_pop(values)");

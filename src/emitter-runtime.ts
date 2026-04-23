@@ -1120,14 +1120,16 @@ void array_require_min_size(const std::shared_ptr<std::vector<T>>& arr, int32_t 
 }
 
 template <typename T>
-void array_pop(const std::shared_ptr<std::vector<T>>& arr) {
+Result<T, std::string> array_pop(const std::shared_ptr<std::vector<T>>& arr) {
     if (!arr) {
-        panic("Attempted to pop from null array");
+        return Result<T, std::string>::failure("Attempted to pop from null array");
     }
     if (arr->empty()) {
-        panic("Attempted to pop from empty array");
+        return Result<T, std::string>::failure("Attempted to pop from empty array");
     }
+    T value = arr->back();
     arr->pop_back();
+    return Result<T, std::string>::success(std::move(value));
 }
 
 template <typename T>

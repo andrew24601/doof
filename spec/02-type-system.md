@@ -191,7 +191,7 @@ Arrays support a `.length` property and the following built-in methods:
 |--------|--------------|-----------|-------------|
 | `.length` | both | `int` (property) | Number of elements |
 | `.push(element)` | mutable only | `(T): void` | Append an element |
-| `.pop()` | mutable only | `(): void` | Remove the last element |
+| `.pop()` | mutable only | `(): Result<T, string>` | Remove and return the last element, or a failure message when empty |
 | `.contains(element)` | both | `(T): bool` | Whether the array contains the value |
 | `.slice(start, end)` | both | `(int, int): T[]` or `readonly T[]` | Sub-array (preserves mutability) |
 | `.buildReadonly()` | mutable only | `(): readonly T[]` | Drain the array into a new readonly array (leaves original empty) |
@@ -201,10 +201,15 @@ Arrays support a `.length` property and the following built-in methods:
 
 ```javascript
 nums := [1, 2, 3, 4]
-nums.push(5)                      // nums is now [1, 2, 3, 4, 5]
-nums.pop()                        // nums is now [1, 2, 3, 4]
-tail := nums.slice(1, 3)          // [2, 3]  (int[])
-hasTwo := nums.contains(2)        // true
+nums.push(5)                         // nums is now [1, 2, 3, 4, 5]
+popped := nums.pop()                 // Result<int, string>
+last := case popped {
+  s: Success => s.value,
+  _: Failure => -1,
+}
+// nums is now [1, 2, 3, 4]
+tail := nums.slice(1, 3)             // [2, 3]  (int[])
+hasTwo := nums.contains(2)           // true
 
 // Build pattern: accumulate into mutable, then freeze
 let builder: int[] = []

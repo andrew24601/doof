@@ -4483,6 +4483,22 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[1].message).toContain('Method "pop" is not available on readonly array');
   });
 
+  it("resolves pop() type on mutable array as Result<T, string>", () => {
+    const cr = check({ "/main.do": `
+      function takeLast(a: int[]): Result<int, string> {
+        return a.pop()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const popCall = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "pop");
+    expect(popCall?.resolvedType).toEqual({
+      kind: "result",
+      successType: INT_TYPE,
+      errorType: STRING_TYPE,
+    });
+  });
+
   it("resolves buildReadonly() type on mutable array", () => {
     const cr = check({ "/main.do": `
       function freeze(a: int[]): readonly int[] {

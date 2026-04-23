@@ -302,19 +302,27 @@ describe("e2e — array safety", () => {
     expect(result.stderr).toContain("panic: Index out of bounds: 5");
   });
 
-  it("panics on empty array pop", () => {
+  it("returns Failure on empty array pop", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         let values: int[] = []
-        values.pop()
-        return 0
+        popped := values.pop()
+        message := case popped {
+          _: Success => "unexpected success",
+          f: Failure => f.error,
+        }
+        println(message)
+        if message == "Attempted to pop from empty array" {
+          return 0
+        }
+        return 1
       }
     `);
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("panic: Attempted to pop from empty array");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("Attempted to pop from empty array");
   });
 
   it("runs array destructuring with discard", () => {
