@@ -79,10 +79,6 @@ export interface CheckerHost {
   checkTryStatement(binding: TryBinding, scope: Scope, table: ModuleSymbolTable, info: ModuleTypeInfo, span: SourceSpan): void;
   blockAlwaysExits(block: Block): boolean;
   blockAlwaysYields(block: Block): boolean;
-  extractNullNarrowing(
-    condition: Expression,
-    scope: Scope,
-  ): { name: string; narrowedType: ResolvedType; operator: "==" | "!="; binding: Binding } | null;
   findReturnType(scope: Scope): ResolvedType | null;
   findThisType(scope: Scope): ResolvedType | null;
   getPositionalFieldTypes(type: ResolvedType, table: ModuleSymbolTable): ResolvedType[];
@@ -125,7 +121,6 @@ export interface BuiltinFunctionSpec {
   returnType: ResolvedType;
 }
 
-export type NullNarrowing = ReturnType<CheckerHost["extractNullNarrowing"]>;
 export type ResultArmScopeBuilder = (
   arm: CaseArm,
   subjectType: ResultResolvedType,

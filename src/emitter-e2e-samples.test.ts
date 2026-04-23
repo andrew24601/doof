@@ -168,15 +168,15 @@ describeSkipOnWindows("e2e — http server sample", () => {
           `import { NativeRequest, parseRequest } from "./http"`,
           ``,
           `function main(): void {`,
-          `  request := parseRequest(NativeRequest("GET /headers HTTP/1.1\\r\\nHost: example.test\\r\\nUser-Agent: sample-client\\r\\nX-Debug: yes", ""))`,
-          `  if request != null {`,
-          `    response := handleRequest(request, 3)`,
-          `    println(response.status)`,
-          `    print(response.body)`,
-          `    return`,
-          `  }`,
+          `  request := parseRequest(NativeRequest("GET /headers HTTP/1.1\r\nHost: example.test\r\nUser-Agent: sample-client\r\nX-Debug: yes", "")) else {
+                println("parse failed")
+                return
+              }`,
           ``,
-          `  println("parse failed")`,
+          `  response := handleRequest(request, 3)`,
+          `  println(response.status)`,
+          `  print(response.body)`,
+          `  return`,
           `}`,
         ].join("\n"),
       }),

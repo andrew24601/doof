@@ -55,21 +55,23 @@ if x > 0 {
 }
 ```
 
-### Type Narrowing in If
+### No Implicit Null Narrowing in If
 
 ```javascript
 value: int | null := getValue()
 
 if value != null {
-    print(value * 2)  // value narrowed to int
+    print(value!)  // explicit assertion still required
 }
 
 if value == null {
     return
 }
-// value narrowed to int for rest of function
-print(value * 2)
+
+print(value!)
 ```
+
+Null checks are still useful for control flow, but they do not change the static type of the checked value. For explicit guard-style narrowing, prefer declaration-`else`, `case`, `as`, or `!`.
 
 ---
 

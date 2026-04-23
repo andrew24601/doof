@@ -4618,11 +4618,11 @@ describe("checker — non-null assertion", () => {
 });
 
 // ============================================================================
-// Null narrowing in if-statement
+// No implicit narrowing in if-statement
 // ============================================================================
 
-describe("checker — null narrowing", () => {
-  it("narrows nullable type in if != null body", () => {
+describe("checker — no implicit null narrowing", () => {
+  it("keeps nullable identifier type unchanged in if != null body", () => {
     const cr = check({ "/main.do": `
       function test(s: string | null): int {
         if s != null {
@@ -4632,9 +4632,10 @@ describe("checker — null narrowing", () => {
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
+    expect(new Set(findId(cr, "s").map((binding) => typeToString(binding.type)))).toEqual(new Set(["string | null"]));
   });
 
-  it("narrows nullable type in else body for == null", () => {
+  it("keeps nullable identifier type unchanged in else body for == null", () => {
     const cr = check({ "/main.do": `
       function test(s: string | null): int {
         if s == null {
@@ -4645,9 +4646,10 @@ describe("checker — null narrowing", () => {
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
+    expect(new Set(findId(cr, "s").map((binding) => typeToString(binding.type)))).toEqual(new Set(["string | null"]));
   });
 
-  it("narrows nullable class type in if != null body", () => {
+  it("keeps nullable class type unchanged in if != null body", () => {
     const cr = check({ "/main.do": `
       class Item { name: string }
       function test(item: Item | null): string {
@@ -4658,6 +4660,7 @@ describe("checker — null narrowing", () => {
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
+    expect(new Set(findId(cr, "item").map((binding) => typeToString(binding.type)))).toEqual(new Set(["Item | null"]));
   });
 });
 

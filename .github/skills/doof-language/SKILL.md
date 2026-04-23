@@ -79,13 +79,15 @@ name: string | null := null     // explicitly nullable
 value: int := null              // ❌ compile error
 ```
 
-Null safety via narrowing:
+Null checks help with control flow, but they do not implicitly narrow types:
 
 ```doof
 if name != null {
-    println(name.length)   // narrowed to string
+    println(name!)   // explicit assertion required
 }
 ```
+
+There is no implicit flow-sensitive narrowing from `if` statements. Use `case`, declaration-`else`, `as`, or `!` for explicit narrowing.
 
 ### Union Types
 
@@ -754,6 +756,8 @@ obj := payload as readonly Map<string, JsonValue>  // Result<readonly Map<string
 Supported sources: unions, nullable types, interfaces, numeric primitives and numeric union members when the runtime value can be converted exactly to the target numeric type, `JsonValue` when the target is an exact JSON carrier member, and `Result<V, F>` when `V` is one of those same narrowable source forms. Invalid narrowing is a compile error.
 
 Numeric `as` is checked, unlike direct numeric casts such as `int(x)` or `double(x)`. For example, `x as int` fails when a `long` is out of range or a floating-point value has a fractional component.
+
+`if` statements do not narrow types implicitly. For union discrimination and guard-style unwrapping, prefer `case`, declaration-`else`, `as`, and `!`.
 
 ### Catch Expression
 

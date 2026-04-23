@@ -66,6 +66,7 @@ describe("std package metadata", () => {
     expect(getImplicitStdDependencyNames()).toEqual([
       "std/assert",
       "std/blob",
+      "std/crypto",
       "std/fs",
       "std/http",
       "std/json",

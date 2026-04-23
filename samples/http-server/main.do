@@ -15,18 +15,14 @@ function main(): int {
   let requestCount = 0
   while true {
     request := server.nextRequest()
-    parsed := parseRequest(request)
-    if parsed != null {
-      requestCount += 1
-      response := handleRequest(parsed, requestCount)
-      sendResponse(request, response)
-      continue
-    }
-
-    if parsed == null {
+    parsed := parseRequest(request) else {
       request.addHeader("Connection", "close")
       sendResponse(request, textResponse(400, "Malformed HTTP request.\n"))
+      continue
     }
+    requestCount += 1
+    response := handleRequest(parsed, requestCount)
+    sendResponse(request, response)
   }
 
   return 0

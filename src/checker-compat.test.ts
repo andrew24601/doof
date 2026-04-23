@@ -745,6 +745,24 @@ describe("Return type validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("rejects value return in unannotated block function", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function choose(flag: bool) {
+            if flag {
+              return 1
+            }
+            return "hello"
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics.every((diagnostic) => diagnostic.message.includes("not assignable to return type \"void\""))).toBe(true);
+  });
+
   it("rejects empty return in non-void function", () => {
     const info = check(
       {
@@ -789,6 +807,26 @@ describe("Return type validation", () => {
     );
     expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
     expect(info.diagnostics[0].message).toContain("not assignable to return type");
+  });
+
+  it("rejects value return in unannotated block method", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Calc {
+            choose(flag: bool) {
+              if flag {
+                return 1
+              }
+              return "hello"
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics.every((diagnostic) => diagnostic.message.includes("not assignable to return type \"void\""))).toBe(true);
   });
 });
 

@@ -264,7 +264,6 @@ export class TypeChecker {
       checkTryStatement: (...args) => self.checkTryStatement(...args),
       blockAlwaysExits: (...args) => self.blockAlwaysExits(...args),
       blockAlwaysYields: (...args) => self.blockAlwaysYields(...args),
-      extractNullNarrowing: (...args) => self.extractNullNarrowing(...args),
       findReturnType: (...args) => self.findReturnType(...args),
       findThisType: (...args) => self.findThisType(...args),
       getPositionalFieldTypes: (...args) => self.getPositionalFieldTypes(...args),
@@ -1122,35 +1121,6 @@ export class TypeChecker {
       current = current.parent;
     }
     return null;
-  }
-
-  /**
-   * Detect `x != null` or `x == null` patterns in a condition expression.
-   * Returns the identifier name, the narrowed (non-null) type, the operator,
-   * and the original binding if applicable.
-   */
-  private extractNullNarrowing(
-    condition: Expression,
-    scope: Scope,
-  ): { name: string; narrowedType: ResolvedType; operator: "==" | "!="; binding: Binding } | null {
-    if (condition.kind !== "binary-expression") return null;
-    if (condition.operator !== "==" && condition.operator !== "!=") return null;
-
-    let identSide: Expression | null = null;
-    if (condition.left.kind === "null-literal") identSide = condition.right;
-    else if (condition.right.kind === "null-literal") identSide = condition.left;
-    else return null;
-
-    if (identSide.kind !== "identifier") return null;
-    const binding = this.lookupBinding(identSide.name, scope);
-    if (!binding) return null;
-
-    const type = binding.type;
-    if (type.kind !== "union") return null;
-    const nonNull = type.types.filter((t) => t.kind !== "null");
-    if (nonNull.length === type.types.length) return null; // not nullable
-    const narrowedType = nonNull.length === 1 ? nonNull[0] : { kind: "union" as const, types: nonNull };
-    return { name: identSide.name, narrowedType, operator: condition.operator as "==" | "!=", binding };
   }
 
   private findThisType(scope: Scope): ResolvedType | null {

@@ -131,10 +131,10 @@ let ratio: string = string(3.5)
 Numeric types expose a static `.parse()` method for fallible string parsing:
 
 ```javascript
-let count: Result<int, ParseError> = int.parse("42")
-let channel: Result<byte, ParseError> = byte.parse("255")
-let total: Result<long, ParseError> = long.parse("9007199254740991")
-let ratio: Result<double, ParseError> = double.parse("3.14159")
+count := int.parse("42")                // Result<int, ParseError>
+channel := byte.parse("255")            // Result<byte, ParseError>
+total := long.parse("9007199254740991") // Result<long, ParseError>
+ratio := double.parse("3.14159")        // Result<double, ParseError>
 ```
 
 These methods return `Result<T, ParseError>` with the following builtin error cases:
@@ -213,8 +213,8 @@ builder.push(2)
 result := builder.buildReadonly() // readonly int[], builder is now empty
 
 // Clone into a mutable copy
-readonly frozen: readonly int[] = [1, 2, 3]
-let copy := frozen.cloneMutable() // int[]
+let frozen: readonly int[] = [1, 2, 3]
+copy := frozen.cloneMutable() // int[]
 copy.push(4)                      // ✅ OK
 ```
 
@@ -247,15 +247,15 @@ let point = Point(1.0, 2.0)       // Point
 scores: Map := { "Alice": 100 }   // Map<string, int>
 unique: Set := [1, 2, 3]          // Set<int>
 
-// ❌ Cannot infer from empty collections
-let empty = []                    // Error: type cannot be inferred
+// Empty arrays are currently accepted, though explicit annotation is clearer
+let empty = []
 let nums: int[] = []              // ✅ Explicit annotation required
 m: Map := {}                      // Error: empty map needs full annotation
 s: Set := []                      // Error: empty set needs full annotation
 
-// ❌ Cannot infer from null
-let x = null                      // Error: type cannot be inferred
-let x: int | null = null          // ✅ Explicit annotation required
+// Null initialisers are also currently accepted, though explicit annotation is clearer
+let maybe = null
+let x: int | null = null          // ✅ Explicit annotation
 ```
 
 ### Bidirectional Flow
@@ -369,13 +369,13 @@ explicit: int[] := [1, 2, 3]     // int[] (explicit overrides)
 // Return type inferred from body (single-step)
 function double(x: int) => x * 2  // Returns int
 
-// Ambiguous cases require annotation
-function ambiguous(flag: bool) {
+// Unannotated block bodies default to void, so value returns are invalid
+function choose(flag: bool) {
     if flag {
         return 1
     }
     return "hello"
-}  // ❌ Error: return type unclear
+}  // ❌ Error: value return is not assignable to void
 
 function clarified(flag: bool): int | string {
     if flag {
@@ -424,11 +424,12 @@ function safeLengthV1(s: string | null): int {
     if s == null {
         return 0
     }
-    return s.length  // ✅ Type narrowed to string
+    return s!.length
 }
 
 function safeLengthV2(s: string | null): int {
-    return if s == null then 0 else s.length  // ✅ Type narrowing in if-expression
+    value := s else { return 0 }
+    return value.length
 }
 ```
 
@@ -553,18 +554,20 @@ Shorthand works anywhere the compiler can infer the enum type from context:
 
 ```javascript
 // Shorthand in case expressions
+direction: Direction := .North
+
 case direction {
-    .North => moveUp(),
-    .South => moveDown(),
-    .East  => moveRight(),
+    .North => moveUp()
+    .South => moveDown()
+    .East  => moveRight()
     .West  => moveLeft()
 }
 
 // Equivalent to:
 case direction {
-    Direction.North => moveUp(),
-    Direction.South => moveDown(),
-    Direction.East  => moveRight(),
+    Direction.North => moveUp()
+    Direction.South => moveDown()
+    Direction.East  => moveRight()
     Direction.West  => moveLeft()
 }
 ```
@@ -599,9 +602,8 @@ Direction.values()   // readonly Direction[] — all variants in declaration ord
 // Convert from name
 Direction.fromName("North")   // Direction | null
 
-// Convert from value (integer or string enums only)
+// Convert from value (integer enums)
 HttpStatus.fromValue(200)     // HttpStatus | null
-LogLevel.fromValue("DEBUG")   // LogLevel | null
 ```
 
 ### Enum Equality and Comparison
@@ -720,7 +722,7 @@ class Vector {
 
 // At compile time, Thing2D resolves to: Point | Vector | ...any other matching classes
 function distance(a: Thing2D, b: Thing2D): float {
-    return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
+    return (b.x - a.x) ** 2 + (b.y - a.y) ** 2
 }
 
 let p = Point { x: 1.0, y: 2.0 }
@@ -760,26 +762,40 @@ let p: Positioned = Point { x: 1.0, y: 2.0 }
 let v: Positioned = Vector { x: 1.0, y: 2.0 }
 ```
 
-### Const Fields Enable Disambiguation
+### Const Fields Aid Variant Identification
 
 ```javascript
-type Result = Success | Failure
+enum OutcomeKind { Success, Failure }
 
-// ✅ Const field disambiguates which type to construct
-let r1: Result = { kind: "Success", value: 42 }   // Constructs Success
-let r2: Result = { kind: "Failure", error: "timeout" }  // Constructs Failure
+class SuccessOutcome {
+    const kind = OutcomeKind.Success
+    value: int
+}
 
-// ❌ Invalid const value
-let r3: Result = { kind: "Unknown", value: 42 }   // Error: no matching type
+class FailureOutcome {
+    const kind = OutcomeKind.Failure
+    error: string
+}
+
+type Outcome = SuccessOutcome | FailureOutcome
+
+function show(o: Outcome): void {
+    case o {
+        s: SuccessOutcome => print(s.value)
+        _: FailureOutcome => print("unexpected")
+    }
+}
+
+// When using an enum discriminator, object literals can construct the correct variant
+show({ kind: .Success, value: 42 })
+show({ kind: .Failure, error: "timeout" })
 ```
-
-**Single Candidate Rule:** Type inference from literals succeeds only if exactly one type matches both the const field value(s) and the complete structure.
 
 ---
 
 ## Generic Types
 
-Doof provides **built-in generic collection types**. User-defined generic types are planned for a future version.
+Doof provides built-in generic collection types and supports generic type aliases.
 
 | Type | Shorthand | Description |
 |------|-----------|-------------|
@@ -826,8 +842,8 @@ When the annotation omits type arguments entirely, non-empty homogeneous literal
 ```javascript
 scores: Map := { "Alice": 100, "Bob": 95 }        // Map<string, int>
 scores: ReadonlyMap := { "Alice": 100 }            // ReadonlyMap<string, int>
-scores: readonly Map<string, int> = { "Alice": 100 } // Same as ReadonlyMap<string, int>
-scores: Map<string, int> = { "Alice": 100 }        // Also valid
+let scores: readonly Map<string, int> = { "Alice": 100 } // Same as ReadonlyMap<string, int>
+let scores: Map<string, int> = { "Alice": 100 }        // Also valid
 ```
 
 Both map type arguments must be omitted together. Partial annotations such as `Map<string>` and `ReadonlyMap<string>` are compile errors.
@@ -892,14 +908,15 @@ let badPoint: Map<Point, int> = {}               // Error
 `Set<T>` is an intrinsic generic type for unique values with insertion-order iteration. When a `Set<T>` is expected, array literal syntax initializes the set and duplicate values are coalesced by the runtime representation.
 
 ```javascript
+enum Color { Red, Blue }
+
 let unique: Set<int> = [1, 2, 3, 2, 1]
 let empty: Set<string> = []
-enum Color { Red, Blue }
 let palette: Set<Color> = [Color.Red, Color.Blue, Color.Red]
 let ids: Set<long> = [1, 2, 3]  // int literals widen to long in Set<long> context
 unique: Set := [1, 2, 3]        // Set<int>
 frozen: ReadonlySet := [1, 2, 3] // ReadonlySet<int>
-frozen2: readonly Set<int> = [1, 2, 3] // Same as ReadonlySet<int>
+let frozen2: readonly Set<int> = [1, 2, 3] // Same as ReadonlySet<int>
 ```
 
 When the annotation omits type arguments entirely, the checker may infer `T` only from a same-site non-empty homogeneous literal. Empty literals still require a full annotation:
@@ -907,7 +924,7 @@ When the annotation omits type arguments entirely, the checker may infer `T` onl
 ```javascript
 unique: Set := [1, 2, 3]          // Set<int>
 frozen: ReadonlySet := [1, 2, 3]  // ReadonlySet<int>
-unique: Set<int> = [1, 2, 3]      // Also valid
+let unique: Set<int> = [1, 2, 3]  // Also valid
 empty: Set := []                  // Error
 ```
 
@@ -955,14 +972,14 @@ print(unique.size)
 let m: Map<string, int> = { "a": 1, "b": 2 }
 m.set("c", 3)
 case m.get("a") {
-    s: Success => print(s.value),
+    s: Success => print(s.value)
     _: Failure => print("missing")
 }
 print(m.has("d"))     // false
 print(m.size)         // 3
 m.delete("b")
 
-for (key, value) of m {
+for key, value of m {
   print("${key} = ${value}")
 }
 ```
@@ -986,7 +1003,7 @@ A `Tuple<T1, T2, ..., Tn>` is equivalent to a class with fields `_1: T1`, `_2: T
 ```javascript
 // Explicit type
 let pair: Tuple<int, string> = (1, "hello")
-let vec: Tuple<float, float, float> = (1.0, 2.0, 3.0)
+let vec: Tuple<float, float, float> = (1.0f, 2.0f, 3.0f)
 
 // Type inference from positional literal (when no named type matches)
 coords := (3.14, 2.71)           // Tuple<double, double>
@@ -1005,7 +1022,7 @@ Tuples use positional literal syntax — the same `(value, ...)` form used for c
 ```javascript
 // When target type is known, constructs that type
 let p: Point = (1.0, 2.0)                  // Constructs Point (not a Tuple)
-let t: Tuple<float, float> = (1.0, 2.0)    // Constructs Tuple
+let t: Tuple<float, float> = (1.0f, 2.0f)  // Constructs Tuple
 
 // When target type is unknown, infers Tuple
 result := (200, "OK")                      // Tuple<int, string>
@@ -1017,7 +1034,11 @@ Tuples support positional destructuring, just like classes:
 
 ```javascript
 function divmod(a: int, b: int): Tuple<int, int> {
-    return (a / b, a % b)
+    return (a \ b, a % b)
+}
+
+function getRecord(): Tuple<int, string, bool> {
+    return (1, "Alice", true)
 }
 
 (quotient, remainder) := divmod(17, 5)
@@ -1027,10 +1048,6 @@ let (q, r) = divmod(17, 5)
 q = 0  // ✅ OK
 
 // Partial destructuring — trailing fields can be omitted
-function getRecord(): Tuple<int, string, bool> {
-    return (1, "Alice", true)
-}
-
 (id, name) := getRecord()  // Ignores third field
 ```
 
@@ -1067,7 +1084,6 @@ print(hi)  // 9
 type UserId = int
 type Callback = (value: int): void
 type StringMap = Map<string, string>
-type Result<T> = Success<T> | Failure
 type Pair<A, B> = Tuple<A, B>         // Alias for common tuple arities
 ```
 
@@ -1115,7 +1131,7 @@ class MutablePoint {
     y: float
 }
 
-points: readonly MutablePoint[] = readonly [MutablePoint { x: 1.0, y: 2.0 }]  // ✅ OK
+let points: readonly MutablePoint[] = readonly [MutablePoint { x: 1.0, y: 2.0 }]  // ✅ OK
 points[0].x = 2.0      // ✅ OK - element objects can still be mutable
 points.push(MutablePoint { x: 3.0, y: 4.0 })  // ❌ Error - readonly array
 ```
@@ -1212,7 +1228,7 @@ Doof uses reference counting for memory management (see [Classes and Interfaces]
 ```javascript
 class TreeNode {
     children: TreeNode[] = []
-    parent: weak TreeNode | null = null  // weak reference to (TreeNode | null)
+    parent: weak TreeNode | null  // weak reference to (TreeNode | null)
 }
 ```
 
@@ -1254,72 +1270,130 @@ class Node {
 
 ## Type Narrowing
 
-Doof performs flow-sensitive type narrowing based on control flow.
+Doof keeps implicit narrowing intentionally narrow. It does not perform broad flow-sensitive narrowing across arbitrary control flow. Instead, it supports one limited implicit rule plus several explicit narrowing forms.
 
-### Null Checks
+### No Implicit Narrowing in `if`
+
+`if` conditions do not narrow types implicitly. A null check can still guard control flow, but the checked value keeps its original type unless you use an explicit form such as `!`, declaration-`else`, `case`, or `as`:
 
 ```javascript
 function process(value: int | null): void {
     if value != null {
-        print(value * 2)  // value narrowed to int
+        print(value!)  // explicit assertion still required
     }
 }
 
-// Early return pattern
+// `== null` can still guard control flow, but does not narrow on its own
 function getLength(s: string | null): int {
     if s == null {
         return 0
     }
-    return s.length  // s narrowed to string
+    return s!.length
 }
 ```
 
-### Narrowing Invalidation
+Use explicit narrowing forms instead:
+
+- `name := expr else { ... }` to unwrap nullable and `Result` values
+- `expr!` to assert non-nullability
+- `case` to discriminate unions and enums
+- `expr as T` for checked runtime narrowing
 
 ```javascript
-let x: int | null = getValue()
-if x != null {
-    print(x * 2)  // ✅ Narrowed to int
-    x = null       // Assignment invalidates narrowing
-    print(x * 2)  // ❌ Error: x is int | null
+value: int | null := getValue()
+
+if value == null {
+    return
 }
+
+print(value!)  // explicit assertion still required here
 ```
 
-### Narrowing Scope Rules
+### Explicit Narrowing Forms
 
-| Context | Narrowed? | Rationale |
-|---------|-----------|-----------|
-| Local variables / parameters | ✅ After checks | Invalidated by assignments |
-| Immutable bindings (`:=`) | ✅ Always safe | Cannot be reassigned (shallow) |
-| Deep readonly bindings | ✅ Always safe | Cannot be reassigned or mutated |
-| Object fields via `readonly` binding | ✅ Safe | Binding can't change |
-| Object fields via `:=` binding | ✅ Safe | Binding can't change (shallow) |
-| Object fields via `let` binding | ❌ Not narrowed | Value could change; use `case` with capture |
+For everything beyond the simple null-check rule above, use an explicit narrowing form.
 
-### Discriminated Union Narrowing
-
-For discriminated unions, use `case` statements with type capture:
+#### `case` with Type Capture
 
 ```javascript
+class Success {
+    const kind = "Success"
+    value: int
+}
+
+class Failure {
+    const kind = "Failure"
+    error: string
+}
+
 type Result = Success | Failure
 
-// ✅ Use case for type narrowing
 function handle(r: Result): void {
     case r {
-        s: Success => print(s.value),
+        s: Success => print(s.value)
         f: Failure => print(f.error)
     }
 }
 
-// ❌ If statements don't narrow discriminated unions
-function handle(r: Result): void {
-    if r.kind == "Success" {
-        print(r.value)  // Error: r is still Result type
+enum Direction { North, South, East, West }
+
+function describe(dir: Direction): string {
+    return case dir {
+        .North => "north",
+        .South => "south",
+        .East => "east",
+        .West => "west"
     }
 }
 ```
 
-**Simple rule:** "If checks for null narrow. For type discrimination across unions and enums, use `case`."
+`if` conditions do not narrow discriminated unions or enums.
+
+#### Declaration-`else`
+
+Use `name := expr else { ... }` to unwrap nullable and `Result` values with an explicit bail-out path:
+
+```javascript
+function loadName(): Result<string, string> => Success("Ada")
+
+function test(): int {
+    name := loadName() else { return 0 }
+    return name.length
+}
+```
+
+This form works only for nullable and/or `Result` types. Inside the `else` block, the binding still has the full original type. After the block, the binding has the narrowed happy-path type.
+
+#### `as`
+
+Use `expr as T` for checked runtime narrowing/conversion. It returns a `Result`:
+
+```javascript
+value: int | string := "hello"
+name := value as string              // Result<string, string>
+
+numeric: long | string := 42L
+small := numeric as int              // Result<int, string>
+```
+
+`as` covers:
+
+- exact union-member narrowing
+- nullable to non-null narrowing
+- interface to concrete class narrowing
+- checked numeric conversion when the runtime value fits exactly in the target type
+- `Result<V, F>` success-channel narrowing to `Result<T, F | string>`
+
+#### Non-Null Assertion
+
+Use `expr!` when you want an assertion rather than a typed failure path:
+
+```javascript
+name: string | null := maybeName()
+println(name!)  // panics at runtime if name is null
+```
+
+**Simple rule:** `if` conditions do not narrow types implicitly. For unions, nullable values, Results, and checked runtime conversions, use `case`, declaration-`else`, `as`, or `!`.
 
 ---
 
@@ -1334,6 +1408,6 @@ function handle(r: Result): void {
 | Immutability | Deep/transitive readonly |
 | Generics | Built-in collections and Tuple (user-defined planned) |
 | Function types | Named parameters in signatures |
-| Type narrowing | Flow-sensitive for null; `case` for unions and enums |
+| Type narrowing | Explicit only: use `case`, declaration-`else`, `as`, and `!` |
 | Weak references | `weak T` — non-owning reference, access yields Result |
 | Widening | Implicit for safe numeric conversions |

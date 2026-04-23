@@ -222,26 +222,8 @@ export function checkStatement(
     case "if-statement": {
       const condType = host.inferExprType(stmt.condition, scope, table, info);
       host.checkConditionIsBool(condType, stmt.condition, table, info);
-
-      const nullNarrow = host.extractNullNarrowing(stmt.condition, scope);
-      if (nullNarrow) {
-        if (nullNarrow.operator === "!=") {
-          const thenScope = host.pushScope(scope, "block");
-          thenScope.bindings.set(nullNarrow.name, { ...nullNarrow.binding, type: nullNarrow.narrowedType });
-          host.checkStatements(stmt.body.statements, thenScope, table, info);
-          if (stmt.else_) host.checkBlock(stmt.else_, scope, table, info);
-        } else {
-          host.checkBlock(stmt.body, scope, table, info);
-          if (stmt.else_) {
-            const elseScope = host.pushScope(scope, "block");
-            elseScope.bindings.set(nullNarrow.name, { ...nullNarrow.binding, type: nullNarrow.narrowedType });
-            host.checkStatements(stmt.else_.statements, elseScope, table, info);
-          }
-        }
-      } else {
-        host.checkBlock(stmt.body, scope, table, info);
-        if (stmt.else_) host.checkBlock(stmt.else_, scope, table, info);
-      }
+      host.checkBlock(stmt.body, scope, table, info);
+      if (stmt.else_) host.checkBlock(stmt.else_, scope, table, info);
       for (const ei of stmt.elseIfs) {
         const eiCondType = host.inferExprType(ei.condition, scope, table, info);
         host.checkConditionIsBool(eiCondType, ei.condition, table, info);

@@ -71,7 +71,10 @@ export function checkFunction(
   if (declaredReturnType) {
     reportUnsupportedHashCollectionConstraint(declaredReturnType, decl.returnType?.span ?? decl.span, table, info);
   }
-  const fnScope = host.pushScope(parentScope, "function", declaredReturnType);
+  const effectiveBlockReturnType = decl.body.kind === "block"
+    ? (declaredReturnType ?? VOID_TYPE)
+    : declaredReturnType;
+  const fnScope = host.pushScope(parentScope, "function", effectiveBlockReturnType);
 
   for (const param of decl.params) {
     if (param.type) {
@@ -381,12 +384,15 @@ export function checkMethod(
   if (returnType) {
     reportUnsupportedHashCollectionConstraint(returnType, method.returnType?.span ?? method.span, table, info);
   }
+  const effectiveMethodReturnType = method.body.kind === "block"
+    ? (returnType ?? VOID_TYPE)
+    : returnType;
   const methodScope: Scope = {
     parent: parentScope,
     bindings: new Map(),
     kind: method.static_ ? "function" : "method",
     thisType: method.static_ ? null : thisType,
-    returnType,
+    returnType: effectiveMethodReturnType,
   };
 
   if (!method.static_) {
