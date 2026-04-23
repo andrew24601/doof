@@ -547,7 +547,13 @@ function emitCppFile(
   const nonExportedFns = classified.functions.filter(
     (fn) => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length === 0,
   );
-  if (nonExportedFns.length > 0 || nonExportedMockFunctions.length > 0) {
+  const mainDecl = classified.functions.find((fn) => fn.decl.name === "main");
+  
+  // Emit non-exported functions in namespace, and put doof_main there too (if there are non-exported funcs)
+  // This way doof_main can call non-exported functions without ambiguity with stdlib names
+  const hasNonExportedCode = nonExportedFns.length > 0 || nonExportedMockFunctions.length > 0;
+  
+  if (hasNonExportedCode) {
     lines.push("namespace {");
     lines.push("");
     for (const fn of nonExportedMockFunctions) {
@@ -565,6 +571,12 @@ function emitCppFile(
       lines.push(...ctx.sourceLines);
       lines.push("");
     }
+    
+    // Emit doof_main inside the namespace so it can call non-exported functions without ambiguity
+    if (mainDecl) {
+      emitDoofMainFunction(mainDecl.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
+    }
+    
     lines.push("} // anonymous namespace");
     lines.push("");
   }
@@ -637,10 +649,16 @@ function emitCppFile(
     emitInitFunction(table, analysisResult, classified, interfaceImpls, monomorphizedFunctions, lines, baseDir);
   }
 
-  // main() wrapper
+  // main() wrapper - emit if not already emitted inside the namespace
   const mainFn = classified.functions.find((fn) => fn.decl.name === "main");
   if (mainFn) {
-    emitMainWrapper(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, baseDir);
+    // If doof_main was not emitted inside the namespace, emit it now with the wrapper
+    if (!hasNonExportedCode) {
+      emitMainWrapper(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, baseDir);
+    } else {
+      // doof_main was already emitted inside the namespace, just emit the extern C wrapper
+      emitExternCMainWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
+    }
   }
 
   // Trim trailing blank lines
@@ -655,16 +673,15 @@ function emitCppFile(
 // main() entry point wrapper
 // ============================================================================
 
-function emitMainWrapper(
+function emitDoofMainFunction(
   mainDecl: FunctionDeclaration,
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
   lines: string[],
-  baseDir: string,
 ): void {
-  // Emit the Doof main as doof_main
+  // Emit the Doof main as doof_main (without extern C wrapper)
   const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
   const retType = mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
     ? emitType(mainDecl.resolvedType.returnType)
@@ -698,8 +715,19 @@ function emitMainWrapper(
     lines.push("}");
   }
   lines.push("");
+}
 
-  // Emit C++ main() wrapper
+function emitExternCMainWrapper(
+  mainDecl: FunctionDeclaration,
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  baseDir: string,
+  lines: string[],
+): void {
+  // Emit only the extern C main() wrapper
+  const retType = mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
+    ? emitType(mainDecl.resolvedType.returnType)
+    : "int32_t";
   const hasArgs = mainDecl.params.length > 0;
   const returnsInt = retType === "int32_t" || retType === "int64_t";
 
@@ -730,6 +758,20 @@ function emitMainWrapper(
   }
 
   lines.push("}");
+}
+
+function emitMainWrapper(
+  mainDecl: FunctionDeclaration,
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+  lines: string[],
+  baseDir: string,
+): void {
+  // Legacy function - emit both parts for backward compatibility
+  emitDoofMainFunction(mainDecl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
+  emitExternCMainWrapper(mainDecl, table, analysisResult, baseDir, lines);
 }
 
 // ============================================================================
