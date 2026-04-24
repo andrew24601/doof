@@ -193,7 +193,6 @@ Arrays support a `.length` property and the following built-in methods:
 | `.push(element)` | mutable only | `(T): void` | Append an element |
 | `.pop()` | mutable only | `(): Result<T, string>` | Remove and return the last element, or a failure message when empty |
 | `.contains(element)` | both | `(T): bool` | Whether the array contains the value |
-| `.includes(element)` | both | `(T): bool` | Alias of `.contains(element)` |
 | `.indexOf(element)` | both | `(T): int` | Index of first matching element, or `-1` when absent |
 | `.some(predicate)` | both | `((it: T): bool): bool` | Whether any element matches the predicate |
 | `.every(predicate)` | both | `((it: T): bool): bool` | Whether all elements match the predicate |
@@ -216,7 +215,6 @@ last := case popped {
 // nums is now [1, 2, 3, 4]
 tail := nums.slice(1, 3)             // [2, 3]  (int[])
 hasTwo := nums.contains(2)           // true
-alsoHasTwo := nums.includes(2)       // true
 idxOfFour := nums.indexOf(4)         // 3
 anyEven := nums.some((it: int): bool => it % 2 == 0)      // true
 allPositive := nums.every((it: int): bool => it > 0)      // true

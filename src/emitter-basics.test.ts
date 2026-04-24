@@ -1122,10 +1122,6 @@ describe("emitter — string methods", () => {
 
   it("emits array includes, indexOf, some, every, filter, and map via runtime helpers", () => {
     const cpp = emit(`
-      function containsValue(values: int[]): bool {
-        return values.includes(2)
-      }
-
       function findValue(values: int[]): int {
         return values.indexOf(2)
       }
@@ -1146,7 +1142,6 @@ describe("emitter — string methods", () => {
         return values.map((it: int): string => string(it))
       }
     `);
-    expect(cpp).toContain("doof::array_contains(values, 2)");
     expect(cpp).toContain("doof::array_indexOf(values, 2)");
     expect(cpp).toContain("doof::array_some(values");
     expect(cpp).toContain("doof::array_every(values");

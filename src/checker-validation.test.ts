@@ -1750,3 +1750,144 @@ describe("Mock validation", () => {
     expect(info.diagnostics.some((d) => d.message.includes("Generic mock methods are not supported yet"))).toBe(true);
   });
 });
+
+describe("Collection member validation", () => {
+  it("rejects unknown methods on arrays", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            items := [1, 2, 3]
+            println(items.boom())
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('Property "boom" does not exist on type "int[]"'))).toBe(true);
+  });
+
+  it("accepts known array methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            items := [1, 2, 3]
+            length := items.length
+            items.push(4)
+            result := items.pop()
+            contains := items.contains(2)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
+  it("rejects unknown methods on maps", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            m: Map<string, int> := {}
+            result := m.boom()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('Property "boom" does not exist on type "Map<string, int>"'))).toBe(true);
+  });
+
+  it("accepts known map methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            m: Map<string, int> := {}
+            size := m.size
+            m.set("key", 42)
+            result := m.get("key")
+            has := m.has("key")
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
+  it("rejects unknown methods on sets", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            s: Set<int> := []
+            result := s.boom()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('Property "boom" does not exist on type "Set<int>"'))).toBe(true);
+  });
+
+  it("accepts known set methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            s: Set<int> := []
+            size := s.size
+            s.add(42)
+            has := s.has(42)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
+  it("rejects unknown methods on strings", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            s := "hello"
+            result := s.boom()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('Property "boom" does not exist on type "string"'))).toBe(true);
+  });
+
+  it("accepts known string methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            s := "hello"
+            length := s.length
+            contains := s.contains("ll")
+            index := s.indexOf("l")
+            upper := s.toUpperCase()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+});

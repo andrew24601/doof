@@ -126,7 +126,6 @@ names: string[] = ["Alice", "Bob"]
 | `.push(e)` | mutable only | Append element |
 | `.pop()` | mutable only | `Result<T, string>`: remove and return the last element, or a failure message when empty |
 | `.contains(e)` | both | Test membership |
-| `.includes(e)` | both | Alias of `.contains(e)` |
 | `.indexOf(e)` | both | Index of first match, or `-1` when absent |
 | `.some(pred)` | both | Whether any element matches predicate |
 | `.every(pred)` | both | Whether all elements match predicate |

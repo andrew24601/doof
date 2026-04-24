@@ -4413,19 +4413,6 @@ describe("checker — string methods", () => {
     expect(call?.resolvedType).toEqual({ kind: "primitive", name: "bool" });
   });
 
-  it("array.includes returns bool", () => {
-    const cr = check({ "/main.do": `
-      function test(): void {
-        nums := [1, 2, 3]
-        hasTwo := nums.includes(2)
-      }
-    ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
-    const exprs = collectExprs(cr.program!);
-    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "includes");
-    expect(call?.resolvedType).toEqual({ kind: "primitive", name: "bool" });
-  });
-
   it("array.indexOf returns int", () => {
     const cr = check({ "/main.do": `
       function test(): void {

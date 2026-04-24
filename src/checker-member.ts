@@ -787,7 +787,6 @@ export function inferMemberType(
     }
     if (property === "pop") return { kind: "function", params: [], returnType: resultElem };
     if (property === "contains") return { kind: "function", params: [{ name: "element", type: elem }], returnType: BOOL_TYPE };
-    if (property === "includes") return { kind: "function", params: [{ name: "element", type: elem }], returnType: BOOL_TYPE };
     if (property === "indexOf") return { kind: "function", params: [{ name: "element", type: elem }], returnType: INT_TYPE };
     if (property === "some") {
       return {
@@ -860,6 +859,9 @@ export function inferMemberType(
     }
     if (property === "buildReadonly") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: true } };
     if (property === "cloneMutable") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: false } };
+    // Unknown member on array
+    reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
+    return UNKNOWN_TYPE;
   }
   if (objectType.kind === "map") {
     const k = objectType.keyType;
@@ -880,6 +882,9 @@ export function inferMemberType(
     if (property === "delete") return { kind: "function", params: [{ name: "key", type: k }], returnType: VOID_TYPE };
     if (property === "keys") return { kind: "function", params: [], returnType: { kind: "array", elementType: k, readonly_: false } };
     if (property === "values") return { kind: "function", params: [], returnType: { kind: "array", elementType: v, readonly_: false } };
+    // Unknown member on map
+    reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
+    return UNKNOWN_TYPE;
   }
   if (objectType.kind === "set") {
     const elem = objectType.elementType;
@@ -896,6 +901,9 @@ export function inferMemberType(
     }
     if (property === "delete") return { kind: "function", params: [{ name: "value", type: elem }], returnType: VOID_TYPE };
     if (property === "values") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: false } };
+    // Unknown member on set
+    reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
+    return UNKNOWN_TYPE;
   }
   if (objectType.kind === "primitive" && objectType.name === "string") {
     if (property === "length") return INT_TYPE;
@@ -916,6 +924,9 @@ export function inferMemberType(
     if (property === "split") return { kind: "function", params: [{ name: "delimiter", type: STRING_TYPE }], returnType: { kind: "array", elementType: STRING_TYPE, readonly_: false } };
     if (property === "charAt") return { kind: "function", params: [{ name: "index", type: INT_TYPE }], returnType: STRING_TYPE };
     if (property === "repeat") return { kind: "function", params: [{ name: "count", type: INT_TYPE }], returnType: STRING_TYPE };
+    // Unknown member on string
+    reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
+    return UNKNOWN_TYPE;
   }
   if (objectType.kind === "builtin-namespace") {
     if (property === "parse" && ["byte", "int", "long", "float", "double"].includes(objectType.name)) {

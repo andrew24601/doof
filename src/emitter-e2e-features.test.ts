@@ -387,13 +387,11 @@ describe("e2e — array safety", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("runs array includes/indexOf/some/every/filter/map", () => {
+  it("runs array indexOf/some/every/filter/map", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         nums := [1, 2, 3, 4]
 
-        if !nums.includes(3) { return 1 }
-        if nums.includes(9) { return 2 }
         if nums.indexOf(3) != 2 { return 3 }
         if nums.indexOf(9) != -1 { return 4 }
 
