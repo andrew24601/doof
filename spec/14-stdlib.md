@@ -10,9 +10,11 @@ The standard library ships as a set of first-party packages, each available unde
 |---------|-------------|---------|
 | assert  | `std/assert` | Rich assertion helpers for tests |
 | blob    | `std/blob`   | Read/write binary buffers |
+| crypto  | `std/crypto` | Hashing, HMAC, encoding, randomness, and JWT parsing |
 | fs      | `std/fs`     | File system I/O (POSIX) |
 | http    | `std/http`   | HTTP client (libcurl) |
 | json    | `std/json`   | JSON parse and format |
+| os      | `std/os`     | Process and environment utilities |
 | path    | `std/path`   | POSIX path manipulation |
 | regex   | `std/regex`  | Regular expression matching |
 | stream  | `std/stream` | Stream combinators |
@@ -148,6 +150,75 @@ function decodeMessage(data: readonly byte[]): (int, string) {
     return (id, body)
 }
 ```
+
+---
+
+## `std/crypto`
+
+Cryptographic helpers for hashing, HMAC, binary/text encoding, randomness, and JWT parsing.
+
+```doof
+import { sha256, sha256String, sha256Hex, sha256HexString,
+         blobStreamToSha256,
+         hmacSha256, hmacSha256String,
+         encodeHex, decodeHex,
+         encodeBase64, decodeBase64,
+         encodeBase64Url, decodeBase64Url,
+         randomBytes, uuidV4,
+         parseJwt, Jwt, JwtError } from "std/crypto"
+```
+
+### API
+
+```
+sha256(data: readonly byte[]): readonly byte[]
+sha256String(text: string): readonly byte[]
+sha256Hex(data: readonly byte[]): string
+sha256HexString(text: string): string
+blobStreamToSha256(source: Stream<readonly byte[]>): readonly byte[]
+
+hmacSha256(key: readonly byte[], data: readonly byte[]): readonly byte[]
+hmacSha256String(key: string, text: string): readonly byte[]
+
+encodeHex(data: readonly byte[]): string
+decodeHex(text: string): Result<readonly byte[], string>
+encodeBase64(data: readonly byte[]): string
+decodeBase64(text: string): Result<readonly byte[], string>
+encodeBase64Url(data: readonly byte[]): string
+decodeBase64Url(text: string): Result<readonly byte[], string>
+
+randomBytes(length: int): readonly byte[]
+uuidV4(): string
+
+parseJwt(token: string): Result<Jwt, JwtError>
+
+class Jwt {
+    readonly header: readonly Map<string, JsonValue>
+    readonly claims: readonly Map<string, JsonValue>
+    readonly signedContent: string
+    readonly signature: byte[]
+}
+
+enum JwtError {
+    MalformedToken, InvalidHeader, InvalidPayload,
+    AlgorithmMismatch, SignatureInvalid
+}
+```
+
+### Example
+
+```doof
+import { parseJwt, sha256HexString } from "std/crypto"
+
+digest := sha256HexString("hello")
+
+function readClaims(token: string): Result<readonly Map<string, JsonValue>, JwtError> {
+    try parsed := parseJwt(token)
+    return Success { value: parsed.claims }
+}
+```
+
+`parseJwt` validates token structure and decodes JWT segments, but does not verify trust by itself. Use signature verification for security decisions.
 
 ---
 
@@ -348,17 +419,88 @@ See [spec/12-json-serialization.md](12-json-serialization.md) for class-level au
 
 ---
 
+## `std/os`
+
+Environment and process utilities, including process spawning with streaming stdout/stderr.
+
+```doof
+import { env, pid, platform, architecture, ExecOptions, Exec, ExecResult, run } from "std/os"
+```
+
+### API
+
+```
+env(name: string): Result<string, string>
+pid(): int
+platform(): string
+architecture(): string
+
+class ExecOptions {
+    readonly cwd: string | null = null
+    readonly env: Map<string, string> = {}
+    readonly inheritEnv: bool = true
+    readonly withStdin: bool = true
+    readonly mergeStderrIntoStdout: bool = false
+}
+
+class Exec {
+    static spawn(command: string, args: string[] = [], options: ExecOptions = ExecOptions {}): Result<Exec, string>
+    stdoutStream(): Stream<readonly byte[]>
+    stderrStream(): Stream<readonly byte[]>
+    nextStdoutChunk(): readonly byte[] | null
+    nextStderrChunk(): readonly byte[] | null
+    writeStdinText(value: string): Result<void, string>
+    closeStdin(): Result<void, string>
+    isRunning(): bool
+    wait(): Result<int, string>
+    terminate(signal: int = 15): Result<void, string>
+    stdoutOpen(): bool
+    stderrOpen(): bool
+}
+
+class ExecResult {
+    readonly exitCode: int
+    readonly stdout: readonly byte[]
+    readonly stderr: readonly byte[]
+}
+
+run(command: string, args: string[] = [], options: ExecOptions = ExecOptions {}): Result<ExecResult, string>
+```
+
+### Example
+
+```doof
+import { run } from "std/os"
+import { BlobReader } from "std/blob"
+
+function runEcho(message: string): Result<string, string> {
+    try result := run("echo", [message])
+    reader := BlobReader(result.stdout)
+    return Success { value: reader.readString(reader.length()).trim() }
+}
+```
+
+When reading only one output stream from a noisy process, set `mergeStderrIntoStdout` to avoid pipe backpressure deadlocks.
+
+---
+
 ## `std/path`
 
 POSIX path string manipulation.  No filesystem access; works on strings only.
 
 ```doof
-import { join, dirname, basename, stem, extension, isAbsolute } from "std/path"
+import { homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkingDirectory,
+         join, dirname, basename, stem, extension, isAbsolute } from "std/path"
 ```
 
 ### Functions
 
 ```
+homeDirectory(): Result<string, string>
+tempDirectory(): string
+currentWorkingDirectory(): Result<string, string>
+setCurrentWorkingDirectory(path: string): Result<void, string>
+
 join(parts: string[]): string
 dirname(path: string): string
 basename(path: string): string
@@ -366,6 +508,8 @@ stem(path: string): string
 extension(path: string): string
 isAbsolute(path: string): bool
 ```
+
+`homeDirectory`, `tempDirectory`, and `currentWorkingDirectory` return normalized POSIX-style paths.
 
 **`join`** normalises `.`, resolves `..`, collapses repeated `/`, and preserves a leading `/` when any element is absolute. A later absolute segment resets accumulated state.
 
@@ -382,9 +526,10 @@ isAbsolute(path: string): bool
 ### Example
 
 ```doof
-import { join, basename, extension, stem } from "std/path"
+import { homeDirectory, join, basename, extension, stem } from "std/path"
 
-configDir := join(["/home/ada", ".config", "myapp"])    // "/home/ada/.config/myapp"
+root := try! homeDirectory()
+configDir := join([root, ".config", "myapp"])
 logFile   := join([configDir, "../logs", "app.log"])    // "/home/ada/.config/logs/app.log"
 base      := basename(logFile)   // "app.log"
 name      := stem(logFile)       // "app"
