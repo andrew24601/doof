@@ -1,13 +1,13 @@
 # OBJ Viewer in Doof
 
-A small interactive 3D OBJ wireframe viewer with the parsing, camera math, projection, and render ordering written in Doof. The native side is intentionally narrow: a single SDL3-backed header handles file loading, a resizable window, and line drawing.
+A small interactive 3D OBJ viewer with parsing, camera math, projection, and triangle submission written in Doof. On macOS, the sample renders through a Metal-backed native bridge with GPU depth testing and backface culling. The native side is still narrow: a single SDL3-backed window/input layer plus a small renderer bridge.
 
 ## Files
 
 - `main.do` picks a model path and launches the viewer.
 - `obj.do` parses a practical subset of Wavefront OBJ: `v` and `f` records, including negative face indices.
-- `viewer.do` owns the camera, transforms vertices, performs perspective projection, and draws the wireframe.
-- `native_obj_viewer.hpp` is the tiny SDL3 bridge for windowing, input, and lines.
+- `viewer.do` owns the camera, transforms vertices, performs perspective projection, and submits filled triangles.
+- `native_obj_viewer.hpp` and `native_obj_viewer.mm` provide the SDL3 + Metal bridge for windowing, input, and GPU rendering.
 - `doof.json` wires native header copying and SDL3 pkg-config metadata so `doof run` works from the package directory.
 - `obj.test.do` exercises the OBJ parser without depending on SDL.
 - `models/cube.obj` is a small built-in model so the sample runs immediately.

@@ -8,6 +8,11 @@
         "./native_obj_viewer.hpp"
       ],
       "macos": {
+        "includePaths": ["."],
+        "sourceFiles": [
+          "native_obj_viewer.mm"
+        ],
+        "frameworks": ["Foundation", "Metal", "QuartzCore"],
         "pkgConfigPackages": [
           "sdl3"
         ]

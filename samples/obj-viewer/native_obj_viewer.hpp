@@ -25,6 +25,55 @@ inline doof::Result<std::string, std::string> readTextFile(const std::string& pa
 
 class NativeLineViewer {
 public:
+#if defined(__APPLE__)
+    static doof::Result<std::shared_ptr<NativeLineViewer>, std::string> create(
+        const std::string& title,
+        int32_t width,
+        int32_t height
+    );
+
+    ~NativeLineViewer();
+
+    bool isOpen() const;
+    void pollEvents();
+    int32_t width() const;
+    int32_t height() const;
+    void setTitle(const std::string& title);
+    void clear(int32_t r, int32_t g, int32_t b);
+    void drawLine(float x0, float y0, float x1, float y1, int32_t r, int32_t g, int32_t b);
+    void drawDepthLine(float x0, float y0, float z0, float x1, float y1, float z1, int32_t r, int32_t g, int32_t b);
+    void drawTriangle(
+        float x0,
+        float y0,
+        float z0,
+        float x1,
+        float y1,
+        float z1,
+        float x2,
+        float y2,
+        float z2,
+        int32_t r,
+        int32_t g,
+        int32_t b
+    );
+    void present();
+    void delay(int32_t ms);
+    void close();
+    float consumeOrbitX();
+    float consumeOrbitY();
+    float consumePanX();
+    float consumePanY();
+    float consumeZoom();
+    bool consumeResetRequested();
+
+private:
+    struct Impl;
+
+    explicit NativeLineViewer(std::unique_ptr<Impl> impl);
+
+    std::unique_ptr<Impl> impl_;
+};
+#else
     static doof::Result<std::shared_ptr<NativeLineViewer>, std::string> create(
         const std::string& title,
         int32_t width,
@@ -162,6 +211,38 @@ public:
         SDL_RenderLine(renderer_, x0, y0, x1, y1);
     }
 
+    void drawDepthLine(float x0, float y0, float z0, float x1, float y1, float z1, int32_t r, int32_t g, int32_t b) {
+        (void)z0;
+        (void)z1;
+        drawLine(x0, y0, x1, y1, r, g, b);
+    }
+
+    void drawTriangle(
+        float x0,
+        float y0,
+        float z0,
+        float x1,
+        float y1,
+        float z1,
+        float x2,
+        float y2,
+        float z2,
+        int32_t r,
+        int32_t g,
+        int32_t b
+    ) {
+        if (renderer_ == nullptr) {
+            return;
+        }
+
+        (void)z0;
+        (void)z1;
+        (void)z2;
+        drawLine(x0, y0, x1, y1, r, g, b);
+        drawLine(x1, y1, x2, y2, r, g, b);
+        drawLine(x2, y2, x0, y0, r, g, b);
+    }
+
     void present() {
         if (renderer_ != nullptr) {
             SDL_RenderPresent(renderer_);
@@ -241,5 +322,6 @@ private:
     float panY_ = 0.0f;
     float zoom_ = 0.0f;
 };
+#endif
 
 } // namespace doof_obj_viewer

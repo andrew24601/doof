@@ -1,4 +1,4 @@
-import { PI, sin, cos, min, clamp } from "./math"
+import { PI, sin, cos, sqrt, min, clamp } from "./math"
 import { ObjError, ObjFace, ObjModel, Vec3, parseObj } from "./obj"
 
 export import class NativeLineViewer from "./native_obj_viewer.hpp" as doof_obj_viewer::NativeLineViewer {
@@ -10,6 +10,8 @@ export import class NativeLineViewer from "./native_obj_viewer.hpp" as doof_obj_
   setTitle(title: string): void
   clear(r: int, g: int, b: int): void
   drawLine(x0: float, y0: float, x1: float, y1: float, r: int, g: int, b: int): void
+  drawDepthLine(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float, r: int, g: int, b: int): void
+  drawTriangle(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, r: int, g: int, b: int): void
   present(): void
   delay(ms: int): void
   close(): void
@@ -28,6 +30,15 @@ class ScreenPoint {
   y: float = 0.0f
   depth: float = 0.0f
   visible: bool = false
+}
+
+class FaceShading {
+  red: int = 0
+  green: int = 0
+  blue: int = 0
+  wireRed: int = 0
+  wireGreen: int = 0
+  wireBlue: int = 0
 }
 
 class ViewerState {
@@ -113,20 +124,108 @@ function projectPoint(point: Vec3, pixelWidth: float, pixelHeight: float): Scree
   }
 }
 
-function faceNormalZ(a: Vec3, b: Vec3, c: Vec3): float {
-  abX := b.x - a.x
-  abY := b.y - a.y
-  acX := c.x - a.x
-  acY := c.y - a.y
-  return abX * acY - abY * acX
-}
-
 function averageFaceDepth(face: ObjFace, vertices: Vec3[]): float {
   let depth = 0.0f
   for index of face.indices {
     depth += vertices[index].z
   }
   return depth / float(face.indices.length)
+}
+
+function faceNormal(a: Vec3, b: Vec3, c: Vec3): Vec3 {
+  abX := b.x - a.x
+  abY := b.y - a.y
+  abZ := b.z - a.z
+  acX := c.x - a.x
+  acY := c.y - a.y
+  acZ := c.z - a.z
+  return Vec3 {
+    x: abY * acZ - abZ * acY,
+    y: abZ * acX - abX * acZ,
+    z: abX * acY - abY * acX,
+  }
+}
+
+function normalizeOrZero(vector: Vec3): Vec3 {
+  lengthSquared := vector.x * vector.x + vector.y * vector.y + vector.z * vector.z
+  if lengthSquared <= 0.000001f {
+    return Vec3 {}
+  }
+
+  inverseLength := 1.0f / sqrt(lengthSquared)
+  return Vec3 {
+    x: vector.x * inverseLength,
+    y: vector.y * inverseLength,
+    z: vector.z * inverseLength,
+  }
+}
+
+function dot(a: Vec3, b: Vec3): float {
+  return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+function faceCenter(face: ObjFace, transformed: Vec3[]): Vec3 {
+  let center = Vec3 {}
+  for index of face.indices {
+    center.x += transformed[index].x
+    center.y += transformed[index].y
+    center.z += transformed[index].z
+  }
+
+  scale := 1.0f / float(face.indices.length)
+  return Vec3 {
+    x: center.x * scale,
+    y: center.y * scale,
+    z: center.z * scale,
+  }
+}
+
+function isFrontFacingFace(face: ObjFace, transformed: Vec3[]): bool {
+  if face.indices.length < 3 {
+    return false
+  }
+
+  first := transformed[face.indices[0]]
+  second := transformed[face.indices[1]]
+  third := transformed[face.indices[2]]
+  normal := faceNormal(first, second, third)
+  center := faceCenter(face, transformed)
+  return dot(normal, center) < 0.0f
+}
+
+function shadeFace(face: ObjFace, transformed: Vec3[]): FaceShading {
+  first := transformed[face.indices[0]]
+  second := transformed[face.indices[1]]
+  third := transformed[face.indices[2]]
+  let normal = faceNormal(first, second, third)
+  center := faceCenter(face, transformed)
+  if dot(normal, center) > 0.0f {
+    normal = Vec3 {
+      x: -normal.x,
+      y: -normal.y,
+      z: -normal.z,
+    }
+  }
+
+  unitNormal := normalizeOrZero(normal)
+  lightDirection := normalizeOrZero(Vec3 {
+    x: -0.45f,
+    y: 0.7f,
+    z: -0.55f,
+  })
+  diffuse := clamp(dot(unitNormal, lightDirection), 0.0f, 1.0f)
+  averageDepth := averageFaceDepth(face, transformed)
+  depthFade := clamp(4.0f / averageDepth, 0.25f, 1.0f)
+  lightMix := 0.22f + 0.78f * diffuse
+  brightness := depthFade * lightMix
+  return FaceShading {
+    red: int(28.0f + 132.0f * brightness),
+    green: int(70.0f + 150.0f * brightness),
+    blue: int(95.0f + 145.0f * brightness),
+    wireRed: int(12.0f + 38.0f * brightness),
+    wireGreen: int(22.0f + 48.0f * brightness),
+    wireBlue: int(28.0f + 52.0f * brightness),
+  }
 }
 
 function drawAxes(viewer: NativeLineViewer, state: ViewerState, pixelWidth: float, pixelHeight: float): void {
@@ -167,39 +266,60 @@ function renderFrame(viewer: NativeLineViewer, model: ObjModel, state: ViewerSta
       continue
     }
 
-    first := transformed[face.indices[0]]
-    second := transformed[face.indices[1]]
-    third := transformed[face.indices[2]]
-    if first.z <= 0.2f || second.z <= 0.2f || third.z <= 0.2f {
-      continue
-    }
-
-    normalZ := faceNormalZ(first, second, third)
-    if normalZ >= 0.0f {
-      continue
-    }
-
     let allVisible = true
     for index of face.indices {
       if !projected[index].visible {
         allVisible = false
       }
     }
-    if !allVisible {
+    if !allVisible || !isFrontFacingFace(face, transformed) {
       continue
     }
 
-    averageDepth := averageFaceDepth(face, transformed)
-    depthFade := clamp(4.0f / averageDepth, 0.25f, 1.0f)
-    red := int(35.0f + 95.0f * depthFade)
-    green := int(105.0f + 115.0f * depthFade)
-    blue := int(155.0f + 85.0f * depthFade)
+    shading := shadeFace(face, transformed)
+    for triIndex of 1..<(face.indices.length - 1) {
+      indexA := face.indices[0]
+      indexB := face.indices[triIndex]
+      indexC := face.indices[triIndex + 1]
+
+      pointA := projected[indexA]
+      pointB := projected[indexB]
+      pointC := projected[indexC]
+      if !pointA.visible || !pointB.visible || !pointC.visible {
+        continue
+      }
+
+      viewer.drawTriangle(
+        pointA.x,
+        pointA.y,
+        pointA.depth,
+        pointB.x,
+        pointB.y,
+        pointB.depth,
+        pointC.x,
+        pointC.y,
+        pointC.depth,
+        shading.red,
+        shading.green,
+        shading.blue,
+      )
+    }
 
     for edgeIndex of 0..<face.indices.length {
-      nextIndex := if edgeIndex + 1 < face.indices.length then edgeIndex + 1 else 0
+      nextEdgeIndex := if edgeIndex + 1 < face.indices.length then edgeIndex + 1 else 0
       startPoint := projected[face.indices[edgeIndex]]
-      endPoint := projected[face.indices[nextIndex]]
-      viewer.drawLine(startPoint.x, startPoint.y, endPoint.x, endPoint.y, red, green, blue)
+      endPoint := projected[face.indices[nextEdgeIndex]]
+      viewer.drawDepthLine(
+        startPoint.x,
+        startPoint.y,
+        startPoint.depth,
+        endPoint.x,
+        endPoint.y,
+        endPoint.depth,
+        shading.wireRed,
+        shading.wireGreen,
+        shading.wireBlue,
+      )
     }
   }
 }
