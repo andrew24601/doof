@@ -4413,6 +4413,32 @@ describe("checker — string methods", () => {
     expect(call?.resolvedType).toEqual({ kind: "primitive", name: "bool" });
   });
 
+  it("array.includes returns bool", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        nums := [1, 2, 3]
+        hasTwo := nums.includes(2)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "includes");
+    expect(call?.resolvedType).toEqual({ kind: "primitive", name: "bool" });
+  });
+
+  it("array.indexOf returns int", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        nums := [1, 2, 3]
+        idx := nums.indexOf(2)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "indexOf");
+    expect(call?.resolvedType).toEqual(INT_TYPE);
+  });
+
   it("array.slice returns array of same element type", () => {
     const cr = check({ "/main.do": `
       function test(): void {
@@ -4424,6 +4450,58 @@ describe("checker — string methods", () => {
     const exprs = collectExprs(cr.program!);
     const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "slice");
     expect(call?.resolvedType).toEqual({ kind: "array", elementType: { kind: "primitive", name: "int" }, readonly_: false });
+  });
+
+  it("array.some and array.every return bool", () => {
+    const cr = check({ "/main.do": `
+      function test(): void {
+        nums := [1, 2, 3]
+        anyEven := nums.some((it: int): bool => it % 2 == 0)
+        allPositive := nums.every((it: int): bool => it > 0)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const someCall = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "some");
+    expect(someCall?.resolvedType).toEqual(BOOL_TYPE);
+    const everyCall = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "every");
+    expect(everyCall?.resolvedType).toEqual(BOOL_TYPE);
+  });
+
+  it("array.filter preserves element type and mutability", () => {
+    const cr = check({ "/main.do": `
+      function filterMut(nums: int[]): int[] {
+        return nums.filter((it: int): bool => it % 2 == 0)
+      }
+
+      function filterReadonly(nums: readonly int[]): readonly int[] {
+        return nums.filter((it: int): bool => it % 2 == 0)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const filterCalls = exprs.filter((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "filter");
+    expect(filterCalls).toHaveLength(2);
+    expect(filterCalls[0].resolvedType).toEqual({ kind: "array", elementType: INT_TYPE, readonly_: false });
+    expect(filterCalls[1].resolvedType).toEqual({ kind: "array", elementType: INT_TYPE, readonly_: true });
+  });
+
+  it("array.map infers mapped element type and preserves mutability", () => {
+    const cr = check({ "/main.do": `
+      function mapMut(nums: int[]): string[] {
+        return nums.map((it: int): string => string(it))
+      }
+
+      function mapReadonly(nums: readonly int[]): readonly string[] {
+        return nums.map((it: int): string => string(it))
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const mapCalls = exprs.filter((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "map");
+    expect(mapCalls).toHaveLength(2);
+    expect(mapCalls[0].resolvedType).toEqual({ kind: "array", elementType: STRING_TYPE, readonly_: false });
+    expect(mapCalls[1].resolvedType).toEqual({ kind: "array", elementType: STRING_TYPE, readonly_: true });
   });
 
   it("set members expose size, has, add, delete, and values", () => {

@@ -337,6 +337,12 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "push") return `${obj}->push_back(${args})`;
       if (method === "pop") return `doof::array_pop(${obj})`;
       if (method === "contains") return `doof::array_contains(${obj}, ${args})`;
+      if (method === "includes") return `doof::array_contains(${obj}, ${args})`;
+      if (method === "indexOf") return `doof::array_indexOf(${obj}, ${args})`;
+      if (method === "some") return `doof::array_some(${obj}, ${args})`;
+      if (method === "every") return `doof::array_every(${obj}, ${args})`;
+      if (method === "filter") return `doof::array_filter(${obj}, ${args})`;
+      if (method === "map") return `doof::array_map(${obj}, ${args})`;
       if (method === "slice") return `doof::array_slice(${obj}, ${args})`;
       if (method === "buildReadonly") return `doof::array_buildReadonly(${obj})`;
       if (method === "cloneMutable") return `doof::array_cloneMutable(${obj})`;

@@ -325,6 +325,100 @@ describe("e2e — array safety", () => {
     expect(result.stdout.trim()).toBe("Attempted to pop from empty array");
   });
 
+  it("runs documented mutable array methods", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let nums: int[] = [1, 2]
+        nums.push(3)
+        if nums.length != 3 { return 1 }
+
+        popped := nums.pop()
+        last := case popped {
+          s: Success => s.value,
+          _: Failure => -1,
+        }
+        if last != 3 { return 2 }
+        if nums.length != 2 { return 3 }
+        if !nums.contains(2) { return 4 }
+
+        head := nums.slice(0, 1)
+        if head.length != 1 { return 5 }
+        if head[0] != 1 { return 6 }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("buildReadonly drains source array", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let builder: int[] = [1, 2, 3]
+        frozen := builder.buildReadonly()
+        if builder.length != 0 { return 1 }
+        if frozen.length != 3 { return 2 }
+        if !frozen.contains(2) { return 3 }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("cloneMutable returns independent mutable copy", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let frozen: readonly int[] = [1, 2, 3]
+        copy := frozen.cloneMutable()
+        copy.push(4)
+        if copy.length != 4 { return 1 }
+        if frozen.length != 3 { return 2 }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("runs array includes/indexOf/some/every/filter/map", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        nums := [1, 2, 3, 4]
+
+        if !nums.includes(3) { return 1 }
+        if nums.includes(9) { return 2 }
+        if nums.indexOf(3) != 2 { return 3 }
+        if nums.indexOf(9) != -1 { return 4 }
+
+        if !nums.some((it: int): bool => it % 2 == 0) { return 5 }
+        if nums.some((it: int): bool => it > 10) { return 6 }
+        if !nums.every((it: int): bool => it > 0) { return 7 }
+        if nums.every((it: int): bool => it < 4) { return 8 }
+
+        evens := nums.filter((it: int): bool => it % 2 == 0)
+        if evens.length != 2 { return 9 }
+        if evens[0] != 2 || evens[1] != 4 { return 10 }
+
+        labels := nums.map((it: int): string => "#\${string(it)}")
+        if labels.length != 4 { return 11 }
+        if labels[2] != "#3" { return 12 }
+
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
   it("runs array destructuring with discard", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

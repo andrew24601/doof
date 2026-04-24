@@ -787,6 +787,66 @@ export function inferMemberType(
     }
     if (property === "pop") return { kind: "function", params: [], returnType: resultElem };
     if (property === "contains") return { kind: "function", params: [{ name: "element", type: elem }], returnType: BOOL_TYPE };
+    if (property === "includes") return { kind: "function", params: [{ name: "element", type: elem }], returnType: BOOL_TYPE };
+    if (property === "indexOf") return { kind: "function", params: [{ name: "element", type: elem }], returnType: INT_TYPE };
+    if (property === "some") {
+      return {
+        kind: "function",
+        params: [{
+          name: "predicate",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: elem }],
+            returnType: BOOL_TYPE,
+          },
+        }],
+        returnType: BOOL_TYPE,
+      };
+    }
+    if (property === "every") {
+      return {
+        kind: "function",
+        params: [{
+          name: "predicate",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: elem }],
+            returnType: BOOL_TYPE,
+          },
+        }],
+        returnType: BOOL_TYPE,
+      };
+    }
+    if (property === "filter") {
+      return {
+        kind: "function",
+        params: [{
+          name: "predicate",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: elem }],
+            returnType: BOOL_TYPE,
+          },
+        }],
+        returnType: { kind: "array", elementType: elem, readonly_: objectType.readonly_ },
+      };
+    }
+    if (property === "map") {
+      const mappedType: ResolvedType = { kind: "typevar", name: "U" };
+      return {
+        kind: "function",
+        typeParams: ["U"],
+        params: [{
+          name: "mapper",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: elem }],
+            returnType: mappedType,
+          },
+        }],
+        returnType: { kind: "array", elementType: mappedType, readonly_: objectType.readonly_ },
+      };
+    }
     if (property === "slice") {
       return {
         kind: "function",

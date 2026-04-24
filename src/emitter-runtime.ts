@@ -1141,6 +1141,76 @@ bool array_contains(const std::shared_ptr<std::vector<T>>& arr, const T& element
 }
 
 template <typename T>
+int32_t array_indexOf(const std::shared_ptr<std::vector<T>>& arr, const T& element) {
+    if (!arr) {
+        panic("Attempted to search null array");
+    }
+    const auto size = static_cast<int32_t>(arr->size());
+    for (int32_t i = 0; i < size; i++) {
+        if ((*arr)[static_cast<size_t>(i)] == element) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+template <typename T, typename Predicate>
+bool array_some(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+    if (!arr) {
+        panic("Attempted to iterate null array in some()");
+    }
+    for (const auto& item : *arr) {
+        if (std::invoke(predicate, item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename T, typename Predicate>
+bool array_every(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+    if (!arr) {
+        panic("Attempted to iterate null array in every()");
+    }
+    for (const auto& item : *arr) {
+        if (!std::invoke(predicate, item)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename T, typename Predicate>
+std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+    if (!arr) {
+        panic("Attempted to iterate null array in filter()");
+    }
+    auto result = std::make_shared<std::vector<T>>();
+    result->reserve(arr->size());
+    for (const auto& item : *arr) {
+        if (std::invoke(predicate, item)) {
+            result->push_back(item);
+        }
+    }
+    return result;
+}
+
+template <typename T, typename Mapper>
+auto array_map(const std::shared_ptr<std::vector<T>>& arr, const Mapper& mapper)
+    -> std::shared_ptr<std::vector<std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>>> {
+    if (!arr) {
+        panic("Attempted to iterate null array in map()");
+    }
+    using U = std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>;
+    auto result = std::make_shared<std::vector<U>>();
+    result->reserve(arr->size());
+    for (const auto& item : *arr) {
+        result->push_back(std::invoke(mapper, item));
+    }
+    return result;
+}
+
+template <typename T>
 std::shared_ptr<std::vector<T>> array_slice(const std::shared_ptr<std::vector<T>>& arr, int32_t start, int32_t end) {
     if (!arr) {
         panic("Attempted to slice null array");

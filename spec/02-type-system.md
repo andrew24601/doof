@@ -193,6 +193,12 @@ Arrays support a `.length` property and the following built-in methods:
 | `.push(element)` | mutable only | `(T): void` | Append an element |
 | `.pop()` | mutable only | `(): Result<T, string>` | Remove and return the last element, or a failure message when empty |
 | `.contains(element)` | both | `(T): bool` | Whether the array contains the value |
+| `.includes(element)` | both | `(T): bool` | Alias of `.contains(element)` |
+| `.indexOf(element)` | both | `(T): int` | Index of first matching element, or `-1` when absent |
+| `.some(predicate)` | both | `((it: T): bool): bool` | Whether any element matches the predicate |
+| `.every(predicate)` | both | `((it: T): bool): bool` | Whether all elements match the predicate |
+| `.filter(predicate)` | both | `((it: T): bool): T[]` or `readonly T[]` | Keep elements matching predicate (preserves mutability) |
+| `.map(mapper)` | both | `<U>((it: T): U): U[]` or `readonly U[]` | Transform elements (preserves mutability) |
 | `.slice(start, end)` | both | `(int, int): T[]` or `readonly T[]` | Sub-array (preserves mutability) |
 | `.buildReadonly()` | mutable only | `(): readonly T[]` | Drain the array into a new readonly array (leaves original empty) |
 | `.cloneMutable()` | both | `(): T[]` | Shallow-copy into a new mutable array |
@@ -210,6 +216,12 @@ last := case popped {
 // nums is now [1, 2, 3, 4]
 tail := nums.slice(1, 3)             // [2, 3]  (int[])
 hasTwo := nums.contains(2)           // true
+alsoHasTwo := nums.includes(2)       // true
+idxOfFour := nums.indexOf(4)         // 3
+anyEven := nums.some((it: int): bool => it % 2 == 0)      // true
+allPositive := nums.every((it: int): bool => it > 0)      // true
+evens := nums.filter((it: int): bool => it % 2 == 0)      // [2, 4]
+labels := nums.map((it: int): string => "#${string(it)}") // ["#1", "#2", "#3", "#4"]
 
 // Build pattern: accumulate into mutable, then freeze
 let builder: int[] = []

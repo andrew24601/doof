@@ -1120,6 +1120,40 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain("doof::array_slice(values, 1, 3)");
   });
 
+  it("emits array includes, indexOf, some, every, filter, and map via runtime helpers", () => {
+    const cpp = emit(`
+      function containsValue(values: int[]): bool {
+        return values.includes(2)
+      }
+
+      function findValue(values: int[]): int {
+        return values.indexOf(2)
+      }
+
+      function hasEven(values: int[]): bool {
+        return values.some((it: int): bool => it % 2 == 0)
+      }
+
+      function allPositive(values: int[]): bool {
+        return values.every((it: int): bool => it > 0)
+      }
+
+      function onlyEven(values: int[]): int[] {
+        return values.filter((it: int): bool => it % 2 == 0)
+      }
+
+      function labels(values: int[]): string[] {
+        return values.map((it: int): string => string(it))
+      }
+    `);
+    expect(cpp).toContain("doof::array_contains(values, 2)");
+    expect(cpp).toContain("doof::array_indexOf(values, 2)");
+    expect(cpp).toContain("doof::array_some(values");
+    expect(cpp).toContain("doof::array_every(values");
+    expect(cpp).toContain("doof::array_filter(values");
+    expect(cpp).toContain("doof::array_map(values");
+  });
+
   it("emits array buildReadonly via runtime helper", () => {
     const cpp = emit(`
       function freeze(values: int[]): readonly int[] {

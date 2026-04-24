@@ -47,7 +47,11 @@ Optional but **enforced** when present:
 
 ```javascript
 isolated function processData(data: readonly int[]): int {
-    return data.reduce((sum, x) => sum + x, 0)
+    let total = 0
+    for x of data {
+        total += x
+    }
+    return total
 }  // ✅ OK
 
 let globalCounter = 0
