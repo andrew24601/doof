@@ -6,7 +6,9 @@ import {
   buildIOSSimulatorTargetTriple,
   installAndLaunchIOSDeviceApp,
   installAndLaunchIOSSimulatorApp,
+  resolveIOSDeviceIdentifier,
   resolveIOSDeviceBuildSettings,
+  resolveIOSDeviceSigningOptionsForBundle,
   resolveIOSSimulatorBuildSettings,
   signIOSDeviceApp,
 } from "./ios-app-target-node.js";
@@ -191,5 +193,112 @@ describe("ios-app device node helper", () => {
       { command: "xcrun", args: ["devicectl", "device", "install", "app", "--device", "device-123", "/tmp/DoofDemo.app"] },
       { command: "xcrun", args: ["devicectl", "device", "process", "launch", "--device", "device-123", "--terminate-existing", "dev.doof.demo"] },
     ]);
+  });
+
+  it("auto-resolves signing profile and identity for a bundle id", () => {
+    const profilesDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-profiles-"));
+    fs.mkdirSync(profilesDir, { recursive: true });
+
+    const wildcardProfile = path.join(profilesDir, `doof-wild-${Date.now()}.mobileprovision`);
+    const exactProfile = path.join(profilesDir, `doof-exact-${Date.now()}.mobileprovision`);
+    fs.writeFileSync(wildcardProfile, "wild");
+    fs.writeFileSync(exactProfile, "exact");
+
+    const certBytes = Buffer.from([1, 2, 3, 4, 5]);
+    const certSha = "11966AB9C099F8FABEFAC54C08D5BE2BD8C903AF";
+    const calls: Array<{ command: string; args: string[] }> = [];
+
+    try {
+      const resolved = resolveIOSDeviceSigningOptionsForBundle("dev.doof.demo", {
+        signIdentity: null,
+        provisioningProfilePath: null,
+      }, {
+        profileDirectories: [profilesDir],
+      }, {
+        platform: "darwin",
+        execFile(command, args) {
+          calls.push({ command, args });
+          if (command === "security" && args[0] === "cms") {
+            const profilePath = args[3] ?? "";
+            if (profilePath === wildcardProfile) {
+              return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>Entitlements</key>\n  <dict>\n    <key>application-identifier</key>\n    <string>TEAMID.dev.doof.*</string>\n  </dict>\n  <key>DeveloperCertificates</key>\n  <array>\n    <data>${certBytes.toString("base64")}</data>\n  </array>\n  <key>ExpirationDate</key>\n  <date>2040-01-01T00:00:00Z</date>\n</dict>\n</plist>`;
+            }
+            return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>Entitlements</key>\n  <dict>\n    <key>application-identifier</key>\n    <string>TEAMID.dev.doof.demo</string>\n  </dict>\n  <key>DeveloperCertificates</key>\n  <array>\n    <data>${certBytes.toString("base64")}</data>\n  </array>\n  <key>ExpirationDate</key>\n  <date>2045-01-01T00:00:00Z</date>\n</dict>\n</plist>`;
+          }
+          if (command === "security" && args[0] === "find-identity") {
+            return `  1) ${certSha} "Apple Development: Jane Doe (TEAMID)"`;
+          }
+          return "";
+        },
+      });
+
+      expect(resolved.provisioningProfilePath).toBe(exactProfile);
+      expect(resolved.signIdentity).toBe("Apple Development: Jane Doe (TEAMID)");
+      expect(calls.some((call) => call.command === "security" && call.args[0] === "find-identity")).toBe(true);
+    } finally {
+      fs.rmSync(wildcardProfile, { force: true });
+      fs.rmSync(exactProfile, { force: true });
+      fs.rmSync(profilesDir, { recursive: true, force: true });
+    }
+  });
+
+  it("auto-resolves connected iOS device identifier", () => {
+    const deviceIdentifier = resolveIOSDeviceIdentifier(null, {
+      platform: "darwin",
+      execFile(command, args) {
+        expect(command).toBe("xcrun");
+        expect(args.slice(0, 4)).toEqual(["devicectl", "list", "devices", "--json-output"]);
+        const outputPath = args[4];
+        fs.writeFileSync(outputPath, JSON.stringify({
+          result: {
+            devices: [
+              {
+                identifier: "watch-1",
+                hardwareProperties: { platform: "watchOS", reality: "physical" },
+                connectionProperties: { tunnelState: "connected" },
+                deviceProperties: { name: "My Watch" },
+              },
+              {
+                identifier: "iphone-1",
+                hardwareProperties: { platform: "iOS", reality: "physical" },
+                connectionProperties: { tunnelState: "connected" },
+                deviceProperties: { name: "My iPhone" },
+              },
+            ],
+          },
+        }), "utf8");
+        return "";
+      },
+    });
+
+    expect(deviceIdentifier).toBe("iphone-1");
+  });
+
+  it("throws when multiple iOS devices are connected", () => {
+    expect(() => resolveIOSDeviceIdentifier(null, {
+      platform: "darwin",
+      execFile(_command, args) {
+        const outputPath = args[4];
+        fs.writeFileSync(outputPath, JSON.stringify({
+          result: {
+            devices: [
+              {
+                identifier: "iphone-1",
+                hardwareProperties: { platform: "iOS", reality: "physical" },
+                connectionProperties: { tunnelState: "connected" },
+                deviceProperties: { name: "Work iPhone" },
+              },
+              {
+                identifier: "iphone-2",
+                hardwareProperties: { platform: "iOS", reality: "physical" },
+                connectionProperties: { tunnelState: "connected" },
+                deviceProperties: { name: "Personal iPhone" },
+              },
+            ],
+          },
+        }), "utf8");
+        return "";
+      },
+    })).toThrow("Multiple connected iOS devices found");
   });
 });

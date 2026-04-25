@@ -33,7 +33,9 @@ import {
   buildIOSSimulatorNativeBuild,
   installAndLaunchIOSDeviceApp,
   installAndLaunchIOSSimulatorApp,
+  resolveIOSDeviceIdentifier,
   resolveIOSDeviceBuildSettings,
+  resolveIOSDeviceSigningOptionsForBundle,
   resolveIOSSimulatorBuildSettings,
   signIOSDeviceApp,
 } from "./ios-app-target-node.js";
@@ -126,6 +128,7 @@ Examples:
   doof build -o dist samples/fibonacci.do
   doof build samples/solitaire
   doof build --target ios-app samples/solitaire
+  doof run --target ios-app --ios-destination device samples/solitaire
   doof run --target ios-app --ios-destination device --ios-device <udid> --ios-sign-identity "Apple Development: Name (TEAMID)" --ios-provisioning-profile ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision samples/solitaire
   doof build
   doof emit --verbose samples/classes.do
@@ -401,7 +404,7 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
     runBinaryPath = bundle.binaryPath;
 
     if (args.iosDestination === "device") {
-      const signing = resolveIOSDeviceSigningOptions(args);
+      const signing = resolveIOSDeviceSigningOptions(args, buildTarget.config.bundleId);
       if (args.verbose) log(`Signing iOS device app: ${builtArtifactPath}`);
       signIOSDeviceApp(builtArtifactPath, buildTarget.config.bundleId, signing);
     }
@@ -414,7 +417,7 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
 
   if (buildTarget?.kind === "ios-app") {
     if (args.iosDestination === "device") {
-      const deviceIdentifier = args.iosDevice ?? fatal("--ios-device is required for ios-app runs when --ios-destination=device");
+      const deviceIdentifier = resolveIOSDeviceTargetIdentifier(args);
       if (args.verbose) log(`Installing on iOS device ${deviceIdentifier}: ${builtArtifactPath}`);
       installAndLaunchIOSDeviceApp(builtArtifactPath, deviceIdentifier, buildTarget.config.bundleId, true);
       log(`Launched iOS device app: ${builtArtifactPath}`);
@@ -479,18 +482,28 @@ function normalizeLinkLibrary(value: string): string {
   return value.startsWith("-l") ? value.slice(2) : value;
 }
 
-function resolveIOSDeviceSigningOptions(args: CliArgs): { signIdentity: string; provisioningProfilePath: string } {
-  if (!args.iosSignIdentity) {
-    fatal("--ios-sign-identity is required for ios-app builds when --ios-destination=device");
+function resolveIOSDeviceSigningOptions(
+  args: CliArgs,
+  bundleId: string,
+): { signIdentity: string; provisioningProfilePath: string } {
+  try {
+    return resolveIOSDeviceSigningOptionsForBundle(bundleId, {
+      signIdentity: args.iosSignIdentity,
+      provisioningProfilePath: args.iosProvisioningProfile,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    fatal(message);
   }
-  if (!args.iosProvisioningProfile) {
-    fatal("--ios-provisioning-profile is required for ios-app builds when --ios-destination=device");
-  }
+}
 
-  return {
-    signIdentity: args.iosSignIdentity,
-    provisioningProfilePath: path.resolve(args.iosProvisioningProfile),
-  };
+function resolveIOSDeviceTargetIdentifier(args: CliArgs): string {
+  try {
+    return resolveIOSDeviceIdentifier(args.iosDevice);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    fatal(message);
+  }
 }
 
 export function resolveRunTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
