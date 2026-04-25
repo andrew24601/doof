@@ -14,6 +14,16 @@
       "resources": [
         { "from": "images/*", "to": "images" }
       ]
+    },
+    "iosApp": {
+      "bundleId": "doof.Solitaire",
+      "displayName": "Doof Solitaire",
+      "version": "1.0",
+      "icon": "app-icon.svg",
+      "resources": [
+        { "from": "images/*", "to": "samples/solitaire/images" }
+      ],
+      "minimumDeploymentTarget": "16.0"
     }
   },
   "dependencies": {

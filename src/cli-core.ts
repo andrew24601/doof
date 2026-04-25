@@ -4,7 +4,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
-import type { ResolvedDoofBuildTarget } from "./build-targets.js";
+import type { DoofBuildTarget, IOSAppDestination, ResolvedDoofBuildTarget } from "./build-targets.js";
 import type { FileSystem } from "./resolver.js";
 import { dirnameFsPath, isWithinFsRoot, joinFsPath, relativeFsPath, resolveFsPath, toPortablePath } from "./path-utils.js";
 import {
@@ -267,6 +267,7 @@ export function runPipelineWithFs(
   nativeBuild: NativeBuildOptions,
   log: (msg: string) => void,
   onDiagnostic: (diagnostic: DiagnosticLike) => void,
+  options: { buildTargetOverride?: DoofBuildTarget; iosDestinationOverride?: IOSAppDestination } = {},
 ): PipelineResult {
   const normalizedEntryPath = resolveFsPath(entryPath);
   const pipelineFileSystem = withNodeBundledStdlib(fileSystem);
@@ -275,6 +276,8 @@ export function runPipelineWithFs(
   }
 
   const packageGraph = loadPackageGraph(fileSystem, normalizedEntryPath, {
+    buildTargetOverride: options.buildTargetOverride,
+    iosDestinationOverride: options.iosDestinationOverride,
     implicitStdDependencies: fileSystem instanceof RealFS,
   });
   const resolver = createNodeBundledModuleResolver(fileSystem, {

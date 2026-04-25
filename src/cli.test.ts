@@ -98,6 +98,45 @@ describe("CLI argument parsing", () => {
     expect(args.testFilter).toBe("math");
     expect(args.listTests).toBe(true);
   });
+
+  it("parses a build target override", () => {
+    const args = parseArgs([
+      "node",
+      "doof",
+      "build",
+      "--target",
+      "ios-app",
+      "samples/solitaire",
+    ]);
+
+    expect(args.command).toBe("build");
+    expect(args.targetOverride).toBe("ios-app");
+    expect(args.entry).toBe("samples/solitaire");
+  });
+
+  it("parses ios device deployment flags", () => {
+    const args = parseArgs([
+      "node",
+      "doof",
+      "run",
+      "--target",
+      "ios-app",
+      "--ios-destination",
+      "device",
+      "--ios-device",
+      "00008110-001234560E91801E",
+      "--ios-sign-identity",
+      "Apple Development: Jane Doe (TEAMID)",
+      "--ios-provisioning-profile",
+      "./profiles/dev.mobileprovision",
+      "samples/solitaire",
+    ]);
+
+    expect(args.iosDestination).toBe("device");
+    expect(args.iosDevice).toBe("00008110-001234560E91801E");
+    expect(args.iosSignIdentity).toBe("Apple Development: Jane Doe (TEAMID)");
+    expect(args.iosProvisioningProfile).toBe("./profiles/dev.mobileprovision");
+  });
 });
 
 describe("CLI package resolution", () => {

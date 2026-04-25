@@ -22,10 +22,21 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { isDoofBuildTarget, type DoofBuildTarget, type IOSAppDestination } from "./build-targets.js";
 import type { NativeBuildOptions } from "./emitter-module.js";
 import { findDoofManifestPath, resolvePackageBuildContext } from "./package-manifest.js";
 import { joinFsPath, resolveFsPath, resolveFsPathFrom } from "./path-utils.js";
 import type { FileSystem } from "./resolver.js";
+import { assembleIOSAppBundle } from "./ios-app-target.js";
+import {
+  buildIOSDeviceNativeBuild,
+  buildIOSSimulatorNativeBuild,
+  installAndLaunchIOSDeviceApp,
+  installAndLaunchIOSSimulatorApp,
+  resolveIOSDeviceBuildSettings,
+  resolveIOSSimulatorBuildSettings,
+  signIOSDeviceApp,
+} from "./ios-app-target-node.js";
 import { assembleMacOSAppBundle } from "./macos-app-target.js";
 import { generateMacOSAppIconWithShell } from "./macos-app-target-node.js";
 import {
@@ -54,6 +65,11 @@ export interface CliArgs {
   entry: string;
   outDir: string;
   outDirExplicit: boolean;
+  targetOverride: DoofBuildTarget | null;
+  iosDestination: IOSAppDestination;
+  iosDevice: string | null;
+  iosSignIdentity: string | null;
+  iosProvisioningProfile: string | null;
   compiler: string | null;
   cppStd: string;
   verbose: boolean;
@@ -78,6 +94,14 @@ Commands:
 Options:
   -o, --outdir <dir>   Output directory (default: package build/ or build.buildDir)
   --compiler <path>    C++ compiler (default: auto-detect clang++/g++, or Visual Studio cl.exe on Windows)
+  --target <kind>      Override the manifest build target (macos-app or ios-app)
+  --ios-destination <kind>
+                       iOS destination for ios-app builds (simulator or device)
+  --ios-device <id>    Connected iOS device identifier or name for ios-app run when using --ios-destination device
+  --ios-sign-identity <name>
+                       Code signing identity for ios-app device builds
+  --ios-provisioning-profile <path>
+                       Provisioning profile for ios-app device builds
   --std <standard>     C++ standard (default: c++17)
   --include-path <dir> Additional header search path (repeatable)
   --lib-path <dir>     Additional library search path (repeatable)
@@ -101,6 +125,8 @@ Examples:
   doof run samples/hello.do
   doof build -o dist samples/fibonacci.do
   doof build samples/solitaire
+  doof build --target ios-app samples/solitaire
+  doof run --target ios-app --ios-destination device --ios-device <udid> --ios-sign-identity "Apple Development: Name (TEAMID)" --ios-provisioning-profile ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision samples/solitaire
   doof build
   doof emit --verbose samples/classes.do
   doof check samples/hello.do
@@ -133,6 +159,11 @@ export function parseArgs(argv: string[]): CliArgs {
     entry: "",
     outDir: "./build",
     outDirExplicit: false,
+    targetOverride: null,
+    iosDestination: "simulator",
+    iosDevice: null,
+    iosSignIdentity: null,
+    iosProvisioningProfile: null,
     compiler: null,
     cppStd: "c++17",
     verbose: false,
@@ -169,6 +200,31 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case "--compiler":
         args.compiler = rest[++i] ?? fatal("Missing value for --compiler");
+        break;
+      case "--target": {
+        const value = rest[++i] ?? fatal("Missing value for --target");
+        if (!isDoofBuildTarget(value)) {
+          fatal(`Invalid value for --target: ${value}`);
+        }
+        args.targetOverride = value;
+        break;
+      }
+      case "--ios-destination": {
+        const value = rest[++i] ?? fatal("Missing value for --ios-destination");
+        if (value !== "simulator" && value !== "device") {
+          fatal(`Invalid value for --ios-destination: ${value}`);
+        }
+        args.iosDestination = value;
+        break;
+      }
+      case "--ios-device":
+        args.iosDevice = rest[++i] ?? fatal("Missing value for --ios-device");
+        break;
+      case "--ios-sign-identity":
+        args.iosSignIdentity = rest[++i] ?? fatal("Missing value for --ios-sign-identity");
+        break;
+      case "--ios-provisioning-profile":
+        args.iosProvisioningProfile = rest[++i] ?? fatal("Missing value for --ios-provisioning-profile");
         break;
       case "--std":
         args.cppStd = rest[++i] ?? fatal("Missing value for --std");
@@ -258,20 +314,36 @@ export function getCliVersion(packageJsonPath = fileURLToPath(new URL("../packag
 
 export { buildCompileArgs, buildCompilePlan } from "./cli-core.js";
 
-function runPipeline(entryFile: string, verbose: boolean, nativeBuild: NativeBuildOptions) {
-  return runPipelineWithFs(new RealFS(), entryFile, verbose, nativeBuild, log, printDiagnostic);
+function runPipeline(
+  entryFile: string,
+  verbose: boolean,
+  nativeBuild: NativeBuildOptions,
+  targetOverride: DoofBuildTarget | null,
+  iosDestination: IOSAppDestination,
+) {
+  return runPipelineWithFs(new RealFS(), entryFile, verbose, nativeBuild, log, printDiagnostic, {
+    buildTargetOverride: targetOverride ?? undefined,
+    iosDestinationOverride: iosDestination,
+  });
 }
 
-function cmdCheck(entry: string, verbose: boolean): void {
-  const { warningCount } = runPipeline(entry, verbose, createEmptyNativeBuildOptions());
+function cmdCheck(entry: string, verbose: boolean, targetOverride: DoofBuildTarget | null, iosDestination: IOSAppDestination): void {
+  const { warningCount } = runPipeline(entry, verbose, createEmptyNativeBuildOptions(), targetOverride, iosDestination);
   log(warningCount > 0
     ? `Check passed with ${pluralize(warningCount, "warning")}`
     : "Check passed — no errors");
 }
 
-function cmdEmit(entry: string, outDir: string, verbose: boolean, nativeBuild: NativeBuildOptions): void {
+function cmdEmit(
+  entry: string,
+  outDir: string,
+  verbose: boolean,
+  nativeBuild: NativeBuildOptions,
+  targetOverride: DoofBuildTarget | null,
+  iosDestination: IOSAppDestination,
+): void {
   const resolvedNativeBuild = resolveNativeBuildOptions(nativeBuild);
-  const { project, provenance, buildManifest } = runPipeline(entry, verbose, resolvedNativeBuild);
+  const { project, provenance, buildManifest } = runPipeline(entry, verbose, resolvedNativeBuild, targetOverride, iosDestination);
   writeProject(project, outDir, verbose, log, provenance, buildManifest);
   log(`Emitted ${project.modules.length} module(s) to ${outDir}/`);
 }
@@ -283,9 +355,24 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
     args.entry,
     args.verbose,
     nativeBuild,
+    args.targetOverride,
+    args.iosDestination,
   );
   writeProject(project, args.outDir, args.verbose, log, provenance, buildManifest);
-  const binary = compileCpp(args.outDir, project, toolchain, resolvedNativeBuild, args.verbose, log, outputBinaryName);
+  const effectiveNativeBuild = buildTarget?.kind === "ios-app"
+    ? args.iosDestination === "device"
+      ? buildIOSDeviceNativeBuild(
+        resolvedNativeBuild,
+        args.outDir,
+        resolveIOSDeviceBuildSettings(buildTarget.config),
+      )
+      : buildIOSSimulatorNativeBuild(
+        resolvedNativeBuild,
+        args.outDir,
+        resolveIOSSimulatorBuildSettings(buildTarget.config),
+      )
+    : resolvedNativeBuild;
+  const binary = compileCpp(args.outDir, project, toolchain, effectiveNativeBuild, args.verbose, log, outputBinaryName);
   let builtArtifactPath = binary;
   let runBinaryPath = binary;
 
@@ -302,8 +389,41 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
     runBinaryPath = bundle.binaryPath;
   }
 
+  if (buildTarget?.kind === "ios-app") {
+    const bundle = assembleIOSAppBundle({
+      outputDir: args.outDir,
+      executablePath: binary,
+      executableName: outputBinaryName,
+      config: buildTarget.config,
+      log: args.verbose ? log : undefined,
+    });
+    builtArtifactPath = bundle.appPath;
+    runBinaryPath = bundle.binaryPath;
+
+    if (args.iosDestination === "device") {
+      const signing = resolveIOSDeviceSigningOptions(args);
+      if (args.verbose) log(`Signing iOS device app: ${builtArtifactPath}`);
+      signIOSDeviceApp(builtArtifactPath, buildTarget.config.bundleId, signing);
+    }
+  }
+
   if (!run) {
     log(`Build complete: ${builtArtifactPath}`);
+    return;
+  }
+
+  if (buildTarget?.kind === "ios-app") {
+    if (args.iosDestination === "device") {
+      const deviceIdentifier = args.iosDevice ?? fatal("--ios-device is required for ios-app runs when --ios-destination=device");
+      if (args.verbose) log(`Installing on iOS device ${deviceIdentifier}: ${builtArtifactPath}`);
+      installAndLaunchIOSDeviceApp(builtArtifactPath, deviceIdentifier, buildTarget.config.bundleId, true);
+      log(`Launched iOS device app: ${builtArtifactPath}`);
+      return;
+    }
+
+    if (args.verbose) log(`Installing on booted iOS simulator: ${builtArtifactPath}`);
+    installAndLaunchIOSSimulatorApp(builtArtifactPath, buildTarget.config.bundleId, true);
+    log(`Launched iOS simulator app: ${builtArtifactPath}`);
     return;
   }
 
@@ -357,6 +477,20 @@ function normalizeDefine(value: string): string {
 
 function normalizeLinkLibrary(value: string): string {
   return value.startsWith("-l") ? value.slice(2) : value;
+}
+
+function resolveIOSDeviceSigningOptions(args: CliArgs): { signIdentity: string; provisioningProfilePath: string } {
+  if (!args.iosSignIdentity) {
+    fatal("--ios-sign-identity is required for ios-app builds when --ios-destination=device");
+  }
+  if (!args.iosProvisioningProfile) {
+    fatal("--ios-provisioning-profile is required for ios-app builds when --ios-destination=device");
+  }
+
+  return {
+    signIdentity: args.iosSignIdentity,
+    provisioningProfilePath: path.resolve(args.iosProvisioningProfile),
+  };
 }
 
 export function resolveRunTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -444,7 +578,7 @@ export function main(argv = process.argv): void {
         console.log(`doof ${getCliVersion()}`);
         break;
       case "check":
-        cmdCheck(resolvedArgs.entry, resolvedArgs.verbose);
+        cmdCheck(resolvedArgs.entry, resolvedArgs.verbose, resolvedArgs.targetOverride, resolvedArgs.iosDestination);
         break;
       case "test":
         if (!resolvedArgs.entry) fatal("Missing test path. Usage: doof test <path>");
@@ -456,6 +590,8 @@ export function main(argv = process.argv): void {
           resolvedArgs.outDir,
           resolvedArgs.verbose,
           resolveNativeBuildOptions(resolvedArgs.nativeBuild),
+          resolvedArgs.targetOverride,
+          resolvedArgs.iosDestination,
         );
         break;
       case "build":

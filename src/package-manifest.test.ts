@@ -829,6 +829,138 @@ describe("local package graphs", () => {
     }
   });
 
+  it("applies ios simulator native fragments when building an ios-app target", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+          },
+        },
+        dependencies: {
+          boardgame: { path: "../deps/boardgame" },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/deps/boardgame/doof.json": JSON.stringify({
+        name: "boardgame",
+        build: {
+          native: {
+            macos: {
+              frameworks: ["Cocoa"],
+            },
+            iosSimulator: {
+              sourceFiles: ["native_host.mm"],
+              frameworks: ["UIKit", "Metal"],
+            },
+          },
+        },
+      }),
+      "/deps/boardgame/index.do": "export const ok = 1",
+      "/deps/boardgame/native_host.mm": "",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+    const boardgame = graph.packages.find((pkg) => pkg.rootDir === "/deps/boardgame");
+
+    expect(boardgame?.nativeBuild.sourceFiles).toEqual(["/deps/boardgame/native_host.mm"]);
+    expect(boardgame?.nativeBuild.frameworks).toEqual(["UIKit", "Metal"]);
+  });
+
+  it("applies ios device native fragments when building an ios-app device target", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+          },
+        },
+        dependencies: {
+          boardgame: { path: "../deps/boardgame" },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/deps/boardgame/doof.json": JSON.stringify({
+        name: "boardgame",
+        build: {
+          native: {
+            iosSimulator: {
+              sourceFiles: ["sim_host.mm"],
+              frameworks: ["UIKit"],
+            },
+            iosDevice: {
+              sourceFiles: ["device_host.mm"],
+              frameworks: ["UIKit", "Metal"],
+            },
+          },
+        },
+      }),
+      "/deps/boardgame/index.do": "export const ok = 1",
+      "/deps/boardgame/sim_host.mm": "",
+      "/deps/boardgame/device_host.mm": "",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", { iosDestinationOverride: "device" });
+    const boardgame = graph.packages.find((pkg) => pkg.rootDir === "/deps/boardgame");
+
+    expect(boardgame?.nativeBuild.sourceFiles).toEqual(["/deps/boardgame/device_host.mm"]);
+    expect(boardgame?.nativeBuild.frameworks).toEqual(["UIKit", "Metal"]);
+  });
+
+  it("allows inactive target metadata and lets loadPackageGraph override the selected build target", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofDemo",
+          macosApp: {
+            bundleId: "dev.doof.demo.macos",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+          },
+          iosApp: {
+            bundleId: "dev.doof.demo.ios",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", { buildTargetOverride: "ios-app" });
+
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "ios-app",
+      config: {
+        bundleId: "dev.doof.demo.ios",
+        displayName: "Doof Demo",
+        version: "1.0",
+        iconPath: "/app/app-icon.svg",
+        resources: [],
+        minimumDeploymentTarget: "16.0",
+      },
+    });
+  });
+
   it("normalizes macos-app target metadata", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
@@ -864,6 +996,44 @@ describe("local package graphs", () => {
         resources: [{ fromPattern: "/app/images/*", destination: "images" }],
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
+  it("normalizes ios-app target metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+            resources: [
+              { from: "images/*", to: "images" },
+            ],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "ios-app",
+      config: {
+        bundleId: "dev.doof.demo",
+        displayName: "Doof Demo",
+        version: "1.0",
+        iconPath: "/app/app-icon.svg",
+        resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+        minimumDeploymentTarget: "16.0",
       },
     });
   });
@@ -935,6 +1105,28 @@ describe("local package graphs", () => {
 
     expect(() => loadPackageGraph(fs, "/app/main.do"))
       .toThrow('build.targetExecutableName is required when build.target is "macos-app"');
+  });
+
+  it("requires an executable name for ios-app targets", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow('build.targetExecutableName is required when build.target is "ios-app"');
   });
 
   it("rejects macos-app resource destinations that escape the bundle", () => {
@@ -1278,6 +1470,69 @@ describe("manifest-derived pipeline metadata", () => {
       expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.svg");
       expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.solitaire");
       expect(fs.statSync(path.join(outDir, "generate-macos-icon.sh")).mode & 0o111).not.toBe(0);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits bundle-aware metadata and support files for ios-app targets", () => {
+    const virtualFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          native: {
+            frameworks: ["UIKit", "Foundation"],
+          },
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.svg",
+            resources: [{ from: "images/*", to: "images" }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+      "/app/images/card.png": "png",
+    });
+
+    const result = runPipelineWithFs(
+      virtualFs,
+      "/app/main.do",
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.buildTarget?.kind).toBe("ios-app");
+    expect(result.project.supportFiles.map((file) => file.relativePath)).toEqual([
+      "Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "Info.plist",
+      "ios-main.mm",
+    ]);
+    expect(result.project.supportFiles[1]?.content).toContain("dev.doof.demo");
+    expect(result.buildManifest.buildTarget?.kind).toBe("ios-app");
+
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-ios-app-"));
+    try {
+      writeProject(result.project, outDir, false, () => {}, result.provenance, result.buildManifest);
+
+      const buildManifest = JSON.parse(fs.readFileSync(path.join(outDir, "doof-build.json"), "utf8")) as {
+        schemaVersion: number;
+        buildTarget: { kind: string; config: { iconPath: string } } | null;
+      };
+      expect(buildManifest.schemaVersion).toBe(2);
+      expect(buildManifest.buildTarget?.kind).toBe("ios-app");
+      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.svg");
+      expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.demo");
+      expect(fs.readFileSync(path.join(outDir, "ios-main.mm"), "utf8")).toContain("UIApplicationMain");
+      expect(
+        fs.readFileSync(path.join(outDir, "Assets.xcassets", "AppIcon.appiconset", "Contents.json"), "utf8"),
+      ).toContain("app_store_1024");
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }

@@ -52,9 +52,16 @@ export function playingCardTexturePaths(basePath: string, fallbackAtlasPath: str
     paths.push(basePath + "images/card_atlas.png")
     paths.push(basePath + "../Resources/images/card_atlas.png")
     paths.push(basePath + "../images/card_atlas.png")
+    if !startsWithSlash(fallbackAtlasPath) {
+      paths.push(basePath + fallbackAtlasPath)
+    }
   }
   paths.push(fallbackAtlasPath)
   return paths
+}
+
+function startsWithSlash(value: string): bool {
+  return value.length > 0 && value.charAt(0) == "/"
 }
 
 export function texturePaths(basePath: string): string[] {

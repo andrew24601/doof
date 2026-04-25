@@ -87,7 +87,7 @@ doof build samples/solitaire/main.do
 
 ## Build Targets
 
-Packages can opt into target-specific build behavior under `build.target`. The first built-in target is `macos-app`, which tells `doof emit` to write bundle support files and target metadata for external native builds and tells `doof build` / `doof run` to produce a real `.app` bundle on macOS.
+Packages can opt into target-specific build behavior under `build.target`. The built-in targets are `macos-app` and `ios-app`. `macos-app` tells `doof emit` to write bundle support files and target metadata for external native builds and tells `doof build` / `doof run` to produce a real `.app` bundle on macOS. `ios-app` tells `doof emit` to write iOS bundle support files and tells `doof build` / `doof run` to build either for the iOS simulator or for a connected development device on macOS.
 
 ```json
 {
@@ -112,12 +112,20 @@ Packages can opt into target-specific build behavior under `build.target`. The f
 
 `build.targetExecutableName` remains the executable name for both CLI builds and emitted native projects. For `macos-app`, `build.macosApp.displayName` is UI metadata, while `build.targetExecutableName` controls the bundle executable name and the `.app` directory name.
 
+Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
+
 `build.macosApp.resources[].to` is rooted under `Contents/Resources`.
+
+For `ios-app`, `build.iosApp.resources[].to` is rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
 
 If omitted, `macos-app` currently defaults to:
 
 - `category`: `public.app-category.developer-tools`
 - `minimumSystemVersion`: `11.0`
+
+If omitted, `ios-app` currently defaults to:
+
+- `minimumDeploymentTarget`: `16.0`
 
 ## Native Build Metadata
 
@@ -188,10 +196,12 @@ Native build metadata can also be scoped to the current host platform:
 
 Currently supported platform keys are `macos`, `linux`, and `windows`. The CLI applies the fragment for the current host platform on top of the base `build.native` settings.
 
+When the effective target is `ios-app` on macOS, the CLI also recognizes `build.native.iosSimulator` and `build.native.iosDevice`. The selected fragment depends on `--ios-destination`, which lets a package keep separate simulator and device bridge settings in one manifest.
+
 `build.native.pkgConfigPackages` lets the CLI resolve host-native include paths, library paths, link libraries, frameworks, and flags through `pkg-config` during `emit`, `build`, and `run`. This is useful for packages like SDL3 that are commonly installed through Homebrew, Linux package managers, or other native package systems.
 
 ## doof-build.json
 
-`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, and any resolved target metadata such as `build.target = "macos-app"`.
+`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, and any resolved target metadata such as `build.target = "macos-app"` or `build.target = "ios-app"`.
 
 External CMake or Xcode integrations should consume `doof-build.json` rather than re-implementing package resolution.

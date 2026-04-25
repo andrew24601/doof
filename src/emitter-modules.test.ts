@@ -113,6 +113,37 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(project.supportFiles[1]?.content).toContain("qlmanage");
   });
 
+  it("emits ios-app support files", () => {
+    const project = emitProjectHelper({
+      "/main.do": `
+        function main(): int {
+          return 0
+        }
+      `,
+    }, "/main.do", {
+      outputBinaryName: "DoofSolitaire",
+      buildTarget: {
+        kind: "ios-app",
+        config: {
+          bundleId: "dev.doof.solitaire",
+          displayName: "Doof Solitaire",
+          version: "1.0",
+          iconPath: "/app/app-icon.svg",
+          resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+          minimumDeploymentTarget: "16.0",
+        },
+      },
+    });
+
+    expect(project.supportFiles.map((file) => file.relativePath)).toEqual([
+      "Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "Info.plist",
+      "ios-main.mm",
+    ]);
+    expect(project.supportFiles[1]?.content).toContain("dev.doof.solitaire");
+    expect(project.supportFiles[2]?.content).toContain("doof_entry_main");
+  });
+
   it("hpp has struct definition for exported class", () => {
     const { hppCode } = emitSplit(`
       export class Point { x, y: float }
@@ -292,6 +323,7 @@ describe("emitter-module — main wrapper", () => {
       }
     `);
     expect(cppCode).toContain("doof_main()");
+    expect(cppCode).toContain("doof_entry_main");
     expect(cppCode).toContain("int main(int argc, char** argv)");
   });
 
@@ -312,6 +344,36 @@ describe("emitter-module — main wrapper", () => {
     `);
     // main should not appear as a forward declaration
     expect(hppCode).not.toContain("int32_t main(");
+  });
+
+  it("emits an exported app entry wrapper for ios-app without native main()", () => {
+    const project = emitProjectHelper({
+      "/main.do": `
+        function helper(): int => 7
+
+        function main(): int {
+          return helper()
+        }
+      `,
+    }, "/main.do", {
+      buildTarget: {
+        kind: "ios-app",
+        config: {
+          bundleId: "dev.doof.demo",
+          displayName: "Doof Demo",
+          version: "1.0",
+          iconPath: "/app/app-icon.svg",
+          resources: [],
+          minimumDeploymentTarget: "16.0",
+        },
+      },
+    });
+
+    const cppCode = project.modules[0]?.cppCode ?? "";
+    expect(cppCode).toContain("doof_main()");
+    expect(cppCode).toContain("extern \"C\" int doof_entry_main(int argc, char** argv)");
+    expect(cppCode).toContain("return static_cast<int>(doof_main())");
+    expect(cppCode).not.toContain("int main(int argc, char** argv)");
   });
 });
 

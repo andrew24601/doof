@@ -51,8 +51,8 @@ doof <command> [options] [entry.do | package-dir]
 
 - `check` — runs parsing, module analysis, and type checking; no output written
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
-- `build` — emits the project and compiles it; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable
-- `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle
+- `build` — emits the project and compiles it; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
+- `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
 - `test` — discovers exported test functions in `.test.do` files, builds a temporary harness per test file, compiles each test module separately, and runs each discovered test in its own process
 
 `doof emit` writes:
@@ -66,7 +66,7 @@ Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` 
 
 When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that local checkout root instead of fetching the compiler's default GitHub-backed std packages. For example, `DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib` makes `std/fs` resolve from `/Users/andrew/develop/doof-stdlib/fs`.
 
-For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations.
+For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold.
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
 
@@ -88,7 +88,7 @@ For `build.target = "macos-app"`, `doof emit` also writes bundle support files s
 
 Root package references appear as `"."` in `referencedFrom`. Transitive remote references use the referencer package URL.
 
-When a manifest declares `build.target = "macos-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
+When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
 
 For `emit`, `build`, `run`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the output directory to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` still overrides the manifest/default output directory.
 
@@ -98,6 +98,11 @@ For `emit`, `build`, `run`, and `check`, the path is optional when the current w
 | --- | --- |
 | `-o, --outdir <dir>` | Output directory. Default: the package `build/` directory or `build.buildDir` from `doof.json` |
 | `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
+| `--target <kind>` | Override the manifest build target for this invocation. Supported values: `macos-app`, `ios-app` |
+| `--ios-destination <kind>` | iOS destination for `ios-app`. Supported values: `simulator`, `device`. Default: `simulator` |
+| `--ios-device <id>` | Connected iOS device identifier or name for `ios-app` runs when `--ios-destination device` is used |
+| `--ios-sign-identity <name>` | Code signing identity for `ios-app` device builds |
+| `--ios-provisioning-profile <path>` | Provisioning profile for `ios-app` device builds |
 | `--std <standard>` | C++ standard. Default: `c++17` |
 | `--include-path <dir>` | Additional header search path. Repeatable |
 | `--lib-path <dir>` | Additional library search path. Repeatable |
@@ -145,6 +150,24 @@ Build a macOS app bundle from manifest metadata:
 
 ```bash
 npx doof build samples/solitaire
+```
+
+Build an iOS simulator app bundle by overriding the package target:
+
+```bash
+npx doof build --target ios-app samples/solitaire
+```
+
+Build, sign, install, and launch on a connected development device:
+
+```bash
+npx doof run \
+  --target ios-app \
+  --ios-destination device \
+  --ios-device 00008110-001234560E91801E \
+  --ios-sign-identity "Apple Development: Jane Doe (TEAMID)" \
+  --ios-provisioning-profile ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision \
+  samples/solitaire
 ```
 
 Build the current package from inside its directory:
@@ -208,9 +231,9 @@ Package manifests can also declare `build.native.pkgConfigPackages` or platform-
 
 `emit`, `build`, and `run` all accept these options. `emit` records them in `doof-build.json`, while `build` and `run` also pass them directly to the compiler/linker.
 
-These flags work well for simple bridge files and library integrations. The built-in `macos-app` target now covers the basic `.app` bundle case, including `Info.plist`, icon generation, frameworks, and resource copying. For projects that need Objective-C++, Swift, code signing, notarization, or a larger native build graph, use `doof emit` plus CMake or your existing native build system. The [`samples/solitaire`](../samples/solitaire/) SDL/Metal host and [`samples/reminders-mcp`](../samples/reminders-mcp/) EventKit sample both take that approach.
+These flags work well for simple bridge files and library integrations. The built-in `macos-app` target now covers the basic `.app` bundle case, including `Info.plist`, icon generation, frameworks, and resource copying. The built-in `ios-app` target now covers both simulator builds and connected development-device installs on macOS by generating a UIKit host shell, compiling against either the `iphonesimulator` or `iphoneos` SDK, signing with a provisioning profile for device builds, and installing through `simctl` or `devicectl` when you use `doof run`. For projects that need Objective-C++, Swift, App Store distribution signing, or a larger native build graph, use `doof emit` plus Xcode or your existing native build system.
 
-`build.target = "macos-app"` is currently limited to macOS for `doof build` and `doof run`, because bundle assembly and icon generation rely on macOS tools such as `qlmanage`, `sips`, and `iconutil`.
+`build.target = "macos-app"` and `build.target = "ios-app"` are currently limited to macOS for `doof build` and `doof run`, because bundle assembly, Apple SDK resolution, signing, and Apple device tooling rely on macOS tools such as `xcrun`, `simctl`, `devicectl`, `codesign`, `security`, `qlmanage`, `sips`, and `iconutil`.
 
 ## Samples with Native Dependencies
 

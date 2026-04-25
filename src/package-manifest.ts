@@ -8,12 +8,18 @@ import type { FileSystem } from "./resolver.js";
 import {
   DEFAULT_MACOS_APP_CATEGORY,
   DEFAULT_MACOS_MINIMUM_SYSTEM_VERSION,
+  DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
+  type IOSAppDestination,
   isDoofBuildTarget,
   normalizeMacOSAppResourceDestination,
+  normalizeIOSAppResourceDestination,
   type DoofBuildTarget,
+  type DoofIOSAppConfig,
+  type DoofIOSAppResourceConfig,
   type DoofMacOSAppConfig,
   type DoofMacOSAppResourceConfig,
   type ResolvedDoofBuildTarget,
+  type ResolvedDoofIOSAppConfig,
   type ResolvedDoofMacOSAppConfig,
 } from "./build-targets.js";
 import {
@@ -53,6 +59,8 @@ export interface DoofNativeBuildFragment extends Partial<ResolvedPackageNativeBu
 
 export interface DoofNativeBuildConfig extends DoofNativeBuildFragment {
   macos?: DoofNativeBuildFragment;
+  iosSimulator?: DoofNativeBuildFragment;
+  iosDevice?: DoofNativeBuildFragment;
   linux?: DoofNativeBuildFragment;
   windows?: DoofNativeBuildFragment;
 }
@@ -63,6 +71,7 @@ export interface DoofBuildConfig {
   target?: DoofBuildTarget;
   targetExecutableName?: string;
   macosApp?: DoofMacOSAppConfig;
+  iosApp?: DoofIOSAppConfig;
   native?: DoofNativeBuildConfig;
 }
 
@@ -150,6 +159,8 @@ export interface ResolvedRemoteDependency {
 export interface LoadPackageGraphOptions {
   cacheRoot?: string;
   implicitStdDependencies?: boolean;
+  buildTargetOverride?: DoofBuildTarget;
+  iosDestinationOverride?: IOSAppDestination;
   resolveRemoteDependency?: (
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
@@ -200,6 +211,9 @@ interface RemotePackageSelection {
 interface PackageLoadContext {
   cacheRoot: string;
   implicitStdDependencies: boolean;
+  effectiveBuildTarget: DoofBuildTarget | undefined;
+  effectiveIOSDestination: IOSAppDestination;
+  rootManifestPath: string;
   resolveRemoteDependency: (
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
@@ -286,10 +300,15 @@ export function loadPackageGraph(
     throw new Error(`No doof.json found for ${resolveFsPath(entryPath)}`);
   }
 
+  const normalizedManifestPath = resolveFsPath(manifestPath);
+  const rootManifest = readManifestOrThrow(fileSystem, normalizedManifestPath);
   const loadingStack: string[] = [];
   const loadContext: PackageLoadContext = {
     cacheRoot: options.cacheRoot ?? getDefaultPackageCacheRoot(),
     implicitStdDependencies: options.implicitStdDependencies ?? false,
+    effectiveBuildTarget: options.buildTargetOverride ?? rootManifest.build?.target,
+    effectiveIOSDestination: options.iosDestinationOverride ?? "simulator",
+    rootManifestPath: normalizedManifestPath,
     resolveRemoteDependency: options.resolveRemoteDependency ?? defaultResolveRemoteDependency,
     discoveredPackages: new Map<string, DiscoveredPackage>(),
     remotePackagesByKey: new Map<string, RemotePackageSelection[]>(),
@@ -521,14 +540,23 @@ function discoverPackageFromManifest(
   }
 
   const manifest = readManifestOrThrow(fileSystem, normalizedManifestPath);
+  const buildTargetOverride = normalizedManifestPath === context.rootManifestPath
+    ? context.effectiveBuildTarget
+    : undefined;
   const discovered: DiscoveredPackage = {
     rootDir,
     manifestPath: normalizedManifestPath,
     manifest,
     dependencies: [],
     remotePackage: null,
-    nativeBuild: normalizeNativeBuildConfig(manifest.build?.native, rootDir, normalizedManifestPath),
-    buildTarget: normalizeBuildTargetConfig(manifest.build, rootDir, normalizedManifestPath),
+    nativeBuild: normalizeNativeBuildConfig(
+      manifest.build?.native,
+      rootDir,
+      normalizedManifestPath,
+      context.effectiveBuildTarget,
+      context.effectiveIOSDestination,
+    ),
+    buildTarget: normalizeBuildTargetConfig(manifest.build, rootDir, normalizedManifestPath, buildTargetOverride),
   };
   context.discoveredPackages.set(rootDir, discovered);
 
@@ -824,7 +852,7 @@ function parseBuildConfig(value: unknown, manifestPath: string): DoofBuildConfig
   const buildDir = readOptionalString(value.buildDir, manifestPath, "build.buildDir");
   const targetValue = readOptionalString(value.target, manifestPath, "build.target");
   if (targetValue !== undefined && !isDoofBuildTarget(targetValue)) {
-    throw new Error(`Invalid doof.json at ${manifestPath}: build.target must be one of \"macos-app\"`);
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.target must be one of \"macos-app\", \"ios-app\"`);
   }
 
   const targetExecutableName = readOptionalString(value.targetExecutableName, manifestPath, "build.targetExecutableName");
@@ -835,6 +863,7 @@ function parseBuildConfig(value: unknown, manifestPath: string): DoofBuildConfig
   }
 
   const macosApp = parseMacOSAppConfig(value.macosApp, manifestPath);
+  const iosApp = parseIOSAppConfig(value.iosApp, manifestPath);
   if (targetValue === "macos-app") {
     if (!macosApp) {
       throw new Error(`Invalid doof.json at ${manifestPath}: build.macosApp is required when build.target is \"macos-app\"`);
@@ -843,13 +872,18 @@ function parseBuildConfig(value: unknown, manifestPath: string): DoofBuildConfig
       throw new Error(`Invalid doof.json at ${manifestPath}: build.targetExecutableName is required when build.target is \"macos-app\"`);
     }
   }
-  if (macosApp && targetValue !== "macos-app") {
-    throw new Error(`Invalid doof.json at ${manifestPath}: build.macosApp requires build.target to be \"macos-app\"`);
+  if (targetValue === "ios-app") {
+    if (!iosApp) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp is required when build.target is \"ios-app\"`);
+    }
+    if (!targetExecutableName) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: build.targetExecutableName is required when build.target is \"ios-app\"`);
+    }
   }
 
   const native = parseNativeBuildConfig(value.native, manifestPath);
 
-  return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, native };
+  return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, iosApp, native };
 }
 
 function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSAppConfig | undefined {
@@ -876,6 +910,29 @@ function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSApp
   };
 }
 
+function parseIOSAppConfig(value: unknown, manifestPath: string): DoofIOSAppConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp must be an object`);
+  }
+
+  return {
+    bundleId: readRequiredString(value.bundleId, manifestPath, "build.iosApp.bundleId"),
+    displayName: readRequiredString(value.displayName, manifestPath, "build.iosApp.displayName"),
+    version: readRequiredString(value.version, manifestPath, "build.iosApp.version"),
+    icon: readRequiredString(value.icon, manifestPath, "build.iosApp.icon"),
+    resources: readOptionalIOSAppResources(value.resources, manifestPath),
+    minimumDeploymentTarget: readOptionalString(
+      value.minimumDeploymentTarget,
+      manifestPath,
+      "build.iosApp.minimumDeploymentTarget",
+    ),
+  };
+}
+
 function readOptionalMacOSAppResources(value: unknown, manifestPath: string): DoofMacOSAppResourceConfig[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -897,6 +954,27 @@ function readOptionalMacOSAppResources(value: unknown, manifestPath: string): Do
   });
 }
 
+function readOptionalIOSAppResources(value: unknown, manifestPath: string): DoofIOSAppResourceConfig[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp.resources must be an array`);
+  }
+
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp.resources[${index}] must be an object`);
+    }
+
+    return {
+      from: readRequiredString(entry.from, manifestPath, `build.iosApp.resources[${index}].from`),
+      to: readRequiredString(entry.to, manifestPath, `build.iosApp.resources[${index}].to`),
+    };
+  });
+}
+
 function parseNativeBuildConfig(value: unknown, manifestPath: string): DoofNativeBuildConfig | undefined {
   if (value === undefined) {
     return undefined;
@@ -909,6 +987,8 @@ function parseNativeBuildConfig(value: unknown, manifestPath: string): DoofNativ
   return {
     ...parseNativeBuildFragment(value, manifestPath, "build.native"),
     macos: parseOptionalNativeBuildFragment(value.macos, manifestPath, "build.native.macos"),
+    iosSimulator: parseOptionalNativeBuildFragment(value.iosSimulator, manifestPath, "build.native.iosSimulator"),
+    iosDevice: parseOptionalNativeBuildFragment(value.iosDevice, manifestPath, "build.native.iosDevice"),
     linux: parseOptionalNativeBuildFragment(value.linux, manifestPath, "build.native.linux"),
     windows: parseOptionalNativeBuildFragment(value.windows, manifestPath, "build.native.windows"),
   };
@@ -1091,18 +1171,24 @@ function normalizeNativeBuildConfig(
   nativeBuild: DoofNativeBuildConfig | undefined,
   rootDir: string,
   manifestPath: string,
+  effectiveBuildTarget: DoofBuildTarget | undefined,
+  effectiveIOSDestination: IOSAppDestination,
 ): ResolvedPackageNativeBuild {
   if (!nativeBuild) {
     return createEmptyResolvedPackageNativeBuild();
   }
 
-  const platformBuild = process.platform === "darwin"
-    ? nativeBuild.macos
-    : process.platform === "win32"
-      ? nativeBuild.windows
-      : process.platform === "linux"
-        ? nativeBuild.linux
-        : undefined;
+  const platformBuild = effectiveBuildTarget === "ios-app" && process.platform === "darwin"
+    ? effectiveIOSDestination === "device"
+      ? nativeBuild.iosDevice
+      : nativeBuild.iosSimulator
+    : process.platform === "darwin"
+      ? nativeBuild.macos
+      : process.platform === "win32"
+        ? nativeBuild.windows
+        : process.platform === "linux"
+          ? nativeBuild.linux
+          : undefined;
   const mergedBuild = mergeNativeBuildFragments(nativeBuild, platformBuild);
 
   return {
@@ -1146,16 +1232,23 @@ function normalizeBuildTargetConfig(
   build: DoofBuildConfig | undefined,
   rootDir: string,
   manifestPath: string,
+  buildTargetOverride?: DoofBuildTarget,
 ): ResolvedDoofBuildTarget | null {
-  if (!build?.target) {
+  const effectiveTarget = buildTargetOverride ?? build?.target;
+  if (!effectiveTarget || !build) {
     return null;
   }
 
-  switch (build.target) {
+  switch (effectiveTarget) {
     case "macos-app":
       return {
         kind: "macos-app",
         config: normalizeMacOSAppBuildConfig(build.macosApp!, rootDir, manifestPath),
+      };
+    case "ios-app":
+      return {
+        kind: "ios-app",
+        config: normalizeIOSAppBuildConfig(build.iosApp!, rootDir, manifestPath),
       };
   }
 }
@@ -1190,6 +1283,39 @@ function normalizeMacOSAppResourceDestinationOrThrow(value: string, manifestPath
   } catch (error: any) {
     throw new Error(
       `Invalid doof.json at ${manifestPath}: build.macosApp.resources[${index}].to ${error?.message ?? String(error)}`,
+    );
+  }
+}
+
+function normalizeIOSAppBuildConfig(
+  iosApp: DoofIOSAppConfig,
+  rootDir: string,
+  manifestPath: string,
+): ResolvedDoofIOSAppConfig {
+  return {
+    bundleId: iosApp.bundleId,
+    displayName: iosApp.displayName,
+    version: iosApp.version,
+    iconPath: normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon"),
+    resources: (iosApp.resources ?? []).map((resource, index) => ({
+      fromPattern: normalizePackagePath(
+        resource.from,
+        rootDir,
+        manifestPath,
+        `build.iosApp.resources[${index}].from`,
+      ),
+      destination: normalizeIOSAppResourceDestinationOrThrow(resource.to, manifestPath, index),
+    })),
+    minimumDeploymentTarget: iosApp.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
+  };
+}
+
+function normalizeIOSAppResourceDestinationOrThrow(value: string, manifestPath: string, index: number): string {
+  try {
+    return normalizeIOSAppResourceDestination(value);
+  } catch (error: any) {
+    throw new Error(
+      `Invalid doof.json at ${manifestPath}: build.iosApp.resources[${index}].to ${error?.message ?? String(error)}`,
     );
   }
 }

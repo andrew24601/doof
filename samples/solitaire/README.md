@@ -163,6 +163,30 @@ node dist/cli.js build samples/solitaire
 open samples/solitaire/build/DoofSolitaire.app
 ```
 
+On the iOS simulator:
+
+```bash
+# Boot a simulator first.
+open -a Simulator
+bash scripts/build-solitaire-ios-simulator.sh
+```
+
+The simulator path reuses the same package manifest with `--target ios-app`. The sample keeps `macos-app` as its default target, while [samples/lib/cardgame/doof.json](../lib/cardgame/doof.json) provides a separate `build.native.iosSimulator` fragment for the shared UIKit and Metal host sources.
+
+The Doof CLI currently handles the generated iOS app shell, simulator SDK flags, bundle assembly, and `simctl` install or launch. The shared iOS baseline app now lives in [samples/lib/cardgame](../lib/cardgame), so Solitaire does not need an external SDL3 SDK on iOS.
+
+On a connected development device:
+
+```bash
+export DOOF_IOS_SIGN_IDENTITY="Apple Development: Jane Doe (TEAMID)"
+export DOOF_IOS_PROVISIONING_PROFILE=~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+# Pass your connected device identifier or name as the first argument.
+bash scripts/build-solitaire-ios-device.sh 00008110-001234560E91801E
+```
+
+The device path reuses the same `ios-app` target and shared UIKit host, but it compiles against `iphoneos`, embeds the supplied provisioning profile, signs the bundle with `codesign`, and installs or launches the app with `xcrun devicectl`.
+
 On Windows PowerShell:
 
 ```powershell
@@ -209,9 +233,11 @@ On Windows, the sample builds as a normal `.exe` and stages the `images/` direct
 - **Command+W** on macOS or **Ctrl+W** on Windows closes the window
 - **Command+Q** on macOS or **Ctrl+Q** on Windows quits the app
 
-## macOS Notes
+## Apple Platform Notes
 
 - Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to build the sample directly with `doof build` and copy the finished bundle to `build/DoofSolitaire.app`.
+- Run [scripts/build-solitaire-ios-simulator.sh](/Users/andrew/develop/doof/scripts/build-solitaire-ios-simulator.sh) to build and launch the sample on a booted iOS simulator using the shared UIKit and Metal host from [samples/lib/cardgame/doof.json](../lib/cardgame/doof.json).
+- Run [scripts/build-solitaire-ios-device.sh](/Users/andrew/develop/doof/scripts/build-solitaire-ios-device.sh) to build, sign, install, and launch the sample on a connected development device using `DOOF_IOS_SIGN_IDENTITY`, `DOOF_IOS_PROVISIONING_PROFILE`, and a device identifier.
 - The macOS bundle identity, plist metadata, icon path, staged resources, shared host sources, and SDL3 discovery now come from manifest-driven build metadata rooted in [samples/solitaire/doof.json](samples/solitaire/doof.json) and [samples/lib/cardgame/doof.json](samples/lib/cardgame/doof.json).
 
 ## Windows Notes

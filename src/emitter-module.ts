@@ -44,6 +44,7 @@ import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
+import { createIOSAppSupportFiles } from "./ios-app-support.js";
 import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
 import { getBundledStdlibSupportFiles } from "./stdlib.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
@@ -162,6 +163,7 @@ export function emitModuleSplit(
   analysisResult: AnalysisResult,
   baseDir = "/",
   packageOutputPaths?: PackageOutputPaths,
+  buildTarget?: ResolvedDoofBuildTarget | null,
 ): ModuleEmitResult {
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
@@ -177,7 +179,16 @@ export function emitModuleSplit(
   const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
   const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, baseDir, packageOutputPaths);
-  const cppCode = emitCppFile(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, baseDir, packageOutputPaths);
+  const cppCode = emitCppFile(
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    monomorphizedClasses,
+    baseDir,
+    packageOutputPaths,
+    buildTarget,
+  );
 
   return {
     hppCode,
@@ -208,13 +219,21 @@ export function emitProject(
   const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
   const modules: ModuleEmitResult[] = [];
   for (const [modPath] of analysisResult.modules) {
-    modules.push(emitModuleSplit(modPath, analysisResult, baseDir, buildMetadata.packageOutputPaths));
+    modules.push(emitModuleSplit(
+      modPath,
+      analysisResult,
+      baseDir,
+      buildMetadata.packageOutputPaths,
+      buildMetadata.buildTarget,
+    ));
   }
 
   const supportFiles = [
     ...getBundledStdlibSupportFiles(analysisResult.modules.keys()),
     ...(buildMetadata.buildTarget?.kind === "macos-app"
       ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
+      : buildMetadata.buildTarget?.kind === "ios-app"
+        ? createIOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
       : []),
   ];
 
@@ -529,6 +548,7 @@ function emitCppFile(
   _monomorphizedClasses: Map<string, GenericClassInstantiation>,
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
+  buildTarget?: ResolvedDoofBuildTarget | null,
 ): string {
   const lines: string[] = [];
   const { hppName } = modulePathToCppNames(table.path, baseDir, packageOutputPaths);
@@ -652,12 +672,14 @@ function emitCppFile(
   // main() wrapper - emit if not already emitted inside the namespace
   const mainFn = classified.functions.find((fn) => fn.decl.name === "main");
   if (mainFn) {
-    // If doof_main was not emitted inside the namespace, emit it now with the wrapper
+    // If doof_main was not emitted inside the namespace, emit it now with the app-entry wrapper.
     if (!hasNonExportedCode) {
-      emitMainWrapper(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, baseDir);
-    } else {
-      // doof_main was already emitted inside the namespace, just emit the extern C wrapper
-      emitExternCMainWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
+      emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
+    }
+
+    emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
+    if (buildTarget?.kind !== "ios-app") {
+      emitNativeMainWrapper(lines);
     }
   }
 
@@ -717,21 +739,21 @@ function emitDoofMainFunction(
   lines.push("");
 }
 
-function emitExternCMainWrapper(
+function emitExternCMainEntryWrapper(
   mainDecl: FunctionDeclaration,
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
   baseDir: string,
   lines: string[],
 ): void {
-  // Emit only the extern C main() wrapper
+  // Emit a stable exported entry point for native shells and app hosts.
   const retType = mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
     ? emitType(mainDecl.resolvedType.returnType)
     : "int32_t";
   const hasArgs = mainDecl.params.length > 0;
   const returnsInt = retType === "int32_t" || retType === "int64_t";
 
-  lines.push("int main(int argc, char** argv) {");
+  lines.push('extern "C" int doof_entry_main(int argc, char** argv) {');
 
   // Module initialization calls
   const initCalls = buildInitOrder(table, analysisResult);
@@ -760,18 +782,10 @@ function emitExternCMainWrapper(
   lines.push("}");
 }
 
-function emitMainWrapper(
-  mainDecl: FunctionDeclaration,
-  table: ModuleSymbolTable,
-  analysisResult: AnalysisResult,
-  interfaceImpls: Map<string, ClassSymbol[]>,
-  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
-  lines: string[],
-  baseDir: string,
-): void {
-  // Legacy function - emit both parts for backward compatibility
-  emitDoofMainFunction(mainDecl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
-  emitExternCMainWrapper(mainDecl, table, analysisResult, baseDir, lines);
+function emitNativeMainWrapper(lines: string[]): void {
+  lines.push("int main(int argc, char** argv) {");
+  lines.push("    return doof_entry_main(argc, argv);");
+  lines.push("}");
 }
 
 // ============================================================================
