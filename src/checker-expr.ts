@@ -1970,7 +1970,16 @@ function inferAsNarrowType(
   table: ModuleSymbolTable,
   span: SourceSpan,
 ): ResolvedType {
-  if (sourceType.kind === "unknown" || targetType.kind === "unknown") {
+  if (sourceType.kind === "unknown") {
+    return UNKNOWN_TYPE; // prior error — suppress cascade
+  }
+  if (targetType.kind === "unknown") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `"as" narrowing target type could not be resolved`,
+      span,
+      module: table.path,
+    });
     return UNKNOWN_TYPE;
   }
 

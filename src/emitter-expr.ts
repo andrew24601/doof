@@ -188,6 +188,10 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
     }
 
     case "as-expression": {
+      if (expr.resolvedType!.kind === "unknown") {
+        // Checker already emitted a diagnostic; emit a placeholder to keep compilation going.
+        return emitExpression(expr.expression, ctx);
+      }
       const sourceType = expr.expression.resolvedType!;
       const sourceExpr = emitExpression(expr.expression, ctx);
       return emitAsNarrowExpression(sourceExpr, sourceType, expr.resolvedType!, ctx);
