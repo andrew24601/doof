@@ -1809,6 +1809,58 @@ describe("Parser — case statement forms", () => {
     }
   });
 
+  it("parses bare return arms in statement-level case", () => {
+    const stmt = firstStmt(`case x {
+      0..10 => return 0
+      _ => return 4
+    }`);
+    expect(stmt.kind).toBe("case-statement");
+    if (stmt.kind === "case-statement") {
+      expect(stmt.arms).toHaveLength(2);
+      expect(stmt.arms[0].body.kind).toBe("block");
+      expect(stmt.arms[1].body.kind).toBe("block");
+
+      if (stmt.arms[0].body.kind === "block") {
+        expect(stmt.arms[0].body.statements).toHaveLength(1);
+        expect(stmt.arms[0].body.statements[0].kind).toBe("return-statement");
+      }
+      if (stmt.arms[1].body.kind === "block") {
+        expect(stmt.arms[1].body.statements).toHaveLength(1);
+        expect(stmt.arms[1].body.statements[0].kind).toBe("return-statement");
+      }
+    }
+  });
+
+  it("parses bare return/break/continue/try arms in statement-level case", () => {
+    const stmt = firstStmt(`case x {
+      0 => return 0
+      1 => break
+      2 => continue
+      _ => try value := read()
+    }`);
+    expect(stmt.kind).toBe("case-statement");
+    if (stmt.kind === "case-statement") {
+      expect(stmt.arms).toHaveLength(4);
+      expect(stmt.arms[0].body.kind).toBe("block");
+      expect(stmt.arms[1].body.kind).toBe("block");
+      expect(stmt.arms[2].body.kind).toBe("block");
+      expect(stmt.arms[3].body.kind).toBe("block");
+
+      if (stmt.arms[0].body.kind === "block") {
+        expect(stmt.arms[0].body.statements[0]?.kind).toBe("return-statement");
+      }
+      if (stmt.arms[1].body.kind === "block") {
+        expect(stmt.arms[1].body.statements[0]?.kind).toBe("break-statement");
+      }
+      if (stmt.arms[2].body.kind === "block") {
+        expect(stmt.arms[2].body.statements[0]?.kind).toBe("continue-statement");
+      }
+      if (stmt.arms[3].body.kind === "block") {
+        expect(stmt.arms[3].body.statements[0]?.kind).toBe("try-statement");
+      }
+    }
+  });
+
   it("rejects commas between statement case arms", () => {
     expect(() => firstStmt(`case direction { .North => "up", .South => "down" }`)).toThrow();
   });

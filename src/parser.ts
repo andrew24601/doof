@@ -3411,6 +3411,8 @@ export class Parser {
     let body: Expression | Block;
     if (this.check(TokenType.LeftBrace)) {
       body = this.parseBlock();
+    } else if (form === "statement" && this.isStatementCaseArmInlineStatementStart()) {
+      body = this.parseInlineStatementCaseArmBody();
     } else {
       const prevInStatementCaseArmExpression = this.inStatementCaseArmExpression;
       const prevStatementCaseArmExpressionLine = this.statementCaseArmExpressionLine;
@@ -3418,9 +3420,12 @@ export class Parser {
         this.inStatementCaseArmExpression = true;
         this.statementCaseArmExpressionLine = this.current().line;
       }
-      body = this.parseExpression();
-      this.inStatementCaseArmExpression = prevInStatementCaseArmExpression;
-      this.statementCaseArmExpressionLine = prevStatementCaseArmExpressionLine;
+      try {
+        body = this.parseExpression();
+      } finally {
+        this.inStatementCaseArmExpression = prevInStatementCaseArmExpression;
+        this.statementCaseArmExpressionLine = prevStatementCaseArmExpressionLine;
+      }
     }
 
     return {
@@ -3428,6 +3433,24 @@ export class Parser {
       patterns,
       body,
       span: this.span(startLoc),
+    };
+  }
+
+  private isStatementCaseArmInlineStatementStart(): boolean {
+    return (
+      this.check(TokenType.Return)
+      || this.check(TokenType.Break)
+      || this.check(TokenType.Continue)
+      || this.check(TokenType.Try)
+    );
+  }
+
+  private parseInlineStatementCaseArmBody(): Block {
+    const statement = this.parseStatement();
+    return {
+      kind: "block",
+      statements: [statement],
+      span: statement.span,
     };
   }
 

@@ -1449,6 +1449,27 @@ describe("Result<T, E> type integration", () => {
     expect(diag).toBeUndefined();
   });
 
+  it("allows bare return inside statement-level case arms", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function test(x: int): int {
+            case x {
+              0..10 => return 0
+              _ => return 4
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const diag = cr.diagnostics.find(
+      (d) => d.message.includes("return") && d.message.includes("case-expression"),
+    );
+    expect(diag).toBeUndefined();
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("allows try inside statement-level case arms", () => {
     const cr = check(
       {
@@ -1489,6 +1510,26 @@ describe("Result<T, E> type integration", () => {
               }
             }
             return i
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("allows bare break/continue inside statement-level case arms in loops", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function demo(): void {
+            let x = 0
+            while true {
+              case x {
+                0 => { x = x + 1; continue }
+                _ => break
+              }
+            }
           }
         `,
       },
