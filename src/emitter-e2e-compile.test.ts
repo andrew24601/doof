@@ -124,6 +124,23 @@ describe("e2e — C++ compilation", () => {
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
+  it("compiles JsonValue null comparisons", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      function hasValue(val: JsonValue): bool {
+        return val != null
+      }
+
+      function isMissing(val: JsonValue): bool {
+        return null == val
+      }
+
+      function main(): int {
+        return 0
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
+
   it("compiles readonly declaration", () => {
     const { success, error, code } = ctx.compileOnly(`
       readonly NAME = "hello"

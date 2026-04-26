@@ -42,6 +42,50 @@ function addUnsupportedDefaultDiagnostic(
   });
 }
 
+function buildMethodBindingType(
+  host: CheckerHost,
+  method: FunctionDeclaration,
+  classDecl: ClassDeclaration,
+  table: ModuleSymbolTable,
+): ResolvedType {
+  if (method.typeParams.length > 0) {
+    host.typeParamStack.push(new Set(method.typeParams));
+  }
+
+  const methodType: ResolvedType = {
+    kind: "function",
+    params: method.params.map((param) => ({
+      name: param.name,
+      type: param.resolvedType ?? (param.type ? host.resolveTypeAnnotation(param.type, table) : UNKNOWN_TYPE),
+      hasDefault: param.defaultValue !== null,
+      defaultValue: param.defaultValue,
+    })),
+    returnType: method.returnType
+      ? host.resolveTypeAnnotation(method.returnType, table)
+      : VOID_TYPE,
+    typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+    mockCall: method.mock_
+      ? buildMockCallMetadata(
+          table.path,
+          method.name,
+          method.params.map((param) => ({
+            name: param.name,
+            type: param.resolvedType ?? (param.type ? host.resolveTypeAnnotation(param.type, table) : UNKNOWN_TYPE),
+            hasDefault: param.defaultValue !== null,
+            defaultValue: param.defaultValue,
+          })),
+          classDecl.name,
+        )
+      : undefined,
+  };
+
+  if (method.typeParams.length > 0) {
+    host.typeParamStack.pop();
+  }
+
+  return methodType;
+}
+
 export function checkFunction(
   host: CheckerHost,
   decl: FunctionDeclaration,
@@ -394,6 +438,18 @@ export function checkMethod(
     thisType: method.static_ ? null : thisType,
     returnType: effectiveMethodReturnType,
   };
+
+  for (const candidate of classDecl.methods) {
+    if (candidate.static_ !== method.static_) continue;
+    methodScope.bindings.set(candidate.name, {
+      name: candidate.name,
+      kind: "function",
+      type: buildMethodBindingType(host, candidate, classDecl, table),
+      mutable: false,
+      span: candidate.span,
+      module: table.path,
+    });
+  }
 
   if (!method.static_) {
     for (const field of classDecl.fields) {

@@ -656,6 +656,22 @@ describe("emitter — null literal", () => {
     expect(cpp).toContain("std::nullopt");
     expect(cpp).not.toMatch(/make_shared<MaybeNamed>\(nullptr\)/);
   });
+
+  it("emits JsonValue null comparisons using isNull", () => {
+    const cpp = emit(`
+      function hasValue(val: JsonValue): bool {
+        return val != null
+      }
+
+      function isMissing(val: JsonValue): bool {
+        return null == val
+      }
+    `);
+    expect(cpp).toContain("!(val).isNull()");
+    expect(cpp).toContain("(val).isNull()");
+    expect(cpp).not.toContain("val != nullptr");
+    expect(cpp).not.toContain("nullptr == val");
+  });
 });
 
 // ============================================================================

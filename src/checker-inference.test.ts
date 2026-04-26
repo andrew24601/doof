@@ -282,6 +282,28 @@ describe("Class field and method types", () => {
     expect(typeToString(refs[0].type)).toBe("int");
   });
 
+  it("resolves bare method calls via implicit this in methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Counter {
+            get(): int => 1
+            read(): int => get()
+            twice(): int => get() + read()
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const refs = findId(info, "get");
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+    for (const ref of refs) {
+      expect(ref.kind).toBe("function");
+      expect(ref.type.kind).toBe("function");
+    }
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("resolves parameter shadowing field in method", () => {
     const info = check(
       {

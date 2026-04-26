@@ -172,6 +172,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
   if ((expr.operator === "==" || expr.operator === "!=") &&
       expr.right.kind === "null-literal") {
     const lhsType = expr.left.resolvedType;
+    if (lhsType?.kind === "json-value") {
+      const lhs = emitBinaryOperand(expr.left, ctx, 20, "left");
+      const check = `(${lhs}).isNull()`;
+      return expr.operator === "==" ? check : `!${check}`;
+    }
     if (lhsType && isMonostateNullable(lhsType)) {
       const lhs = emitBinaryOperand(expr.left, ctx, 20, "left");
       const check = `std::holds_alternative<std::monostate>(${lhs})`;
@@ -186,6 +191,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
   if ((expr.operator === "==" || expr.operator === "!=") &&
       expr.left.kind === "null-literal") {
     const rhsType = expr.right.resolvedType;
+    if (rhsType?.kind === "json-value") {
+      const rhs = emitBinaryOperand(expr.right, ctx, 20, "right");
+      const check = `(${rhs}).isNull()`;
+      return expr.operator === "==" ? check : `!${check}`;
+    }
     if (rhsType && isMonostateNullable(rhsType)) {
       const rhs = emitBinaryOperand(expr.right, ctx, 20, "right");
       const check = `std::holds_alternative<std::monostate>(${rhs})`;
