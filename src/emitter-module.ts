@@ -32,7 +32,7 @@ import type {
   CallExpression,
 } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
-import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
+import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
@@ -1714,6 +1714,10 @@ function collectStreamTypesFromResolvedType(
   type: ResolvedType,
   result: Map<string, Extract<ResolvedType, { kind: "stream" }>>,
 ): void {
+  if (isJsonValueType(type)) {
+    return;
+  }
+
   if (type.kind === "stream") {
     if (streamAliasContainsTypeVar(type.elementType)) {
       return;
@@ -2423,6 +2427,10 @@ function collectConcreteClassInstantiationsFromResolvedType(
   result: Map<string, GenericClassInstantiation>,
   pendingClasses: GenericClassInstantiation[],
 ): void {
+  if (isJsonValueType(type)) {
+    return;
+  }
+
   if (type.kind === "class"
       && type.symbol.declaration.typeParams.length > 0
       && classDeclIsStreamSensitive(type.symbol.declaration)
@@ -2755,6 +2763,10 @@ function buildFunctionTypeSubstitutionMap(
 }
 
 function streamAliasContainsTypeVar(type: ResolvedType): boolean {
+  if (isJsonValueType(type)) {
+    return false;
+  }
+
   switch (type.kind) {
     case "typevar":
       return true;

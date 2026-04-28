@@ -1382,4 +1382,56 @@ describe("e2e — non-null assertion", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("4.3\n7\n4.3");
   });
+
+  it("widens primitive unions into nullable primitive unions", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        str: string | int := "Cat"
+        foo: string | int | null := str
+        println(foo)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("Cat");
+  });
+
+  it("prints nullable primitive unions without C++ compile errors", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        str: string | int | null := "Cat"
+        missing: string | int | null := null
+        println(str)
+        println(missing)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("Cat\nnull");
+  });
+
+  it("prints checked cast results and tuples without C++ compile errors", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        x: string | float := 2
+        y := x as long
+        println(y)
+
+        z := (1, 2)
+        println(z)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("Success(2)\n(1, 2)");
+  });
 });

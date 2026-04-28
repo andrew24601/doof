@@ -28,8 +28,13 @@ export interface PrimitiveType {
   name: PrimitiveName;
 }
 
-export interface JsonValueResolvedType {
-  kind: "json-value";
+export interface UnionResolvedType {
+  kind: "union";
+  types: ResolvedType[];
+}
+
+export interface JsonValueResolvedType extends UnionResolvedType {
+  jsonValue: true;
 }
 
 export type BuiltinNamespaceName = PrimitiveName;
@@ -113,11 +118,6 @@ export interface SetResolvedType {
 export interface StreamResolvedType {
   kind: "stream";
   elementType: ResolvedType;
-}
-
-export interface UnionResolvedType {
-  kind: "union";
-  types: ResolvedType[];
 }
 
 export interface TupleResolvedType {
@@ -245,10 +245,39 @@ export const DOUBLE_TYPE: PrimitiveType = { kind: "primitive", name: "double" };
 export const STRING_TYPE: PrimitiveType = { kind: "primitive", name: "string" };
 export const CHAR_TYPE: PrimitiveType = { kind: "primitive", name: "char" };
 export const BOOL_TYPE: PrimitiveType = { kind: "primitive", name: "bool" };
-export const JSON_VALUE_TYPE: JsonValueResolvedType = { kind: "json-value" };
 export const VOID_TYPE: VoidType = { kind: "void" };
 export const NULL_TYPE: NullType = { kind: "null" };
 export const UNKNOWN_TYPE: UnknownType = { kind: "unknown" };
+
+export const JSON_VALUE_TYPE = {
+  kind: "union",
+  types: [] as ResolvedType[],
+  jsonValue: true,
+} as JsonValueResolvedType;
+
+const JSON_VALUE_ARRAY_TYPE: ArrayResolvedType = {
+  kind: "array",
+  elementType: JSON_VALUE_TYPE,
+  readonly_: false,
+};
+
+const JSON_VALUE_OBJECT_TYPE: MapResolvedType = {
+  kind: "map",
+  keyType: STRING_TYPE,
+  valueType: JSON_VALUE_TYPE,
+};
+
+JSON_VALUE_TYPE.types.push(
+  NULL_TYPE,
+  BOOL_TYPE,
+  INT_TYPE,
+  LONG_TYPE,
+  FLOAT_TYPE,
+  DOUBLE_TYPE,
+  STRING_TYPE,
+  JSON_VALUE_ARRAY_TYPE,
+  JSON_VALUE_OBJECT_TYPE,
+);
 
 // ============================================================================
 // Bindings (identifier provenance)
@@ -345,9 +374,9 @@ export interface ModuleTypeInfo {
 
 /** Human-readable string for a ResolvedType (useful for tests/diagnostics). */
 export function typeToString(t: ResolvedType): string {
+  if (isJsonValueType(t)) return "JsonValue";
+
   switch (t.kind) {
-    case "json-value":
-      return "JsonValue";
     case "primitive":
       return t.name;
     case "builtin-namespace":
@@ -465,7 +494,12 @@ export function isSupportedSetElementType(type: ResolvedType): boolean {
 }
 
 export function findUnsupportedHashCollectionConstraint(type: ResolvedType): HashCollectionConstraintIssue | null {
+  if (isJsonValueType(type)) {
+    return null;
+  }
+
   switch (type.kind) {
+
     case "class":
     case "interface":
       for (const arg of type.typeArgs ?? []) {
@@ -584,54 +618,43 @@ export function formatUnsupportedMapKeyTypeMessage(
   );
 }
 
-export function getJsonValueNarrowCarrierType(type: ResolvedType): ResolvedType | null {
+export function isJsonValueType(type: ResolvedType): type is JsonValueResolvedType {
+  return type.kind === "union" && (type as Partial<JsonValueResolvedType>).jsonValue === true;
+}
+
+export function normalizeTypeForRuntime(type: ResolvedType): ResolvedType {
+  if (isJsonValueType(type)) {
+    return JSON_VALUE_TYPE;
+  }
+
   switch (type.kind) {
-    case "json-value":
-    case "null":
-      return type;
-
-    case "primitive":
-      return type.name === "bool"
-        || type.name === "int"
-        || type.name === "long"
-        || type.name === "float"
-        || type.name === "double"
-        || type.name === "string"
-        ? type
-        : null;
-
     case "array":
-      return type.elementType.kind === "json-value"
-        ? { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: false }
-        : null;
+      return {
+        kind: "array",
+        elementType: normalizeTypeForRuntime(type.elementType),
+        readonly_: false,
+      };
 
     case "map":
-      return type.keyType.kind === "primitive"
-        && type.keyType.name === "string"
-        && type.valueType.kind === "json-value"
-        ? { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE }
-        : null;
+      return {
+        kind: "map",
+        keyType: normalizeTypeForRuntime(type.keyType),
+        valueType: normalizeTypeForRuntime(type.valueType),
+      };
+
+    case "set":
+      return {
+        kind: "set",
+        elementType: normalizeTypeForRuntime(type.elementType),
+      };
 
     default:
-      return null;
+      return type;
   }
 }
 
-export function getJsonValueRuntimeUnionType(): UnionResolvedType {
-  return {
-    kind: "union",
-    types: [
-      NULL_TYPE,
-      BOOL_TYPE,
-      INT_TYPE,
-      LONG_TYPE,
-      FLOAT_TYPE,
-      DOUBLE_TYPE,
-      STRING_TYPE,
-      { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: false },
-      { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE },
-    ],
-  };
+export function typesEqualAtRuntime(a: ResolvedType, b: ResolvedType): boolean {
+  return typesEqual(normalizeTypeForRuntime(a), normalizeTypeForRuntime(b));
 }
 
 // ============================================================================
@@ -660,8 +683,7 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
   // Unknown is a wildcard (inference not complete).
   if (source.kind === "unknown" || target.kind === "unknown") return true;
 
-  if (target.kind === "json-value") return isAssignableToJsonValue(source);
-  if (source.kind === "json-value") return false;
+  if (isJsonValueType(target)) return isAssignableToJsonValue(source);
 
   // Type variables are wildcards (unresolved generic params).
   if (source.kind === "typevar" || target.kind === "typevar") return true;
@@ -853,10 +875,12 @@ function classImplementsStream(source: ClassType, target: StreamResolvedType): b
 
 /** Check whether two types are structurally equal. */
 export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
+  if (a === b) return true;
+  if (isJsonValueType(a) || isJsonValueType(b)) {
+    return isJsonValueType(a) && isJsonValueType(b);
+  }
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
-    case "json-value":
-      return true;
     case "primitive":
       return a.name === (b as PrimitiveType).name;
     case "builtin-namespace":
@@ -1020,6 +1044,10 @@ export function substituteTypeParams(
   type: ResolvedType,
   paramMap: Map<string, ResolvedType>,
 ): ResolvedType {
+  if (isJsonValueType(type)) {
+    return type;
+  }
+
   switch (type.kind) {
     case "typevar":
       return paramMap.get(type.name) ?? type;
@@ -1113,6 +1141,10 @@ export function substituteTypeParams(
 }
 
 export function typeContainsTypeVar(type: ResolvedType): boolean {
+  if (isJsonValueType(type)) {
+    return false;
+  }
+
   switch (type.kind) {
     case "typevar":
       return true;
@@ -1155,6 +1187,10 @@ export function typeContainsTypeVar(type: ResolvedType): boolean {
 }
 
 export function isStreamSensitiveType(type: ResolvedType): boolean {
+  if (isJsonValueType(type)) {
+    return false;
+  }
+
   switch (type.kind) {
     case "stream":
       return typeContainsTypeVar(type.elementType) || isStreamSensitiveType(type.elementType);
@@ -1221,9 +1257,11 @@ export function isJSONSerializable(
   type: ResolvedType,
   visited: Set<string> = new Set(),
 ): boolean {
+  if (isJsonValueType(type)) {
+    return true;
+  }
+
   switch (type.kind) {
-    case "json-value":
-      return true;
     case "primitive":
     case "null":
     case "enum":
@@ -1290,11 +1328,11 @@ export function isJSONSerializable(
 }
 
 function isAssignableToJsonValue(source: ResolvedType): boolean {
-  switch (source.kind) {
-    case "json-value":
-    case "null":
-      return true;
+  if (isJsonValueType(source) || source.kind === "null") {
+    return true;
+  }
 
+  switch (source.kind) {
     case "primitive":
       return source.name === "bool"
         || source.name === "byte"
@@ -1305,12 +1343,12 @@ function isAssignableToJsonValue(source: ResolvedType): boolean {
         || source.name === "string";
 
     case "array":
-      return source.elementType.kind === "json-value";
+      return isJsonValueType(source.elementType);
 
     case "map":
       return source.keyType.kind === "primitive"
         && source.keyType.name === "string"
-        && source.valueType.kind === "json-value";
+        && isJsonValueType(source.valueType);
 
     case "union":
       return source.types.every((type) => isAssignableTo(type, JSON_VALUE_TYPE));

@@ -16,7 +16,7 @@ import type { Expression, Block, ArrayLiteral, MapLiteral, TupleLiteral } from "
 import { typesEqual, type ResolvedType } from "./checker-types.js";
 import { emitAsNarrowExpression } from "./emitter-narrowing.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
-import { emitWrapJsonValue } from "./emitter-json-value.js";
+import { emitRuntimeCoercion } from "./emitter-json-value.js";
 import { emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
 import { isOptionalNullable } from "./emitter-types.js";
@@ -57,8 +57,8 @@ import {
 export function emitExpression(expr: Expression, ctx: EmitContext, targetType?: ResolvedType): string {
   const raw = emitExpressionInner(expr, ctx, targetType);
   const sourceType = expr.resolvedType;
-  if (targetType?.kind === "json-value" && sourceType && sourceType.kind !== "json-value") {
-    return emitWrapJsonValue(raw, sourceType);
+  if (targetType && sourceType) {
+    return emitRuntimeCoercion(raw, sourceType, targetType);
   }
   return raw;
 }

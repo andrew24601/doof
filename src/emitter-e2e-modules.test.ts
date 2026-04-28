@@ -637,11 +637,11 @@ struct Worker {
 #include "doof_runtime.hpp"
 
 struct NativeRows {
-    static doof::Result<doof::JsonValue::Object, std::string> read() {
+  static doof::Result<doof::JsonObject, std::string> read() {
     auto row = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();
-        (*row)["id"] = doof::JsonValue(static_cast<int64_t>(7));
-        (*row)["title"] = doof::JsonValue("demo");
-        return doof::Result<doof::JsonValue::Object, std::string>::success(row);
+    (*row)["id"] = doof::json_value(static_cast<int64_t>(7));
+    (*row)["title"] = doof::json_value("demo");
+    return doof::Result<doof::JsonObject, std::string>::success(row);
     }
 };
 `;

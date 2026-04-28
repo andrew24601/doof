@@ -9,7 +9,7 @@
  * multiple metadata objects to build consolidated API specs.
  */
 
-import type { ResolvedType } from "./checker-types.js";
+import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import type { ClassDeclaration, FunctionDeclaration } from "./ast.js";
 
 // ============================================================================
@@ -30,10 +30,11 @@ export function typeToJsonSchema(
   defs: Map<string, JsonSchema>,
   visited: Set<string> = new Set(),
 ): JsonSchema {
-  switch (type.kind) {
-    case "json-value":
-      return {};
+  if (isJsonValueType(type)) {
+    return {};
+  }
 
+  switch (type.kind) {
     case "primitive":
       switch (type.name) {
         case "byte":

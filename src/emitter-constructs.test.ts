@@ -657,7 +657,7 @@ describe("emitter — null literal", () => {
     expect(cpp).not.toMatch(/make_shared<MaybeNamed>\(nullptr\)/);
   });
 
-  it("emits JsonValue null comparisons using isNull", () => {
+  it("emits JsonValue null comparisons using monostate variant checks", () => {
     const cpp = emit(`
       function hasValue(val: JsonValue): bool {
         return val != null
@@ -667,8 +667,8 @@ describe("emitter — null literal", () => {
         return null == val
       }
     `);
-    expect(cpp).toContain("!(val).isNull()");
-    expect(cpp).toContain("(val).isNull()");
+    expect(cpp).toContain("!std::holds_alternative<std::monostate>(val)");
+    expect(cpp).toContain("std::holds_alternative<std::monostate>(val)");
     expect(cpp).not.toContain("val != nullptr");
     expect(cpp).not.toContain("nullptr == val");
   });
@@ -1089,7 +1089,7 @@ describe("emitter — contextual typing", () => {
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JsonValue(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>");
+    expect(cpp).toContain("doof::json_value(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>");
     expect(cpp).not.toContain("_json_obj_src_");
   });
 
@@ -1102,7 +1102,7 @@ describe("emitter — contextual typing", () => {
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JsonValue(m)");
+    expect(cpp).toContain("doof::json_value(m)");
     expect(cpp).not.toContain("_json_obj_src_");
   });
 
@@ -1115,7 +1115,7 @@ describe("emitter — contextual typing", () => {
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JsonValue(values)");
+    expect(cpp).toContain("doof::json_value(values)");
     expect(cpp).not.toContain("_json_arr_src_");
   });
 
@@ -1129,7 +1129,7 @@ describe("emitter — contextual typing", () => {
       }
     `);
     expect(cpp).toContain("std::visit");
-    expect(cpp).toContain("doof::JsonValue(_value)");
+    expect(cpp).toContain("doof::json_value(_value)");
   });
 
   it("emits long JsonValue primitives without widening to double", () => {
@@ -1139,7 +1139,7 @@ describe("emitter — contextual typing", () => {
         return 0
       }
     `);
-    expect(cpp).toContain("doof::JsonValue(9007199254740993LL)");
+    expect(cpp).toContain("doof::json_value(9007199254740993LL)");
   });
 });
 

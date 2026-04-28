@@ -59,7 +59,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain('{"format", doof::JsonValue("int64")}');
+    expect(cpp).toContain('{"format", doof::json_value("int64")}');
   });
 
   it("excludes private methods from metadata", () => {
@@ -126,7 +126,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("::success(doof::JsonValue(nullptr))");
+    expect(cpp).toContain("::success(doof::json_value(nullptr))");
   });
 
   it("passes through JsonValue Result failures", () => {
@@ -142,7 +142,7 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain("if (_result.isFailure()) {");
     expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::failure(_result.error())");
     expect(cpp).toContain("auto _success = _result.value();");
-    expect(cpp).toContain('{"type", doof::JsonValue("string")}');
+    expect(cpp).toContain('{"type", doof::json_value("string")}');
   });
 
   it("redacts non-JsonValue Result failures to a generic 500 JSON error", () => {
@@ -158,7 +158,7 @@ describe("emitter — structured metadata", () => {
     expect(cpp).toContain("if (_result.isFailure()) {");
     expect(cpp).toContain('doof::json_error(500, "An error occurred")');
     expect(cpp).toContain("auto _success = _result.value();");
-    expect(cpp).toContain('{"type", doof::JsonValue("string")}');
+    expect(cpp).toContain('{"type", doof::json_value("string")}');
   });
 
   it("treats Result<void, E> success as JSON null", () => {
@@ -169,8 +169,8 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("_result.value();");
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::success(doof::JsonValue(nullptr))");
-    expect(cpp).toContain('{"type", doof::JsonValue("null")}');
+    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::success(doof::json_value(nullptr))");
+    expect(cpp).toContain('{"type", doof::json_value("null")}');
   });
 
   it("emits metadata access as ClassName::_metadata", () => {

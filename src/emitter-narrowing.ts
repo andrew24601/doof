@@ -1,9 +1,9 @@
 import type { ResolvedType } from "./checker-types.js";
 import {
-  getJsonValueNarrowCarrierType,
-  getJsonValueRuntimeUnionType,
+  normalizeTypeForRuntime,
   STRING_TYPE,
   typeToString,
+  typesEqualAtRuntime,
   typesEqual,
 } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -76,33 +76,23 @@ export function emitAsNarrowExpression(
   }
 
   if (sourceType.kind === "union") {
+    const unionTarget = normalizeTypeForRuntime(targetType);
+    const failurePrefix = typesEqual(sourceType, targetType)
+      ? `Narrowing from ${escapeStringForCpp(typeToString(sourceType))} to ${escapeStringForCpp(typeToString(targetType))} failed`
+      : `Narrowing from union to ${escapeStringForCpp(typeToString(targetType))} failed`;
     return emitUnionNarrowExpression(
       sourceExpr,
       sourceType,
-      targetType,
+      unionTarget,
       resultCpp,
       tmp,
-      `Narrowing from union to ${escapeStringForCpp(typeToString(targetType))} failed`,
+      failurePrefix,
     );
   }
 
   if (sourceType.kind === "interface" && targetType.kind === "class") {
     const classCpp = emitType(targetType);
     return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${classCpp}>(${tmp})) return ${resultCpp}::success(std::get<${classCpp}>(${tmp})); return ${resultCpp}::failure("Narrowing from ${escapeStringForCpp(sourceType.symbol.name)} to ${escapeStringForCpp(targetType.symbol.name)} failed"); }()`;
-  }
-
-  if (sourceType.kind === "json-value") {
-    const targetCarrier = getJsonValueNarrowCarrierType(targetType);
-    if (targetCarrier) {
-      return emitUnionNarrowExpression(
-        `${sourceExpr}.value`,
-        getJsonValueRuntimeUnionType(),
-        targetCarrier,
-        resultCpp,
-        tmp,
-        `Narrowing from JsonValue to ${escapeStringForCpp(typeToString(targetType))} failed`,
-      );
-    }
   }
 
   return `${resultCpp}::failure("Unsupported narrowing")`;
@@ -170,7 +160,7 @@ function emitCheckedNumericAsExpression(
 }
 
 function isValidUnionMemberNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {
-  return typesEqual(sourceType, targetType) || isNumericAsTarget(sourceType, targetType);
+  return typesEqualAtRuntime(sourceType, targetType) || isNumericAsTarget(sourceType, targetType);
 }
 
 function isNumericAsTarget(sourceType: ResolvedType, targetType: ResolvedType): boolean {

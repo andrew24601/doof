@@ -45,6 +45,7 @@ const RUNTIME_HEADER = `#pragma once
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
@@ -570,56 +571,62 @@ inline std::optional<ParseError> ParseError_fromValue(int32_t value) {
 // JsonValue — first-class JSON runtime value
 // ============================================================================
 
-struct JsonValue {
-    using Array = std::shared_ptr<std::vector<JsonValue>>;
-    using Object = std::shared_ptr<ordered_map<std::string, JsonValue>>;
-    using Storage = std::variant<std::monostate, bool, int32_t, int64_t, float, double, std::string, Array, Object>;
+struct JsonValue;
 
-    Storage value;
+using JsonArray = std::shared_ptr<std::vector<JsonValue>>;
+using JsonObject = std::shared_ptr<ordered_map<std::string, JsonValue>>;
+using JsonStorage = std::variant<std::monostate, bool, int32_t, int64_t, float, double, std::string, JsonArray, JsonObject>;
 
-    JsonValue() : value(std::monostate{}) {}
-    JsonValue(std::nullptr_t) : value(std::monostate{}) {}
-    JsonValue(bool v) : value(v) {}
-    JsonValue(int32_t v) : value(v) {}
-    JsonValue(int64_t v) : value(v) {}
-    JsonValue(float v) : value(v) {}
-    JsonValue(double v) : value(v) {}
-    JsonValue(const std::string& v) : value(v) {}
-    JsonValue(std::string&& v) : value(std::move(v)) {}
-    JsonValue(const char* v) : value(std::string(v)) {}
-    JsonValue(const Array& v) : value(v) {}
-    JsonValue(Array&& v) : value(std::move(v)) {}
-    JsonValue(const Object& v) : value(v) {}
-    JsonValue(Object&& v) : value(std::move(v)) {}
+struct JsonValue : JsonStorage {
+    using JsonStorage::JsonStorage;
 
-    bool isNull() const { return std::holds_alternative<std::monostate>(value); }
+    JsonValue() : JsonStorage(std::monostate{}) {}
+    JsonValue(std::nullptr_t) : JsonStorage(std::monostate{}) {}
+    JsonValue(const char* v) : JsonStorage(std::string(v)) {}
 };
 
+template <typename T>
+inline JsonValue json_value(T&& value) {
+    return JsonValue(std::forward<T>(value));
+}
+
+inline const JsonStorage& json_storage(const JsonValue& value) {
+    return static_cast<const JsonStorage&>(value);
+}
+
+inline JsonStorage& json_storage(JsonValue& value) {
+    return static_cast<JsonStorage&>(value);
+}
+
+inline bool json_is_null(const JsonValue& value) {
+    return std::holds_alternative<std::monostate>(json_storage(value));
+}
+
 inline bool json_is_boolean(const JsonValue& value) {
-    return std::holds_alternative<bool>(value.value);
+    return std::holds_alternative<bool>(json_storage(value));
 }
 
 inline bool json_is_number(const JsonValue& value) {
-    return std::holds_alternative<int32_t>(value.value)
-        || std::holds_alternative<int64_t>(value.value)
-        || std::holds_alternative<float>(value.value)
-        || std::holds_alternative<double>(value.value);
+    return std::holds_alternative<int32_t>(json_storage(value))
+        || std::holds_alternative<int64_t>(json_storage(value))
+        || std::holds_alternative<float>(json_storage(value))
+        || std::holds_alternative<double>(json_storage(value));
 }
 
 inline bool json_is_string(const JsonValue& value) {
-    return std::holds_alternative<std::string>(value.value);
+    return std::holds_alternative<std::string>(json_storage(value));
 }
 
 inline bool json_is_array(const JsonValue& value) {
-    return std::holds_alternative<JsonValue::Array>(value.value);
+    return std::holds_alternative<JsonArray>(json_storage(value));
 }
 
 inline bool json_is_object(const JsonValue& value) {
-    return std::holds_alternative<JsonValue::Object>(value.value);
+    return std::holds_alternative<JsonObject>(json_storage(value));
 }
 
 inline const char* json_type_name(const JsonValue& value) {
-    if (value.isNull()) return "null";
+    if (json_is_null(value)) return "null";
     if (json_is_boolean(value)) return "boolean";
     if (json_is_number(value)) return "number";
     if (json_is_string(value)) return "string";
@@ -628,65 +635,65 @@ inline const char* json_type_name(const JsonValue& value) {
     return "unknown";
 }
 
-inline const JsonValue::Array::element_type* json_as_array(const JsonValue& value) {
-    const auto* array = std::get_if<JsonValue::Array>(&value.value);
+inline const JsonArray::element_type* json_as_array(const JsonValue& value) {
+    const auto* array = std::get_if<JsonArray>(&json_storage(value));
     if (array == nullptr || !*array) return nullptr;
     return array->get();
 }
 
-inline const JsonValue::Object::element_type* json_as_object(const JsonValue& value) {
-    const auto* object = std::get_if<JsonValue::Object>(&value.value);
+inline const JsonObject::element_type* json_as_object(const JsonValue& value) {
+    const auto* object = std::get_if<JsonObject>(&json_storage(value));
     if (object == nullptr || !*object) return nullptr;
     return object->get();
 }
 
 inline JsonValue json_error(int32_t code, std::string message) {
     auto object = std::make_shared<ordered_map<std::string, JsonValue>>();
-    (*object)["code"] = JsonValue(code);
-    (*object)["message"] = JsonValue(std::move(message));
-    return JsonValue(std::move(object));
+    (*object)["code"] = json_value(code);
+    (*object)["message"] = json_value(std::move(message));
+    return json_value(std::move(object));
 }
 
 inline bool json_as_bool(const JsonValue& value) {
-    const auto* result = std::get_if<bool>(&value.value);
+    const auto* result = std::get_if<bool>(&json_storage(value));
     if (result == nullptr) panic("Expected JSON boolean");
     return *result;
 }
 
 inline int32_t json_as_int(const JsonValue& value) {
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<int32_t>(*result);
-    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int32_t>(*result);
-    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<int32_t>(*result);
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return *result;
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return static_cast<int32_t>(*result);
+    if (const auto* result = std::get_if<float>(&json_storage(value))) return static_cast<int32_t>(*result);
+    if (const auto* result = std::get_if<double>(&json_storage(value))) return static_cast<int32_t>(*result);
     panic("Expected JSON number");
 }
 
 inline int64_t json_as_long(const JsonValue& value) {
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result;
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return *result;
-    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<int64_t>(*result);
-    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<int64_t>(*result);
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return *result;
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return *result;
+    if (const auto* result = std::get_if<float>(&json_storage(value))) return static_cast<int64_t>(*result);
+    if (const auto* result = std::get_if<double>(&json_storage(value))) return static_cast<int64_t>(*result);
     panic("Expected JSON number");
 }
 
 inline float json_as_float(const JsonValue& value) {
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<float>(*result);
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<float>(*result);
-    if (const auto* result = std::get_if<float>(&value.value)) return *result;
-    if (const auto* result = std::get_if<double>(&value.value)) return static_cast<float>(*result);
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return static_cast<float>(*result);
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return static_cast<float>(*result);
+    if (const auto* result = std::get_if<float>(&json_storage(value))) return *result;
+    if (const auto* result = std::get_if<double>(&json_storage(value))) return static_cast<float>(*result);
     panic("Expected JSON number");
 }
 
 inline double json_as_double(const JsonValue& value) {
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return static_cast<double>(*result);
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return static_cast<double>(*result);
-    if (const auto* result = std::get_if<float>(&value.value)) return static_cast<double>(*result);
-    if (const auto* result = std::get_if<double>(&value.value)) return *result;
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<float>(&json_storage(value))) return static_cast<double>(*result);
+    if (const auto* result = std::get_if<double>(&json_storage(value))) return *result;
     panic("Expected JSON number");
 }
 
 inline const std::string& json_as_string(const JsonValue& value) {
-    const auto* result = std::get_if<std::string>(&value.value);
+    const auto* result = std::get_if<std::string>(&json_storage(value));
     if (result == nullptr) panic("Expected JSON string");
     return *result;
 }
@@ -706,15 +713,15 @@ inline bool json_is_lenient_number(const JsonValue& value) {
 }
 
 inline bool json_is_lenient_string(const JsonValue& value) {
-    return value.isNull() || json_is_string(value) || json_is_boolean(value) || json_is_number(value);
+    return json_is_null(value) || json_is_string(value) || json_is_boolean(value) || json_is_number(value);
 }
 
 inline bool json_as_bool_lenient(const JsonValue& value) {
     if (json_is_boolean(value)) return json_as_bool(value);
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return *result != 0;
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return *result != 0;
-    if (const auto* result = std::get_if<float>(&value.value)) return *result != 0.0f;
-    if (const auto* result = std::get_if<double>(&value.value)) return *result != 0.0;
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return *result != 0;
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return *result != 0;
+    if (const auto* result = std::get_if<float>(&json_storage(value))) return *result != 0.0f;
+    if (const auto* result = std::get_if<double>(&json_storage(value))) return *result != 0.0;
     if (json_is_string(value)) {
         std::string lowered = json_as_string(value);
         std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
@@ -747,17 +754,17 @@ inline double json_as_double_lenient(const JsonValue& value) {
 }
 
 inline std::string json_as_string_lenient(const JsonValue& value) {
-    if (value.isNull()) return std::string();
+    if (json_is_null(value)) return std::string();
     if (json_is_string(value)) return json_as_string(value);
     if (json_is_boolean(value)) return json_as_bool(value) ? "true" : "false";
-    if (const auto* result = std::get_if<int32_t>(&value.value)) return std::to_string(*result);
-    if (const auto* result = std::get_if<int64_t>(&value.value)) return std::to_string(*result);
-    if (const auto* result = std::get_if<float>(&value.value)) {
+    if (const auto* result = std::get_if<int32_t>(&json_storage(value))) return std::to_string(*result);
+    if (const auto* result = std::get_if<int64_t>(&json_storage(value))) return std::to_string(*result);
+    if (const auto* result = std::get_if<float>(&json_storage(value))) {
         std::ostringstream oss;
         oss << *result;
         return oss.str();
     }
-    if (const auto* result = std::get_if<double>(&value.value)) {
+    if (const auto* result = std::get_if<double>(&json_storage(value))) {
         std::ostringstream oss;
         oss << *result;
         return oss.str();
@@ -834,9 +841,42 @@ inline std::string to_string(const std::shared_ptr<ordered_set<T>>& val) {
     return result;
 }
 
+template <typename... Ts, std::size_t... Is>
+inline std::string tuple_to_string_impl(const std::tuple<Ts...>& val, std::index_sequence<Is...>) {
+    std::string result = "(";
+    ((result += (Is == 0 ? "" : ", ") + to_string(std::get<Is>(val))), ...);
+    result += ")";
+    return result;
+}
+
+template <typename... Ts>
+inline std::string to_string(const std::tuple<Ts...>& val) {
+    return tuple_to_string_impl(val, std::index_sequence_for<Ts...>{});
+}
+
+template <typename T, typename E>
+inline std::string to_string(const Result<T, E>& val) {
+    if (val.isSuccess()) {
+        return "Success(" + to_string(val.value()) + ")";
+    }
+    return "Failure(" + to_string(val.error()) + ")";
+}
+
+template <typename E>
+inline std::string to_string(const Result<void, E>& val) {
+    if (val.isSuccess()) {
+        return "Success()";
+    }
+    return "Failure(" + to_string(val.error()) + ")";
+}
+
 template <typename T>
 inline std::string to_string(const std::optional<T>& val) {
     return val.has_value() ? to_string(*val) : std::string("null");
+}
+
+inline std::string to_string(std::monostate) {
+    return "null";
 }
 
 template <typename... Ts>
@@ -1701,7 +1741,7 @@ inline void append_stringified(std::string& out, const JsonValue& value) {
             out += format_float(static_cast<double>(inner));
         } else if constexpr (std::is_same_v<T, std::string>) {
             append_escaped_string(out, inner);
-        } else if constexpr (std::is_same_v<T, JsonValue::Array>) {
+        } else if constexpr (std::is_same_v<T, JsonArray>) {
             out.push_back('[');
             if (inner != nullptr) {
                 for (size_t index = 0; index < inner->size(); ++index) {
@@ -1724,7 +1764,7 @@ inline void append_stringified(std::string& out, const JsonValue& value) {
             }
             out.push_back('}');
         }
-    }, value.value);
+    }, json_storage(value));
 }
 
 } // namespace json_detail`;

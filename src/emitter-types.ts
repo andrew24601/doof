@@ -13,7 +13,7 @@
  *   - Nullable → std::optional for primitives, nullptr for pointers
  */
 
-import type { ResolvedType, PrimitiveName } from "./checker-types.js";
+import { isJsonValueType, type ResolvedType, type PrimitiveName } from "./checker-types.js";
 
 // ============================================================================
 // Primitive mapping
@@ -41,10 +41,11 @@ const PRIMITIVE_MAP: Record<PrimitiveName, string> = {
  * class instances are heap-allocated and reference-counted.
  */
 export function emitType(type: ResolvedType): string {
-  switch (type.kind) {
-    case "json-value":
-      return "doof::JsonValue";
+  if (isJsonValueType(type)) {
+    return "doof::JsonValue";
+  }
 
+  switch (type.kind) {
     case "primitive":
       return PRIMITIVE_MAP[type.name];
 
@@ -155,6 +156,10 @@ export function emitType(type: ResolvedType): string {
 }
 
 export function mangleTypeForCppName(type: ResolvedType): string {
+  if (isJsonValueType(type)) {
+    return "json";
+  }
+
   switch (type.kind) {
     case "primitive":
       return type.name;
@@ -200,8 +205,6 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return `failure_${mangleTypeForCppName(type.errorType)}`;
     case "typevar":
       return type.name;
-    case "json-value":
-      return "json";
     case "builtin-namespace":
       return type.name;
     case "mock-capture":
@@ -278,9 +281,11 @@ function emitUnionType(types: ResolvedType[]): string {
  * Emit a C++ default value for a type (used for uninitialized locals etc.).
  */
 export function emitDefaultValue(type: ResolvedType): string {
+  if (isJsonValueType(type)) {
+    return "doof::json_value(nullptr)";
+  }
+
   switch (type.kind) {
-    case "json-value":
-      return "doof::JsonValue(nullptr)";
     case "primitive":
       switch (type.name) {
         case "byte": return "static_cast<uint8_t>(0)";
@@ -339,6 +344,7 @@ export function isPointerType(type: ResolvedType): boolean {
  * Single-primitive nullable (`int | null`) emits as optional, NOT variant.
  */
 export function isVariantUnionType(type: ResolvedType): boolean {
+  if (isJsonValueType(type)) return false;
   if (type.kind !== "union") return false;
   const hasNull = type.types.some((t) => t.kind === "null");
   const nonNull = type.types.filter((t) => t.kind !== "null");
@@ -356,7 +362,7 @@ export function isVariantUnionType(type: ResolvedType): boolean {
  *   - `std::shared_ptr<T>` / pointer      → `nullptr`
  */
 export function emitNullForType(type: ResolvedType): string {
-  if (type.kind === "json-value") return "doof::JsonValue(nullptr)";
+  if (isJsonValueType(type)) return "doof::json_value(nullptr)";
   if (isVariantUnionType(type)) return "std::monostate{}";
   if (type.kind === "union") {
     const nonNull = type.types.filter((t) => t.kind !== "null");
@@ -377,10 +383,12 @@ export function emitNullForType(type: ResolvedType): string {
 
 /**
  * Check if comparing a value with null needs monostate-based comparison.
- * Returns true for variant unions with monostate (multi-type nullable unions).
+ * Returns true for variant-backed nullable unions, including JsonValue.
  */
 export function isMonostateNullable(type: ResolvedType): boolean {
-  return type.kind === "union" && isVariantUnionType(type) && type.types.some((t: ResolvedType) => t.kind === "null");
+  return type.kind === "union"
+    && type.types.some((t: ResolvedType) => t.kind === "null")
+    && (isVariantUnionType(type) || isJsonValueType(type));
 }
 
 /**

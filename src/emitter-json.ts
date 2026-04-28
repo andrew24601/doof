@@ -8,7 +8,7 @@
 
 import type { AnalysisResult } from "./analyzer.js";
 import type { ClassDeclaration, InterfaceDeclaration, Statement } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
@@ -91,9 +91,11 @@ export function markReferencedClasses(
   classDecls: Map<string, ClassDeclaration[]>,
   worklist: ClassDeclaration[],
 ): void {
+  if (isJsonValueType(type)) {
+    return;
+  }
+
   switch (type.kind) {
-    case "json-value":
-      break;
     case "class": {
       const decls = classDecls.get(type.symbol.name);
       if (decls) {
@@ -139,37 +141,38 @@ function unwrapExport(stmt: Statement): Statement {
  * a doof::JsonValue. Returns a C++ expression string.
  */
 export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string {
-  switch (type.kind) {
-    case "json-value":
-      return fieldExpr;
+  if (isJsonValueType(type)) {
+    return fieldExpr;
+  }
 
+  switch (type.kind) {
     case "primitive":
       if (type.name === "char") {
-        return `doof::JsonValue(std::string(1, static_cast<char>(${fieldExpr})))`;
+        return `doof::json_value(std::string(1, static_cast<char>(${fieldExpr})))`;
       }
       if (type.name === "byte") {
-        return `doof::JsonValue(static_cast<int32_t>(${fieldExpr}))`;
+        return `doof::json_value(static_cast<int32_t>(${fieldExpr}))`;
       }
-      return `doof::JsonValue(${fieldExpr})`;
+      return `doof::json_value(${fieldExpr})`;
 
     case "class":
       return `${fieldExpr}->toJsonValue()`;
 
     case "array":
-      return `[&]() { auto _arr = std::make_shared<std::vector<doof::JsonValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::JsonValue(_arr); }()`;
+      return `[&]() { auto _arr = std::make_shared<std::vector<doof::JsonValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::json_value(_arr); }()`;
 
     case "tuple": {
       const parts = type.elements.map((element, index) =>
         emitSerializeExpr(`std::get<${index}>(${fieldExpr})`, element),
       );
-      return `doof::JsonValue(std::make_shared<std::vector<doof::JsonValue>>(std::initializer_list<doof::JsonValue>{${parts.join(", ")}}))`;
+      return `doof::json_value(std::make_shared<std::vector<doof::JsonValue>>(std::initializer_list<doof::JsonValue>{${parts.join(", ")}}))`;
     }
 
     case "enum":
-      return `doof::JsonValue(${type.symbol.name}_name(${fieldExpr}))`;
+      return `doof::json_value(${type.symbol.name}_name(${fieldExpr}))`;
 
     case "null":
-      return "doof::JsonValue(nullptr)";
+      return "doof::json_value(nullptr)";
 
     case "union": {
       const nonNull = type.types.filter((inner) => inner.kind !== "null");
@@ -177,9 +180,9 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "class") {
-          return `(${fieldExpr} ? ${emitSerializeExpr(fieldExpr, inner)} : doof::JsonValue(nullptr))`;
+          return `(${fieldExpr} ? ${emitSerializeExpr(fieldExpr, inner)} : doof::json_value(nullptr))`;
         }
-        return `(${fieldExpr}.has_value() ? ${emitSerializeExpr(`${fieldExpr}.value()`, inner)} : doof::JsonValue(nullptr))`;
+        return `(${fieldExpr}.has_value() ? ${emitSerializeExpr(`${fieldExpr}.value()`, inner)} : doof::json_value(nullptr))`;
       }
       throw new Error("General union JSON serialization is not supported");
     }
@@ -200,10 +203,11 @@ export function emitDeserializeExpr(
   ctx: EmitContext,
   lenientExpr = "false",
 ): string {
-  switch (type.kind) {
-    case "json-value":
-      return jsonExpr;
+  if (isJsonValueType(type)) {
+    return jsonExpr;
+  }
 
+  switch (type.kind) {
     case "primitive":
       switch (type.name) {
         case "byte": return `static_cast<uint8_t>((${lenientExpr}) ? doof::json_as_int_lenient(${jsonExpr}) : doof::json_as_int(${jsonExpr}))`;
@@ -244,9 +248,9 @@ export function emitDeserializeExpr(
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "class") {
-          return `((${jsonExpr}).isNull() ? ${emitType(type)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)})`;
+          return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)})`;
         }
-        return `((${jsonExpr}).isNull() ? ${emitType(type)}{std::nullopt} : ${emitType(type)}{${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)}})`;
+        return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type)}{std::nullopt} : ${emitType(type)}{${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)}})`;
       }
       throw new Error("General union JSON deserialization is not supported");
     }
@@ -262,9 +266,11 @@ export function emitDeserializeExpr(
 
 /** Emit the expected JsonValue type check for a field type. */
 export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType, lenientExpr = "false"): string {
+  if (isJsonValueType(type)) {
+    return "true";
+  }
+
   switch (type.kind) {
-    case "json-value":
-      return "true";
     case "primitive":
       switch (type.name) {
         case "byte":
@@ -289,12 +295,12 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType, lenientE
     case "enum":
       return `doof::json_is_string(${jsonExpr})`;
     case "null":
-      return `(${jsonExpr}).isNull()`;
+      return `doof::json_is_null(${jsonExpr})`;
     case "union": {
       const nonNull = type.types.filter((inner) => inner.kind !== "null");
       const hasNull = type.types.some((inner) => inner.kind === "null");
       if (hasNull && nonNull.length === 1) {
-        return `((${jsonExpr}).isNull() || ${emitJsonTypeCheck(jsonExpr, nonNull[0], lenientExpr)})`;
+        return `(doof::json_is_null(${jsonExpr}) || ${emitJsonTypeCheck(jsonExpr, nonNull[0], lenientExpr)})`;
       }
       return "true";
     }
@@ -305,9 +311,11 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType, lenientE
 
 /** Descriptive name for a JSON type, used in error messages. */
 export function jsonTypeName(type: ResolvedType): string {
+  if (isJsonValueType(type)) {
+    return "json";
+  }
+
   switch (type.kind) {
-    case "json-value":
-      return "json";
     case "primitive":
       switch (type.name) {
         case "byte":
@@ -368,7 +376,7 @@ export function emitToJSON(
     }
   }
 
-  ctx.sourceLines.push(`${bodyInd}return doof::JsonValue(_j);`);
+  ctx.sourceLines.push(`${bodyInd}return doof::json_value(_j);`);
   ctx.sourceLines.push(`${memberInd}}`);
 }
 

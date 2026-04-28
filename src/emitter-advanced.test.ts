@@ -10,7 +10,7 @@ import { emit } from "./emitter-test-helpers.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitType } from "./emitter-types.js";
 import { isVariantUnionType, emitNullForType, isMonostateNullable } from "./emitter-types.js";
-import type { ResolvedType } from "./checker-types.js";
+import { JSON_VALUE_TYPE, type ResolvedType } from "./checker-types.js";
 
 // ============================================================================
 // Result<T, E> type emission and try operators
@@ -599,6 +599,10 @@ describe("emitter-types — isMonostateNullable", () => {
     };
     expect(isMonostateNullable(type)).toBe(false);
   });
+
+  it("returns true for JsonValue", () => {
+    expect(isMonostateNullable(JSON_VALUE_TYPE)).toBe(true);
+  });
 });
 
 describe("emitter — null coercion in generated C++", () => {
@@ -704,8 +708,8 @@ describe("emitter — JSON serialization", () => {
     `);
     expect(cpp).toContain("doof::JsonValue toJsonValue() const {");
     expect(cpp).toContain("std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>()");
-    expect(cpp).toContain('(*_j)["x"] = doof::JsonValue(this->x);');
-    expect(cpp).toContain('(*_j)["y"] = doof::JsonValue(this->y);');
+    expect(cpp).toContain('(*_j)["x"] = doof::json_value(this->x);');
+    expect(cpp).toContain('(*_j)["y"] = doof::json_value(this->y);');
   });
 
   it("emits fromJsonValue method for simple class", () => {
@@ -745,8 +749,8 @@ describe("emitter — JSON serialization", () => {
       }
       function test(c: Config): JsonValue => c.toJsonValue()
     `);
-    expect(cpp).toContain('(*_j)["name"] = doof::JsonValue(this->name);');
-    expect(cpp).toContain('(*_j)["enabled"] = doof::JsonValue(this->enabled);');
+    expect(cpp).toContain('(*_j)["name"] = doof::json_value(this->name);');
+    expect(cpp).toContain('(*_j)["enabled"] = doof::json_value(this->enabled);');
   });
 
   it("emits fromJsonValue with default value handling", () => {
@@ -829,7 +833,7 @@ describe("emitter — JSON serialization", () => {
       }
       function test(c: Container): JsonValue => c.toJsonValue()
     `);
-    expect(cpp).toContain("isNull()");
+    expect(cpp).toContain("doof::json_is_null(");
   });
 
   it("does NOT emit toJsonValue for non-serializable class", () => {
@@ -1534,7 +1538,7 @@ describe("emitter — as expression", () => {
         return x as readonly Map<string, JsonValue>
       }
     `);
-    expect(cpp).toContain("auto _as_0 = x.value");
+    expect(cpp).toContain("auto _as_0 = x");
     expect(cpp).toContain("std::holds_alternative<std::shared_ptr<doof::ordered_map<std::string, doof::JsonValue>>>");
     expect(cpp).toContain("std::get<std::shared_ptr<doof::ordered_map<std::string, doof::JsonValue>>>");
   });

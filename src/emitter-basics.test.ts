@@ -936,6 +936,18 @@ describe("emitter — union type mapping", () => {
     };
     expect(emitType(t)).toBe("std::variant<std::monostate, int32_t, std::string>");
   });
+
+  it("coerces narrower primitive unions into nullable primitive unions", () => {
+    const cpp = emit(`
+      function main(): void {
+        str: string | int := "Cat"
+        foo: string | int | null := str
+        println(foo)
+      }
+    `);
+    expect(cpp).toContain("[&]() -> std::variant<std::monostate, std::string, int32_t>");
+    expect(cpp).toContain("std::visit(");
+  });
 });
 
 // ============================================================================

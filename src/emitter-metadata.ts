@@ -13,7 +13,7 @@
 import type { ClassDeclaration } from "./ast.js";
 import type { AnalysisResult } from "./analyzer.js";
 import type { Statement } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
 import { emitType } from "./emitter-types.js";
@@ -211,11 +211,11 @@ export function emitMetadataDefinition(
 
     if (!retType || retType.kind === "void") {
       ctx.sourceLines.push(`${ind}                _instance->${safeName}(${args});`);
-      ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::JsonValue(nullptr)")};`);
+      ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::json_value(nullptr)")};`);
     } else if (retType.kind === "result") {
       ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
       ctx.sourceLines.push(`${ind}                if (_result.isFailure()) {`);
-      if (retType.errorType.kind === "json-value") {
+      if (isJsonValueType(retType.errorType)) {
         ctx.sourceLines.push(`${ind}                    return ${METADATA_RESULT_TYPE}::failure(_result.error());`);
       } else {
         ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(500, '"An error occurred"')};`);
@@ -223,7 +223,7 @@ export function emitMetadataDefinition(
       ctx.sourceLines.push(`${ind}                }`);
       if (retType.successType.kind === "void") {
         ctx.sourceLines.push(`${ind}                _result.value();`);
-        ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::JsonValue(nullptr)")};`);
+        ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::json_value(nullptr)")};`);
       } else {
         ctx.sourceLines.push(`${ind}                auto _success = _result.value();`);
         const serialized = emitSerializeExpr("_success", retType.successType);
@@ -256,32 +256,32 @@ function escapeStringLiteral(s: string): string {
 
 function emitJsonLiteralValue(value: unknown): string {
   if (value === null) {
-    return "doof::JsonValue(nullptr)";
+    return "doof::json_value(nullptr)";
   }
 
   if (typeof value === "boolean") {
-    return `doof::JsonValue(${value ? "true" : "false"})`;
+    return `doof::json_value(${value ? "true" : "false"})`;
   }
 
   if (typeof value === "number") {
     if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
-      return `doof::JsonValue(static_cast<int32_t>(${value}))`;
+      return `doof::json_value(static_cast<int32_t>(${value}))`;
     }
-    return `doof::JsonValue(${String(value)})`;
+    return `doof::json_value(${String(value)})`;
   }
 
   if (typeof value === "string") {
-    return `doof::JsonValue("${escapeStringLiteral(value)}")`;
+    return `doof::json_value("${escapeStringLiteral(value)}")`;
   }
 
   if (Array.isArray(value)) {
     const items = value.map((item) => emitJsonLiteralValue(item)).join(", ");
-    return `doof::JsonValue(std::make_shared<std::vector<doof::JsonValue>>(std::vector<doof::JsonValue>{${items}}))`;
+    return `doof::json_value(std::make_shared<std::vector<doof::JsonValue>>(std::vector<doof::JsonValue>{${items}}))`;
   }
 
   if (isPlainJsonObject(value)) {
     const entries = Object.entries(value).map(([key, inner]) => `{"${escapeStringLiteral(key)}", ${emitJsonLiteralValue(inner)}}`);
-    return `doof::JsonValue(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(doof::ordered_map<std::string, doof::JsonValue>{${entries.join(", ")}}))`;
+    return `doof::json_value(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(doof::ordered_map<std::string, doof::JsonValue>{${entries.join(", ")}}))`;
   }
 
   throw new Error(`Unsupported metadata JSON literal: ${String(value)}`);

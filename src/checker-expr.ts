@@ -19,12 +19,12 @@ import {
   formatUnsupportedHashCollectionConstraintMessage,
   INT_TYPE,
   isAssignableTo,
-  getJsonValueNarrowCarrierType,
-  getJsonValueRuntimeUnionType,
+  isJsonValueType,
   isSupportedHashCollectionElementType,
   isSupportedMapKeyType,
   JSON_VALUE_TYPE,
   LONG_TYPE,
+  normalizeTypeForRuntime,
   NULL_TYPE,
   STRING_TYPE,
   substituteTypeParams,
@@ -1235,7 +1235,7 @@ function inferExprTypeInner(
     }
 
     case "array-literal": {
-      if (expectedType?.kind === "json-value") {
+      if (expectedType && isJsonValueType(expectedType)) {
         expr.elements.forEach((e) => inferExprType(host, e, scope, table, info, JSON_VALUE_TYPE));
         return { kind: "array", elementType: JSON_VALUE_TYPE, readonly_: expr.readonly_ };
       }
@@ -1292,7 +1292,7 @@ function inferExprTypeInner(
     }
 
     case "object-literal": {
-      if (expectedType?.kind === "json-value") {
+      if (expectedType && isJsonValueType(expectedType)) {
         inferObjectLiteralProperties(host, expr, scope, table, info, () => JSON_VALUE_TYPE);
         return { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE };
       }
@@ -1339,7 +1339,7 @@ function inferExprTypeInner(
     case "map-literal": {
       const expectedMap = expectedType?.kind === "map"
         ? expectedType
-        : expectedType?.kind === "json-value"
+        : expectedType && isJsonValueType(expectedType)
           ? { kind: "map" as const, keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE }
           : undefined;
 
@@ -2052,9 +2052,9 @@ function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): bo
   if (isNumericAsTarget(sourceType, targetType)) return true;
 
   // JsonValue -> exact runtime member, treated as a canonical JSON sum type
-  if (sourceType.kind === "json-value") {
-    const targetCarrier = getJsonValueNarrowCarrierType(targetType);
-    return targetCarrier !== null && isValidAsNarrow(getJsonValueRuntimeUnionType(), targetCarrier);
+  if (isJsonValueType(sourceType)) {
+    const runtimeTarget = normalizeTypeForRuntime(targetType);
+    return sourceType.types.some((member) => isValidAsNarrow(member, runtimeTarget));
   }
 
   // T | null -> T (nullable narrowing: target is the non-null part)
