@@ -292,9 +292,9 @@ describe("Lexer", () => {
       ]);
     });
 
-    it("lexes arrow and ellipsis", () => {
-      expect(tokenTypes("=> ...")).toEqual([
-        TokenType.Arrow, TokenType.Ellipsis,
+    it("lexes arrows and ellipsis", () => {
+      expect(tokenTypes("-> => ...")).toEqual([
+        TokenType.RightArrow, TokenType.Arrow, TokenType.Ellipsis,
         TokenType.EOF,
       ]);
     });

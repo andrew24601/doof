@@ -548,9 +548,9 @@ describe("emitter — case expressions", () => {
     const cpp = emit(`
       function describe(x: int): int {
         return case x {
-          0 => 10,
-          1 => 20,
-          _ => 30
+          0 -> 10,
+          1 -> 20,
+          _ -> 30
         }
       }
     `);
@@ -564,9 +564,9 @@ describe("emitter — case expressions", () => {
     const cpp = emit(`
       function grade(score: int): int {
         return case score {
-          90..100 => 4,
-          80..<90 => 3,
-          _ => 0
+          90..100 -> 4,
+          80..<90 -> 3,
+          _ -> 0
         }
       }
     `);

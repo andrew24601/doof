@@ -30,10 +30,10 @@ function insertTodo(statement: Statement, title: string, done: bool): Result<voi
 
 function readTodo(row: Map<string, SqliteValue>): Result<Todo, SqliteError> {
   return case Todo.fromJsonValue(toJsonRow(row), true) {
-    s: Success => Success {
+    s: Success -> Success {
       value: s.value
     },
-    f: Failure => Failure {
+    f: Failure -> Failure {
       error: SqliteError {
         stage: "read",
         code: 0,
@@ -110,12 +110,12 @@ function main(): int {
   result := runSample(":memory:")
 
   println(case result {
-    s: Success => formatOutput(s.value),
-    f: Failure => formatError(f.error)
+    s: Success -> formatOutput(s.value),
+    f: Failure -> formatError(f.error)
   })
 
   return case result {
-    s: Success => 0,
-    f: Failure => 1
+    s: Success -> 0,
+    f: Failure -> 1
   }
 }

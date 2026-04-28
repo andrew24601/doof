@@ -364,6 +364,7 @@ export function tokenize(source: string): DoofToken[] {
       } else if (twoChar === "==" || twoChar === "!=" || twoChar === "<=" ||
                  twoChar === ">=" || twoChar === "&&" || twoChar === "||" ||
                  twoChar === "**" || twoChar === "??" || twoChar === "=>" ||
+                 twoChar === "->" ||
                  twoChar === "+=" || twoChar === "-=" || twoChar === "*=" ||
                  twoChar === "/=" || twoChar === "%=" || twoChar === "&=" ||
                  twoChar === "|=" || twoChar === "^=" || twoChar === "<<" ||

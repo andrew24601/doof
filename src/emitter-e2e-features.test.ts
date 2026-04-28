@@ -308,8 +308,8 @@ describe("e2e — array safety", () => {
         let values: int[] = []
         popped := values.pop()
         message := case popped {
-          _: Success => "unexpected success",
-          f: Failure => f.error,
+          _: Success -> "unexpected success",
+          f: Failure -> f.error,
         }
         println(message)
         if message == "Attempted to pop from empty array" {
@@ -334,8 +334,8 @@ describe("e2e — array safety", () => {
 
         popped := nums.pop()
         last := case popped {
-          s: Success => s.value,
-          _: Failure => -1,
+          s: Success -> s.value,
+          _: Failure -> -1,
         }
         if last != 3 { return 2 }
         if nums.length != 2 { return 3 }
@@ -548,12 +548,12 @@ describe("e2e — map safety", () => {
       function main(): int {
         let m: Map<string, int> = { "a": 10, "b": 20 }
         const found = case m.get("b") {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         const missing = case m.get("missing") {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(found)
         println(missing)

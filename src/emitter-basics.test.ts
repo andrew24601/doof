@@ -420,8 +420,8 @@ describe("emitter — control flow", () => {
     const cpp = emit(`
       function f(): int {
         case 1 {
-          1 => { return 42 }
-          _ => { return 0 }
+          1 -> { return 42 }
+          _ -> { return 0 }
         }
       }
     `);
@@ -436,11 +436,11 @@ describe("emitter — control flow", () => {
         let i = 0
         while i < 2 {
           case i {
-            0 => {
+            0 -> {
               i = i + 1
               continue
             }
-            _ => { break }
+            _ -> { break }
           }
         }
         return i
@@ -455,10 +455,10 @@ describe("emitter — control flow", () => {
     const cpp = emit(`
       function f(x: int): string {
         return case x {
-          0 => {
+          0 -> {
             yield "zero"
           },
-          _ => {
+          _ -> {
             yield "other"
           }
         }

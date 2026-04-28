@@ -708,8 +708,8 @@ class Database {
 
 function openDb(path: string): Result<Database, string> {
     return case NativeSqliteDatabase.open(path) {
-        s: Success => Success { value: Database { native: s.value } },
-        f: Failure => Failure { error: f.error }
+        s: Success -> Success { value: Database { native: s.value } },
+        f: Failure -> Failure { error: f.error }
     }
 }
 ```

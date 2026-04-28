@@ -85,9 +85,9 @@ describe("e2e — feature combinations", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
         describe := (n: int): string => case n {
-          1 => "one",
-          2 => "two",
-          _ => "other"
+          1 -> "one",
+          2 -> "two",
+          _ -> "other"
         }
         println(describe(1))
         println(describe(2))
@@ -108,12 +108,12 @@ describe("e2e — feature combinations", () => {
         x := 2
         y := 3
         result := case x {
-          1 => "x=1",
-          2 => case y {
-            3 => "x=2,y=3",
-            _ => "x=2,y=other"
+          1 -> "x=1",
+          2 -> case y {
+            3 -> "x=2,y=3",
+            _ -> "x=2,y=other"
           },
-          _ => "x=other"
+          _ -> "x=other"
         }
         println(result)
         return 0
@@ -129,10 +129,10 @@ describe("e2e — feature combinations", () => {
   it("case expression with string value matching", () => {
     const result = ctx.compileAndRun(`
       function greet(lang: string): string => case lang {
-        "en" => "hello",
-        "es" => "hola",
-        "fr" => "bonjour",
-        _ => "hi"
+        "en" -> "hello",
+        "es" -> "hola",
+        "fr" -> "bonjour",
+        _ -> "hi"
       }
 
       function main(): int {
@@ -153,9 +153,9 @@ describe("e2e — feature combinations", () => {
   it("case expression as expression-bodied function return", () => {
     const result = ctx.compileAndRun(`
       function classify(n: int): string => case n {
-        0 => "zero",
-        1..10 => "small",
-        _ => "big"
+        0 -> "zero",
+        1..10 -> "small",
+        _ -> "big"
       }
 
       function main(): int {
@@ -252,8 +252,8 @@ describe("e2e — feature combinations", () => {
       function main(): int {
         r := process()
         out := case r {
-          _: Success => "no-err",
-          f: Failure => f.error
+          _: Success -> "no-err",
+          f: Failure -> f.error
         }
         println(out)
         return 0
@@ -287,15 +287,15 @@ describe("e2e — feature combinations", () => {
       function main(): int {
         r1 := sumPositive([1, 2, 3])
         out1 := case r1 {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(out1)
 
         r2 := sumPositive([1, -5, 3])
         out2 := case r2 {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(out2)
         return 0
@@ -789,9 +789,9 @@ describe("e2e — feature combinations", () => {
       enum Color { Red, Green, Blue }
 
       function describe(c: Color): string => case c {
-        Color.Red => "warm",
-        Color.Green => "cool",
-        Color.Blue => "cool"
+        Color.Red -> "warm",
+        Color.Green -> "cool",
+        Color.Blue -> "cool"
       }
 
       function main(): int {
@@ -832,15 +832,15 @@ describe("e2e — feature combinations", () => {
       function main(): int {
         r := pipeline(5)
         out := case r {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(out)
 
         r2 := pipeline(-1)
         out2 := case r2 {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(out2)
         return 0
@@ -1252,7 +1252,7 @@ describe("e2e — boundary conditions", () => {
       function main(): int {
         x := 42
         result := case x {
-          _ => "always this"
+          _ -> "always this"
         }
         println(result)
         return 0
@@ -1341,8 +1341,8 @@ describe("e2e — boundary conditions", () => {
       function main(): int {
         r := compute()
         out := case r {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(out)
         return 0
@@ -1733,9 +1733,9 @@ describe("e2e — multi-module feature combinations", () => {
         import { Status } from "./types"
 
         function describe(s: Status): string => case s {
-          Status.Active => "active",
-          Status.Inactive => "inactive",
-          Status.Pending => "pending"
+          Status.Active -> "active",
+          Status.Inactive -> "inactive",
+          Status.Pending -> "pending"
         }
 
         function main(): int {

@@ -78,12 +78,12 @@ function main(): int {
   result := runSample()
 
   println(case result {
-    s: Success => formatOutput(s.value),
-    f: Failure => formatError(f.error)
+    s: Success -> formatOutput(s.value),
+    f: Failure -> formatError(f.error)
   })
 
   return case result {
-    s: Success => 0,
-    f: Failure => 1
+    s: Success -> 0,
+    f: Failure -> 1
   }
 }

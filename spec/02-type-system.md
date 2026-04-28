@@ -209,8 +209,8 @@ nums := [1, 2, 3, 4]
 nums.push(5)                         // nums is now [1, 2, 3, 4, 5]
 popped := nums.pop()                 // Result<int, string>
 last := case popped {
-  s: Success => s.value,
-  _: Failure => -1,
+    s: Success -> s.value,
+    _: Failure -> -1,
 }
 // nums is now [1, 2, 3, 4]
 tail := nums.slice(1, 3)             // [2, 3]  (int[])
@@ -572,18 +572,18 @@ Shorthand works anywhere the compiler can infer the enum type from context:
 direction: Direction := .North
 
 case direction {
-    .North => moveUp()
-    .South => moveDown()
-    .East  => moveRight()
-    .West  => moveLeft()
+    .North -> moveUp()
+    .South -> moveDown()
+    .East  -> moveRight()
+    .West  -> moveLeft()
 }
 
 // Equivalent to:
 case direction {
-    Direction.North => moveUp()
-    Direction.South => moveDown()
-    Direction.East  => moveRight()
-    Direction.West  => moveLeft()
+    Direction.North -> moveUp()
+    Direction.South -> moveDown()
+    Direction.East  -> moveRight()
+    Direction.West  -> moveLeft()
 }
 ```
 
@@ -796,8 +796,8 @@ type Outcome = SuccessOutcome | FailureOutcome
 
 function show(o: Outcome): void {
     case o {
-        s: SuccessOutcome => print(s.value)
-        _: FailureOutcome => print("unexpected")
+        s: SuccessOutcome -> print(s.value)
+        _: FailureOutcome -> print("unexpected")
     }
 }
 
@@ -987,8 +987,8 @@ print(unique.size)
 let m: Map<string, int> = { "a": 1, "b": 2 }
 m.set("c", 3)
 case m.get("a") {
-    s: Success => print(s.value)
-    _: Failure => print("missing")
+    s: Success -> print(s.value)
+    _: Failure -> print("missing")
 }
 print(m.has("d"))     // false
 print(m.size)         // 3
@@ -1345,8 +1345,8 @@ type Result = Success | Failure
 
 function handle(r: Result): void {
     case r {
-        s: Success => print(s.value)
-        f: Failure => print(f.error)
+        s: Success -> print(s.value)
+        f: Failure -> print(f.error)
     }
 }
 
@@ -1354,10 +1354,10 @@ enum Direction { North, South, East, West }
 
 function describe(dir: Direction): string {
     return case dir {
-        .North => "north",
-        .South => "south",
-        .East => "east",
-        .West => "west"
+        .North -> "north",
+        .South -> "south",
+        .East -> "east",
+        .West -> "west"
     }
 }
 ```

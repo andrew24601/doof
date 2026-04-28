@@ -53,13 +53,13 @@ export class Statement {
 
 export function open(path: string): Result<Database, SqliteError> {
   return case NativeSqliteDatabase.open(path) {
-    s: Success => Success {
+    s: Success -> Success {
       value: Database {
         native: s.value,
         path,
       }
     },
-    f: Failure => Failure {
+    f: Failure -> Failure {
       error: decodeError("open", f.error, null)
     }
   }
@@ -67,8 +67,8 @@ export function open(path: string): Result<Database, SqliteError> {
 
 export function close(database: Database): Result<void, SqliteError> {
   return case database.native.close() {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("close", f.error, null)
     }
   }
@@ -116,10 +116,10 @@ function nullColumnError(name: string): SqliteError {
 
 function valueTypeName(value: SqliteValue): string {
   return case value {
-    _: long => "long",
-    _: double => "double",
-    _: string => "string",
-    _ => "null"
+    _: long -> "long",
+    _: double -> "double",
+    _: string -> "string",
+    _ -> "null"
   }
 }
 
@@ -154,10 +154,10 @@ function emptyRow(): Map<string, SqliteValue> | null {
 
 function readCurrentRow(statement: Statement): Result<Map<string, SqliteValue>, SqliteError> {
   return case statement.native.readCurrentRow() {
-    s: Success => Success {
+    s: Success -> Success {
       value: s.value
     },
-    f: Failure => Failure {
+    f: Failure -> Failure {
       error: decodeError("read", f.error, statement.sql)
     }
   }
@@ -166,10 +166,10 @@ function readCurrentRow(statement: Statement): Result<Map<string, SqliteValue>, 
 export function executeInfo(database: Database, sql: string, values: SqliteParam[] = []): Result<ExecResult, SqliteError> {
   if values.length == 0 {
     return case database.native.exec(sql) {
-      s: Success => Success {
+      s: Success -> Success {
         value: toExecResult(s.value)
       },
-      f: Failure => Failure {
+      f: Failure -> Failure {
         error: decodeError("execute", f.error, sql)
       }
     }
@@ -193,8 +193,8 @@ export function executeInfo(database: Database, sql: string, values: SqliteParam
 
 export function execute(database: Database, sql: string, values: SqliteParam[] = []): Result<void, SqliteError> {
   return case executeInfo(database, sql, values) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: f.error
     }
   }
@@ -202,13 +202,13 @@ export function execute(database: Database, sql: string, values: SqliteParam[] =
 
 export function prepare(database: Database, sql: string): Result<Statement, SqliteError> {
   return case database.native.prepare(sql) {
-    s: Success => Success {
+    s: Success -> Success {
       value: Statement {
         native: s.value,
         sql,
       }
     },
-    f: Failure => Failure {
+    f: Failure -> Failure {
       error: decodeError("prepare", f.error, sql)
     }
   }
@@ -216,8 +216,8 @@ export function prepare(database: Database, sql: string): Result<Statement, Sqli
 
 export function bindText(statement: Statement, index: int, value: string): Result<void, SqliteError> {
   return case statement.native.bindText(index, value) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("bind", f.error, statement.sql)
     }
   }
@@ -225,8 +225,8 @@ export function bindText(statement: Statement, index: int, value: string): Resul
 
 export function bindInt(statement: Statement, index: int, value: int): Result<void, SqliteError> {
   return case statement.native.bindInt(index, value) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("bind", f.error, statement.sql)
     }
   }
@@ -234,8 +234,8 @@ export function bindInt(statement: Statement, index: int, value: int): Result<vo
 
 export function bindLong(statement: Statement, index: int, value: long): Result<void, SqliteError> {
   return case statement.native.bindLong(index, value) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("bind", f.error, statement.sql)
     }
   }
@@ -243,8 +243,8 @@ export function bindLong(statement: Statement, index: int, value: long): Result<
 
 export function bindDouble(statement: Statement, index: int, value: double): Result<void, SqliteError> {
   return case statement.native.bindDouble(index, value) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("bind", f.error, statement.sql)
     }
   }
@@ -252,8 +252,8 @@ export function bindDouble(statement: Statement, index: int, value: double): Res
 
 export function bindNull(statement: Statement, index: int): Result<void, SqliteError> {
   return case statement.native.bindNull(index) {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("bind", f.error, statement.sql)
     }
   }
@@ -261,12 +261,12 @@ export function bindNull(statement: Statement, index: int): Result<void, SqliteE
 
 export function bindValue(statement: Statement, index: int, value: SqliteParam): Result<void, SqliteError> {
   return case value {
-    text: string => bindText(statement, index, text),
-    flag: bool => bindInt(statement, index, if flag then 1 else 0),
-    number: int => bindInt(statement, index, number),
-    whole: long => bindLong(statement, index, whole),
-    decimal: double => bindDouble(statement, index, decimal),
-    _ => bindNull(statement, index)
+    text: string -> bindText(statement, index, text),
+    flag: bool -> bindInt(statement, index, if flag then 1 else 0),
+    number: int -> bindInt(statement, index, number),
+    whole: long -> bindLong(statement, index, whole),
+    decimal: double -> bindDouble(statement, index, decimal),
+    _ -> bindNull(statement, index)
   }
 }
 
@@ -297,8 +297,8 @@ export function stepWith(statement: Statement, values: SqliteParam[] = []): Resu
 
 export function reset(statement: Statement): Result<void, SqliteError> {
   return case statement.native.reset() {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("reset", f.error, statement.sql)
     }
   }
@@ -306,8 +306,8 @@ export function reset(statement: Statement): Result<void, SqliteError> {
 
 export function finalize(statement: Statement): Result<void, SqliteError> {
   return case statement.native.finalize() {
-    s: Success => Success(),
-    f: Failure => Failure {
+    s: Success -> Success(),
+    f: Failure -> Failure {
       error: decodeError("finalize", f.error, statement.sql)
     }
   }
@@ -315,10 +315,10 @@ export function finalize(statement: Statement): Result<void, SqliteError> {
 
 export function step(statement: Statement): Result<Map<string, SqliteValue> | null, SqliteError> {
   return case statement.native.step() {
-    s: Success => if s.value then readCurrentRow(statement) else Success {
+    s: Success -> if s.value then readCurrentRow(statement) else Success {
       value: emptyRow()
     },
-    f: Failure => Failure {
+    f: Failure -> Failure {
       error: decodeError("step", f.error, statement.sql)
     }
   }
@@ -373,10 +373,10 @@ export function hasColumn(row: Map<string, SqliteValue>, name: string): bool {
 export function readText(row: Map<string, SqliteValue>, name: string): Result<string, SqliteError> {
   try value := readValue(row, name)
   return case value {
-    text: string => Success {
+    text: string -> Success {
       value: text
     },
-    _ => Failure {
+    _ -> Failure {
       error: typeMismatchError(name, "string", value)
     }
   }
@@ -385,10 +385,10 @@ export function readText(row: Map<string, SqliteValue>, name: string): Result<st
 export function readLong(row: Map<string, SqliteValue>, name: string): Result<long, SqliteError> {
   try value := readValue(row, name)
   return case value {
-    number: long => Success {
+    number: long -> Success {
       value: number
     },
-    _ => Failure {
+    _ -> Failure {
       error: typeMismatchError(name, "long", value)
     }
   }
@@ -404,13 +404,13 @@ export function readInt(row: Map<string, SqliteValue>, name: string): Result<int
 export function readDouble(row: Map<string, SqliteValue>, name: string): Result<double, SqliteError> {
   try value := readValue(row, name)
   return case value {
-    decimal: double => Success {
+    decimal: double -> Success {
       value: decimal
     },
-    whole: long => Success {
+    whole: long -> Success {
       value: double(whole)
     },
-    _ => Failure {
+    _ -> Failure {
       error: typeMismatchError(name, "double", value)
     }
   }

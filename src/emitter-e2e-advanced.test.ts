@@ -234,8 +234,8 @@ describe("e2e — Concurrency", () => {
   it("compiles and runs union case narrowing", () => {
     const result = ctx.compileAndRun(`
       function sizeOf(x: int | string): int => case x {
-        s: string => s.length,
-        _ => 0
+        s: string -> s.length,
+        _ -> 0
       }
 
       function main(): int {
@@ -387,8 +387,8 @@ describe("e2e — try statement", () => {
         println(ok)
         const failed = process(true)
         return case failed {
-          _: Success => 0,
-          f: Failure => {
+          _: Success -> 0,
+          f: Failure -> {
             println(f.error)
             yield 1
           }
@@ -527,8 +527,8 @@ describe("e2e — try statement", () => {
       function main(): int {
         const r = getVal(5)
         const v = case r {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(v)
         return 0
@@ -551,8 +551,8 @@ describe("e2e — try statement", () => {
       function main(): int {
         const r = getVal(-3)
         const v = case r {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
         println(v)
         return 0
@@ -572,8 +572,8 @@ describe("e2e — try statement", () => {
       function main(): int {
         const r = getVal()
         const msg = case r {
-          _: Success => "ok",
-          e: Failure => e.error
+          _: Success -> "ok",
+          e: Failure -> e.error
         }
         println(msg)
         return 0
@@ -950,9 +950,9 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
       class Bar { y: int }
       function describe(v: Foo | Bar | null): string {
         return case v {
-          f: Foo => "foo",
-          b: Bar => "bar",
-          _ => "null"
+          f: Foo -> "foo",
+          b: Bar -> "bar",
+          _ -> "null"
         }
       }
       function main(): int => 0
@@ -966,9 +966,9 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
       class Bar { y: int }
       function describe(v: Foo | Bar | null): string {
         return case v {
-          f: Foo => "foo",
-          b: Bar => "bar",
-          _ => "null"
+          f: Foo -> "foo",
+          b: Bar -> "bar",
+          _ -> "null"
         }
       }
       function main(): int {
@@ -989,9 +989,9 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
       type SqliteValue = int | bool | string
       function describe(value: SqliteValue): string {
         return case value {
-          text: string => "text " + text,
-          flag: bool => if flag then "bool true" else "bool false",
-          count: int => "int " + string(count + 1)
+          text: string -> "text " + text,
+          flag: bool -> if flag then "bool true" else "bool false",
+          count: int -> "int " + string(count + 1)
         }
       }
       function main(): int {
@@ -1011,8 +1011,8 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
     const result = ctx.compileAndRun(`
       function describe(status: int): string {
         return case status {
-          200 => "ok",
-          other: int => "status " + string(other)
+          200 -> "ok",
+          other: int -> "status " + string(other)
         }
       }
       function main(): int {
@@ -1032,9 +1032,9 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
       type SqliteValue = int | bool | string
       function describe(prefix: string, value: SqliteValue): string {
         return case value {
-          text: string => prefix + ":" + text,
-          flag: bool => prefix + ":" + if flag then "true" else "false",
-          count: int => prefix + ":" + string(count)
+          text: string -> prefix + ":" + text,
+          flag: bool -> prefix + ":" + if flag then "true" else "false",
+          count: int -> prefix + ":" + string(count)
         }
       }
       function main(): int {
@@ -1056,8 +1056,8 @@ describe("e2e — builtin parsing and formatting", () => {
     const result = ctx.compileAndRun(`
       function describe(value: string): string {
         return case int.parse(value) {
-          s: Success => "ok " + string(s.value + 1),
-          f: Failure => "err " + f.error.name
+          s: Success -> "ok " + string(s.value + 1),
+          f: Failure -> "err " + f.error.name
         }
       }
 
@@ -1124,8 +1124,8 @@ describe("E2E — JSON serialization", () => {
 
       function main(): int {
         case parseJsonValue("{\\\"broken\\\":") {
-          s: Success => println("unexpected")
-          f: Failure => println(f.error)
+          s: Success -> println("unexpected")
+          f: Failure -> println(f.error)
         }
         return 0
       }
@@ -1183,11 +1183,11 @@ describe("E2E — JSON serialization", () => {
         const json = p.toJsonValue()
         const p2 = Point.fromJsonValue(json)
         case p2 {
-          s: Success => {
+          s: Success -> {
             println(s.value.x)
             println(s.value.y)
           }
-          f: Failure => println(f.error)
+          f: Failure -> println(f.error)
         }
         return 0
       }
@@ -1223,11 +1223,11 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const r = Config.fromJsonValue({})
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.host)
             println(s.value.port)
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1244,14 +1244,14 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const r = Config.fromJsonValue({ name: "Shopping" })
         case r {
-          s: Success => {
+          s: Success -> {
             if s.value.notes == null {
               println("null")
             } else {
               println("value")
             }
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1274,13 +1274,13 @@ describe("E2E — JSON serialization", () => {
         const json = line.toJsonValue()
         const r = Line.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.start.x)
             println(s.value.start.y)
             println(s.value.end.x)
             println(s.value.end.y)
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1299,12 +1299,12 @@ describe("E2E — JSON serialization", () => {
         const json = n.toJsonValue()
         const r = Numbers.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.values[0])
             println(s.value.values[1])
             println(s.value.values[2])
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1340,11 +1340,11 @@ describe("E2E — JSON serialization", () => {
         const json = p.toJsonValue()
         const r = Palette.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.primary == Color.Red)
             println(s.value.secondary == Color.Blue)
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1378,8 +1378,8 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const r = Point.fromJsonValue("not valid json")
         case r {
-          s: Success => println("unexpected success")
-          f: Failure => println("got error")
+          s: Success -> println("unexpected success")
+          f: Failure -> println("got error")
         }
         return 0
       }
@@ -1396,8 +1396,8 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const r = Point.fromJsonValue({ x: 10 })
         case r {
-          s: Success => println("unexpected success")
-          f: Failure => println("got error")
+          s: Success -> println("unexpected success")
+          f: Failure -> println("got error")
         }
         return 0
       }
@@ -1414,8 +1414,8 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const r = Point.fromJsonValue({ x: 10, y: "hello" })
         case r {
-          s: Success => println("unexpected success")
-          f: Failure => println("got error")
+          s: Success -> println("unexpected success")
+          f: Failure -> println("got error")
         }
         return 0
       }
@@ -1433,15 +1433,15 @@ describe("E2E — JSON serialization", () => {
         const strict = Todo.fromJsonValue({ title: null, done: 1 })
         const lenient = Todo.fromJsonValue({ title: null, done: 1 }, true)
         case strict {
-          s: Success => println("unexpected strict success")
-          f: Failure => println("strict failure")
+          s: Success -> println("unexpected strict success")
+          f: Failure -> println("strict failure")
         }
         case lenient {
-          s: Success => {
+          s: Success -> {
             println(s.value.title == "")
             println(s.value.done)
           }
-          f: Failure => println("unexpected lenient failure")
+          f: Failure -> println("unexpected lenient failure")
         }
         return 0
       }
@@ -1459,8 +1459,8 @@ describe("E2E — JSON serialization", () => {
       function main(): int {
         const result = Outer.fromJsonValue({ inner: { done: 1 } }, true)
         case result {
-          s: Success => println(s.value.inner.done)
-          f: Failure => println("unexpected failure")
+          s: Success -> println(s.value.inner.done)
+          f: Failure -> println("unexpected failure")
         }
         return 0
       }
@@ -1479,11 +1479,11 @@ describe("E2E — JSON serialization", () => {
         const json = c.toJsonValue()
         const r = Coords.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.lat == 51.5074)
             println(s.value.lng == -0.1278)
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1519,13 +1519,13 @@ describe("E2E — JSON serialization", () => {
         const json = c.toJsonValue()
         const r = Shape.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             case s.value {
-              c: Circle => println(c.radius)
-              r: Rect => println("unexpected rect")
+              c: Circle -> println(c.radius)
+              r: Rect -> println("unexpected rect")
             }
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1546,13 +1546,13 @@ describe("E2E — JSON serialization", () => {
         const json = c.toJsonValue()
         const r = Shape.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             case s.value {
-              c: Circle => println(c.radius)
-              r: Rect => println("unexpected rect")
+              c: Circle -> println(c.radius)
+              r: Rect -> println("unexpected rect")
             }
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -1574,11 +1574,11 @@ describe("E2E — JSON serialization", () => {
         const json = inv.toJsonValue()
         const r = Inventory.fromJsonValue(json)
         case r {
-          s: Success => {
+          s: Success -> {
             println(s.value.items[0].name)
             println(s.value.items[1].name)
           }
-          f: Failure => println("ERROR: " + f.error)
+          f: Failure -> println("ERROR: " + f.error)
         }
         return 0
       }
@@ -2166,8 +2166,8 @@ describe("e2e — as expression", () => {
         x: int | string := 42
         const r = narrow(x)
         const v = case r {
-          s: Success => s.value.length,
-          _: Failure => 1
+          s: Success -> s.value.length,
+          _: Failure -> 1
         }
         return v
       }
@@ -2219,8 +2219,8 @@ describe("e2e — as expression", () => {
         x: int | null := null
         const r = narrow(x)
         const v = case r {
-          s: Success => s.value,
-          _: Failure => 99
+          s: Success -> s.value,
+          _: Failure -> 99
         }
         return v
       }
@@ -2257,8 +2257,8 @@ describe("e2e — as expression", () => {
         x: int | string := 42
         const r = narrow(x)
         const v = case r {
-          s: Success => s.value.length,
-          _: Failure => 1
+          s: Success -> s.value.length,
+          _: Failure -> 1
         }
         return v
       }
@@ -2303,10 +2303,10 @@ describe("e2e — as expression", () => {
       }
       function describe(result: Result<string, bool | string>): string {
         return case result {
-          s: Success => "ok " + s.value,
-          f: Failure => case f.error {
-            flag: bool => if flag then "bool true" else "bool false",
-            text: string => "text " + text
+          s: Success -> "ok " + s.value,
+          f: Failure -> case f.error {
+            flag: bool -> if flag then "bool true" else "bool false",
+            text: string -> "text " + text
           }
         }
       }
@@ -2331,15 +2331,15 @@ describe("e2e — as expression", () => {
 
       function describeLong(result: Result<long, string>): string {
         return case result {
-          s: Success => "ok " + string(s.value),
-          f: Failure => "err " + f.error
+          s: Success -> "ok " + string(s.value),
+          f: Failure -> "err " + f.error
         }
       }
 
       function describeInt(result: Result<int, string>): string {
         return case result {
-          s: Success => "ok " + string(s.value),
-          f: Failure => "err " + f.error
+          s: Success -> "ok " + string(s.value),
+          f: Failure -> "err " + f.error
         }
       }
 

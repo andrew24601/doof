@@ -8,10 +8,10 @@ export function formatJsonText(value: JsonValue): string => formatJsonValue(valu
 
 export function parseJsonResult(result: Result<string, string>): Result<JsonValue, string> {
   return case result {
-    s: Success => case parseJsonValue(s.value) {
-      parsed: Success => Success(parsed.value),
-      failed: Failure => Failure("Native reminders bridge returned invalid JSON: " + failed.error)
+    s: Success -> case parseJsonValue(s.value) {
+      parsed: Success -> Success(parsed.value),
+      failed: Failure -> Failure("Native reminders bridge returned invalid JSON: " + failed.error)
     },
-    f: Failure => Failure(f.error)
+    f: Failure -> Failure(f.error)
   }
 }

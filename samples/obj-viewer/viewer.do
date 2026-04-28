@@ -327,8 +327,8 @@ function renderFrame(viewer: NativeLineViewer, model: ObjModel, state: ViewerSta
 function loadModel(path: string): Result<ObjModel, string> {
   try text := readTextFile(path)
   return case parseObj(text, path) {
-    s: Success => Success { value: s.value },
-    f: Failure => Failure { error: formatObjError(f.error) }
+    s: Success -> Success { value: s.value },
+    f: Failure -> Failure { error: formatObjError(f.error) }
   }
 }
 

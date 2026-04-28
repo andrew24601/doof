@@ -69,10 +69,10 @@ export function handleRequest(request: HttpRequest, requestCount: int): HttpResp
   }
 
   return case request.path {
-    "/" => homePage(request, requestCount),
-    "/health" => healthPage(requestCount),
-    "/about" => aboutPage(),
-    "/headers" => headersPage(request),
-    _ => notFound(request.path)
+    "/" -> homePage(request, requestCount),
+    "/health" -> healthPage(requestCount),
+    "/about" -> aboutPage(),
+    "/headers" -> headersPage(request),
+    _ -> notFound(request.path)
   }
 }

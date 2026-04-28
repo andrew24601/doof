@@ -491,9 +491,9 @@ describe("e2e — case expressions", () => {
     const { success, error, code } = ctx.compileOnly(`
       function describe(x: int): int {
         return case x {
-          0 => 10,
-          1 => 20,
-          _ => 30
+          0 -> 10,
+          1 -> 20,
+          _ -> 30
         }
       }
       function main(): int {
@@ -507,9 +507,9 @@ describe("e2e — case expressions", () => {
     const result = ctx.compileAndRun(`
       function classify(x: int): int {
         return case x {
-          0 => 10,
-          1 => 20,
-          _ => 30
+          0 -> 10,
+          1 -> 20,
+          _ -> 30
         }
       }
       function main(): int {
@@ -527,9 +527,9 @@ describe("e2e — case expressions", () => {
     const result = ctx.compileAndRun(`
       function classify(x: int): int {
         return case x {
-          0 => 10,
-          1 => 20,
-          _ => 99
+          0 -> 10,
+          1 -> 20,
+          _ -> 99
         }
       }
       function main(): int {
@@ -547,9 +547,9 @@ describe("e2e — case expressions", () => {
     const { success, error, code } = ctx.compileOnly(`
       function grade(score: int): int {
         return case score {
-          90..100 => 4,
-          80..<90 => 3,
-          _ => 0
+          90..100 -> 4,
+          80..<90 -> 3,
+          _ -> 0
         }
       }
       function main(): int {
@@ -563,9 +563,9 @@ describe("e2e — case expressions", () => {
     const result = ctx.compileAndRun(`
       function grade(score: int): int {
         return case score {
-          90..100 => 4,
-          80..<90 => 3,
-          _ => 0
+          90..100 -> 4,
+          80..<90 -> 3,
+          _ -> 0
         }
       }
       function main(): int {
@@ -583,8 +583,8 @@ describe("e2e — case expressions", () => {
     const result = ctx.compileAndRun(`
       function classify(x: int): int {
         case x {
-          0 => { return 10 }
-          _ => { return 20 }
+          0 -> { return 10 }
+          _ -> { return 20 }
         }
       }
       function main(): int {
@@ -605,12 +605,12 @@ describe("e2e — case expressions", () => {
         let total = 0
         while i < 4 {
           case i {
-            0 => {
+            0 -> {
               i = i + 1
               continue
             }
-            3 => { break }
-            _ => {
+            3 -> { break }
+            _ -> {
               total = total + i
               i = i + 1
             }
@@ -913,10 +913,10 @@ describe("e2e — if expressions", () => {
     const result = ctx.compileAndRun(`
       function describe(x: int): string {
         return case x {
-          0 => {
+          0 -> {
             yield "zero"
           },
-          _ => {
+          _ -> {
             if x < 0 {
               yield "negative"
             }

@@ -282,7 +282,7 @@
         },
         {
           "name": "keyword.operator.arrow.doof",
-          "match": "=>"
+          "match": "=>|->"
         },
         {
           "name": "keyword.operator.range.doof",

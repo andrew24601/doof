@@ -3441,7 +3441,7 @@ export class Parser {
       throw this.error("Use '|' instead of ',' to separate multiple case patterns");
     }
 
-    this.expect(TokenType.Arrow, "Expected '=>' in case arm");
+    this.expect(TokenType.RightArrow, "Expected '->' in case arm");
 
     let body: Expression | Block;
     if (this.check(TokenType.LeftBrace)) {
@@ -3574,7 +3574,7 @@ export class Parser {
     if (this.check(TokenType.DotDot)) {
       this.advance();
       if (
-        !this.check(TokenType.Arrow) &&
+        !this.check(TokenType.RightArrow) &&
         !this.check(TokenType.Comma) &&
         !this.check(TokenType.RightBrace) &&
         !this.isAtEnd()

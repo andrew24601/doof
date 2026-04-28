@@ -58,10 +58,10 @@ function main(args: string[]): int {
     tools: openAITools(),
     tool_choice: "auto",
   }) {
-    s: Success => {
+    s: Success -> {
       current = s.value
     }
-    f: Failure => {
+    f: Failure -> {
       println("OpenAI request failed: " + f.error)
       return 1
     }
@@ -71,10 +71,10 @@ function main(args: string[]): int {
   while round < 4 {
     let calls: PendingToolCall[] = []
     case extractToolCalls(current) {
-      s: Success => {
+      s: Success -> {
         calls = s.value
       }
-      f: Failure => {
+      f: Failure -> {
         println("Could not parse tool calls: " + f.error)
         return 1
       }
@@ -100,10 +100,10 @@ function main(args: string[]): int {
       previous_response_id: responseId!,
       input: outputs,
     }) {
-      s: Success => {
+      s: Success -> {
         current = s.value
       }
-      f: Failure => {
+      f: Failure -> {
         println("OpenAI request failed: " + f.error)
         return 1
       }
@@ -177,14 +177,14 @@ function collectToolCalls(items: JsonValue[]): Result<PendingToolCall[], string>
     }
 
     case parseJsonValue(argumentsText!) {
-      parsed: Success => {
+      parsed: Success -> {
         calls.push(PendingToolCall {
           callId: callId!,
           name: name!,
           args: parsed.value,
         })
       }
-      failed: Failure => {
+      failed: Failure -> {
         return Failure("OpenAI returned invalid JSON arguments for ${name!}: ${failed.error}")
       }
     }
@@ -200,11 +200,11 @@ function extractToolCalls(response: JsonValue): Result<PendingToolCall[], string
 
   output := jsonObjectGet(response, "output")
   case output {
-    null => {
+    null -> {
       emptyCalls: PendingToolCall[] := []
       return Success { value: emptyCalls }
     }
-    _ => {
+    _ -> {
     }
   }
 
@@ -217,8 +217,8 @@ function extractToolCalls(response: JsonValue): Result<PendingToolCall[], string
 
 function toolErrorText(error: JsonValue): string {
   return case error {
-    value: string => value,
-    _ => "Tool call failed"
+    value: string -> value,
+    _ -> "Tool call failed"
   }
 }
 
@@ -228,7 +228,7 @@ function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]
   for call of calls {
     println("- ${call.name}(${formatJsonValue(call.args)})")
     case invokeWeeknightTool(tools, call.name, call.args) {
-      s: Success => {
+      s: Success -> {
         outputText := formatJsonValue(s.value)
         println("  -> ${outputText}")
         outputs.push({
@@ -237,7 +237,7 @@ function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]
           output: outputText,
         })
       }
-      f: Failure => {
+      f: Failure -> {
         errorText := toolErrorText(f.error)
         println("  -> error: ${errorText}")
         outputs.push({

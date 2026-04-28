@@ -76,14 +76,14 @@ Use `case` statements for exhaustive handling:
 ```javascript
 let result = parseInt("123")
 case result {
-    s: Success => print("Got: ${s.value}"),
-    f: Failure => print("Error: ${f.error.name}")
+    s: Success -> print("Got: ${s.value}"),
+    f: Failure -> print("Error: ${f.error.name}")
 }
 
 // As expression
 let value = case parseInt("123") {
-    s: Success => s.value,
-    f: Failure => 0
+    s: Success -> s.value,
+    f: Failure -> 0
 }
 ```
 
@@ -100,8 +100,8 @@ let e = result.error   // Error: Result<int, Error> has no field 'error'
 
 // ✅ Must destructure with case
 case result {
-    s: Success => print(s.value),
-    f: Failure => print(f.error)
+    s: Success -> print(s.value),
+    f: Failure -> print(f.error)
 }
 ```
 
@@ -137,8 +137,8 @@ return readFile("config.json")
 
 // ✅ Use in a case expression
 case readFile("config.json") {
-    s: Success => s.value,
-    f: Failure => ""
+    s: Success -> s.value,
+    f: Failure -> ""
 }
 ```
 
@@ -245,8 +245,8 @@ result := foo()?.bar()  // Result<int | null, E1 | E2>
 ```javascript
 // Explicit case matching (most control)
 case readFile("data.txt") {
-    s: Success => processData(s.value),
-    f: Failure => handleError(f.error)
+    s: Success -> processData(s.value),
+    f: Failure -> handleError(f.error)
 }
 
 // Early return (clean sequential code) — try is a statement
@@ -294,8 +294,8 @@ data := loadCache() ?? loadDisk() ?? compute()    // Right-to-left: loadCache() 
 
 // Manual Destructuring
 case result {
-    s: Success => s.value,
-    f: Failure => f.error
+    s: Success -> s.value,
+    f: Failure -> f.error
 }
 
 // Error Type Unions
@@ -337,8 +337,8 @@ s := try! value as string
 
 // Pattern match:
 const len = case value as string {
-    ok: Success => ok.value.length,
-    _: Failure => 0
+    ok: Success -> ok.value.length,
+    _: Failure -> 0
 }
 ```
 
@@ -378,9 +378,9 @@ A `catch` expression can be used as the subject of a `case` expression to dispat
 
 ```javascript
 case catch { try a(); try b() } {
-    io: IOError => handleIO(io),
-    ex: ParseError => handleParse(ex),
-    _ => print("all good")
+    io: IOError -> handleIO(io),
+    ex: ParseError -> handleParse(ex),
+    _ -> print("all good")
 }
 ```
 
@@ -501,8 +501,8 @@ function parseJSON(s: string): Result<JSON, ParseError> { ... }
 
 // ✅ Use case for detailed error handling
 case readFile("data.txt") {
-    s: Success => processData(s.value),
-    f: Failure => {
+    s: Success -> processData(s.value),
+    f: Failure -> {
         logError(f.error)
         useDefaultData()
     }

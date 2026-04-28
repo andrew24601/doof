@@ -149,8 +149,8 @@ nums := [1, 2, 3, 4]
 nums.push(5)
 popped := nums.pop()
 last := case popped {
-  s: Success => s.value,
-  _: Failure => -1,
+  s: Success -> s.value,
+  _: Failure -> -1,
 }
 tail := nums.slice(1, 3)
 hasTwo := nums.contains(2)
@@ -488,8 +488,8 @@ type Result = Success | Failure
 
 function show(r: Result): void {
   case r {
-    s: Success => print(s.value)
-    _: Failure => print("unexpected")
+    s: Success -> print(s.value)
+    _: Failure -> print("unexpected")
   }
 }
 

@@ -548,10 +548,10 @@ describe("Parser — complete programs", () => {
       enum Direction { North, South, East, West }
 
       function opposite(dir: Direction): Direction => case dir {
-        .North => .South,
-        .South => .North,
-        .East  => .West,
-        .West  => .East
+        .North -> .South,
+        .South -> .North,
+        .East  -> .West,
+        .West  -> .East
       }
     `);
     expect(program.statements).toHaveLength(2);
@@ -1319,7 +1319,7 @@ describe("Parser — catch expression", () => {
   });
 
   it("parses catch expression as case subject", () => {
-    const stmt = firstStmt(`const value = case catch { try a() } { _ => 0 }`);
+    const stmt = firstStmt(`const value = case catch { try a() } { _ -> 0 }`);
     expect(stmt.kind).toBe("const-declaration");
     if (stmt.kind === "const-declaration") {
       expect(stmt.value.kind).toBe("case-expression");
@@ -1826,13 +1826,13 @@ describe("Parser — map literal with bare literal keys", () => {
 
 describe("Parser — case statement forms", () => {
   it("rejects removed case-narrow syntax", () => {
-    expect(() => parse(`case x := getValue() { null => { return } }`)).toThrow();
+    expect(() => parse(`case x := getValue() { null -> { return } }`)).toThrow();
   });
 
   it("parses standalone case as a statement", () => {
     const stmt = firstStmt(`case direction {
-      .North => "up"
-      .South => "down"
+      .North -> "up"
+      .South -> "down"
     }`);
     expect(stmt.kind).toBe("case-statement");
     if (stmt.kind === "case-statement") {
@@ -1844,8 +1844,8 @@ describe("Parser — case statement forms", () => {
 
   it("parses statement case arms with blocks and grouped patterns", () => {
     const stmt = firstStmt(`case request.kind {
-      "initialized-notification" | "notification" => { continue }
-      _ => { return }
+      "initialized-notification" | "notification" -> { continue }
+      _ -> { return }
     }`);
     expect(stmt.kind).toBe("case-statement");
     if (stmt.kind === "case-statement") {
@@ -1858,8 +1858,8 @@ describe("Parser — case statement forms", () => {
 
   it("parses bare return arms in statement-level case", () => {
     const stmt = firstStmt(`case x {
-      0..10 => return 0
-      _ => return 4
+      0..10 -> return 0
+      _ -> return 4
     }`);
     expect(stmt.kind).toBe("case-statement");
     if (stmt.kind === "case-statement") {
@@ -1880,10 +1880,10 @@ describe("Parser — case statement forms", () => {
 
   it("parses bare return/break/continue/try arms in statement-level case", () => {
     const stmt = firstStmt(`case x {
-      0 => return 0
-      1 => break
-      2 => continue
-      _ => try value := read()
+      0 -> return 0
+      1 -> break
+      2 -> continue
+      _ -> try value := read()
     }`);
     expect(stmt.kind).toBe("case-statement");
     if (stmt.kind === "case-statement") {
@@ -1909,7 +1909,7 @@ describe("Parser — case statement forms", () => {
   });
 
   it("rejects commas between statement case arms", () => {
-    expect(() => firstStmt(`case direction { .North => "up", .South => "down" }`)).toThrow();
+    expect(() => firstStmt(`case direction { .North -> "up", .South -> "down" }`)).toThrow();
   });
 });
 

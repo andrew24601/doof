@@ -107,8 +107,8 @@ Every eligible class has a `.fromJsonValue(json: JsonValue, lenient: bool = fals
 const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })
 
 case result {
-  p: Success => println("Got point: ${p.value.x}, ${p.value.y}")
-  e: Failure => println("Parse error: ${e.error}")
+  p: Success -> println("Got point: ${p.value.x}, ${p.value.y}")
+  e: Failure -> println("Parse error: ${e.error}")
 }
 ```
 

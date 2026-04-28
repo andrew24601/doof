@@ -216,8 +216,8 @@ isolated function expensiveComputation(n: int): int {
 let promise = async expensiveComputation(1000)
 
 case promise.get() {
-    s: Success => print("Result: ${s.value}"),
-    f: Failure => print("Failed: ${f.error}")
+    s: Success -> print("Result: ${s.value}"),
+    f: Failure -> print("Failed: ${f.error}")
 }
 ```
 
@@ -259,8 +259,8 @@ let promises = [
 let results: int[] = []
 for p of promises {
     case p.get() {
-        s: Success => results.push(s.value),
-        f: Failure => panic("Worker failed")
+        s: Success -> results.push(s.value),
+        f: Failure -> panic("Worker failed")
     }
 }
 print(results)  // [1, 4, 9, 16]
@@ -324,8 +324,8 @@ let promise = async compute(42)
 
 // Blocking wait with explicit handling
 case promise.get() {
-    s: Success => print("Result: ${s.value}"),
-    f: Failure => print("Error: ${f.error}")
+    s: Success -> print("Result: ${s.value}"),
+    f: Failure -> print("Error: ${f.error}")
 }
 
 // Or panic if failure is unrecoverable
@@ -365,8 +365,8 @@ let promises = data.map((x) => async compute(x))
 let total = 0
 for p of promises {
     case p.get() {
-        s: Success => total += s.value,
-        f: Failure => panic("failed")
+        s: Success -> total += s.value,
+        f: Failure -> panic("failed")
     }
 }
 ```

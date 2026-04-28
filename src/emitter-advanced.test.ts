@@ -349,8 +349,8 @@ describe("emitter — case expression on Result", () => {
       function f(): int {
         const r = getVal()
         return case r {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
       }
     `);
@@ -364,8 +364,8 @@ describe("emitter — case expression on Result", () => {
       function f(): string {
         const r = getVal()
         return case r {
-          _: Success => "ok",
-          e: Failure => e.error
+          _: Success -> "ok",
+          e: Failure -> e.error
         }
       }
     `);
@@ -378,8 +378,8 @@ describe("emitter — case expression on Result", () => {
       function getVal(): Result<int, string> { return Success { value: 42 } }
       function f(): int {
         return case getVal() {
-          s: Success => s.value,
-          _: Failure => -1
+          s: Success -> s.value,
+          _: Failure -> -1
         }
       }
     `);

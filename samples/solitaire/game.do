@@ -125,16 +125,16 @@ export class SolitaireState {
   // Access tableau by index
   tableau(i: int): Pile {
     return case i {
-      0 => tableau0, 1 => tableau1, 2 => tableau2, 3 => tableau3,
-      4 => tableau4, 5 => tableau5, 6 => tableau6, _ => tableau0
+      0 -> tableau0, 1 -> tableau1, 2 -> tableau2, 3 -> tableau3,
+      4 -> tableau4, 5 -> tableau5, 6 -> tableau6, _ -> tableau0
     }
   }
 
   // Access foundation by suit index (0=Spades, 1=Hearts, 2=Diamonds, 3=Clubs)
   foundation(i: int): Pile {
     suit := case i {
-      0 => Suit.Spades, 1 => Suit.Hearts,
-      2 => Suit.Diamonds, 3 => Suit.Clubs, _ => Suit.Spades
+      0 -> Suit.Spades, 1 -> Suit.Hearts,
+      2 -> Suit.Diamonds, 3 -> Suit.Clubs, _ -> Suit.Spades
     }
     return foundations[suit]
   }

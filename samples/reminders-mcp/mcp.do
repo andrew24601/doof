@@ -62,11 +62,11 @@ function toolErrorText(error: JsonValue): string {
 
 function invokeToolCallResultJson(tools: RemindersTools, toolName: string, argsJson: string): string {
   return case parseJsonText(argsJson) {
-    s: Success => case RemindersTools.metadata.invoke(tools, toolName, s.value) {
-      value: Success => callToolResultJson(false, formatJsonValue(value.value)),
-      error: Failure => callToolResultJson(true, toolErrorText(error.error))
+    s: Success -> case RemindersTools.metadata.invoke(tools, toolName, s.value) {
+      value: Success -> callToolResultJson(false, formatJsonValue(value.value)),
+      error: Failure -> callToolResultJson(true, toolErrorText(error.error))
     },
-    f: Failure => callToolResultJson(true, "Invalid tool args JSON: " + f.error)
+    f: Failure -> callToolResultJson(true, "Invalid tool args JSON: " + f.error)
   }
 }
 
@@ -78,31 +78,31 @@ export function runServer(): int {
     request := server.nextRequest()
 
     case request.kind {
-      "eof" => {
+      "eof" -> {
         return 0
       }
-      "parse-error" => {
+      "parse-error" -> {
         if request.hasRequestId() {
           server.sendError(request.requestIdJson, request.errorCode, request.errorMessage)
         } else {
           server.log("parse error: " + request.errorMessage)
         }
       }
-      "initialized-notification" | "notification" => {
+      "initialized-notification" | "notification" -> {
       }
-      "initialize" => {
+      "initialize" -> {
         server.sendResult(request.requestIdJson, initializeResultJson(request.protocolVersion))
       }
-      "tools-list" => {
+      "tools-list" -> {
         server.sendResult(request.requestIdJson, toolsListResultJson())
       }
-      "tools-call" => {
+      "tools-call" -> {
         server.sendResult(request.requestIdJson, invokeToolCallResultJson(tools, request.toolName, request.argsJson))
       }
-      "unknown-request" => {
+      "unknown-request" -> {
         server.sendError(request.requestIdJson, -32601, "Method not found: " + request.method)
       }
-      _ => {
+      _ -> {
         server.log("ignoring unexpected MCP frame kind: " + request.kind)
       }
     }

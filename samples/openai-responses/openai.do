@@ -31,8 +31,8 @@ export function createResponse(client: OpenAIClient, body: JsonValue): Result<Js
   }
 
   return case send(client.http, request) {
-    s: Success => parseHttpResponse(s.value),
-    f: Failure => Failure(formatTransportError(f.error))
+    s: Success -> parseHttpResponse(s.value),
+    f: Failure -> Failure(formatTransportError(f.error))
   }
 }
 
@@ -55,8 +55,8 @@ function parseHttpResponse(response: HttpResponse): Result<JsonValue, string> {
   }
 
   return case parseJsonText(response.body) {
-    parsed: Success => Success(parsed.value),
-    failed: Failure => Failure("OpenAI returned invalid JSON: " + failed.error)
+    parsed: Success -> Success(parsed.value),
+    failed: Failure -> Failure("OpenAI returned invalid JSON: " + failed.error)
   }
 }
 

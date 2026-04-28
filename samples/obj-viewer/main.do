@@ -12,10 +12,10 @@ function main(args: string[]): int {
   let exitCode = 1
   result := runViewer(modelPath)
   case result {
-    s: Success => {
+    s: Success -> {
       exitCode = 0
     }
-    f: Failure => {
+    f: Failure -> {
       println(`OBJ viewer error: ${f.error}`)
       if args.length <= 1 {
         println("Hint: pass an explicit .obj path, or run from the repository root to use the built-in cube sample.")

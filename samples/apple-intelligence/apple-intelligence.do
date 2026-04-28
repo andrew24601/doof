@@ -53,8 +53,8 @@ function main(): int {
 
   // case expression handles both arms as values (no early return needed)
   const summary = case ai.summarize(fairyTale) {
-    s: Success => s.value,
-    f: Failure => "(summarization unavailable: " + f.error + ")"
+    s: Success -> s.value,
+    f: Failure -> "(summarization unavailable: " + f.error + ")"
   }
   println(summary)
 

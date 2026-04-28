@@ -67,8 +67,8 @@ function splitWhitespace(text: string): string[] {
 
 function parseFloatToken(token: string, lineNumber: int, source: string, label: string): Result<float, ObjError> {
   return case float.parse(token) {
-    s: Success => Success { value: s.value },
-    f: Failure => Failure {
+    s: Success -> Success { value: s.value },
+    f: Failure -> Failure {
       error: ObjError {
         stage: "parse",
         line: lineNumber,
@@ -80,8 +80,8 @@ function parseFloatToken(token: string, lineNumber: int, source: string, label: 
 
 function parseIntToken(token: string, lineNumber: int, source: string, label: string): Result<int, ObjError> {
   return case int.parse(token) {
-    s: Success => Success { value: s.value },
-    f: Failure => Failure {
+    s: Success -> Success { value: s.value },
+    f: Failure -> Failure {
       error: ObjError {
         stage: "parse",
         line: lineNumber,

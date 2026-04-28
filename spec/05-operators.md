@@ -469,8 +469,8 @@ s := try! value as string
 
 // Pattern match:
 case value as string {
-  ok: Success => println(ok.value),
-  err: Failure => println(err.error)
+    ok: Success -> println(ok.value),
+    err: Failure -> println(err.error)
 }
 ```
 

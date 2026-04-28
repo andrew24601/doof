@@ -1015,8 +1015,8 @@ describe("Result<T, E> type integration", () => {
           function f(): int {
             const r = getVal()
             return case r {
-              s: Success => s.value,
-              f: Failure => 0
+              s: Success -> s.value,
+              f: Failure -> 0
             }
           }
         `,
@@ -1034,8 +1034,8 @@ describe("Result<T, E> type integration", () => {
           function f(): int {
             const r = getVal()
             return case r {
-              s: Success => s.value,
-              _: Failure => -1
+              s: Success -> s.value,
+              _: Failure -> -1
             }
           }
         `,
@@ -1052,9 +1052,9 @@ describe("Result<T, E> type integration", () => {
           type SqliteValue = int | bool | string
           function describe(value: SqliteValue): string {
             return case value {
-              text: string => text,
-              flag: bool => if flag then "true" else "false",
-              count: int => string(count)
+              text: string -> text,
+              flag: bool -> if flag then "true" else "false",
+              count: int -> string(count)
             }
           }
         `,
@@ -1078,8 +1078,8 @@ describe("Result<T, E> type integration", () => {
         "/main.do": `
           function describe(status: int): string {
             return case status {
-              200 => "ok",
-              other: int => string(other)
+              200 -> "ok",
+              other: int -> string(other)
             }
           }
         `,
@@ -1225,8 +1225,8 @@ describe("Result<T, E> type integration", () => {
           function f(): int {
             const r = getVal()
             return case r {
-              s: Success => s.value,
-              _: Failure => -1
+              s: Success -> s.value,
+              _: Failure -> -1
             }
           }
         `,
@@ -1299,8 +1299,8 @@ describe("Result<T, E> type integration", () => {
           function f(): Result<int, string> { return Success { value: 1 } }
           function main(): int {
             const x = case f() {
-              s: Success => s.value,
-              f: Failure => { return 1 }
+              s: Success -> s.value,
+              f: Failure -> { return 1 }
             }
             return x
           }
@@ -1321,8 +1321,8 @@ describe("Result<T, E> type integration", () => {
           function main(): int {
             let n = 2
             const x = case n {
-              1 => "one",
-              _ => { return -1 }
+              1 -> "one",
+              _ -> { return -1 }
             }
             return 0
           }
@@ -1343,8 +1343,8 @@ describe("Result<T, E> type integration", () => {
           function f(): Result<int, string> { return Success { value: 1 } }
           function main(): void {
             const x = case f() {
-              s: Success => s.value,
-              f: Failure => { return }
+              s: Success -> s.value,
+              f: Failure -> { return }
             }
           }
         `,
@@ -1364,8 +1364,8 @@ describe("Result<T, E> type integration", () => {
           function f(): Result<int, string> { return Success { value: 42 } }
           function main(): int {
             const x = case f() {
-              s: Success => s.value,
-              _: Failure => 0
+              s: Success -> s.value,
+              _: Failure -> 0
             }
             return x
           }
@@ -1386,11 +1386,11 @@ describe("Result<T, E> type integration", () => {
           function f(): Result<int, string> { return Success { value: 42 } }
           function main(): int {
             const x = case f() {
-              s: Success => {
+              s: Success -> {
                 const fn = (): int => { return s.value }
                 yield fn()
               },
-              _: Failure => 0
+              _: Failure -> 0
             }
             return x
           }
@@ -1411,11 +1411,11 @@ describe("Result<T, E> type integration", () => {
           function g(): Result<int, string> { return Success { value: 1 } }
           function f(): Result<int, string> {
             const x = case g() {
-              s: Success => {
+              s: Success -> {
                 try const y = g()
                 yield s.value + y
               },
-              _: Failure => 0
+              _: Failure -> 0
             }
             return Success { value: x }
           }
@@ -1435,8 +1435,8 @@ describe("Result<T, E> type integration", () => {
         "/main.do": `
           function main(): int {
             case 1 {
-              1 => { return 7 }
-              _ => { return 0 }
+              1 -> { return 7 }
+              _ -> { return 0 }
             }
           }
         `,
@@ -1455,8 +1455,8 @@ describe("Result<T, E> type integration", () => {
         "/main.do": `
           function test(x: int): int {
             case x {
-              0..10 => return 0
-              _ => return 4
+              0..10 -> return 0
+              _ -> return 4
             }
           }
         `,
@@ -1477,11 +1477,11 @@ describe("Result<T, E> type integration", () => {
           function read(): Result<int, string> { return Success { value: 42 } }
           function main(): Result<int, string> {
             case 1 {
-              1 => {
+              1 -> {
                 try value := read()
                 return Success { value }
               }
-              _ => { return Success { value: 0 } }
+              _ -> { return Success { value: 0 } }
             }
           }
         `,
@@ -1502,11 +1502,11 @@ describe("Result<T, E> type integration", () => {
             let i = 0
             while true {
               case i {
-                0 => {
+                0 -> {
                   i = i + 1
                   continue
                 }
-                _ => { break }
+                _ -> { break }
               }
             }
             return i
@@ -1526,8 +1526,8 @@ describe("Result<T, E> type integration", () => {
             let x = 0
             while true {
               case x {
-                0 => { x = x + 1; continue }
-                _ => break
+                0 -> { x = x + 1; continue }
+                _ -> break
               }
             }
           }
@@ -1544,10 +1544,10 @@ describe("Result<T, E> type integration", () => {
         "/main.do": `
           function describe(n: int): string {
             return case n {
-              0 => {
+              0 -> {
                 yield "zero"
               },
-              _ => {
+              _ -> {
                 if n < 0 {
                   yield "negative"
                 }
@@ -1583,10 +1583,10 @@ describe("Result<T, E> type integration", () => {
         "/main.do": `
           function describe(n: int): string {
             return case n {
-              0 => {
+              0 -> {
                 println("zero")
               },
-              _ => "other"
+              _ -> "other"
             }
           }
         `,
@@ -1663,7 +1663,7 @@ describe("Result<T, E> type integration", () => {
           function main(): int {
             value := maybeValue() else {
               case 0 {
-                _ => { return 1 }
+                _ -> { return 1 }
               }
             }
             return value
@@ -5036,8 +5036,8 @@ describe("checker — else-narrow statement", () => {
       function test(): string {
         x := loadConfig() else {
           return case x {
-            _: Success => "unexpected",
-            f: Failure => f.error.message
+            _: Success -> "unexpected",
+            f: Failure -> f.error.message
           }
         }
         return x.name

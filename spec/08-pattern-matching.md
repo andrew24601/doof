@@ -12,10 +12,10 @@ Expression-form `case` arms are separated by commas. Statement-form `case` arms 
 
 ```javascript
 let description = case value {
-    0 => "zero",
-    1 => "one",
-    2 => "two",
-    _ => "many"
+    0 -> "zero",
+    1 -> "one",
+    2 -> "two",
+    _ -> "many"
 }
 ```
 
@@ -23,10 +23,10 @@ let description = case value {
 
 ```javascript
 case status {
-    200 | 201 | 204 => "success"
-    400 | 404 => "client error"
-    500 | 502 | 503 => "server error"
-    _ => "unknown"
+    200 | 201 | 204 -> "success"
+    400 | 404 -> "client error"
+    500 | 502 | 503 -> "server error"
+    _ -> "unknown"
 }
 ```
 
@@ -34,10 +34,10 @@ case status {
 
 ```javascript
 case command {
-    "start" => startServer(),
-    "stop" => stopServer(),
-    "restart" => restartServer(),
-    _ => print("Unknown command")
+    "start" -> startServer(),
+    "stop" -> stopServer(),
+    "restart" -> restartServer(),
+    _ -> print("Unknown command")
 }
 ```
 
@@ -51,10 +51,10 @@ Enum values can be matched directly. When the `case` subject is a known enum typ
 enum Direction { North, South, East, West }
 
 case direction {
-    .North => moveUp(),
-    .South => moveDown(),
-    .East  => moveRight(),
-    .West  => moveLeft()
+    .North -> moveUp(),
+    .South -> moveDown(),
+    .East  -> moveRight(),
+    .West  -> moveLeft()
 }
 ```
 
@@ -62,10 +62,10 @@ Fully qualified names also work:
 
 ```javascript
 case direction {
-    Direction.North => moveUp(),
-    Direction.South => moveDown(),
-    Direction.East  => moveRight(),
-    Direction.West  => moveLeft()
+    Direction.North -> moveUp(),
+    Direction.South -> moveDown(),
+    Direction.East  -> moveRight(),
+    Direction.West  -> moveLeft()
 }
 ```
 
@@ -83,10 +83,10 @@ enum HttpStatus {
 }
 
 case status {
-    .OK | .Created | .NoContent => "success"
-    .NotFound => "not found",
-    .ServerError => "server error",
-    _ => "other"
+    .OK | .Created | .NoContent -> "success"
+    .NotFound -> "not found",
+    .ServerError -> "server error",
+    _ -> "other"
 }
 ```
 
@@ -94,9 +94,9 @@ case status {
 
 ```javascript
 let label = case color {
-    .Red   => "danger",
-    .Green => "safe",
-    .Blue  => "info"
+    .Red   -> "danger",
+    .Green -> "safe",
+    .Blue  -> "info"
 }
 ```
 
@@ -107,17 +107,17 @@ When all enum variants are covered, no `_` wildcard is needed. The compiler enfo
 ```javascript
 // ✅ All variants covered — no wildcard needed
 let message = case direction {
-    .North => "up",
-    .South => "down",
-    .East  => "right",
-    .West  => "left"
+    .North -> "up",
+    .South -> "down",
+    .East  -> "right",
+    .West  -> "left"
 }
 
 // ❌ Error: non-exhaustive — missing Direction.West
 let message = case direction {
-    .North => "up",
-    .South => "down",
-    .East  => "right"
+    .North -> "up",
+    .South -> "down",
+    .East  -> "right"
 }
 ```
 
@@ -127,23 +127,23 @@ let message = case direction {
 
 ```javascript
 let category = case age {
-    ..<18 => "Minor",
-    ..<65 => "Adult",
-    _ => "Senior"
+    ..<18 -> "Minor",
+    ..<65 -> "Adult",
+    _ -> "Senior"
 }
 
 case score {
-    90.. => "A",
-    80..<90 => "B",
-    70..<80 => "C",
-    60..<70 => "D",
-    ..<60 => "F"
+    90.. -> "A",
+    80..<90 -> "B",
+    70..<80 -> "C",
+    60..<70 -> "D",
+    ..<60 -> "F"
 }
 
 case day {
-    1..5 => "weekday",
-    6..7 => "weekend",
-    _ => "invalid"
+    1..5 -> "weekday",
+    6..7 -> "weekend",
+    _ -> "invalid"
 }
 ```
 
@@ -178,14 +178,14 @@ type Result<T, E> = Success<T> | Failure<E>
 let result: Result<int, string> = Success { value: 42 }
 
 case result {
-    s: Success => print("Got: ${s.value}"),
-    f: Failure => print("Error: ${f.error}")
+    s: Success -> print("Got: ${s.value}"),
+    f: Failure -> print("Error: ${f.error}")
 }
 
 // Discard binding with _
 case result {
-    _: Success => print("success"),
-    _: Failure => print("failed")
+    _: Success -> print("success"),
+    _: Failure -> print("failed")
 }
 ```
 
@@ -203,8 +203,8 @@ class Container<T, E> {
 readonly container = Container { result: Success { value: 42 } }
 
 case container.result {
-    s: Success => print(s.value),    // 's' is immutable Success<T>
-    f: Failure => print(f.error)     // 'f' is immutable Failure<E>
+    s: Success -> print(s.value),    // 's' is immutable Success<T>
+    f: Failure -> print(f.error)     // 'f' is immutable Failure<E>
 }
 ```
 
@@ -212,9 +212,9 @@ case container.result {
 
 ```javascript
 case response.status {
-    200 => "OK",
-    404 => "Not Found",
-    s: int => "Status: ${s}"  // Captures other status codes
+    200 -> "OK",
+    404 -> "Not Found",
+    s: int -> "Status: ${s}"  // Captures other status codes
 }
 ```
 
@@ -225,12 +225,12 @@ case response.status {
 ```javascript
 case response {
 let value = case response {
-    s: Success => {
+    s: Success -> {
         readonly doubled = s.value * 2
         print("Success: ${doubled}")
         yield doubled
     },
-    f: Failure => {
+    f: Failure -> {
         logError(f.error)
         yield 0
     }
@@ -246,20 +246,20 @@ Case statements are expressions and can be used anywhere:
 ```javascript
 // Variable assignment
 let result = case value {
-    0 => "zero",
-    1 => "one",
-    _ => "other"
+    0 -> "zero",
+    1 -> "one",
+    _ -> "other"
 }
 
 // Function return
 function classify(n: int): string => case n {
-    ..<0 => "negative",
-    0 => "zero",
-    1.. => "positive"
+    ..<0 -> "negative",
+    0 -> "zero",
+    1.. -> "positive"
 }
 
 // Inline
-print(case status { 200 => "OK", _ => "Error" })
+print(case status { 200 -> "OK", _ -> "Error" })
 ```
 
 ---
@@ -274,8 +274,8 @@ to a value.  Using `return` inside such an arm is a **compile error**.
 // ❌ Error: 'return' cannot be used inside a case-expression arm
 function main(): int {
     const x = case tryOp() {
-        s: Success => s.value,
-        f: Failure => { return 1 }   // ← compile error
+        s: Success -> s.value,
+        f: Failure -> { return 1 }   // ← compile error
     }
     return x
 }
@@ -293,11 +293,11 @@ contain `return` freely:
 // ✅ Fine: case at statement level
 function main(): int {
     case tryOp() {
-        s: Success => {
+        s: Success -> {
             println(s.value)
             return 0
         },
-        f: Failure => {
+        f: Failure -> {
             println("error!")
             return 1    // returns from main()
         }
@@ -325,7 +325,7 @@ Case keeps it simple — pattern checks types/values, you access fields normally
 ```javascript
 // ✅ Clean and explicit
 case point {
-    p: Point => {
+    p: Point -> {
         readonly x = p.x
         readonly y = p.y
         print("Point at (${x}, ${y})")
@@ -345,15 +345,15 @@ Complex conditional logic should use `if` statements or ranges:
 ```javascript
 // ✅ Use ranges
 case value {
-    11..99 => "in range",
-    _ => "out of range"
+    11..99 -> "in range",
+    _ -> "out of range"
 }
 
 // ✅ Extract complex conditions
 readonly isValid = value > 10 && value < 100 && value % 2 == 0
 case isValid {
-    true => "valid",
-    false => "invalid"
+    true -> "valid",
+    false -> "invalid"
 }
 ```
 
@@ -450,8 +450,8 @@ function test(): string {
     x := loadConfig() else {
         // x has type Result<Config, AppError> here
         return case x {
-            _: Success => "unexpected",
-            f: Failure => f.error.message
+            _: Success -> "unexpected",
+            f: Failure -> f.error.message
         }
     }
     // x is Config here
@@ -498,28 +498,28 @@ class Line { start, end: Point; }
 type Shape = Point | Line
 
 function describe(shape: Shape): string => case shape {
-    p: Point => "Point at (${p.x}, ${p.y})",
-    l: Line => "Line from (${l.start.x}, ${l.start.y}) to (${l.end.x}, ${l.end.y})"
+    p: Point -> "Point at (${p.x}, ${p.y})",
+    l: Line -> "Line from (${l.start.x}, ${l.start.y}) to (${l.end.x}, ${l.end.y})"
 }
 
 function categorize(age: int): string => case age {
-    ..<0 => "invalid",
-    ..<18 => "minor",
-    18..64 => "adult",
-    65.. => "senior"
+    ..<0 -> "invalid",
+    ..<18 -> "minor",
+    18..64 -> "adult",
+    65.. -> "senior"
 }
 
 function handleResponse(r: Response): void => case r.status {
-    200 | 201 | 204 => print("Success: ${r.body}"),
-    404 => print("Not found"),
-    500..599 => print("Server error"),
-    _ => print("Unexpected status: ${r.status}")
+    200 | 201 | 204 -> print("Success: ${r.body}"),
+    404 -> print("Not found"),
+    500..599 -> print("Server error"),
+    _ -> print("Unexpected status: ${r.status}")
 }
 
 enum Suit { Hearts, Diamonds, Clubs, Spades }
 
 function suitColor(suit: Suit): string => case suit {
-    .Hearts | .Diamonds => "red",
-    .Clubs | .Spades => "black"
+    .Hearts | .Diamonds -> "red",
+    .Clubs | .Spades -> "black"
 }
 ```

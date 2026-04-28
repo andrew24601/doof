@@ -411,9 +411,9 @@ describe("Parser — if expression", () => {
 describe("Parser — case expression", () => {
   it("parses basic case with values", () => {
     const expr = parseExprInInitializer(`case x {
-      0 => "zero",
-      1 => "one",
-      _ => "other"
+      0 -> "zero",
+      1 -> "one",
+      _ -> "other"
     }`);
     expect(expr.kind).toBe("case-expression");
     if (expr.kind === "case-expression") {
@@ -425,8 +425,8 @@ describe("Parser — case expression", () => {
 
   it("parses case with type patterns", () => {
     const expr = parseExprInInitializer(`case result {
-      s: Success => s,
-      f: Failure => f
+      s: Success -> s,
+      f: Failure -> f
     }`);
     expect(expr.kind).toBe("case-expression");
     if (expr.kind === "case-expression") {
@@ -440,9 +440,9 @@ describe("Parser — case expression", () => {
 
   it("parses case with range patterns", () => {
     const expr = parseExprInInitializer(`case age {
-      ..<18 => "minor",
-      18..64 => "adult",
-      65.. => "senior"
+      ..<18 -> "minor",
+      18..64 -> "adult",
+      65.. -> "senior"
     }`);
     expect(expr.kind).toBe("case-expression");
     if (expr.kind === "case-expression") {
@@ -466,8 +466,8 @@ describe("Parser — case expression", () => {
 
   it("parses case with dot shorthand", () => {
     const expr = parseExprInInitializer(`case dir {
-      .North => "up",
-      .South => "down"
+      .North -> "up",
+      .South -> "down"
     }`);
     expect(expr.kind).toBe("case-expression");
     if (expr.kind === "case-expression") {
@@ -483,8 +483,8 @@ describe("Parser — case expression", () => {
 
   it("parses grouped patterns with | and block yields", () => {
     const expr = parseExprInInitializer(`case status {
-      200 | 201 => "success",
-      _ => {
+      200 | 201 -> "success",
+      _ -> {
         yield "other"
       },
     }`);
@@ -500,15 +500,15 @@ describe("Parser — case expression", () => {
 
   it("requires commas between case expression arms", () => {
     expect(() => parseExprInInitializer(`case x {
-      0 => "zero"
-      1 => "one"
+      0 -> "zero"
+      1 -> "one"
     }`)).toThrow();
   });
 
   it("rejects comma-separated grouped patterns in case expressions", () => {
     expect(() => parseExprInInitializer(`case status {
-      200, 201 => "success",
-      _ => "other"
+      200, 201 -> "success",
+      _ -> "other"
     }`)).toThrow();
   });
 });

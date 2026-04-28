@@ -610,13 +610,13 @@ struct Worker {
         w := Worker("demo")
         const ok = w.run(false)
         case ok {
-          _: Success => println("ok")
-          f: Failure => println(f.error)
+          _: Success -> println("ok")
+          f: Failure -> println(f.error)
         }
         const bad = w.run(true)
         return case bad {
-          _: Success => 0,
-          f: Failure => {
+          _: Success -> 0,
+          f: Failure -> {
             println(f.error)
             yield 1
           }
@@ -657,8 +657,8 @@ struct NativeRows {
       function main(): int {
         result := NativeRows.read()
         return case result {
-          s: Success => if formatJsonValue(s.value).contains("demo") then 0 else 2,
-          _ => 1
+          s: Success -> if formatJsonValue(s.value).contains("demo") then 0 else 2,
+          _ -> 1
         }
       }
     `);

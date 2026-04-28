@@ -114,6 +114,7 @@ export enum TokenType {
   Colon = "Colon",
   DoubleColon = "DoubleColon",
   Semicolon = "Semicolon",
+  RightArrow = "RightArrow",
   Arrow = "Arrow",
   QuestionDot = "QuestionDot",
   BangDot = "BangDot",
@@ -707,7 +708,10 @@ export class Lexer {
         break;
 
       case "-":
-        if (this.peek(1) === "=") {
+        if (this.peek(1) === ">") {
+          this.advance(); this.advance();
+          this.addToken(TokenType.RightArrow, "->", startLine, startCol);
+        } else if (this.peek(1) === "=") {
           this.advance(); this.advance();
           this.addToken(TokenType.MinusEqual, "-=", startLine, startCol);
         } else {

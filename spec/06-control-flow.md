@@ -85,10 +85,10 @@ Case-expression arms may use block bodies instead of a single expression:
 
 ```javascript
 result := case n {
-    0 => {
+    0 -> {
         yield "zero"
     }
-    _ => {
+    _ -> {
         if n < 0 {
             yield "negative"
         }

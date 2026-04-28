@@ -92,8 +92,8 @@ function processUsers(users: readonly User[]): Map<int, string> {
     
     for user of users {
         case user.email {
-            null => print("${user.name} has no email"),
-            e: string => result.set(user.id, e)
+            null -> print("${user.name} has no email"),
+            e: string -> result.set(user.id, e)
         }
     }
     

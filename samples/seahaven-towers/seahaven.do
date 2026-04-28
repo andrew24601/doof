@@ -133,10 +133,10 @@ export class CardHit {
 
 function foundationSuitAt(index: int): Suit {
   return case index {
-    0 => Suit.Spades,
-    1 => Suit.Hearts,
-    2 => Suit.Diamonds,
-    _ => Suit.Clubs
+    0 -> Suit.Spades,
+    1 -> Suit.Hearts,
+    2 -> Suit.Diamonds,
+    _ -> Suit.Clubs
   }
 }
 

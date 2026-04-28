@@ -31,11 +31,11 @@ export class RemindersTools "Read and modify reminders in the macOS Reminders ap
   requestAccess "Prompts the user to grant reminders access if the server has not already been authorized."(): Result<JsonValue, string> {
     store := NativeRemindersStore()
     return case store.requestAccess() {
-      s: Success => Success(RequestAccessResult {
+      s: Success -> Success(RequestAccessResult {
         granted: s.value,
         status: store.authorizationStatus(),
       }.toJsonValue()),
-      f: Failure => Failure(f.error)
+      f: Failure -> Failure(f.error)
     }
   }
 

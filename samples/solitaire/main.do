@@ -15,26 +15,26 @@ function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppS
   events := host.pollEvents(canNap)
   for event of events {
     case event.kind() {
-      .CloseRequested => {}
-      .RenderRequested => {
+      .CloseRequested -> {}
+      .RenderRequested -> {
         needsRender = true
       }
-      .EscapeRequested => {
+      .EscapeRequested -> {
         needsRender = hostCancelInteraction(input, app) || needsRender
       }
-      .NewGameRequested => {
+      .NewGameRequested -> {
         appNewGame(app, host.ticks())
         needsRender = true
       }
-      .AutoCompleteRequested => {
+      .AutoCompleteRequested -> {
         appAutoComplete(app)
         needsRender = true
       }
-      .MouseDown => {
+      .MouseDown -> {
         needsRender = true
         hostMouseDown(input, app, event.x(), event.y(), host.dpiScale())
       }
-      .MouseUp => {
+      .MouseUp -> {
         needsRender = true
         result := hostMouseUp(
           input,
@@ -51,7 +51,7 @@ function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppS
           appNewGame(app, host.ticks())
         }
       }
-      .MouseMove => {
+      .MouseMove -> {
         needsRender = true
         hostMouseMove(
           input,
@@ -64,19 +64,19 @@ function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppS
           host.dpiScale()
         )
       }
-      .MouseWheel => {
+      .MouseWheel -> {
       }
-      .KeyDown => {
+      .KeyDown -> {
         if setDebugKeyState(input, event.key(), true) {
           needsRender = true
         }
       }
-      .KeyUp => {
+      .KeyUp -> {
         if setDebugKeyState(input, event.key(), false) {
           needsRender = true
         }
       }
-      _ => {}
+      _ -> {}
     }
   }
 
@@ -134,12 +134,12 @@ function runSolitaire(): Result<void, string> {
 export function main(): int {
   result := runSolitaire()
   case result {
-    s: Success => {}
-    f: Failure => println(f.error)
+    s: Success -> {}
+    f: Failure -> println(f.error)
   }
 
   return case result {
-    s: Success => 0,
-    f: Failure => 1
+    s: Success -> 0,
+    f: Failure -> 1
   }
 }
