@@ -2,6 +2,16 @@
 
 This document provides guidance for AI agents and developers working on the Doof language compiler and tooling.
 
+## Internal Documentation
+
+Use these detailed references alongside AGENTS.md:
+
+- [docs/source-file-structure.md](docs/source-file-structure.md) — live map of the workspace and `src/` ownership boundaries
+- [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) — current Phase 4 emitter architecture and generated-output flow
+- [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) — concept-by-concept notes on how Doof constructs lower to C++
+
+AGENTS.md is the concise policy and maintenance guide. Keep detailed repository maps and transpiler notes in those docs.
+
 ## Core Principles
 
 ### 0. Greenfields — No Backward Compatibility
@@ -22,8 +32,8 @@ This document provides guidance for AI agents and developers working on the Doof
 - Analyzer tests (2 files) — 68 tests covering module-level symbol analysis
 - Parser tests (3 files) — 220 tests covering expression, declaration, and statement parsing
 - Checker tests (5 files) — 337 tests covering type inference, compatibility, validation, and features
-- Emitter unit tests (6 files) — 529 tests covering C++ code generation
-- Emitter e2e tests (5 files) — 239 tests that compile and run generated C++
+- Emitter unit tests (multiple files) — cover C++ code generation from core lowering through generics, metadata, and schema support
+- Emitter e2e tests (multiple files) — compile and run generated C++ across compiler features, module layouts, and sample projects
 - Each test is focused on a single behavior
 
 ### 2. Keep Source Files Small and Focused
@@ -45,8 +55,11 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [checker-result.ts](src/checker-result.ts) (~200 lines) — Result arm scopes, catch expressions, try propagation, and binding retyping
 - [checker-expr-ops.ts](src/checker-expr-ops.ts) (~180 lines) — Binary/unary operator typing and enum expectation helpers
 - [ast.ts](src/ast.ts) (700 lines) — AST node definitions with `Typed` mixin for resolved types
-- [emitter.ts](src/emitter.ts) (~260 lines) — C++ transpiler orchestrator
+- See [docs/source-file-structure.md](docs/source-file-structure.md) for the live workspace map and the full emitter module inventory.
+- [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Project and module emission entry points, `.hpp` / `.cpp` splitting, and generated support files
+- [emitter-context.ts](src/emitter-context.ts) (~80 lines) — Shared EmitContext threaded through emission helpers
 - [emitter-types.ts](src/emitter-types.ts) (~250 lines) — ResolvedType → C++ type string mapping
+- [emitter-defaults.ts](src/emitter-defaults.ts) (~120 lines) — Default value emission helpers
 - [emitter-expr.ts](src/emitter-expr.ts) (~240 lines) — Expression emission dispatcher (delegates to sub-modules)
 - [emitter-expr-literals.ts](src/emitter-expr-literals.ts) (~100 lines) — Literal formatting and identifier sanitisation
 - [emitter-expr-ops.ts](src/emitter-expr-ops.ts) (~240 lines) — Binary, unary, assignment, member, index expressions
@@ -56,11 +69,13 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [emitter-expr-utils.ts](src/emitter-expr-utils.ts) (~50 lines) — Shared resolveTypeAnnotation helper
 - [emitter-stmt.ts](src/emitter-stmt.ts) (~910 lines) — Statement dispatch, variable bindings, try/catch, control flow, else-narrow
 - [emitter-decl.ts](src/emitter-decl.ts) (~410 lines) — Function, class, interface, enum, and type alias emission
+- [emitter-monomorphize.ts](src/emitter-monomorphize.ts) (~70 lines) — Generic specialization naming and substitution helpers
+- [emitter-narrowing.ts](src/emitter-narrowing.ts) (~160 lines) — `as` narrowing and narrowed-value extraction helpers
 - [emitter-json.ts](src/emitter-json.ts) (~395 lines) — JSON serialization/deserialization code generation
+- [emitter-json-value.ts](src/emitter-json-value.ts) (~150 lines) — Runtime `JsonValue` coercion helpers
 - [emitter-schema.ts](src/emitter-schema.ts) (~200 lines) — JSON Schema Draft 7 generation for class metadata
 - [emitter-metadata.ts](src/emitter-metadata.ts) (~200 lines) — C++ emission for .metadata field and .invoke() method
 - [emitter-runtime.ts](src/emitter-runtime.ts) (~350 lines) — doof_runtime.hpp generation
-- [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Module splitting (.hpp/.cpp), main() wrapper, project support files
 
 **When a module grows too large:**
 1. Identify cohesive subsets of functionality
@@ -168,8 +183,10 @@ src/
   checker-compat.test.ts        # Checker tests: type compatibility & validation
   checker-validation.test.ts    # Checker tests: assignment, null, AST decoration
   checker-features.test.ts      # Checker tests: Result, concurrency, JSON, with
-  emitter.ts                    # C++ transpiler orchestrator
+  emitter-module.ts             # Project and module emission entry points, output splitting
+  emitter-context.ts            # Shared EmitContext type
   emitter-types.ts              # ResolvedType → C++ type mapping
+  emitter-defaults.ts           # Default value emission helpers
   macos-app-support.ts          # Browser-safe macOS app support file generation helpers
   stdlib-constants.ts           # Browser-safe stdlib constants shared by emitters and loaders
   emitter-expr.ts               # Expression emission dispatcher
@@ -179,14 +196,15 @@ src/
   emitter-expr-control.ts       # If, case, and catch expressions
   emitter-expr-lambda.ts        # Lambda emission and capture analysis
   emitter-expr-utils.ts         # Shared resolveTypeAnnotation helper
-  emitter-context.ts            # Shared EmitContext type
   emitter-stmt.ts               # Statement dispatch, variable bindings, control flow
   emitter-decl.ts               # Function, class, interface, enum, type alias emission
+  emitter-monomorphize.ts       # Generic specialization naming and substitution
+  emitter-narrowing.ts          # As-narrowing and narrowed-value extraction
   emitter-json.ts               # JSON serialization/deserialization code generation
+  emitter-json-value.ts         # Runtime JsonValue coercion helpers
   emitter-schema.ts             # JSON Schema Draft 7 generation for class metadata
   emitter-metadata.ts           # C++ emission for .metadata field and .invoke() method
   emitter-runtime.ts            # doof_runtime.hpp generation
-  emitter-module.ts             # Module splitting (.hpp/.cpp), main() wrapper, project support files
   emitter-test-helpers.ts       # Shared emitter test utilities
   emitter-basics.test.ts        # Emitter tests: primitives, declarations, control flow
   emitter-constructs.test.ts    # Emitter tests: destructuring, lambdas, patterns
@@ -194,15 +212,19 @@ src/
   emitter-schema.test.ts        # Emitter tests: JSON Schema generation
   emitter-metadata.test.ts      # Emitter tests: metadata field and invoke method
   emitter-advanced.test.ts      # Emitter tests: Result, JSON, null, private
+  emitter-generics.test.ts      # Emitter tests: generic specialization and generic lowering
   e2e-test-helpers.ts           # E2E test utilities (compile & run C++)
   emitter-e2e-compile.test.ts   # E2E tests: compilation & basic run
   emitter-e2e-features.test.ts  # E2E tests: destructuring, closures, recursion
   emitter-e2e-modules.test.ts   # E2E tests: module splitting, extern, namespace
   emitter-e2e-advanced.test.ts  # E2E tests: concurrency, try/catch, JSON, else-narrow
   emitter-e2e-combos.test.ts    # E2E tests: feature combinations & boundaries
+  emitter-e2e-samples.test.ts   # E2E tests: emitted sample projects and package-style programs
   test-helpers.ts               # Shared test utilities (VirtualFS)
   index.ts                      # Public API exports
 ```
+
+For the full workspace breakdown and routing guidance, see [docs/source-file-structure.md](docs/source-file-structure.md).
 
 **Rules:**
 - Test files live next to implementation files, split by concern: `foo-basics.test.ts`, `foo-advanced.test.ts`
@@ -242,6 +264,9 @@ import { BUILTIN_TYPE_NAMES } from "./types.js";
 - [ ] Export from [index.ts](src/index.ts) if part of public API
 - [ ] **Update the relevant `spec/` file** to document language behaviour
 - [ ] **Update [.github/skills/doof-language/SKILL.md](.github/skills/doof-language/SKILL.md)** when Doof syntax, semantics, or examples change
+- [ ] Update [docs/source-file-structure.md](docs/source-file-structure.md) when files move, split, or change ownership boundaries
+- [ ] Update [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) when emitter flow, generated artifacts, or runtime/support generation changes
+- [ ] Update [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) when a Doof construct lowers to C++ differently
 - [ ] Run full test suite: `npm test`
 - [ ] Check for TypeScript errors: `npm run build`
 - [ ] Update this document if adding architectural patterns
@@ -445,15 +470,19 @@ Source Code
             Walks decorated AST, emits equivalent C++
 ```
 
-**Phase 4 — C++ Emission** ([emitter.ts](src/emitter.ts), [emitter-types.ts](src/emitter-types.ts), [emitter-expr.ts](src/emitter-expr.ts), [emitter-stmt.ts](src/emitter-stmt.ts), [emitter-decl.ts](src/emitter-decl.ts), [emitter-json.ts](src/emitter-json.ts), [emitter-schema.ts](src/emitter-schema.ts), [emitter-metadata.ts](src/emitter-metadata.ts))
+**Phase 4 — C++ Emission** ([emitter-module.ts](src/emitter-module.ts), [emitter-context.ts](src/emitter-context.ts), [emitter-types.ts](src/emitter-types.ts), [emitter-expr.ts](src/emitter-expr.ts), [emitter-stmt.ts](src/emitter-stmt.ts), [emitter-decl.ts](src/emitter-decl.ts), [emitter-monomorphize.ts](src/emitter-monomorphize.ts), [emitter-json.ts](src/emitter-json.ts), [emitter-schema.ts](src/emitter-schema.ts), [emitter-metadata.ts](src/emitter-metadata.ts), [emitter-runtime.ts](src/emitter-runtime.ts))
 - Map Doof types to C++ types (int→int32_t, classes→shared_ptr, interfaces→variant, etc.)
 - Walk decorated AST nodes and emit equivalent C++ source text
+- Thread shared emission state through `EmitContext`
 - Pre-compute interface→implementing-classes map for closed-world variant dispatch
+- Specialize generic functions and methods to concrete emitted helpers
 - Auto-generate `toJSON()`/`fromJSON()` methods for classes with all-serializable fields using the runtime `JsonValue` parser/stringifier
 - Generate interface-level `fromJSON` dispatchers using shared const discriminator fields
 - On-demand `_metadata` (JSON Schema) and `invoke()` (JSON dispatch) for tool interop ([emitter-schema.ts](src/emitter-schema.ts), [emitter-metadata.ts](src/emitter-metadata.ts))
 - Generate `doof_runtime.hpp` support header ([emitter-runtime.ts](src/emitter-runtime.ts))
 - Output: split C++ modules plus generated runtime/support files for the CLI pipeline
+
+Detailed emitter structure lives in [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md). Concept-level lowering notes live in [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md).
 
 ### Decorated AST Pattern
 
@@ -515,12 +544,13 @@ no separate lookup maps — the AST is the single source of truth after analysis
 
 ### When to Update
 
-- **Adding new files** — Update the file organization section with the new module's purpose and line count range
+- **Adding new files** — Update the file organization section and [docs/source-file-structure.md](docs/source-file-structure.md) with the new module's purpose and ownership boundary
 - **Adding new architectural patterns** — Document the pattern in the "Common Patterns" section with an example
-- **Changing the analysis pipeline** — Update the "Compiler Architecture" section to reflect new phases or data flows
+- **Changing the analysis pipeline** — Update the "Compiler Architecture" section and [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) to reflect new phases or data flows
 - **Updating test counts** — Keep the test count examples current when adding/removing test suites
 - **Introducing new conventions** — Add to the appropriate section (naming, imports, etc.)
 - **Adding, removing, or restricting language features** — Update the relevant `spec/` file to keep language behaviour documented
+- **Changing how a Doof construct lowers to C++** — Update [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) with the new lowering strategy and validation anchors
 - **Changing user-facing Doof language behaviour** — Update [.github/skills/doof-language/SKILL.md](.github/skills/doof-language/SKILL.md) so examples and guidance match the compiler
 
 ### How to Update
@@ -531,6 +561,7 @@ no separate lookup maps — the AST is the single source of truth after analysis
 4. **Be concise** — This is a reference guide, not a tutorial
 5. **Keep the skill aligned** — If AGENTS.md or `spec/` changes language behaviour, update [.github/skills/doof-language/SKILL.md](.github/skills/doof-language/SKILL.md) in the same change
 6. **Test your updates** — Ensure file paths and line counts are accurate
+7. **Keep detail in the right file** — AGENTS.md should stay concise; move file maps and detailed transpiler notes into `docs/`
 
 ### What NOT to Include
 
