@@ -1573,7 +1573,7 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
-    const diag = cr.diagnostics.find((d) => d.message.includes("yield") && d.message.includes("case-expression"));
+    const diag = cr.diagnostics.find((d) => d.message.includes("yield") && d.message.includes("value-producing block"));
     expect(diag).toBeDefined();
   });
 
@@ -1594,6 +1594,64 @@ describe("Result<T, E> type integration", () => {
       "/main.do",
     );
     const diag = cr.diagnostics.find((d) => d.message.includes("must yield a value on every path"));
+    expect(diag).toBeDefined();
+  });
+
+  it("allows yield inside <- declaration blocks", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(flag: bool): int {
+            let x <- {
+              if flag {
+                yield 10
+              }
+              yield 5
+            }
+            return x
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("reports error when a <- block does not yield on every path", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(flag: bool): int {
+            let x: int <- {
+              if flag {
+                yield 10
+              }
+            }
+            return x
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const diag = cr.diagnostics.find((d) => d.message.includes("must yield a value on every path"));
+    expect(diag).toBeDefined();
+  });
+
+  it("reports error for return inside <- block", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): int {
+            let x: int <- {
+              return 1
+            }
+            return x
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const diag = cr.diagnostics.find((d) => d.message.includes("cannot be used inside a value-producing block"));
     expect(diag).toBeDefined();
   });
 

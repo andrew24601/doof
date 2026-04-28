@@ -23,6 +23,44 @@ timestamp := getCurrentTime()       // Immutable binding, shallow
 let counter = 0                     // Mutable binding
 ```
 
+### Yield-Block Initializers with `<-`
+
+Local `let`, local `const`, and local `readonly` declarations can use `<-` when the initializer needs imperative work before producing its final value:
+
+```javascript
+let x <- {
+    if condition {
+        yield 10
+    }
+    yield 5
+}
+
+const label <- {
+    log("computing label")
+    yield "ready"
+}
+
+readonly total: int <- {
+    yield items.length
+}
+```
+
+`yield` produces the value of the block. Every reachable path must `yield`, and the block cannot use outer-flow effects such as `return` or `try`.
+
+The same syntax is also available for statement-only reassignment of an existing local variable:
+
+```javascript
+let count = 0
+count <- {
+    if shouldSkip {
+        yield count
+    }
+    yield count + 1
+}
+```
+
+`:=` does not support block initializers. `<-` must be followed by a block, and it is not available at module scope.
+
 ---
 
 ## `const` — Compile-Time Constants
@@ -97,6 +135,21 @@ buffer.push(4)             // ✅ OK
 buffer = [5, 6]            // ✅ OK
 ```
 
+`let` also accepts local yield-block initializers and statement-only yield-block reassignment:
+
+```javascript
+let current <- {
+    yield loadInitialValue()
+}
+
+current <- {
+    if current < 0 {
+        yield 0
+    }
+    yield current + 1
+}
+```
+
 ### Explicit Type Overrides Inference
 
 ```javascript
@@ -138,6 +191,14 @@ data.push(4)                  // ❌ Error: readonly array
 data = [5, 6]                 // ❌ Error: immutable binding
 
 Deep immutability here means the entire reachable value must be immutable. Collection-typed readonly fields and bindings are therefore treated as readonly collections even if the annotation omits the collection-level `readonly`.
+```
+
+Local `readonly` declarations may also use `<-` blocks when the final value is produced with `yield`:
+
+```javascript
+readonly configName <- {
+    yield "main"
+}
 ```
 
 ### Class Fields
@@ -184,6 +245,7 @@ z := [1, 2]                  // int[] (mutable content, immutable binding)
 - **Allowed: `const`, `readonly`, and `function` declarations**
 - `const` and `function` declarations **hoist** (available anywhere in file)
 - `readonly` does **not** hoist (strict declaration order)
+- `<-` yield-block initializers are **not** allowed at global scope
 - No `let` or `:=` at global scope
 
 ```javascript
@@ -203,6 +265,7 @@ function bar(x: int): int => x * 12
 // ❌ Invalid at global scope
 config := loadConfig()     // Error: := not allowed globally
 let counter = 0            // Error: let not allowed globally
+const value <- { yield 1 } // Error: <- blocks are local-only
 
 // ❌ Hoisting error for readonly
 let x = CONFIG             // Error: CONFIG used before declaration

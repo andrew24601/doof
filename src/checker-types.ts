@@ -341,10 +341,13 @@ export interface Scope {
   returnType: ResolvedType | null;
   /** True when inside a case-expression arm body (return is disallowed). */
   inCaseExpressionArm?: boolean;
-  /** Yield state for a block body inside a case-expression arm. */
-  caseExpressionYield?: {
+  /** True when inside a block that produces a value via yield. */
+  inValueYieldBlock?: boolean;
+  /** Yield state for a value-producing block. */
+  valueYield?: {
     type: ResolvedType | null;
     hasYield: boolean;
+    context: "case-expression arm" | "yield block";
   };
   /** True when inside a catch-expression body used in expression position (return is disallowed). */
   inCatchExpressionBody?: boolean;

@@ -24,9 +24,9 @@ export interface NamedType {
   kind: "named-type";
   name: string;
   typeArgs: TypeAnnotation[];
-  span: SourceSpan;
   /** Set by the analyzer: the symbol this type name resolves to. */
   resolvedSymbol?: ModuleSymbol;
+  span: SourceSpan;
 }
 
 export interface ArrayType {
@@ -225,6 +225,12 @@ export interface CallExpression extends Typed {
   span: SourceSpan;
 }
 
+export interface YieldBlockExpression extends Typed {
+  kind: "yield-block-expression";
+  body: Block;
+  span: SourceSpan;
+}
+
 export interface CallArgument {
   name?: string;
   value: Expression;
@@ -242,6 +248,13 @@ export interface ObjectLiteral extends Typed {
   kind: "object-literal";
   properties: ObjectProperty[];
   spread?: Expression;
+  span: SourceSpan;
+}
+
+export interface YieldBlockAssignmentStatement extends Typed {
+  kind: "yield-block-assignment-statement";
+  name: string;
+  value: YieldBlockExpression;
   span: SourceSpan;
 }
 
@@ -425,6 +438,7 @@ export type Expression =
   | BinaryExpression
   | UnaryExpression
   | AssignmentExpression
+  | YieldBlockExpression
   | MemberExpression
   | QualifiedMemberExpression
   | IndexExpression
@@ -924,6 +938,7 @@ export type Statement =
   | ReadonlyDeclaration
   | ImmutableBinding
   | LetDeclaration
+  | YieldBlockAssignmentStatement
   | FunctionDeclaration
   | ClassDeclaration
   | InterfaceDeclaration

@@ -456,6 +456,34 @@ type Predicate<T> = (item: T): bool
 
 `export`, `private` (file-scoped), `isolated` (concurrency-safe), `static` (class field or method, interface static method).
 
+## Yielding Blocks As Values
+
+Doof supports value-producing blocks in two places:
+
+- block bodies in expression `case` arms
+- local `let` / `const` / `readonly` declarations and statement-only local reassignment via `<-`
+
+```doof
+let score <- {
+    if cached {
+        yield 10
+    }
+    yield 5
+}
+
+score <- {
+    yield score + 1
+}
+```
+
+Rules:
+
+- `<-` must be followed by a block
+- every reachable path in the block must `yield`
+- `yield` is only valid inside these value-producing blocks
+- `return` and `try` are rejected inside the block because it cannot affect outer flow
+- `:=` does not support `<-` block initializers
+
 ## Classes
 
 Classes are **nominal types** (structural identity does not satisfy nominal checks).

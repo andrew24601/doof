@@ -467,6 +467,37 @@ describe("emitter — control flow", () => {
     expect(cpp).not.toContain("unhandled statement: yield-statement");
     expect(cpp).toContain("return");
   });
+
+  it("emits <- declaration blocks as IIFEs", () => {
+    const cpp = emit(`
+      function f(flag: bool): int {
+        let x: int <- {
+          if flag {
+            yield 10
+          }
+          yield 5
+        }
+        return x
+      }
+    `);
+    expect(cpp).toContain("[&]() -> int32_t {");
+    expect(cpp).toContain("return 10;");
+    expect(cpp).toContain("return 5;");
+  });
+
+  it("emits <- reassignment through an IIFE result", () => {
+    const cpp = emit(`
+      function f(): int {
+        let x = 1
+        x <- {
+          yield x + 1
+        }
+        return x
+      }
+    `);
+    expect(cpp).toContain("x = [&]() -> int32_t {");
+    expect(cpp).toContain("return x + 1;");
+  });
 });
 
 describe("emitter — classes", () => {

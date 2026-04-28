@@ -50,6 +50,19 @@ export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext): stri
   return emitCaseAsIIFE(expr, subject, ctx);
 }
 
+export function emitYieldBlockIIFE(
+  block: Block,
+  ctx: EmitContext,
+  resultType?: ResolvedType,
+): string {
+  const retType = resultType ? emitType(resultType) : "auto";
+  const ind = indent(ctx);
+  const bodyCtx = yieldCtx(ctx, ctx.indent + 1, resultType);
+  const body = emitBlockBody(block, bodyCtx);
+  const trailingNewline = body.endsWith("\n") ? "" : "\n";
+  return `[&]() -> ${retType} {\n${body}${trailingNewline}${ind}}()`;
+}
+
 function yieldCtx(ctx: EmitContext, indentLevel: number, resultType: ResolvedType | undefined): EmitContext {
   return {
     ...ctx,

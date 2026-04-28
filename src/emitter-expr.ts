@@ -30,7 +30,7 @@ export { scanCapturedMutables } from "./emitter-expr-lambda.js";
 import { formatFloat, formatDouble, escapeChar, emitStringLiteral, emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitBinaryExpression, emitUnaryExpression, emitAssignmentExpression, emitMemberExpression, emitQualifiedMemberExpression, emitIndexExpression } from "./emitter-expr-ops.js";
 import { emitCallExpression, emitConstructExpression } from "./emitter-expr-calls.js";
-import { emitIfExpression, emitCaseExpression, emitCatchExpressionIIFE } from "./emitter-expr-control.js";
+import { emitIfExpression, emitCaseExpression, emitCatchExpressionIIFE, emitYieldBlockIIFE } from "./emitter-expr-control.js";
 import { emitLambdaExpression, emitAsyncExpression, emitActorCreationExpression } from "./emitter-expr-lambda.js";
 import {
   buildPositionalConstructorArgList,
@@ -116,6 +116,9 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "assignment-expression":
       return emitAssignmentExpression(expr, ctx);
+
+    case "yield-block-expression":
+      return emitYieldBlockIIFE(expr.body, ctx, substituteEmitType(expr.resolvedType, ctx));
 
     case "member-expression":
       return emitMemberExpression(expr, ctx);

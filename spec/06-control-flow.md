@@ -75,6 +75,54 @@ Null checks are still useful for control flow, but they do not change the static
 
 ---
 
+## Yielding Blocks
+
+Some expression-like contexts use a block that produces a value by explicitly `yield`ing it.
+
+### Case-Expression Arms
+
+Case-expression arms may use block bodies instead of a single expression:
+
+```javascript
+result := case n {
+    0 => {
+        yield "zero"
+    }
+    _ => {
+        if n < 0 {
+            yield "negative"
+        }
+        yield "positive"
+    }
+}
+```
+
+### `<-` Value-Yield Blocks
+
+Local `let`, local `const`, local `readonly`, and statement-only local reassignment can use `<-` followed by a block:
+
+```javascript
+let x <- {
+    if ready {
+        yield 10
+    }
+    yield 5
+}
+
+x <- {
+    yield x + 1
+}
+```
+
+### Rules
+
+- Every reachable path in the block must `yield` a value.
+- `yield` is only valid inside these value-producing blocks.
+- The block cannot affect outer control flow. In particular, `return` and `try` are rejected.
+- `:=` does not accept `<-` block initializers.
+
+---
+
 ## While Loops
 
 ```javascript

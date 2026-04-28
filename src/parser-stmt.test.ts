@@ -683,6 +683,29 @@ describe("Parser — assignments", () => {
       });
     }
   });
+
+  it("parses yielding block assignment statement", () => {
+    const stmt = firstStmt(`x <- {
+      if ready {
+        yield 10
+      }
+      yield 5
+    }`);
+    expect(stmt.kind).toBe("yield-block-assignment-statement");
+    if (stmt.kind === "yield-block-assignment-statement") {
+      expect(stmt.name).toBe("x");
+      expect(stmt.value.kind).toBe("yield-block-expression");
+      expect(stmt.value.body.statements).toHaveLength(2);
+    }
+  });
+
+  it("rejects non-block yielding assignment rhs", () => {
+    expect(() => firstStmt("x <- 42")).toThrow(/Expected block after '<-'/);
+  });
+
+  it("rejects yielding block assignment on non-identifier target", () => {
+    expect(() => firstStmt("point.x <- { yield 42 }")).toThrow(/Left side of <- must be an identifier/);
+  });
 });
 
 // ==========================================================================
@@ -1099,11 +1122,35 @@ describe("Parser — semicolons", () => {
     expect(withoutSemi.kind).toBe("readonly-declaration");
   });
 
+  it("parses <- block declarations with optional trailing semicolon", () => {
+    const constStmt = firstStmt(`const x <- { yield 10 };`);
+    const letStmt = firstStmt(`let x <- { yield 10 }`);
+    const readonlyStmt = firstStmt(`readonly x <- { yield 10 };`);
+
+    expect(constStmt.kind).toBe("const-declaration");
+    expect(letStmt.kind).toBe("let-declaration");
+    expect(readonlyStmt.kind).toBe("readonly-declaration");
+
+    for (const stmt of [constStmt, letStmt, readonlyStmt]) {
+      if (
+        stmt.kind === "const-declaration"
+        || stmt.kind === "let-declaration"
+        || stmt.kind === "readonly-declaration"
+      ) {
+        expect(stmt.value.kind).toBe("yield-block-expression");
+      }
+    }
+  });
+
   it("parses immutable binding with optional trailing semicolon", () => {
     const withSemi = firstStmt(`x := 10;`);
     const withoutSemi = firstStmt(`x := 10`);
     expect(withSemi.kind).toBe("immutable-binding");
     expect(withoutSemi.kind).toBe("immutable-binding");
+  });
+
+  it("keeps := block rhs invalid", () => {
+    expect(() => firstStmt(`x := { yield 10 }`)).toThrow();
   });
 
   it("parses expression statement with optional trailing semicolon", () => {

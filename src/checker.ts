@@ -927,7 +927,8 @@ export class TypeChecker {
       thisType: kind === "method" ? parent.thisType : null,
       returnType: returnType !== undefined ? returnType : this.findReturnType(parent),
       inCaseExpressionArm: isNewFunction ? false : parent.inCaseExpressionArm,
-      caseExpressionYield: isNewFunction ? undefined : parent.caseExpressionYield,
+      inValueYieldBlock: isNewFunction ? false : parent.inValueYieldBlock,
+      valueYield: isNewFunction ? undefined : parent.valueYield,
       inCatchExpressionBody: isNewFunction ? false : parent.inCatchExpressionBody,
       inTrailingLambda: isNewFunction ? false : parent.inTrailingLambda,
     };

@@ -83,6 +83,7 @@ export enum TokenType {
   // Assignment
   Equal = "Equal",
   ColonEqual = "ColonEqual",
+  LeftArrow = "LeftArrow",
   PlusEqual = "PlusEqual",
   MinusEqual = "MinusEqual",
   StarEqual = "StarEqual",
@@ -804,6 +805,9 @@ export class Lexer {
         } else if (this.peek(1) === "<") {
           this.advance(); this.advance();
           this.addToken(TokenType.LessLess, "<<", startLine, startCol);
+        } else if (this.peek(1) === "-") {
+          this.advance(); this.advance();
+          this.addToken(TokenType.LeftArrow, "<-", startLine, startCol);
         } else if (this.peek(1) === "=") {
           this.advance(); this.advance();
           this.addToken(TokenType.LessEqual, "<=", startLine, startCol);

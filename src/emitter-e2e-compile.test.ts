@@ -936,6 +936,28 @@ describe("e2e — if expressions", () => {
     }
     expect(result.stdout.trim()).toBe("zero\nnegative\npositive");
   });
+
+  it("runs <- declaration and reassignment blocks", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let x: int <- {
+          yield 5
+        }
+        x <- {
+          if x == 5 {
+            yield 11
+          }
+          yield 0
+        }
+        return x
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(11);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
 });
 
 // ============================================================================

@@ -85,6 +85,70 @@ describe("Assignment validation", () => {
     expect(info.diagnostics[0].message).toContain("not assignable");
   });
 
+  it("accepts yielding block reassignment to mutable variable", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(flag: bool): void {
+            let x = 42
+            x <- {
+              if flag {
+                yield 99
+              }
+              yield 100
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects yielding block reassignment to const", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            const x = 42
+            x <- { yield 99 }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain("Cannot assign");
+  });
+
+  it("rejects yielding block reassignment to a parameter", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(x: int): void {
+            x <- { yield 42 }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain("Cannot assign");
+  });
+
+  it("rejects <- declarations at module scope", () => {
+    const info = check(
+      {
+        "/main.do": `
+          const x <- { yield 42 }
+        `,
+      },
+      "/main.do",
+    );
+    const diag = info.diagnostics.find((d) => d.message.includes("local declarations"));
+    expect(diag).toBeDefined();
+  });
+
   it("accepts widened type in assignment", () => {
     const info = check(
       {

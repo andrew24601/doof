@@ -64,6 +64,14 @@ export function checkStatement(
 
     case "const-declaration":
     case "readonly-declaration": {
+      if (stmt.value.kind === "yield-block-expression" && scope.kind === "module") {
+        info.diagnostics.push({
+          severity: "error",
+          message: "'<-' yield blocks are only allowed in local declarations",
+          span: stmt.span,
+          module: table.path,
+        });
+      }
       if (stmt.type) {
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
@@ -120,6 +128,14 @@ export function checkStatement(
     }
 
     case "let-declaration": {
+      if (stmt.value.kind === "yield-block-expression" && scope.kind === "module") {
+        info.diagnostics.push({
+          severity: "error",
+          message: "'<-' yield blocks are only allowed in local declarations",
+          span: stmt.span,
+          module: table.path,
+        });
+      }
       if (stmt.type) {
         validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
       }
@@ -362,6 +378,15 @@ export function checkStatement(
         });
         break;
       }
+      if (scope.inValueYieldBlock) {
+        info.diagnostics.push({
+          severity: "error",
+          message: "'return' cannot be used inside a value-producing block; use 'yield' to produce the block value",
+          span: stmt.span,
+          module: table.path,
+        });
+        break;
+      }
       if (scope.inCatchExpressionBody) {
         info.diagnostics.push({
           severity: "error",
@@ -397,19 +422,19 @@ export function checkStatement(
     }
 
     case "yield-statement": {
-      if (!scope.caseExpressionYield) {
+      if (!scope.valueYield) {
         info.diagnostics.push({
           severity: "error",
-          message: "'yield' can only be used inside a block case-expression arm",
+          message: "'yield' can only be used inside a value-producing block",
           span: stmt.span,
           module: table.path,
         });
         break;
       }
 
-      const expectedType = scope.caseExpressionYield.type ?? undefined;
+      const expectedType = scope.valueYield.type ?? undefined;
       const valueType = host.inferExprType(stmt.value, scope, table, info, expectedType);
-      const yieldState = scope.caseExpressionYield;
+      const yieldState = scope.valueYield;
 
       if (!yieldState.type || yieldState.type.kind === "unknown") {
         yieldState.type = valueType;
@@ -427,6 +452,52 @@ export function checkStatement(
       }
 
       yieldState.hasYield = true;
+      break;
+    }
+
+    case "yield-block-assignment-statement": {
+      if (scope.kind === "module") {
+        info.diagnostics.push({
+          severity: "error",
+          message: "'<-' yield-block reassignment is only allowed for local variables",
+          span: stmt.span,
+          module: table.path,
+        });
+      }
+
+      const binding = host.lookupBinding(stmt.name, scope);
+      const expectedType = binding?.type;
+      const valueType = host.inferExprType(stmt.value, scope, table, info, expectedType ?? undefined);
+
+      if (!binding) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Undefined identifier "${stmt.name}"`,
+          span: stmt.span,
+          module: table.path,
+        });
+        break;
+      }
+
+      if (!binding.mutable) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Cannot assign to "${stmt.name}" because it is ${binding.kind === "const" ? "a constant" : binding.kind === "readonly" ? "readonly" : "an immutable binding"}`,
+          span: stmt.span,
+          module: table.path,
+        });
+      }
+
+      if (!isAssignableTo(valueType, binding.type)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Type "${typeToString(valueType)}" is not assignable to type "${typeToString(binding.type)}"`,
+          span: stmt.span,
+          module: table.path,
+        });
+      }
+
+      stmt.resolvedType = binding.type;
       break;
     }
 
@@ -606,6 +677,15 @@ export function checkStatement(
         info.diagnostics.push({
           severity: "error",
           message: "'try' cannot be used inside a case-expression arm; use a case-statement if you need early exit",
+          span: stmt.span,
+          module: table.path,
+        });
+        break;
+      }
+      if (scope.inValueYieldBlock && host.catchErrorTypes.length === 0) {
+        info.diagnostics.push({
+          severity: "error",
+          message: "'try' cannot be used inside a value-producing block; use an explicit case-statement or handle the Result outside the block",
           span: stmt.span,
           module: table.path,
         });

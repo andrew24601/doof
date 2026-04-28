@@ -608,6 +608,28 @@ function inferExprTypeInner(
       return inferUnaryType(expr.operator, operand, info, table, expr.span);
     }
 
+    case "yield-block-expression": {
+      const yieldScope: Scope = {
+        ...scope,
+        inValueYieldBlock: true,
+        valueYield: {
+          type: expectedType ?? null,
+          hasYield: false,
+          context: "yield block",
+        },
+      };
+      host.checkBlock(expr.body, yieldScope, table, info);
+      if (!host.blockAlwaysYields(expr.body)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: "Yield blocks must yield a value on every path",
+          span: expr.body.span,
+          module: table.path,
+        });
+      }
+      return yieldScope.valueYield?.type ?? UNKNOWN_TYPE;
+    }
+
     case "assignment-expression": {
       const targetType = inferExprType(host, expr.target, scope, table, info);
       const valueType = inferExprType(host, expr.value, scope, table, info, targetType);
@@ -1554,11 +1576,12 @@ function inferExprTypeInner(
           }
         }
         let armScope = buildCaseArmScope(host, arm, subjectType, scope, table, info);
-        armScope = { ...armScope, inCaseExpressionArm: true };
+        armScope = { ...armScope, inCaseExpressionArm: true, inValueYieldBlock: true };
         if (arm.body.kind === "block") {
-          armScope.caseExpressionYield = {
+          armScope.valueYield = {
             type: resultType.kind === "unknown" ? null : resultType,
             hasYield: false,
+            context: "case-expression arm",
           };
           host.checkBlock(arm.body as Block, armScope, table, info);
           if (!host.blockAlwaysYields(arm.body as Block)) {
@@ -1569,7 +1592,7 @@ function inferExprTypeInner(
               module: table.path,
             });
           }
-          const yieldedType: ResolvedType = armScope.caseExpressionYield.type ?? UNKNOWN_TYPE;
+          const yieldedType: ResolvedType = armScope.valueYield?.type ?? UNKNOWN_TYPE;
           if (resultType.kind === "unknown") resultType = yieldedType;
         } else {
           const expectedBodyType = resultType.kind === "unknown" ? undefined : resultType;

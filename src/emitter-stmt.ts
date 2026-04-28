@@ -23,6 +23,7 @@ import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emi
 import type { EmitContext } from "./emitter-context.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitStreamNextHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
+import { emitYieldBlockIIFE } from "./emitter-expr-control.js";
 import {
   emitFunctionDecl,
   emitClassDecl,
@@ -58,6 +59,10 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
 
     case "let-declaration":
       emitLetDecl(stmt, ctx);
+      break;
+
+    case "yield-block-assignment-statement":
+      emitYieldBlockAssignment(stmt, ctx);
       break;
 
     case "function-declaration":
@@ -457,6 +462,19 @@ function emitLetDecl(
   } else {
     ctx.sourceLines.push(`${ind}auto ${name} = ${val};`);
   }
+}
+
+function emitYieldBlockAssignment(
+  stmt: import("./ast.js").YieldBlockAssignmentStatement,
+  ctx: EmitContext,
+): void {
+  const ind = indent(ctx);
+  const resultType = substituteEmitType(stmt.resolvedType, ctx);
+  const name = ctx.capturedMutables?.has(stmt.name)
+    ? `(*${emitIdentifierSafe(stmt.name)})`
+    : emitIdentifierSafe(stmt.name);
+  const value = emitYieldBlockIIFE(stmt.value.body, ctx, resultType);
+  ctx.sourceLines.push(`${ind}${name} = ${value};`);
 }
 
 function assertDeclarationTypeResolved(

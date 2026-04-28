@@ -10,7 +10,7 @@ import type {
   FunctionDeclaration, MapEntry,
   ExternClassField, ExternClassMethod, ExternFunctionDeclaration,
   AsyncExpression, ActorCreationExpression, CatchExpression,
-  LambdaExpression, CallExpression,
+  LambdaExpression, CallExpression, YieldBlockExpression,
 } from "./ast.js";
 
 type CaseForm = "expression" | "statement";
@@ -330,6 +330,21 @@ export class Parser {
 
     const expr = this.parseExpression();
 
+    if (this.check(TokenType.LeftArrow)) {
+      this.advance();
+      if (expr.kind !== "identifier") {
+        throw this.error("Left side of <- must be an identifier");
+      }
+      const value = this.parseYieldBlockExpression();
+      this.consumeOptionalSemicolon();
+      return {
+        kind: "yield-block-assignment-statement",
+        name: expr.name,
+        value,
+        span: this.span(startLoc),
+      };
+    }
+
     // Check for := (immutable binding)
     if (this.check(TokenType.ColonEqual)) {
       this.advance();
@@ -514,8 +529,7 @@ export class Parser {
       type = this.parseTypeAnnotation();
     }
 
-    this.expect(TokenType.Equal);
-    const value = this.parseExpression();
+    const value = this.parseDeclarationInitializer();
     this.consumeOptionalSemicolon();
 
     return {
@@ -540,8 +554,7 @@ export class Parser {
       type = this.parseTypeAnnotation();
     }
 
-    this.expect(TokenType.Equal);
-    const value = this.parseExpression();
+    const value = this.parseDeclarationInitializer();
     this.consumeOptionalSemicolon();
 
     return {
@@ -577,8 +590,7 @@ export class Parser {
       type = this.parseTypeAnnotation();
     }
 
-    this.expect(TokenType.Equal);
-    const value = this.parseExpression();
+    const value = this.parseDeclarationInitializer();
     this.consumeOptionalSemicolon();
 
     return {
@@ -604,6 +616,29 @@ export class Parser {
     }
 
     throw this.error(`Unexpected token after mock: ${this.current().type}`);
+  }
+
+  private parseDeclarationInitializer(): Expression {
+    if (this.match(TokenType.Equal)) {
+      return this.parseExpression();
+    }
+    if (this.match(TokenType.LeftArrow)) {
+      return this.parseYieldBlockExpression();
+    }
+    throw this.error("Expected '=' or '<-' in declaration initializer");
+  }
+
+  private parseYieldBlockExpression(): YieldBlockExpression {
+    const startLoc = this.loc();
+    if (!this.check(TokenType.LeftBrace)) {
+      throw this.error("Expected block after '<-'");
+    }
+    const body = this.parseBlock();
+    return {
+      kind: "yield-block-expression",
+      body,
+      span: this.span(startLoc),
+    };
   }
 
   private parseFunctionDeclaration(exported: boolean, static_: boolean, isolated_: boolean = false, private__: boolean = false, mock_: boolean = false): FunctionDeclaration {
