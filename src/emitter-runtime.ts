@@ -1657,6 +1657,62 @@ struct ClassMetadata {
 };
 
 } // namespace doof
+
+// ============================================================================
+// Line coverage (activated with -DDOOF_COVERAGE)
+// ============================================================================
+
+#ifdef DOOF_COVERAGE
+#include <unordered_set>
+
+namespace doof {
+namespace coverage {
+
+struct LineHit {
+    int module_id;
+    int line;
+    bool operator==(const LineHit& o) const noexcept {
+        return module_id == o.module_id && line == o.line;
+    }
+};
+
+struct LineHitHash {
+    std::size_t operator()(const LineHit& h) const noexcept {
+        return std::hash<long long>{}(
+            (static_cast<long long>(h.module_id) << 32) |
+            static_cast<unsigned int>(static_cast<unsigned>(h.line)));
+    }
+};
+
+inline std::unordered_set<LineHit, LineHitHash> _coverage_hits;
+inline std::mutex _coverage_hits_mutex;
+inline std::once_flag _coverage_registration_once;
+
+inline void _cov_dump();
+
+inline void _cov_ensure_registered() {
+    std::call_once(_coverage_registration_once, []() {
+        std::atexit(_cov_dump);
+    });
+}
+
+inline void cov_mark(int module_id, int line) {
+    _cov_ensure_registered();
+    std::lock_guard<std::mutex> lock(_coverage_hits_mutex);
+    _coverage_hits.insert(LineHit{module_id, line});
+}
+
+inline void _cov_dump() {
+    std::lock_guard<std::mutex> lock(_coverage_hits_mutex);
+    for (const auto& h : _coverage_hits) {
+        std::cout << "__COV__ " << h.module_id << " " << h.line << "\\n";
+    }
+    std::cout.flush();
+}
+
+} // namespace coverage
+} // namespace doof
+#endif
 `;
 
 const JSON_TO_STRING_OVERLOAD = `inline std::string to_string(const JsonValue& value) {

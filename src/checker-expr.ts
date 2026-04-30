@@ -423,14 +423,14 @@ function applyTypeSubstitutionToExpression(
       return;
     case "construct-expression":
       if (expr.named) {
-        for (const prop of expr.args) {
+        for (const prop of expr.args as import("./ast.js").ObjectProperty[]) {
           if (prop.value) {
             applyTypeSubstitutionToExpression(prop.value, paramMap);
           }
         }
         return;
       }
-      for (const arg of expr.args) {
+      for (const arg of expr.args as Expression[]) {
         applyTypeSubstitutionToExpression(arg, paramMap);
       }
       return;

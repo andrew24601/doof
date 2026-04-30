@@ -10,6 +10,15 @@ import {
   generateTestHarnessSource,
   groupTestsByModule,
   runTestCommand,
+  parseCoverageOutput,
+  stripCoverageLines,
+  buildCoverageReport,
+  deriveCoverageHtmlPath,
+  deriveCoverageFileHtmlDir,
+  deriveCoverageFileHtmlPath,
+  renderCoverageHtml,
+  renderCoverageFileHtml,
+  escapeHtml,
   type TestReporter,
 } from "./test-runner.js";
 
@@ -115,6 +124,158 @@ describe("test runner harness", () => {
     expect(groups[0].tests.map((test) => test.name)).toEqual(["testOne", "testTwo"]);
     expect(groups[1].moduleDisplayPath).toBe("nested/beta.test.do");
     expect(groups[1].tests.map((test) => test.name)).toEqual(["testBeta"]);
+  });
+});
+
+describe("coverage helpers", () => {
+  it("parses __COV__ lines from stdout", () => {
+    const hits = new Map<number, Set<number>>();
+    parseCoverageOutput("__COV__ 0 5\n__COV__ 0 7\n__COV__ 1 3\nPASS foo::test\n", hits);
+
+    expect(hits.get(0)).toEqual(new Set([5, 7]));
+    expect(hits.get(1)).toEqual(new Set([3]));
+  });
+
+  it("ignores non-COV lines", () => {
+    const hits = new Map<number, Set<number>>();
+    parseCoverageOutput("PASS foo::test\nsome output\n", hits);
+    expect(hits.size).toBe(0);
+  });
+
+  it("accumulates hits across multiple calls", () => {
+    const hits = new Map<number, Set<number>>();
+    parseCoverageOutput("__COV__ 0 5\n", hits);
+    parseCoverageOutput("__COV__ 0 7\n__COV__ 0 5\n", hits);
+
+    expect(hits.get(0)).toEqual(new Set([5, 7]));
+  });
+
+  it("strips __COV__ lines from stdout before display", () => {
+    const result = stripCoverageLines("__COV__ 0 5\nAssertion failed: oops\n__COV__ 1 3\n");
+    expect(result).toBe("Assertion failed: oops");
+    expect(result).not.toContain("__COV__");
+  });
+
+  it("builds a coverage report with hit and missed lines", () => {
+    const modules = [
+      { moduleId: 0, modulePath: "/project/src/calc.do", instrumentedLines: [3, 5, 7, 9] },
+      { moduleId: 1, modulePath: "/project/src/math.do", instrumentedLines: [1, 2] },
+    ];
+    const hits = new Map<string, Set<number>>([
+      ["/project/src/calc.do", new Set([3, 7])],
+      ["/project/src/math.do", new Set([1, 2])],
+    ]);
+    const report = buildCoverageReport(modules, hits, "/project");
+
+    expect(report.totals.covered).toBe(4);
+    expect(report.totals.total).toBe(6);
+    expect(report.totals.percent).toBe(66.7);
+
+    const calcFile = report.files.find((f) => f.path.includes("calc"));
+    expect(calcFile?.covered).toBe(2);
+    expect(calcFile?.total).toBe(4);
+    expect(calcFile?.hitLines).toEqual([3, 7]);
+    expect(calcFile?.missedLines).toEqual([5, 9]);
+
+    const mathFile = report.files.find((f) => f.path.includes("math"));
+    expect(mathFile?.covered).toBe(2);
+    expect(mathFile?.total).toBe(2);
+    expect(mathFile?.percent).toBe(100);
+  });
+
+  it("skips modules with no instrumented lines", () => {
+    const modules = [
+      { moduleId: 0, modulePath: "/project/src/empty.do", instrumentedLines: [] },
+      { moduleId: 1, modulePath: "/project/src/math.do", instrumentedLines: [1, 2] },
+    ];
+    const hits = new Map<string, Set<number>>([["/project/src/math.do", new Set([1])]]);
+    const report = buildCoverageReport(modules, hits, "/project");
+
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].path).toContain("math");
+  });
+
+  it("reports 100% when a module with all lines hit", () => {
+    const modules = [{ moduleId: 0, modulePath: "/project/src/all.do", instrumentedLines: [1, 2, 3] }];
+    const hits = new Map<string, Set<number>>([["/project/src/all.do", new Set([1, 2, 3])]]);
+    const report = buildCoverageReport(modules, hits, "/project");
+
+    expect(report.totals.percent).toBe(100);
+    expect(report.files[0].missedLines).toEqual([]);
+  });
+
+  it("reports 0% when no lines were hit", () => {
+    const modules = [{ moduleId: 0, modulePath: "/project/src/none.do", instrumentedLines: [1, 2] }];
+    const hits = new Map<string, Set<number>>();
+    const report = buildCoverageReport(modules, hits, "/project");
+
+    expect(report.totals.covered).toBe(0);
+    expect(report.totals.percent).toBe(0);
+    expect(report.files[0].missedLines).toEqual([1, 2]);
+  });
+
+  it("derives a sibling html path from the json output path", () => {
+    expect(deriveCoverageHtmlPath("/tmp/doof-test-coverage.json")).toBe("/tmp/doof-test-coverage.html");
+    expect(deriveCoverageHtmlPath("/tmp/custom-report")).toBe("/tmp/custom-report.html");
+  });
+
+  it("derives per-file html output paths under a sibling directory", () => {
+    expect(deriveCoverageFileHtmlDir("/tmp/doof-test-coverage.html")).toBe("/tmp/doof-test-coverage_files");
+    expect(deriveCoverageFileHtmlPath("/tmp/doof-test-coverage.html", "src/calc.do"))
+      .toBe(path.join("/tmp/doof-test-coverage_files", "src", "calc.do.html"));
+  });
+
+  it("renders an html summary report with file links and escaped content", () => {
+    const report = {
+      timestamp: "2026-04-30T12:00:00.000Z",
+      totals: { covered: 3, total: 4, percent: 75 },
+      files: [
+        {
+          path: 'src/<calc>.do',
+          covered: 3,
+          total: 4,
+          percent: 75,
+          hitLines: [1, 3, 5],
+          missedLines: [7],
+        },
+      ],
+    };
+    const fileLinks = new Map([["src/<calc>.do", "doof-test-coverage_files/src/calc.do.html"]]);
+
+    const html = renderCoverageHtml(report, fileLinks);
+
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("Doof Coverage");
+    expect(html).toContain("75.0%");
+    expect(html).toContain("src/&lt;calc&gt;.do");
+    expect(html).toContain("Open file report");
+    expect(html).not.toContain("Hit Lines");
+    expect(html).not.toContain("Missed Lines");
+    expect(html).toContain("width: 75%;");
+  });
+
+  it("renders a per-file html report with source highlighting", () => {
+    const file = {
+      path: "src/calc.do",
+      covered: 2,
+      total: 3,
+      percent: 66.7,
+      hitLines: [1, 3],
+      missedLines: [2],
+    };
+
+    const html = renderCoverageFileHtml(file, "const x = 1\nconst y = 2\nconst z = 3\n", "../doof-test-coverage.html");
+
+    expect(html).toContain("Back to coverage summary");
+    expect(html).toContain("class=\"source-line covered\"");
+    expect(html).toContain("class=\"source-line missed\"");
+    expect(html).toContain("class=\"source-line neutral\"");
+    expect(html).toContain("Coverage 66.7%");
+    expect(html).toContain("const y = 2");
+  });
+
+  it("escapes html metacharacters", () => {
+    expect(escapeHtml('<tag attr="x">&\'')).toBe("&lt;tag attr=&quot;x&quot;&gt;&amp;&#39;");
   });
 });
 

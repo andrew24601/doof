@@ -38,10 +38,38 @@ import {
 // ============================================================================
 
 /**
+ * Statement kinds that do not represent executable lines (declarations or
+ * structural syntax) and should not receive a coverage mark.
+ */
+const COVERAGE_NON_EXECUTABLE_KINDS = new Set([
+  "mock-import-directive",
+  "function-declaration",
+  "class-declaration",
+  "interface-declaration",
+  "enum-declaration",
+  "type-alias-declaration",
+  "import-declaration",
+  "extern-class-declaration",
+  "extern-function-declaration",
+  "export-declaration",
+  "export-list",
+  "export-all-declaration",
+  "block",
+]);
+
+/**
  * Emit a C++ statement (one or more lines) for a Doof statement node.
  * Appends lines to ctx.sourceLines (or ctx.headerLines for declarations).
  */
 export function emitStatement(stmt: Statement, ctx: EmitContext): void {
+  // Emit a coverage mark for executable statements when coverage is enabled.
+  // Only emit inside function/block bodies (indent > 0); top-level C++ scope cannot contain bare calls.
+  if (ctx.coverageEnabled && ctx.coverageModuleId !== undefined && ctx.indent > 0 && !COVERAGE_NON_EXECUTABLE_KINDS.has(stmt.kind)) {
+    const line = stmt.span.start.line + 1; // convert 0-based to 1-based
+    ctx.sourceLines.push(`${indent(ctx)}doof::coverage::cov_mark(${ctx.coverageModuleId}, ${line});`);
+    ctx.coverageInstrumentedLines?.add(line);
+  }
+
   switch (stmt.kind) {
     case "mock-import-directive":
       break;

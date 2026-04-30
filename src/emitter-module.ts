@@ -67,6 +67,10 @@ export interface ModuleEmitResult {
   hppPath: string;
   /** C++ source filename (relative). */
   cppPath: string;
+  /** Coverage module ID assigned to this module (only present when coverage was requested). */
+  coverageModuleId?: number;
+  /** Sorted 1-based Doof source line numbers that received coverage marks (only present when coverage was requested). */
+  instrumentedLines?: number[];
 }
 
 /** Result of emitting a full project. */
@@ -74,6 +78,16 @@ export interface ProjectCopiedFile {
   sourcePath: string;
   relativePath: string;
   kind: "file" | "directory" | "auto";
+}
+
+/** Per-module coverage metadata returned alongside emitted C++ when coverage is enabled. */
+export interface CoverageModuleMetadata {
+  /** Stable integer ID used in emitted doof::coverage::cov_mark() calls. */
+  moduleId: number;
+  /** Absolute path of the Doof source file. */
+  modulePath: string;
+  /** Sorted 1-based line numbers that were instrumented (i.e. total coverable lines). */
+  instrumentedLines: number[];
 }
 
 export interface ProjectEmitResult {
@@ -91,12 +105,16 @@ export interface ProjectEmitResult {
   outputNativeSourceFiles: string[];
   /** Output-relative library search paths for copied native inputs. */
   outputNativeLibraryPaths: string[];
+  /** Present when coverage instrumentation was requested via ProjectBuildMetadata.coverage. */
+  coverageModules?: CoverageModuleMetadata[];
 }
 
 export interface ProjectBuildMetadata {
   outputBinaryName?: string;
   buildTarget?: ResolvedDoofBuildTarget | null;
   packageOutputPaths?: PackageOutputPaths;
+  /** When true, emit doof::coverage::cov_mark() calls and populate coverageModules in the result. */
+  coverage?: boolean;
 }
 
 export interface NativeBuildOptions {
@@ -153,6 +171,17 @@ interface StreamAliasInfo {
 // ============================================================================
 
 /**
+ * Returns true for Doof source modules that should receive line-coverage
+ * instrumentation: non-test files that are not part of the bundled stdlib.
+ */
+function isCoverageEligible(modulePath: string): boolean {
+  return !modulePath.endsWith(".test.do")
+    && !modulePath.includes("/.doof-tests/")
+    && !modulePath.startsWith(`${BUNDLED_STDLIB_ROOT}/`)
+    && modulePath !== BUNDLED_STDLIB_ROOT;
+}
+
+/**
  * Emit a single module as a .hpp/.cpp pair.
  *
  * @param baseDir — common base directory; output paths are relative to this.
@@ -164,6 +193,7 @@ export function emitModuleSplit(
   baseDir = "/",
   packageOutputPaths?: PackageOutputPaths,
   buildTarget?: ResolvedDoofBuildTarget | null,
+  coverageModuleId?: number,
 ): ModuleEmitResult {
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
@@ -179,7 +209,7 @@ export function emitModuleSplit(
   const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
   const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, baseDir, packageOutputPaths);
-  const cppCode = emitCppFile(
+  const { code: cppCode, instrumentedLines } = emitCppFile(
     table,
     analysisResult,
     interfaceImpls,
@@ -188,6 +218,7 @@ export function emitModuleSplit(
     baseDir,
     packageOutputPaths,
     buildTarget,
+    coverageModuleId,
   );
 
   return {
@@ -196,6 +227,10 @@ export function emitModuleSplit(
     modulePath,
     hppPath: hppName,
     cppPath: cppName,
+    coverageModuleId,
+    instrumentedLines: coverageModuleId !== undefined
+      ? [...instrumentedLines].sort((a, b) => a - b)
+      : undefined,
   };
 }
 
@@ -217,6 +252,18 @@ export function emitProject(
 
   const baseDir = nodePath.dirname(entryPath);
   const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
+
+  // Build coverage module ID map: assign a stable integer to each non-test, non-stdlib module.
+  const coverageModuleIdMap = new Map<string, number>();
+  if (buildMetadata.coverage) {
+    let nextId = 0;
+    for (const [modPath] of analysisResult.modules) {
+      if (isCoverageEligible(modPath)) {
+        coverageModuleIdMap.set(modPath, nextId++);
+      }
+    }
+  }
+
   const modules: ModuleEmitResult[] = [];
   for (const [modPath] of analysisResult.modules) {
     modules.push(emitModuleSplit(
@@ -225,6 +272,7 @@ export function emitProject(
       baseDir,
       buildMetadata.packageOutputPaths,
       buildMetadata.buildTarget,
+      coverageModuleIdMap.get(modPath),
     ));
   }
 
@@ -237,6 +285,16 @@ export function emitProject(
       : []),
   ];
 
+  const coverageModules: CoverageModuleMetadata[] | undefined = buildMetadata.coverage
+    ? modules
+      .filter((m) => m.coverageModuleId !== undefined)
+      .map((m) => ({
+        moduleId: m.coverageModuleId!,
+        modulePath: m.modulePath,
+        instrumentedLines: m.instrumentedLines ?? [],
+      }))
+    : undefined;
+
   return {
     modules,
     runtime: generateRuntimeHeader(),
@@ -245,6 +303,7 @@ export function emitProject(
     outputNativeIncludePaths: [],
     outputNativeSourceFiles: [],
     outputNativeLibraryPaths: [],
+    coverageModules,
   };
 }
 
@@ -549,8 +608,14 @@ function emitCppFile(
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
   buildTarget?: ResolvedDoofBuildTarget | null,
-): string {
+  coverageModuleId?: number,
+): { code: string; instrumentedLines: Set<number> } {
   const lines: string[] = [];
+  const coverageInstrumentedLines = coverageModuleId !== undefined ? new Set<number>() : undefined;
+  // Partial context fields to spread on every EmitContext created within this function.
+  const covCtx = coverageModuleId !== undefined
+    ? { coverageEnabled: true as const, coverageModuleId, coverageInstrumentedLines }
+    : {};
   const { hppName } = modulePathToCppNames(table.path, baseDir, packageOutputPaths);
 
   // Include own header and runtime
@@ -586,7 +651,7 @@ function emitCppFile(
       lines.push("");
     }
     for (const fn of nonExportedFns) {
-      const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+      const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
       emitStatement(fn.decl as Statement, ctx);
       lines.push(...ctx.sourceLines);
       lines.push("");
@@ -594,7 +659,7 @@ function emitCppFile(
     
     // Emit doof_main inside the namespace so it can call non-exported functions without ambiguity
     if (mainDecl) {
-      emitDoofMainFunction(mainDecl.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
+      emitDoofMainFunction(mainDecl.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
     }
     
     lines.push("} // anonymous namespace");
@@ -608,6 +673,7 @@ function emitCppFile(
       : inst.decl.resolvedType;
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
       emitParameterDefaults: false,
       typeSubstitution,
       functionNameOverride: inst.emittedName,
@@ -635,7 +701,7 @@ function emitCppFile(
     lines.push("namespace {");
     lines.push("");
     for (const v of nonExportedVars) {
-      const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+      const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
       emitStatement(v.stmt, ctx);
       lines.push(...ctx.sourceLines);
       lines.push("");
@@ -649,7 +715,7 @@ function emitCppFile(
     (fn) => fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length === 0,
   );
   for (const fn of exportedFns) {
-    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), emitParameterDefaults: false };
+    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx, emitParameterDefaults: false };
     emitStatement(fn.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
@@ -658,7 +724,7 @@ function emitCppFile(
   // Exported variable definitions
   const exportedVars = classified.variables.filter((v) => v.exported);
   for (const v of exportedVars) {
-    const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
     emitStatement(v.stmt, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
@@ -674,7 +740,7 @@ function emitCppFile(
   if (mainFn) {
     // If doof_main was not emitted inside the namespace, emit it now with the app-entry wrapper.
     if (!hasNonExportedCode) {
-      emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines);
+      emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
     }
 
     emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
@@ -688,7 +754,7 @@ function emitCppFile(
     lines.pop();
   }
 
-  return lines.join("\n") + "\n";
+  return { code: lines.join("\n") + "\n", instrumentedLines: coverageInstrumentedLines ?? new Set<number>() };
 }
 
 // ============================================================================
@@ -702,9 +768,10 @@ function emitDoofMainFunction(
   interfaceImpls: Map<string, ClassSymbol[]>,
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
   lines: string[],
+  covCtx: object = {},
 ): void {
   // Emit the Doof main as doof_main (without extern C wrapper)
-  const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+  const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
   const retType = mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
     ? emitType(mainDecl.resolvedType.returnType)
     : "int32_t";

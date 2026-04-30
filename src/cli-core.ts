@@ -267,7 +267,7 @@ export function runPipelineWithFs(
   nativeBuild: NativeBuildOptions,
   log: (msg: string) => void,
   onDiagnostic: (diagnostic: DiagnosticLike) => void,
-  options: { buildTargetOverride?: DoofBuildTarget; iosDestinationOverride?: IOSAppDestination } = {},
+  options: { buildTargetOverride?: DoofBuildTarget; iosDestinationOverride?: IOSAppDestination; coverage?: boolean } = {},
 ): PipelineResult {
   const normalizedEntryPath = resolveFsPath(entryPath);
   const pipelineFileSystem = withNodeBundledStdlib(fileSystem);
@@ -339,6 +339,7 @@ export function runPipelineWithFs(
     outputBinaryName,
     buildTarget,
     packageOutputPaths,
+    coverage: options.coverage,
   });
   const project: ProjectEmitResult = nativeCopyPlan
     ? {

@@ -99,6 +99,33 @@ describe("CLI argument parsing", () => {
     expect(args.listTests).toBe(true);
   });
 
+  it("parses --coverage flag for test command", () => {
+    const args = parseArgs(["node", "doof", "test", "--coverage", "samples"]);
+
+    expect(args.command).toBe("test");
+    expect(args.coverage).toBe(true);
+    expect(args.coverageOutput).toBe("");
+  });
+
+  it("parses --coverage-output path for test command", () => {
+    const args = parseArgs([
+      "node", "doof", "test",
+      "--coverage",
+      "--coverage-output", "/tmp/my-coverage.json",
+      "samples",
+    ]);
+
+    expect(args.coverage).toBe(true);
+    expect(args.coverageOutput).toBe("/tmp/my-coverage.json");
+  });
+
+  it("defaults coverage to false when flag is absent", () => {
+    const args = parseArgs(["node", "doof", "test", "samples"]);
+
+    expect(args.coverage).toBe(false);
+    expect(args.coverageOutput).toBe("");
+  });
+
   it("parses a build target override", () => {
     const args = parseArgs([
       "node",

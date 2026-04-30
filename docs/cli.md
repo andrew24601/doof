@@ -55,6 +55,55 @@ doof <command> [options] [entry.do | package-dir]
 - `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
 - `test` — discovers exported test functions in `.test.do` files, builds a temporary harness per test file, compiles each test module separately, and runs each discovered test in its own process
 
+### Line Coverage
+
+Pass `--coverage` to `doof test` to enable line coverage collection for non-test Doof source files (`.do` files that are not `.test.do` and are not stdlib modules).
+
+```sh
+doof test ./my-package --coverage
+doof test ./my-package --coverage --coverage-output build/coverage/report.json
+```
+
+After all tests complete, a text summary is printed:
+
+```
+Coverage summary:
+  src/calc.do: 24/30 lines (80.0%)
+  src/math.do: 10/10 lines (100.0%)
+Overall: 34/40 lines (85.0%)
+Coverage report written to build/coverage/doof-test-coverage.json
+Coverage HTML report written to build/coverage/doof-test-coverage.html
+```
+
+The JSON report (`doof-test-coverage.json` by default, or the path given to `--coverage-output`) has the shape:
+
+```json
+{
+  "timestamp": "2025-06-01T12:00:00.000Z",
+  "totals": { "covered": 34, "total": 40, "percent": 85.0 },
+  "files": [
+    {
+      "path": "src/calc.do",
+      "covered": 24,
+      "total": 30,
+      "percent": 80.0,
+      "hitLines": [1, 3, 5, ...],
+      "missedLines": [7, 9, ...]
+    }
+  ]
+}
+```
+
+An HTML summary report is also written next to the JSON file. By default that is `build/coverage/doof-test-coverage.html`; if you pass `--coverage-output path/to/report.json`, the HTML sibling becomes `path/to/report.html`.
+
+The HTML summary links to separate per-file HTML pages in a sibling directory (for example `build/coverage/doof-test-coverage_files/`). Each file page shows the Doof source with line highlighting for:
+
+- covered executable lines
+- missed executable lines
+- non-instrumented lines
+
+Coverage is **line-level** and counts executable statements only (declarations, imports, and block nodes are excluded). Imported C++ code and the test files themselves are not included.
+
 `doof emit` writes:
 
 - generated `.hpp` / `.cpp` files
@@ -115,6 +164,8 @@ For `emit`, `build`, `run`, and `check`, the path is optional when the current w
 | `--ldflag <flag>` | Add an extra linker flag. Repeatable |
 | `--filter <text>` | Run only tests whose discovered id contains the text |
 | `--list` | List discovered tests without compiling or running them |
+| `--coverage` | Collect line coverage for non-test Doof source files |
+| `--coverage-output <path>` | Write coverage JSON report to `<path>` (default: `build/coverage/doof-test-coverage.json`) |
 | `-v, --verbose` | Print detailed progress information |
 | `-h, --help` | Show help |
 | `--version` | Show CLI version |

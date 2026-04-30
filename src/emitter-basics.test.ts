@@ -895,6 +895,13 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("inline std::string to_string(const std::variant<Ts...>& val)");
     expect(header).toContain('std::is_same_v<Inner, std::monostate>');
   });
+
+  it("uses shared inline state for coverage runtime", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("inline std::unordered_set<LineHit, LineHitHash> _coverage_hits;");
+    expect(header).toContain("inline std::once_flag _coverage_registration_once;");
+    expect(header).toContain("std::call_once(_coverage_registration_once");
+  });
 });
 
 describe("emitter — type mapping", () => {

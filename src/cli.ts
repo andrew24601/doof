@@ -77,6 +77,8 @@ export interface CliArgs {
   verbose: boolean;
   testFilter: string | null;
   listTests: boolean;
+  coverage: boolean;
+  coverageOutput: string;
   nativeBuild: NativeBuildOptions;
 }
 
@@ -116,6 +118,9 @@ Options:
   --ldflag <flag>      Additional linker flag (repeatable)
   --filter <text>      Run only tests whose id contains the filter text
   --list               List discovered tests without compiling or running them
+  --coverage           Collect and report line coverage for Doof source files
+  --coverage-output <path>
+                       Path for the JSON coverage report (default: build/coverage/doof-test-coverage.json)
   -v, --verbose        Print detailed progress information
   -h, --help           Show this help message
   --version            Show version
@@ -172,6 +177,8 @@ export function parseArgs(argv: string[]): CliArgs {
     verbose: false,
     testFilter: null,
     listTests: false,
+    coverage: false,
+    coverageOutput: "",
     nativeBuild: createEmptyNativeBuildOptions(),
   };
 
@@ -265,6 +272,12 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case "--list":
         args.listTests = true;
+        break;
+      case "--coverage":
+        args.coverage = true;
+        break;
+      case "--coverage-output":
+        args.coverageOutput = rest[++i] ?? fatal("Missing value for --coverage-output");
         break;
       case "-v": case "--verbose":
         args.verbose = true;
@@ -458,6 +471,8 @@ function cmdTest(args: CliArgs): void {
     listOnly: args.listTests,
     verbose: args.verbose,
     reporter: { log, error },
+    coverage: args.coverage,
+    coverageOutput: args.coverageOutput || undefined,
   });
 
   if (!args.listTests && result.failed > 0) {

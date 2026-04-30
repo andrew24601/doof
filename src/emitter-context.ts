@@ -73,4 +73,10 @@ export interface EmitContext {
   qualifiedFunctionName?: string;
   /** Force a function definition emitted in a header to be inline. */
   forceInline?: boolean;
+  /** When true, emit doof::coverage::cov_mark() calls for executable statements. */
+  coverageEnabled?: boolean;
+  /** Stable integer ID for the current module in coverage data (only set when coverageEnabled). */
+  coverageModuleId?: number;
+  /** Accumulates the set of 1-based Doof source lines that received a coverage mark. */
+  coverageInstrumentedLines?: Set<number>;
 }
