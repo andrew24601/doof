@@ -94,6 +94,40 @@ describe("playground runner", () => {
     expect(writes.get("/tmp/doof-playground-test/main.cpp")).not.toContain("void main()");
   });
 
+  it("builds shorthand Result.andThen() lambdas without leaking generic placeholders", () => {
+    const writes = new Map<string, string>();
+    const host = createHost({
+      writeFile(filePath, contents) {
+        writes.set(filePath, contents);
+      },
+      spawnFile(command) {
+        if (command === "clang++") {
+          return createSpawnResult({
+            stdout: Buffer.from("build ok\n"),
+            stderr: Buffer.from(""),
+            status: 0,
+          });
+        }
+
+        return createSpawnResult({
+          stdout: Buffer.from("Success(14)\n"),
+          stderr: Buffer.from(""),
+          status: 0,
+        });
+      },
+    });
+
+    const result = runPlaygroundSource(`
+      function main() {
+        println(int.parse("10").andThen(=> Success { value: it + 4 }))
+      }
+    `, { host });
+
+    expect(result.status).toBe("succeeded");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).not.toContain(", G>");
+  });
+
   it("returns compiler failures with captured stderr", () => {
     const host = createHost({
       spawnFile(command) {

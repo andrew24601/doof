@@ -8,6 +8,7 @@ import type {
   ObjectLiteral,
   ObjectProperty,
   SourceSpan,
+  Statement,
   TupleLiteral,
 } from "./ast.js";
 import {
@@ -287,6 +288,305 @@ function recordResolvedGenericCall(
       expr.resolvedGenericMethodName = expr.callee.property;
       expr.resolvedGenericMethodStatic = expr.callee.kind === "qualified-member-expression";
     }
+  }
+}
+
+function isResolvedTypeParamBinding(
+  binding: ResolvedType | undefined,
+  typeParamName: string,
+): boolean {
+  return !!binding && !(binding.kind === "typevar" && binding.name === typeParamName);
+}
+
+function applyResultMethodGenericDefaults(
+  callExpr: CallExpression,
+  calleeType: Extract<ResolvedType, { kind: "function" }>,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  if (callExpr.callee.kind !== "member-expression") return;
+
+  const objectType = callExpr.callee.object.resolvedType;
+  const typeParams = calleeType.typeParams ?? [];
+  if (objectType?.kind !== "result" || typeParams.length === 0) return;
+
+  if (callExpr.callee.property === "andThen" && typeParams.length >= 2) {
+    const errorTypeParam = typeParams[1];
+    if (!isResolvedTypeParamBinding(paramMap.get(errorTypeParam), errorTypeParam)) {
+      paramMap.set(errorTypeParam, objectType.errorType);
+    }
+    return;
+  }
+
+  if (callExpr.callee.property === "orElse" && typeParams.length >= 2) {
+    const successTypeParam = typeParams[0];
+    const errorTypeParam = typeParams[1];
+    if (!isResolvedTypeParamBinding(paramMap.get(successTypeParam), successTypeParam)) {
+      paramMap.set(successTypeParam, objectType.successType);
+    }
+    if (!isResolvedTypeParamBinding(paramMap.get(errorTypeParam), errorTypeParam)) {
+      paramMap.set(errorTypeParam, objectType.errorType);
+    }
+  }
+}
+
+function applyTypeSubstitutionToExpression(
+  expr: Expression,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  if (expr.resolvedType) {
+    expr.resolvedType = substituteTypeParams(expr.resolvedType, paramMap);
+  }
+
+  switch (expr.kind) {
+    case "binary-expression":
+      applyTypeSubstitutionToExpression(expr.left, paramMap);
+      applyTypeSubstitutionToExpression(expr.right, paramMap);
+      return;
+    case "unary-expression":
+      applyTypeSubstitutionToExpression(expr.operand, paramMap);
+      return;
+    case "assignment-expression":
+      applyTypeSubstitutionToExpression(expr.target, paramMap);
+      applyTypeSubstitutionToExpression(expr.value, paramMap);
+      return;
+    case "member-expression":
+    case "qualified-member-expression":
+      applyTypeSubstitutionToExpression(expr.object, paramMap);
+      return;
+    case "index-expression":
+      applyTypeSubstitutionToExpression(expr.object, paramMap);
+      applyTypeSubstitutionToExpression(expr.index, paramMap);
+      return;
+    case "call-expression":
+      if (expr.resolvedGenericTypeArgs) {
+        expr.resolvedGenericTypeArgs = expr.resolvedGenericTypeArgs.map((typeArg) =>
+          substituteTypeParams(typeArg, paramMap)
+        );
+      }
+      applyTypeSubstitutionToExpression(expr.callee, paramMap);
+      for (const arg of expr.args) {
+        applyTypeSubstitutionToExpression(arg.value, paramMap);
+      }
+      return;
+    case "array-literal":
+      for (const element of expr.elements) {
+        applyTypeSubstitutionToExpression(element, paramMap);
+      }
+      return;
+    case "tuple-literal":
+      for (const element of expr.elements) {
+        applyTypeSubstitutionToExpression(element, paramMap);
+      }
+      return;
+    case "object-literal":
+      for (const prop of expr.properties) {
+        if (prop.value) {
+          applyTypeSubstitutionToExpression(prop.value, paramMap);
+        }
+      }
+      return;
+    case "map-literal":
+      for (const entry of expr.entries) {
+        applyTypeSubstitutionToExpression(entry.key, paramMap);
+        applyTypeSubstitutionToExpression(entry.value, paramMap);
+      }
+      return;
+    case "lambda-expression":
+      for (const param of expr.params) {
+        if (param.resolvedType) {
+          param.resolvedType = substituteTypeParams(param.resolvedType, paramMap);
+        }
+        if (param.defaultValue) {
+          applyTypeSubstitutionToExpression(param.defaultValue, paramMap);
+        }
+      }
+      if (expr.body.kind === "block") {
+        applyTypeSubstitutionToBlock(expr.body, paramMap);
+      } else {
+        applyTypeSubstitutionToExpression(expr.body, paramMap);
+      }
+      return;
+    case "if-expression":
+      applyTypeSubstitutionToExpression(expr.condition, paramMap);
+      applyTypeSubstitutionToExpression(expr.then, paramMap);
+      applyTypeSubstitutionToExpression(expr.else_, paramMap);
+      return;
+    case "case-expression":
+      applyTypeSubstitutionToExpression(expr.subject, paramMap);
+      for (const arm of expr.arms) {
+        if (arm.body.kind === "block") {
+          applyTypeSubstitutionToBlock(arm.body, paramMap);
+        } else {
+          applyTypeSubstitutionToExpression(arm.body, paramMap);
+        }
+      }
+      return;
+    case "construct-expression":
+      if (expr.named) {
+        for (const prop of expr.args) {
+          if (prop.value) {
+            applyTypeSubstitutionToExpression(prop.value, paramMap);
+          }
+        }
+        return;
+      }
+      for (const arg of expr.args) {
+        applyTypeSubstitutionToExpression(arg, paramMap);
+      }
+      return;
+    case "string-literal":
+      for (const part of expr.parts) {
+        if (typeof part !== "string") {
+          applyTypeSubstitutionToExpression(part, paramMap);
+        }
+      }
+      return;
+    case "async-expression":
+      if (expr.expression.kind === "block") {
+        applyTypeSubstitutionToBlock(expr.expression, paramMap);
+      } else {
+        applyTypeSubstitutionToExpression(expr.expression, paramMap);
+      }
+      return;
+    case "actor-creation-expression":
+      for (const arg of expr.args) {
+        applyTypeSubstitutionToExpression(arg, paramMap);
+      }
+      return;
+    case "catch-expression":
+      for (const stmt of expr.body) {
+        applyTypeSubstitutionToStatement(stmt, paramMap);
+      }
+      return;
+    case "non-null-assertion":
+    case "as-expression":
+      applyTypeSubstitutionToExpression(expr.expression, paramMap);
+      return;
+    default:
+      return;
+  }
+}
+
+function applyTypeSubstitutionToStatement(
+  stmt: Statement,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  switch (stmt.kind) {
+    case "const-declaration":
+    case "readonly-declaration":
+    case "immutable-binding":
+    case "let-declaration":
+      if (stmt.resolvedType) {
+        stmt.resolvedType = substituteTypeParams(stmt.resolvedType, paramMap);
+      }
+      applyTypeSubstitutionToExpression(stmt.value, paramMap);
+      return;
+    case "expression-statement":
+      applyTypeSubstitutionToExpression(stmt.expression, paramMap);
+      return;
+    case "return-statement":
+      if (stmt.value) {
+        applyTypeSubstitutionToExpression(stmt.value, paramMap);
+      }
+      return;
+    case "if-statement":
+      applyTypeSubstitutionToExpression(stmt.condition, paramMap);
+      applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      for (const elseIf of stmt.elseIfs) {
+        applyTypeSubstitutionToExpression(elseIf.condition, paramMap);
+        applyTypeSubstitutionToBlock(elseIf.body, paramMap);
+      }
+      if (stmt.else_) {
+        applyTypeSubstitutionToBlock(stmt.else_, paramMap);
+      }
+      return;
+    case "case-statement":
+      applyTypeSubstitutionToExpression(stmt.subject, paramMap);
+      for (const arm of stmt.arms) {
+        if (arm.body.kind === "block") {
+          applyTypeSubstitutionToBlock(arm.body, paramMap);
+        } else {
+          applyTypeSubstitutionToExpression(arm.body, paramMap);
+        }
+      }
+      return;
+    case "while-statement":
+      applyTypeSubstitutionToExpression(stmt.condition, paramMap);
+      applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      if (stmt.then_) {
+        applyTypeSubstitutionToBlock(stmt.then_, paramMap);
+      }
+      return;
+    case "for-statement":
+      if (stmt.init) {
+        applyTypeSubstitutionToStatement(stmt.init, paramMap);
+      }
+      if (stmt.condition) {
+        applyTypeSubstitutionToExpression(stmt.condition, paramMap);
+      }
+      for (const update of stmt.update) {
+        applyTypeSubstitutionToExpression(update, paramMap);
+      }
+      applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      if (stmt.then_) {
+        applyTypeSubstitutionToBlock(stmt.then_, paramMap);
+      }
+      return;
+    case "for-of-statement":
+      applyTypeSubstitutionToExpression(stmt.iterable, paramMap);
+      applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      if (stmt.then_) {
+        applyTypeSubstitutionToBlock(stmt.then_, paramMap);
+      }
+      return;
+    case "with-statement":
+      for (const binding of stmt.bindings) {
+        if (binding.resolvedType) {
+          binding.resolvedType = substituteTypeParams(binding.resolvedType, paramMap);
+        }
+        applyTypeSubstitutionToExpression(binding.value, paramMap);
+      }
+      applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      return;
+    case "array-destructuring":
+    case "positional-destructuring":
+    case "named-destructuring":
+    case "array-destructuring-assignment":
+    case "positional-destructuring-assignment":
+    case "named-destructuring-assignment":
+      applyTypeSubstitutionToExpression(stmt.value, paramMap);
+      return;
+    case "try-statement":
+      applyTypeSubstitutionToStatement(stmt.binding, paramMap);
+      return;
+    case "block":
+      applyTypeSubstitutionToBlock(stmt, paramMap);
+      return;
+    case "function-declaration":
+    case "class-declaration":
+    case "import-declaration":
+    case "mock-import-directive":
+    case "extern-class-declaration":
+    case "extern-function-declaration":
+    case "export-list":
+    case "export-all-declaration":
+    case "break-statement":
+    case "continue-statement":
+    case "else-narrow-statement":
+    case "interface-declaration":
+    case "enum-declaration":
+    case "type-alias-declaration":
+    case "export-declaration":
+      return;
+  }
+}
+
+function applyTypeSubstitutionToBlock(
+  block: Block,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  for (const stmt of block.statements) {
+    applyTypeSubstitutionToStatement(stmt, paramMap);
   }
 }
 
@@ -915,6 +1215,10 @@ function inferExprTypeInner(
               providedArgTypes.push(orderedArgs[i]!.type);
             }
             const paramMap = host.inferTypeArgs(calleeType.typeParams, providedParams, providedArgTypes);
+            applyResultMethodGenericDefaults(expr, calleeType, paramMap);
+            for (const arg of expr.args) {
+              applyTypeSubstitutionToExpression(arg.value, paramMap);
+            }
             recordResolvedGenericCall(expr, calleeType, paramMap);
             effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
           }
@@ -929,6 +1233,10 @@ function inferExprTypeInner(
             argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
+          applyResultMethodGenericDefaults(expr, calleeType, paramMap);
+          for (const arg of expr.args) {
+            applyTypeSubstitutionToExpression(arg.value, paramMap);
+          }
           recordResolvedGenericCall(expr, calleeType, paramMap);
           effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
           validatePositionalFunctionArgs(
@@ -1548,7 +1856,7 @@ function inferExprTypeInner(
         host.checkStatements(expr.body.statements, lambdaScope, table, info);
         returnType = expectedFn?.returnType ?? VOID_TYPE;
       } else {
-        returnType = inferExprType(host, expr.body, lambdaScope, table, info);
+        returnType = inferExprType(host, expr.body, lambdaScope, table, info, expectedFn?.returnType);
       }
 
       return { kind: "function", params, returnType };
@@ -1648,12 +1956,32 @@ function inferExprTypeInner(
 
     case "non-null-assertion": {
       const innerType = inferExprType(host, expr.expression, scope, table, info);
+      if (innerType.kind === "result") {
+        return innerType.successType;
+      }
       if (innerType.kind === "union") {
+        const hasNull = innerType.types.some((t) => t.kind === "null");
+        if (!hasNull) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Postfix "!" can only be applied to a nullable or Result type, but got "${typeToString(innerType)}"`,
+            span: expr.span,
+            module: table.path,
+          });
+          return UNKNOWN_TYPE;
+        }
         const nonNull = innerType.types.filter((t) => t.kind !== "null");
         if (nonNull.length === 1) return nonNull[0];
         if (nonNull.length > 1) return { kind: "union", types: nonNull };
+        return UNKNOWN_TYPE;
       }
-      return innerType;
+      info.diagnostics.push({
+        severity: "error",
+        message: `Postfix "!" can only be applied to a nullable or Result type, but got "${typeToString(innerType)}"`,
+        span: expr.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
     }
 
     case "as-expression": {

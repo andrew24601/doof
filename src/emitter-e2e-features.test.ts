@@ -269,7 +269,7 @@ describe("e2e — array safety", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("panic: aieee");
+    expect(result.stderr).toContain("panic: main.do:3: aieee");
   });
 
   it("runs in-bounds array indexing", () => {
@@ -299,7 +299,7 @@ describe("e2e — array safety", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("panic: Index out of bounds: 5");
+    expect(result.stderr).toContain("panic: main.do:4: Index out of bounds: 5");
   });
 
   it("returns Failure on empty array pop", () => {
@@ -477,7 +477,7 @@ describe("e2e — array safety", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("panic: Array destructuring expected at least 3 elements, got 2");
+    expect(result.stderr).toContain("panic: main.do:3: Array destructuring expected at least 3 elements, got 2");
   });
 
   it("runs Set literals and methods", () => {
@@ -616,7 +616,7 @@ describe("e2e — map safety", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("panic: Map key not found");
+    expect(result.stderr).toContain("panic: main.do:4: Map key not found");
   });
 
   it("inserts new entries on map index assignment", () => {

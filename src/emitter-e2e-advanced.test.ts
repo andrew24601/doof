@@ -477,6 +477,96 @@ describe("e2e — try statement", () => {
     expect(result.stdout.trim()).toBe("42");
   });
 
+// ============================================================================
+// Result helper methods
+// ============================================================================
+
+describe("e2e — Result helpers", () => {
+  it("prints int.parse(...).mapError(...) with builtin ParseError callbacks", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        println(int.parse("12").mapError(=> "not great"))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("Success(12)");
+  });
+
+  it("runs postfix ! unwrap-or-panic on Result success values", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        println(int.parse("12")! + 2)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("14");
+  });
+
+  it("runs success-channel Result helper methods", () => {
+    const result = ctx.compileAndRun(`
+      function source(ok: bool): Result<int, string> {
+        if ok {
+          return Success(3)
+        }
+        return Failure("bad")
+      }
+
+      function stringify(value: int): string => "#" + string(value)
+
+      function next(value: int): Result<string, bool> => Success("next=" + string(value))
+
+      function fallback(error: string): int => error.length
+
+      function main(): int {
+        println(try! source(true).map(stringify))
+        println(try! source(true).andThen(next))
+        println(source(false).unwrapOr(7))
+        println(source(false).unwrapOrElse(fallback))
+        println(source(true).ok() ?? 0)
+        println(source(false).err() ?? "none")
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("#3\nnext=3\n7\n3\n3\nbad");
+  });
+
+  it("runs error-channel Result helper methods", () => {
+    const result = ctx.compileAndRun(`
+      function fail(): Result<int, string> => Failure("bad")
+
+      function recover(message: string): Result<long, bool> {
+        if message == "bad" {
+          return Success(9L)
+        }
+        return Failure(false)
+      }
+
+      function main(): int {
+        remapped := fail().mapError((message: string): int => message.length)
+        case remapped {
+          _: Success -> println("unexpected")
+          f: Failure -> println(f.error)
+        }
+        println(try! fail().orElse(recover))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("3\n9");
+  });
+});
+
   it("runs positional Failure(error) construction", () => {
     const result = ctx.compileAndRun(`
       function getVal(): Result<int, string> {

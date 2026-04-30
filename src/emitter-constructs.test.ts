@@ -19,10 +19,10 @@ describe("emitter — destructuring", () => {
       }
     `);
     expect(cpp).toContain("const auto& _arr0 = values;");
-    expect(cpp).toContain("doof::array_require_min_size(_arr0, 3);");
-    expect(cpp).toContain("const auto head = doof::array_at(_arr0, 0);");
-    expect(cpp).toContain("const auto tail = doof::array_at(_arr0, 2);");
-    expect(cpp).not.toContain("doof::array_at(_arr0, 1);");
+    expect(cpp).toContain('doof::array_require_min_size(_arr0, 3, "main.do", 3);');
+    expect(cpp).toContain('const auto head = doof::array_at(_arr0, 0, "main.do", 3);');
+    expect(cpp).toContain('const auto tail = doof::array_at(_arr0, 2, "main.do", 3);');
+    expect(cpp).not.toContain('doof::array_at(_arr0, 1, "main.do", 3);');
   });
 
   it("emits positional destructuring as structured binding", () => {
@@ -160,9 +160,9 @@ describe("emitter — destructuring", () => {
       }
     `);
     expect(cpp).toContain("const auto& _arr0 = values;");
-    expect(cpp).toContain("doof::array_require_min_size(_arr0, 3);");
-    expect(cpp).toContain("head = doof::array_at(_arr0, 0);");
-    expect(cpp).toContain("tail = doof::array_at(_arr0, 2);");
+    expect(cpp).toContain('doof::array_require_min_size(_arr0, 3, "main.do", 5);');
+    expect(cpp).toContain('head = doof::array_at(_arr0, 0, "main.do", 5);');
+    expect(cpp).toContain('tail = doof::array_at(_arr0, 2, "main.do", 5);');
     expect(cpp).not.toContain("const auto head =");
   });
 
@@ -386,7 +386,7 @@ describe("emitter — try operators", () => {
         return try! x
       }
     `);
-    expect(cpp).toContain('doof::panic("try! failed: " + doof::to_string(_try_0.error()))');
+    expect(cpp).toContain('doof::panic_at("main.do", 3, "try! failed: " + doof::to_string(_try_0.error()))');
     expect(cpp).toContain(".value()");
   });
 

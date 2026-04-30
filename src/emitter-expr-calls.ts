@@ -12,11 +12,12 @@ import type {
   QualifiedMemberExpression,
 } from "./ast.js";
 import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
-import { emitType, isPointerType } from "./emitter-types.js";
+import { emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
+import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitTypeAnnotation } from "./emitter-decl.js";
 import {
   buildPositionalConstructorArgList,
@@ -117,7 +118,12 @@ function buildPositionalCallValues(
   });
 }
 
-function emitIdentifierCallByName(name: string, args: string[], ctx: EmitContext): string {
+function emitIdentifierCallByName(
+  name: string,
+  args: string[],
+  ctx: EmitContext,
+  panicSpan?: CallExpression["span"],
+): string {
   const joinedArgs = args.join(", ");
 
   if (name === "string") {
@@ -139,7 +145,13 @@ function emitIdentifierCallByName(name: string, args: string[], ctx: EmitContext
   }
 
   if (name === "assert") {
+    if (panicSpan) {
+      return `doof::assert_at(${emitPanicLocationArgs(panicSpan, ctx)}, ${joinedArgs})`;
+    }
     return `doof::assert_(${joinedArgs})`;
+  }
+  if (name === "panic" && panicSpan) {
+    return `doof::panic_at(${emitPanicLocationArgs(panicSpan, ctx)}, ${joinedArgs})`;
   }
   if (DOOF_RUNTIME_BUILTINS.has(name)) {
     return `doof::${name}(${joinedArgs})`;
@@ -191,6 +203,84 @@ function emitConcreteClassName(
   return emitResolvedClassName(type);
 }
 
+function emitResultHelperCall(
+  expr: CallExpression,
+  memberExpr: MemberExpression,
+  objectType: Extract<ResolvedType, { kind: "result" }>,
+  positionalCallValues: string[],
+  ctx: EmitContext,
+): string | null {
+  const object = emitExpression(memberExpr.object, ctx);
+  const arg0 = positionalCallValues[0] ?? "";
+  const tmp = `_result_${ctx.tempCounter++}`;
+
+  if (memberExpr.property === "map") {
+    const resultType = expr.resolvedType;
+    if (!resultType || resultType.kind !== "result") return null;
+    const resultCppType = emitType(resultType);
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); return ${resultCppType}::success(${arg0}(std::move(${tmp}.value()))); }()`;
+  }
+
+  if (memberExpr.property === "mapError") {
+    const resultType = expr.resolvedType;
+    if (!resultType || resultType.kind !== "result") return null;
+    const resultCppType = emitType(resultType);
+    if (objectType.successType.kind === "void") {
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${arg0}(std::move(${tmp}.error()))); ${tmp}.value(); return ${resultCppType}::success(); }()`;
+    }
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${arg0}(std::move(${tmp}.error()))); return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+  }
+
+  if (memberExpr.property === "andThen") {
+    const resultType = expr.resolvedType;
+    if (!resultType || resultType.kind !== "result") return null;
+    const resultCppType = emitType(resultType);
+    const nextTmp = `_result_${ctx.tempCounter++}`;
+    if (objectType.successType.kind === "void") {
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); ${tmp}.value(); auto ${nextTmp} = ${arg0}(); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+    }
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); auto ${nextTmp} = ${arg0}(std::move(${tmp}.value())); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+  }
+
+  if (memberExpr.property === "orElse") {
+    const resultType = expr.resolvedType;
+    if (!resultType || resultType.kind !== "result") return null;
+    const resultCppType = emitType(resultType);
+    const nextTmp = `_result_${ctx.tempCounter++}`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) { auto ${nextTmp} = ${arg0}(std::move(${tmp}.error())); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); } return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+  }
+
+  if (memberExpr.property === "unwrapOr") {
+    const returnType = expr.resolvedType ?? objectType.successType;
+    const returnCppType = emitType(returnType);
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}; return std::move(${tmp}.value()); }()`;
+  }
+
+  if (memberExpr.property === "unwrapOrElse") {
+    const returnType = expr.resolvedType ?? objectType.successType;
+    const returnCppType = emitType(returnType);
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}(std::move(${tmp}.error())); return std::move(${tmp}.value()); }()`;
+  }
+
+  if (memberExpr.property === "ok") {
+    const returnType = expr.resolvedType;
+    if (!returnType) return null;
+    const returnCppType = emitType(returnType);
+    const nullValue = emitNullForType(returnType);
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${nullValue}; return std::move(${tmp}.value()); }()`;
+  }
+
+  if (memberExpr.property === "err") {
+    const returnType = expr.resolvedType;
+    if (!returnType) return null;
+    const returnCppType = emitType(returnType);
+    const nullValue = emitNullForType(returnType);
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return std::move(${tmp}.error()); return ${nullValue}; }()`;
+  }
+
+  return null;
+}
+
 export function emitCallExpression(expr: CallExpression, ctx: EmitContext): string {
   const calleeType = substituteEmitType(expr.callee.resolvedType, ctx);
   const hasNamedArgs = expr.args.some((arg) => arg.name);
@@ -208,7 +298,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (expr.callee.kind === "identifier") {
-      return emitIdentifierCallByName(expr.callee.name, args, ctx);
+      return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span);
     }
 
     const callee = emitExpression(expr.callee, ctx);
@@ -334,18 +424,19 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "array") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
+      const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "push") return `${obj}->push_back(${args})`;
       if (method === "pop") return `doof::array_pop(${obj})`;
-      if (method === "contains") return `doof::array_contains(${obj}, ${args})`;
-      if (method === "includes") return `doof::array_contains(${obj}, ${args})`;
-      if (method === "indexOf") return `doof::array_indexOf(${obj}, ${args})`;
-      if (method === "some") return `doof::array_some(${obj}, ${args})`;
-      if (method === "every") return `doof::array_every(${obj}, ${args})`;
-      if (method === "filter") return `doof::array_filter(${obj}, ${args})`;
-      if (method === "map") return `doof::array_map(${obj}, ${args})`;
-      if (method === "slice") return `doof::array_slice(${obj}, ${args})`;
-      if (method === "buildReadonly") return `doof::array_buildReadonly(${obj})`;
-      if (method === "cloneMutable") return `doof::array_cloneMutable(${obj})`;
+      if (method === "contains") return `doof::array_contains(${obj}, ${args}, ${locationArgs})`;
+      if (method === "includes") return `doof::array_contains(${obj}, ${args}, ${locationArgs})`;
+      if (method === "indexOf") return `doof::array_indexOf(${obj}, ${args}, ${locationArgs})`;
+      if (method === "some") return `doof::array_some(${obj}, ${args}, ${locationArgs})`;
+      if (method === "every") return `doof::array_every(${obj}, ${args}, ${locationArgs})`;
+      if (method === "filter") return `doof::array_filter(${obj}, ${args}, ${locationArgs})`;
+      if (method === "map") return `doof::array_map(${obj}, ${args}, ${locationArgs})`;
+      if (method === "slice") return `doof::array_slice(${obj}, ${args}, ${locationArgs})`;
+      if (method === "buildReadonly") return `doof::array_buildReadonly(${obj}, ${locationArgs})`;
+      if (method === "cloneMutable") return `doof::array_cloneMutable(${obj}, ${locationArgs})`;
     }
 
     // String methods
@@ -377,21 +468,28 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "map") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
-      if (method === "get") return `doof::map_get(${obj}, ${args})`;
-      if (method === "set") return `doof::map_index(${obj}, ${expr.args[0] ? emitExpression(expr.args[0].value, ctx) : args}) = ${expr.args[1] ? emitExpression(expr.args[1].value, ctx) : ""}`;
+      const locationArgs = emitPanicLocationArgs(expr.span, ctx);
+      if (method === "get") return `doof::map_get(${obj}, ${args}, ${locationArgs})`;
+      if (method === "set") return `doof::map_index(${obj}, ${expr.args[0] ? emitExpression(expr.args[0].value, ctx) : args}, ${locationArgs}) = ${expr.args[1] ? emitExpression(expr.args[1].value, ctx) : ""}`;
       if (method === "has") return `(${obj}->count(${args}) > 0)`;
       if (method === "delete") return `${obj}->erase(${args})`;
-      if (method === "keys") return `doof::map_keys(${obj})`;
-      if (method === "values") return `doof::map_values(${obj})`;
+      if (method === "keys") return `doof::map_keys(${obj}, ${locationArgs})`;
+      if (method === "values") return `doof::map_values(${obj}, ${locationArgs})`;
     }
 
     if (objType && objType.kind === "set") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
+      const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "has") return `(${obj}->count(${args}) > 0)`;
       if (method === "add") return `${obj}->insert(${args})`;
       if (method === "delete") return `${obj}->erase(${args})`;
-      if (method === "values") return `doof::set_values(${obj})`;
+      if (method === "values") return `doof::set_values(${obj}, ${locationArgs})`;
+    }
+
+    if (objType && objType.kind === "result") {
+      const resultHelperCall = emitResultHelperCall(expr, memberExpr, objType, positionalCallValues, ctx);
+      if (resultHelperCall) return resultHelperCall;
     }
 
     // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)
@@ -407,9 +505,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
     // Enum static methods: .fromName() → EnumName_fromName(), .fromValue() → EnumName_fromValue()
     if (objType && objType.kind === "enum") {
-      const enumName = objType.symbol.name;
-      if (memberExpr.property === "fromName") return `${enumName}_fromName(${args})`;
-      if (memberExpr.property === "fromValue") return `${enumName}_fromValue(${args})`;
+      if (memberExpr.property === "fromName") return `${emitEnumHelperName(objType, "_fromName")}(${args})`;
+      if (memberExpr.property === "fromValue") return `${emitEnumHelperName(objType, "_fromValue")}(${args})`;
     }
 
     if (objType && objType.kind === "builtin-namespace" && memberExpr.property === "parse") {
@@ -469,7 +566,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
     const name = expr.callee.name;
     if (name === "assert") {
-      return `doof::assert_(${args})`;
+      return `doof::assert_at(${emitPanicLocationArgs(expr.span, ctx)}, ${args})`;
+    }
+    if (name === "panic") {
+      return `doof::panic_at(${emitPanicLocationArgs(expr.span, ctx)}, ${args})`;
     }
     if (DOOF_RUNTIME_BUILTINS.has(name)) {
       return `doof::${name}(${args})`;

@@ -1138,7 +1138,7 @@ describe("emitter — string methods", () => {
         return values[0]
       }
     `);
-    expect(cpp).toContain("doof::array_at(values, 0)");
+    expect(cpp).toContain('doof::array_at(values, 0, "main.do", 3)');
   });
 
   it("emits array pop via runtime helper", () => {
@@ -1159,8 +1159,8 @@ describe("emitter — string methods", () => {
         return values.slice(1, 3)
       }
     `);
-    expect(cpp).toContain("doof::array_contains(values, 2)");
-    expect(cpp).toContain("doof::array_slice(values, 1, 3)");
+    expect(cpp).toContain('doof::array_contains(values, 2, "main.do",');
+    expect(cpp).toContain('doof::array_slice(values, 1, 3, "main.do",');
   });
 
   it("emits array includes, indexOf, some, every, filter, and map via runtime helpers", () => {
@@ -1185,7 +1185,7 @@ describe("emitter — string methods", () => {
         return values.map((it: int): string => string(it))
       }
     `);
-    expect(cpp).toContain("doof::array_indexOf(values, 2)");
+    expect(cpp).toContain('doof::array_indexOf(values, 2, "main.do",');
     expect(cpp).toContain("doof::array_some(values");
     expect(cpp).toContain("doof::array_every(values");
     expect(cpp).toContain("doof::array_filter(values");
@@ -1198,7 +1198,7 @@ describe("emitter — string methods", () => {
         return values.buildReadonly()
       }
     `);
-    expect(cpp).toContain("doof::array_buildReadonly(values)");
+    expect(cpp).toContain('doof::array_buildReadonly(values, "main.do",');
   });
 
   it("emits array cloneMutable on mutable array via runtime helper", () => {
@@ -1207,7 +1207,7 @@ describe("emitter — string methods", () => {
         return values.cloneMutable()
       }
     `);
-    expect(cpp).toContain("doof::array_cloneMutable(values)");
+    expect(cpp).toContain('doof::array_cloneMutable(values, "main.do",');
   });
 
   it("emits array cloneMutable on readonly array via runtime helper", () => {
@@ -1216,7 +1216,7 @@ describe("emitter — string methods", () => {
         return values.cloneMutable()
       }
     `);
-    expect(cpp).toContain("doof::array_cloneMutable(values)");
+    expect(cpp).toContain('doof::array_cloneMutable(values, "main.do",');
   });
 
   it("emits contextual Set literals as ordered_set", () => {
@@ -1244,13 +1244,4 @@ describe("emitter — non-null assertion", () => {
     expect(cpp).toContain(".value()");
   });
 
-  it("emits postfix ! on non-nullable as passthrough", () => {
-    const cpp = emit(`
-      function test(s: string): void {
-        println(s!)
-      }
-    `);
-    // Should just emit the variable name, no .value()
-    expect(cpp).toContain("doof::println(s)");
-  });
 });

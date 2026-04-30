@@ -311,7 +311,7 @@ describe("emitter-module — mock call storage", () => {
 
     expect(hppCode).toContain("std::shared_ptr<std::vector<__PaymentGateway_sendPayment_Call>> __sendPayment_calls = std::make_shared<std::vector<__PaymentGateway_sendPayment_Call>>();");
     expect(hppCode).toContain("this->__sendPayment_calls->push_back(__PaymentGateway_sendPayment_Call{targetId, amount});");
-    expect(cppCode).toContain("return doof::array_at(gateway->__sendPayment_calls, 0).amount");
+    expect(cppCode).toContain('return doof::array_at(gateway->__sendPayment_calls, 0, "main.do",');
   });
 });
 

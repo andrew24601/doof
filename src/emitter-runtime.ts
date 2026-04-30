@@ -64,6 +64,10 @@ namespace doof {
     std::abort();
 }
 
+[[noreturn]] inline void panic_at(const char* file, int32_t line, const std::string& msg) {
+    panic(std::string(file) + ":" + std::to_string(line) + ": " + msg);
+}
+
 [[noreturn]] inline void unreachable() {
 #if defined(_MSC_VER)
     __assume(false);
@@ -78,6 +82,12 @@ namespace doof {
 inline void assert_(bool condition, const std::string& message) {
     if (!condition) {
         panic("Assertion failed: " + message);
+    }
+}
+
+inline void assert_at(const char* file, int32_t line, bool condition, const std::string& message) {
+    if (!condition) {
+        panic_at(file, line, "Assertion failed: " + message);
     }
 }
 
@@ -1138,24 +1148,24 @@ std::shared_ptr<std::decay_t<T>> share(T&& val) {
 }
 
 template <typename T>
-T& array_at(const std::shared_ptr<std::vector<T>>& arr, int32_t index) {
+T& array_at(const std::shared_ptr<std::vector<T>>& arr, int32_t index, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to index null array");
+        panic_at(file, line, "Attempted to index null array");
     }
     if (index < 0 || index >= static_cast<int32_t>(arr->size())) {
-        panic("Index out of bounds: " + to_string(index));
+        panic_at(file, line, "Index out of bounds: " + to_string(index));
     }
     return (*arr)[static_cast<size_t>(index)];
 }
 
 template <typename T>
-void array_require_min_size(const std::shared_ptr<std::vector<T>>& arr, int32_t count) {
+void array_require_min_size(const std::shared_ptr<std::vector<T>>& arr, int32_t count, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to destructure null array");
+        panic_at(file, line, "Attempted to destructure null array");
     }
     const auto size = static_cast<int32_t>(arr->size());
     if (size < count) {
-        panic("Array destructuring expected at least " + to_string(count) + " elements, got " + to_string(size));
+        panic_at(file, line, "Array destructuring expected at least " + to_string(count) + " elements, got " + to_string(size));
     }
 }
 
@@ -1173,17 +1183,17 @@ Result<T, std::string> array_pop(const std::shared_ptr<std::vector<T>>& arr) {
 }
 
 template <typename T>
-bool array_contains(const std::shared_ptr<std::vector<T>>& arr, const T& element) {
+bool array_contains(const std::shared_ptr<std::vector<T>>& arr, const T& element, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to search null array");
+        panic_at(file, line, "Attempted to search null array");
     }
     return std::find(arr->begin(), arr->end(), element) != arr->end();
 }
 
 template <typename T>
-int32_t array_indexOf(const std::shared_ptr<std::vector<T>>& arr, const T& element) {
+int32_t array_indexOf(const std::shared_ptr<std::vector<T>>& arr, const T& element, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to search null array");
+        panic_at(file, line, "Attempted to search null array");
     }
     const auto size = static_cast<int32_t>(arr->size());
     for (int32_t i = 0; i < size; i++) {
@@ -1195,9 +1205,9 @@ int32_t array_indexOf(const std::shared_ptr<std::vector<T>>& arr, const T& eleme
 }
 
 template <typename T, typename Predicate>
-bool array_some(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+bool array_some(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to iterate null array in some()");
+        panic_at(file, line, "Attempted to iterate null array in some()");
     }
     for (const auto& item : *arr) {
         if (std::invoke(predicate, item)) {
@@ -1208,9 +1218,9 @@ bool array_some(const std::shared_ptr<std::vector<T>>& arr, const Predicate& pre
 }
 
 template <typename T, typename Predicate>
-bool array_every(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+bool array_every(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to iterate null array in every()");
+        panic_at(file, line, "Attempted to iterate null array in every()");
     }
     for (const auto& item : *arr) {
         if (!std::invoke(predicate, item)) {
@@ -1221,9 +1231,9 @@ bool array_every(const std::shared_ptr<std::vector<T>>& arr, const Predicate& pr
 }
 
 template <typename T, typename Predicate>
-std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate) {
+std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T>>& arr, const Predicate& predicate, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to iterate null array in filter()");
+        panic_at(file, line, "Attempted to iterate null array in filter()");
     }
     auto result = std::make_shared<std::vector<T>>();
     result->reserve(arr->size());
@@ -1236,10 +1246,10 @@ std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T
 }
 
 template <typename T, typename Mapper>
-auto array_map(const std::shared_ptr<std::vector<T>>& arr, const Mapper& mapper)
+auto array_map(const std::shared_ptr<std::vector<T>>& arr, const Mapper& mapper, const char* file, int32_t line)
     -> std::shared_ptr<std::vector<std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>>> {
     if (!arr) {
-        panic("Attempted to iterate null array in map()");
+        panic_at(file, line, "Attempted to iterate null array in map()");
     }
     using U = std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>;
     auto result = std::make_shared<std::vector<U>>();
@@ -1251,9 +1261,9 @@ auto array_map(const std::shared_ptr<std::vector<T>>& arr, const Mapper& mapper)
 }
 
 template <typename T>
-std::shared_ptr<std::vector<T>> array_slice(const std::shared_ptr<std::vector<T>>& arr, int32_t start, int32_t end) {
+std::shared_ptr<std::vector<T>> array_slice(const std::shared_ptr<std::vector<T>>& arr, int32_t start, int32_t end, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to slice null array");
+        panic_at(file, line, "Attempted to slice null array");
     }
 
     const int32_t size = static_cast<int32_t>(arr->size());
@@ -1273,9 +1283,9 @@ std::shared_ptr<std::vector<T>> array_slice(const std::shared_ptr<std::vector<T>
 }
 
 template <typename T>
-std::shared_ptr<std::vector<T>> array_buildReadonly(const std::shared_ptr<std::vector<T>>& arr) {
+std::shared_ptr<std::vector<T>> array_buildReadonly(const std::shared_ptr<std::vector<T>>& arr, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to buildReadonly from null array");
+        panic_at(file, line, "Attempted to buildReadonly from null array");
     }
     // Move-drain: transfer contents to a new allocation; original vector is left empty.
     auto result = std::make_shared<std::vector<T>>(std::move(*arr));
@@ -1283,18 +1293,18 @@ std::shared_ptr<std::vector<T>> array_buildReadonly(const std::shared_ptr<std::v
 }
 
 template <typename T>
-std::shared_ptr<std::vector<T>> array_cloneMutable(const std::shared_ptr<std::vector<T>>& arr) {
+std::shared_ptr<std::vector<T>> array_cloneMutable(const std::shared_ptr<std::vector<T>>& arr, const char* file, int32_t line) {
     if (!arr) {
-        panic("Attempted to cloneMutable from null array");
+        panic_at(file, line, "Attempted to cloneMutable from null array");
     }
     return std::make_shared<std::vector<T>>(*arr);
 }
 
 // Map helpers — bridge Doof's Map methods to ordered_map
 template <typename K, typename V>
-doof::Result<V, std::string> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
+doof::Result<V, std::string> map_get(const std::shared_ptr<ordered_map<K, V>>& m, const K& key, const char* file, int32_t line) {
     if (!m) {
-        panic("Attempted to access null map");
+        panic_at(file, line, "Attempted to access null map");
     }
     m->validate_invariants("map_get");
     auto it = m->find(key);
@@ -1303,31 +1313,31 @@ doof::Result<V, std::string> map_get(const std::shared_ptr<ordered_map<K, V>>& m
 }
 
 template <typename K, typename V>
-V& map_at(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
+V& map_at(const std::shared_ptr<ordered_map<K, V>>& m, const K& key, const char* file, int32_t line) {
     if (!m) {
-        panic("Attempted to index null map");
+        panic_at(file, line, "Attempted to index null map");
     }
     m->validate_invariants("map_at");
     auto it = m->find(key);
     if (it == m->end()) {
-        panic("Map key not found");
+        panic_at(file, line, "Map key not found");
     }
     return it->second;
 }
 
 template <typename K, typename V>
-V& map_index(const std::shared_ptr<ordered_map<K, V>>& m, const K& key) {
+V& map_index(const std::shared_ptr<ordered_map<K, V>>& m, const K& key, const char* file, int32_t line) {
     if (!m) {
-        panic("Attempted to index null map");
+        panic_at(file, line, "Attempted to index null map");
     }
     m->validate_invariants("map_index");
     return (*m)[key];
 }
 
 template <typename K, typename V>
-std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>>& m) {
+std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>>& m, const char* file, int32_t line) {
     if (!m) {
-        panic("Attempted to read keys from null map");
+        panic_at(file, line, "Attempted to read keys from null map");
     }
     m->validate_invariants("map_keys");
     auto result = std::make_shared<std::vector<K>>();
@@ -1337,9 +1347,9 @@ std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>
 }
 
 template <typename K, typename V>
-std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, V>>& m) {
+std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, V>>& m, const char* file, int32_t line) {
     if (!m) {
-        panic("Attempted to read values from null map");
+        panic_at(file, line, "Attempted to read values from null map");
     }
     m->validate_invariants("map_values");
     auto result = std::make_shared<std::vector<V>>();
@@ -1349,9 +1359,9 @@ std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, 
 }
 
 template <typename T>
-std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>& s) {
+std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>& s, const char* file, int32_t line) {
     if (!s) {
-        panic("Attempted to read values from null set");
+        panic_at(file, line, "Attempted to read values from null set");
     }
     s->validate_invariants("set_values");
     auto result = std::make_shared<std::vector<T>>();

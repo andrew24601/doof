@@ -15,6 +15,26 @@
 
 import { isJsonValueType, type ResolvedType, type PrimitiveName } from "./checker-types.js";
 
+export function emitEnumTypeName(type: Extract<ResolvedType, { kind: "enum" }>): string {
+  return type.symbol.module === "<builtin>" ? `doof::${type.symbol.name}` : type.symbol.name;
+}
+
+export function emitEnumHelperName(
+  type: Extract<ResolvedType, { kind: "enum" }>,
+  suffix: "_name" | "_fromName" | "_fromValue",
+): string {
+  return type.symbol.module === "<builtin>"
+    ? `doof::${type.symbol.name}${suffix}`
+    : `${type.symbol.name}${suffix}`;
+}
+
+export function emitEnumVariantAccess(
+  type: Extract<ResolvedType, { kind: "enum" }>,
+  variant: string,
+): string {
+  return `${emitEnumTypeName(type)}::${variant}`;
+}
+
 // ============================================================================
 // Primitive mapping
 // ============================================================================
@@ -70,7 +90,7 @@ export function emitType(type: ResolvedType): string {
     }
 
     case "enum":
-      return type.symbol.name;
+      return emitEnumTypeName(type);
 
     case "function": {
       const params = type.params.map((p) => emitType(p.type)).join(", ");

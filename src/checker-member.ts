@@ -15,6 +15,7 @@ import {
   NULL_TYPE,
   substituteTypeParams,
   typeToString,
+  typesEqual,
   UNKNOWN_TYPE,
   VOID_TYPE,
 } from "./checker-types.js";
@@ -23,6 +24,28 @@ import type { ClassSymbol, InterfaceSymbol, ModuleSymbolTable, TypeAliasSymbol }
 import { BUILTIN_PARSE_ERROR_TYPE, type CheckerHost } from "./checker-internal.js";
 
 export type MemberLookupMode = "instance" | "named-static" | "qualified-static";
+
+function mergeUnionTypes(...types: ResolvedType[]): ResolvedType {
+  const flattened: ResolvedType[] = [];
+  for (const type of types) {
+    if (type.kind === "union") {
+      flattened.push(...type.types);
+      continue;
+    }
+    flattened.push(type);
+  }
+
+  const deduped: ResolvedType[] = [];
+  for (const type of flattened) {
+    if (!deduped.some((candidate) => typesEqual(candidate, type))) {
+      deduped.push(type);
+    }
+  }
+
+  if (deduped.length === 0) return UNKNOWN_TYPE;
+  if (deduped.length === 1) return deduped[0];
+  return { kind: "union", types: deduped };
+}
 
 function buildClassTypeSubstitution(
   host: CheckerHost,
@@ -1005,6 +1028,145 @@ export function inferMemberType(
     if (property === "error") return objectType.errorType;
     if (property === "isSuccess") return { kind: "function", params: [], returnType: BOOL_TYPE };
     if (property === "isFailure") return { kind: "function", params: [], returnType: BOOL_TYPE };
+    if (property === "map") {
+      if (objectType.successType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "map" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
+      const mappedType: ResolvedType = { kind: "typevar", name: "U" };
+      return {
+        kind: "function",
+        typeParams: ["U"],
+        params: [{
+          name: "mapper",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: objectType.successType }],
+            returnType: mappedType,
+          },
+        }],
+        returnType: { kind: "result", successType: mappedType, errorType: objectType.errorType },
+      };
+    }
+    if (property === "mapError") {
+      const mappedErrorType: ResolvedType = { kind: "typevar", name: "G" };
+      return {
+        kind: "function",
+        typeParams: ["G"],
+        params: [{
+          name: "mapper",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: objectType.errorType }],
+            returnType: mappedErrorType,
+          },
+        }],
+        returnType: { kind: "result", successType: objectType.successType, errorType: mappedErrorType },
+      };
+    }
+    if (property === "andThen") {
+      const chainedSuccessType: ResolvedType = { kind: "typevar", name: "U" };
+      const chainedErrorType: ResolvedType = { kind: "typevar", name: "G" };
+      return {
+        kind: "function",
+        typeParams: ["U", "G"],
+        params: [{
+          name: "next",
+          type: {
+            kind: "function",
+            params: objectType.successType.kind === "void"
+              ? []
+              : [{ name: "it", type: objectType.successType }],
+            returnType: {
+              kind: "result",
+              successType: chainedSuccessType,
+              errorType: chainedErrorType,
+            },
+          },
+        }],
+        returnType: {
+          kind: "result",
+          successType: chainedSuccessType,
+          errorType: mergeUnionTypes(objectType.errorType, chainedErrorType),
+        },
+      };
+    }
+    if (property === "orElse") {
+      if (objectType.successType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "orElse" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
+      const recoveredSuccessType: ResolvedType = { kind: "typevar", name: "U" };
+      const recoveredErrorType: ResolvedType = { kind: "typevar", name: "G" };
+      return {
+        kind: "function",
+        typeParams: ["U", "G"],
+        params: [{
+          name: "recover",
+          type: {
+            kind: "function",
+            params: [{ name: "it", type: objectType.errorType }],
+            returnType: {
+              kind: "result",
+              successType: recoveredSuccessType,
+              errorType: recoveredErrorType,
+            },
+          },
+        }],
+        returnType: {
+          kind: "result",
+          successType: mergeUnionTypes(objectType.successType, recoveredSuccessType),
+          errorType: recoveredErrorType,
+        },
+      };
+    }
+    if (property === "unwrapOr") {
+      if (objectType.successType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "unwrapOr" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
+      return {
+        kind: "function",
+        params: [{ name: "defaultValue", type: objectType.successType }],
+        returnType: objectType.successType,
+      };
+    }
+    if (property === "unwrapOrElse") {
+      if (objectType.successType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "unwrapOrElse" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
+      return {
+        kind: "function",
+        params: [{
+          name: "fallback",
+          type: {
+            kind: "function",
+            params: [{ name: "error", type: objectType.errorType }],
+            returnType: objectType.successType,
+          },
+        }],
+        returnType: objectType.successType,
+      };
+    }
+    if (property === "ok") {
+      if (objectType.successType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "ok" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
+      return {
+        kind: "function",
+        params: [],
+        returnType: mergeUnionTypes(objectType.successType, NULL_TYPE),
+      };
+    }
+    if (property === "err") {
+      return {
+        kind: "function",
+        params: [],
+        returnType: mergeUnionTypes(objectType.errorType, NULL_TYPE),
+      };
+    }
   }
 
   if (objectType.kind === "success-wrapper") {

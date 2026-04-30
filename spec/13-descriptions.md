@@ -230,6 +230,14 @@ The `Result<JsonValue, JsonValue>` returned by `.invoke` supports:
 | `.error` | `JsonValue` | The failure payload (only valid when `isFailure()` is true) |
 | `.isSuccess()` | `bool` | Whether the invocation succeeded |
 | `.isFailure()` | `bool` | Whether the invocation failed |
+| `.map(fn)` | `Result<U, JsonValue>` | Transform the success payload |
+| `.mapError(fn)` | `Result<JsonValue, U>` | Transform the failure payload |
+| `.andThen(fn)` | `Result<U, JsonValue>` | Chain another Result-returning operation from success |
+| `.orElse(fn)` | `Result<JsonValue \| U, U2>` | Recover from a failure with another Result-returning operation |
+| `.unwrapOr(value)` | `JsonValue` | Return the success payload or a fallback |
+| `.unwrapOrElse(fn)` | `JsonValue` | Return the success payload or compute a fallback from the error |
+| `.ok()` | `JsonValue \| null` | Convert success to a nullable value |
+| `.err()` | `JsonValue \| null` | Convert failure to a nullable value |
 
 ### Restrictions
 

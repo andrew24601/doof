@@ -262,6 +262,37 @@ data := try! readFile("required-config.txt")
 data := try? readFile("optional-cache.txt")
 ```
 
+### Result Helper Methods
+
+`Result<T, E>` also provides a small set of helper methods for common success/error transformations without a full `case` expression:
+
+```javascript
+function describeCount(input: Result<int, string>): Result<string, string> {
+    return input.map((value: int): string => "count=" + string(value))
+}
+
+function recover(input: Result<int, string>): int {
+    return input.unwrapOrElse((error: string): int => error.length)
+}
+
+function next(input: Result<int, string>): Result<string, string | bool> {
+    return input.andThen((value: int): Result<string, bool> => Success("next=" + string(value)))
+}
+```
+
+| Method | Signature | Description |
+|---|---|---|
+| `.map(fn)` | `(fn: (value: T): U) -> Result<U, E>` | Transform the success value and keep failures unchanged |
+| `.mapError(fn)` | `(fn: (error: E): F) -> Result<T, F>` | Transform the failure value and keep successes unchanged |
+| `.andThen(fn)` | `(fn: (value: T): Result<U, F>) -> Result<U, E \| F>` | Chain another fallible operation after a success |
+| `.orElse(fn)` | `(fn: (error: E): Result<U, F>) -> Result<T \| U, F>` | Recover from a failure with another Result-producing operation |
+| `.unwrapOr(value)` | `(value: T) -> T` | Return the success value or a fallback |
+| `.unwrapOrElse(fn)` | `(fn: (error: E): T) -> T` | Return the success value or compute a fallback from the failure |
+| `.ok()` | `() -> T \| null` | Convert success to a nullable value, discarding failures |
+| `.err()` | `() -> E \| null` | Convert failure to a nullable value, discarding successes |
+
+`map` is not available on `Result<void, E>` because there is no success payload to transform.
+
 ### Quick Reference
 
 ```javascript
@@ -297,6 +328,16 @@ case result {
     s: Success -> s.value,
     f: Failure -> f.error
 }
+
+// Helper Methods
+mapped := result.map((value: T): U => transform(value))
+mappedError := result.mapError((error: E): F => rewrite(error))
+chained := result.andThen((value: T): Result<U, F> => next(value))
+recovered := result.orElse((error: E): Result<U, F> => recover(error))
+value := result.unwrapOr(fallback)
+value2 := result.unwrapOrElse((error: E): T => fallbackFrom(error))
+maybeValue := result.ok()
+maybeError := result.err()
 
 // Error Type Unions
 // If foo(): Result<A, E1> and bar(): Result<B, E2>
@@ -432,6 +473,7 @@ function getElement<T>(array: T[], index: int): T {
 
 **Panic behaviour:**
 - Immediately terminates the program
+- For source-originated panics, prefixes the message with the Doof source filename and line, for example `main.do:3: ...`
 - Prints stack trace and panic message
 - Should **only** be used for programmer errors, not expected runtime conditions
 

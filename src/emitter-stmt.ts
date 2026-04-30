@@ -21,6 +21,7 @@ import { emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMono
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
+import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitStreamNextHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
 import { emitYieldBlockIIFE } from "./emitter-expr-control.js";
@@ -167,11 +168,11 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
     }
 
     case "array-destructuring":
-      emitArrayDestructuring(stmt.bindingKind, stmt.bindings, emitExpression(stmt.value, ctx), ctx);
+      emitArrayDestructuring(stmt.bindingKind, stmt.bindings, emitExpression(stmt.value, ctx), stmt.span, ctx);
       break;
 
     case "array-destructuring-assignment":
-      emitArrayDestructuringAssignment(stmt.bindings, emitExpression(stmt.value, ctx), ctx);
+      emitArrayDestructuringAssignment(stmt.bindings, emitExpression(stmt.value, ctx), stmt.span, ctx);
       break;
 
     case "block":
@@ -615,13 +616,13 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
       break;
     }
     case "array-destructuring-assignment": {
-      emitArrayDestructuringAssignment(binding.bindings, `${tmp}.value()`, ctx);
+      emitArrayDestructuringAssignment(binding.bindings, `${tmp}.value()`, binding.span, ctx);
       break;
     }
     case "array-destructuring": {
       const arrayTmp = `_arr${ctx.tempCounter++}`;
       ctx.sourceLines.push(`${ind}const auto& ${arrayTmp} = ${tmp}.value();`);
-      emitArrayDestructuring(binding.bindingKind, binding.bindings, arrayTmp, ctx, false);
+      emitArrayDestructuring(binding.bindingKind, binding.bindings, arrayTmp, binding.span, ctx, false);
       break;
     }
     case "positional-destructuring": {
@@ -676,41 +677,45 @@ function emitArrayDestructuring(
   bindingKind: "immutable" | "let",
   bindings: readonly string[],
   valueExpr: string,
+  span: Statement["span"],
   ctx: EmitContext,
   captureValue: boolean = true,
 ): void {
   const ind = indent(ctx);
   const qualifier = bindingKind === "let" ? "auto" : "const auto";
   const arrayRef = captureValue ? `_arr${ctx.tempCounter++}` : valueExpr;
+  const locationArgs = emitPanicLocationArgs(span, ctx);
 
   if (captureValue) {
     ctx.sourceLines.push(`${ind}const auto& ${arrayRef} = ${valueExpr};`);
   }
-  ctx.sourceLines.push(`${ind}doof::array_require_min_size(${arrayRef}, ${bindings.length});`);
+  ctx.sourceLines.push(`${ind}doof::array_require_min_size(${arrayRef}, ${bindings.length}, ${locationArgs});`);
   for (let index = 0; index < bindings.length; index++) {
     const name = bindings[index];
     if (name === "_") continue;
-    ctx.sourceLines.push(`${ind}${qualifier} ${emitIdentifierSafe(name)} = doof::array_at(${arrayRef}, ${index});`);
+    ctx.sourceLines.push(`${ind}${qualifier} ${emitIdentifierSafe(name)} = doof::array_at(${arrayRef}, ${index}, ${locationArgs});`);
   }
 }
 
 function emitArrayDestructuringAssignment(
   bindings: readonly string[],
   valueExpr: string,
+  span: Statement["span"],
   ctx: EmitContext,
   captureValue: boolean = true,
 ): void {
   const ind = indent(ctx);
   const arrayRef = captureValue ? `_arr${ctx.tempCounter++}` : valueExpr;
+  const locationArgs = emitPanicLocationArgs(span, ctx);
 
   if (captureValue) {
     ctx.sourceLines.push(`${ind}const auto& ${arrayRef} = ${valueExpr};`);
   }
-  ctx.sourceLines.push(`${ind}doof::array_require_min_size(${arrayRef}, ${bindings.length});`);
+  ctx.sourceLines.push(`${ind}doof::array_require_min_size(${arrayRef}, ${bindings.length}, ${locationArgs});`);
   for (let index = 0; index < bindings.length; index++) {
     const name = bindings[index];
     if (name === "_") continue;
-    ctx.sourceLines.push(`${ind}${emitIdentifierSafe(name)} = doof::array_at(${arrayRef}, ${index});`);
+    ctx.sourceLines.push(`${ind}${emitIdentifierSafe(name)} = doof::array_at(${arrayRef}, ${index}, ${locationArgs});`);
   }
 }
 

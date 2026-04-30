@@ -47,4 +47,64 @@ function main() {
       endColumn: 19,
     });
   });
+
+  it("compiles shorthand Result.andThen() lambdas in an unannotated main", () => {
+    const result = compileDoof(`
+      function main() {
+        println(int.parse("10").andThen(=> Success { value: it + 4 }))
+      }
+    `);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.cpp).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(result.cpp).not.toContain(", G>");
+  });
+
+  it("compiles shorthand Result.orElse() lambdas in an unannotated main", () => {
+    const result = compileDoof(`
+      function main() {
+        println(int.parse("doof").orElse(=> Success { value: 0 }))
+      }
+    `);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.cpp).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(result.cpp).not.toContain(", U>");
+  });
+
+  it("compiles shorthand Result.orElse() failure lambdas in an unannotated main", () => {
+    const result = compileDoof(`
+      function main() {
+        println(int.parse("doof").orElse(=> Failure { error: 0 }))
+      }
+    `);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.cpp).toContain("doof::Result<int32_t, int32_t>");
+    expect(result.cpp).not.toContain(", U>");
+  });
+
+  it("compiles postfix ! unwrap-or-panic on Result", () => {
+    const result = compileDoof(`
+      function main() {
+        println(int.parse("12")! + 2)
+      }
+    `);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.cpp).toContain('doof::panic_at("main.do", 3, "! failed: " + doof::to_string(');
+    expect(result.cpp).toContain("+ 2");
+  });
+
+  it("reports an error for postfix ! on non-nullable non-Result values", () => {
+    const result = compileDoof(`
+      function main() {
+        s := "hello"
+        println(s!)
+      }
+    `);
+
+    expect(result.cpp).toBe("");
+    expect(result.diagnostics.some((d) => d.message.includes('Postfix "!" can only be applied to a nullable or Result type'))).toBe(true);
+  });
 });

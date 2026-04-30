@@ -85,7 +85,12 @@ Null checks help with control flow, but they do not implicitly narrow types:
 if name != null {
     println(name!)   // explicit assertion required
 }
+
+parsed := int.parse("12")
+println(parsed! + 2) // unwraps Success or panics on Failure
 ```
+
+Applying postfix `!` to a value that is neither nullable nor a `Result` is a compile error.
 
 There is no implicit flow-sensitive narrowing from `if` statements. Use `case`, declaration-`else`, `as`, or `!` for explicit narrowing.
 
@@ -812,7 +817,7 @@ const err = catch {
 - Comparison: `==` (reference equality for objects), `!=`, `<`, `<=`, `>`, `>=`
 - Logical: `&&`, `||`, `!` (require `bool` operands)
 - Null: `??` (null-coalescing), `?.` (optional chaining), `?[]` (optional indexing)
-- Force: `!` (non-null assertion), `!.` (unwrap or panic), `try!`/`try?`
+- Force: `!` (non-null assertion or Result unwrap-or-panic), `!.` (unwrap or panic), `try!`/`try?`
 - Narrowing: `as` — checked runtime narrowing/conversion yielding `Result<T, string>` for plain values and `Result<T, F | string>` for `Result<V, F>` sources, including exact numeric conversions when the runtime value fits the target type (e.g. `x as string`, `x as long`)
 - No operator overloading — use methods instead
 

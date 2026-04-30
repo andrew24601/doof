@@ -444,6 +444,25 @@ describe("Result<T, E> type integration", () => {
     expect((tryExpr!.resolvedType! as any).name).toBe("int");
   });
 
+  it("infers postfix ! unwraps Result<T, E> to T", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function getVal(): Result<int, string> { return 0 }
+          function f(): void {
+            x := getVal()!
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const exprs = collectExprs(cr.program);
+    const assertExpr = exprs.find((e) => e.kind === "non-null-assertion");
+    expect(assertExpr).toBeDefined();
+    expect(assertExpr!.resolvedType!.kind).toBe("primitive");
+    expect((assertExpr!.resolvedType! as any).name).toBe("int");
+  });
+
   it("infers try? converts Result<T, E> to T | null", () => {
     const cr = check(
       {
@@ -743,6 +762,220 @@ describe("Result<T, E> type integration", () => {
     const diag = cr.diagnostics.find((d) => d.message.includes("Result object literal"));
     expect(diag).toBeDefined();
     expect(diag?.span).toBeDefined();
+  });
+
+  it("infers Result.map() with a mapped success type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(r: Result<int, string>): Result<string, string> {
+            return r.map((value: int): string => string(value))
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const mapCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "map");
+
+    expect(mapCall?.resolvedType).toBeDefined();
+    expect(typeToString(mapCall!.resolvedType!)).toBe("Result<string, string>");
+    expect(mapCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["string"]);
+  });
+
+  it("infers Result.mapError() with a mapped error type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(r: Result<int, string>): Result<int, long> {
+            return r.mapError((message: string): long => 1L)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const mapErrorCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "mapError");
+
+    expect(typeToString(mapErrorCall!.resolvedType!)).toBe("Result<int, long>");
+    expect(mapErrorCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["long"]);
+  });
+
+  it("infers Result.andThen() with a widened error type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function step(value: int): Result<string, bool> {
+            if value > 0 {
+              return Success("ok")
+            }
+            return Failure(false)
+          }
+
+          function main(r: Result<int, string>): Result<string, string | bool> {
+            return r.andThen(step)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const andThenCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "andThen");
+
+    expect(typeToString(andThenCall!.resolvedType!)).toBe("Result<string, string | bool>");
+    expect(andThenCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["string", "bool"]);
+  });
+
+  it("contextually types shorthand lambdas for Result.andThen()", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(r: Result<int, string>): Result<int, string> {
+            return r.andThen(=> Success { value: it + 4 })
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const andThenCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "andThen");
+
+    expect(typeToString(andThenCall!.resolvedType!)).toBe("Result<int, string>");
+    expect(andThenCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int", "string"]);
+  });
+
+  it("infers Result.orElse() with a widened success type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function recover(message: string): Result<long, bool> {
+            if message == "fallback" {
+              return Success(7L)
+            }
+            return Failure(false)
+          }
+
+          function main(r: Result<int, string>): Result<int | long, bool> {
+            return r.orElse(recover)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const orElseCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "orElse");
+
+    expect(typeToString(orElseCall!.resolvedType!)).toBe("Result<int | long, bool>");
+    expect(orElseCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["long", "bool"]);
+  });
+
+  it("contextually types shorthand lambdas for Result.orElse()", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main() {
+            println(int.parse("doof").orElse(=> Success { value: 0 }))
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const orElseCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "orElse");
+
+    expect(typeToString(orElseCall!.resolvedType!)).toBe("Result<int, ParseError>");
+    expect(orElseCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int", "ParseError"]);
+  });
+
+  it("contextually types shorthand failure lambdas for Result.orElse()", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main() {
+            println(int.parse("doof").orElse(=> Failure { error: 0 }))
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const orElseCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "member-expression"
+        && expr.callee.property === "orElse");
+
+    expect(typeToString(orElseCall!.resolvedType!)).toBe("Result<int, int>");
+    expect(orElseCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int", "int"]);
+  });
+
+  it("infers Result.unwrapOr(), ok(), and err()", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(r: Result<int, string>): void {
+            value := r.unwrapOr(7)
+            maybeValue := r.ok()
+            maybeError := r.err()
+            println(string(value))
+            println(string(maybeValue))
+            println(string(maybeError))
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+    expect(new Set(findId(cr, "value").map((binding) => typeToString(binding.type)))).toEqual(new Set(["int"]));
+    expect(new Set(findId(cr, "maybeValue").map((binding) => typeToString(binding.type)))).toEqual(new Set(["int | null"]));
+    expect(new Set(findId(cr, "maybeError").map((binding) => typeToString(binding.type)))).toEqual(new Set(["string | null"]));
+  });
+
+  it("reports an error for Result<void, E>.map()", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(r: Result<void, string>): void {
+            r.map((ignored: void): int => 1)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes('Method "map" is not available on type "Result<void, string>"'))).toBe(true);
   });
 
   it("infers positional Success(value) as Result<T, E>", () => {
@@ -4783,17 +5016,14 @@ describe("checker — non-null assertion", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("preserves type when expression is not nullable", () => {
+  it("reports an error when expression is not nullable or Result", () => {
     const cr = check({ "/main.do": `
       function test(): void {
         s := "hello"
         println(s!)
       }
     ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
-    const exprs = collectExprs(cr.program!);
-    const nna = exprs.find(e => e.kind === "non-null-assertion");
-    expect(nna?.resolvedType).toEqual({ kind: "primitive", name: "string" });
+    expect(cr.diagnostics.some((d) => d.message.includes('Postfix "!" can only be applied to a nullable or Result type'))).toBe(true);
   });
 });
 

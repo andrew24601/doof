@@ -12,7 +12,7 @@ import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
-import { emitType } from "./emitter-types.js";
+import { emitEnumHelperName, emitType } from "./emitter-types.js";
 import type { ClassSymbol } from "./types.js";
 
 // ============================================================================
@@ -169,7 +169,7 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
     }
 
     case "enum":
-      return `doof::json_value(${type.symbol.name}_name(${fieldExpr}))`;
+      return `doof::json_value(${emitEnumHelperName(type, "_name")}(${fieldExpr}))`;
 
     case "null":
       return "doof::json_value(nullptr)";
@@ -237,7 +237,7 @@ export function emitDeserializeExpr(
     }
 
     case "enum":
-      return `${type.symbol.name}_fromName(doof::json_as_string(${jsonExpr})).value()`;
+      return `${emitEnumHelperName(type, "_fromName")}(doof::json_as_string(${jsonExpr})).value()`;
 
     case "null":
       return "nullptr";

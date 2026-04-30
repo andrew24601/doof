@@ -16,8 +16,9 @@ import type { Expression, Block, ArrayLiteral, MapLiteral, TupleLiteral } from "
 import { typesEqual, type ResolvedType } from "./checker-types.js";
 import { emitAsNarrowExpression } from "./emitter-narrowing.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
+import { emitPanicAt } from "./emitter-panic.js";
 import { emitRuntimeCoercion } from "./emitter-json-value.js";
-import { emitType } from "./emitter-types.js";
+import { emitEnumVariantAccess, emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
 import { isOptionalNullable } from "./emitter-types.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
@@ -157,6 +158,9 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       return emitConstructExpression(expr, ctx);
 
     case "enum-access":
+      if (expr.enumName && expr.resolvedType?.kind === "enum") {
+        return emitEnumVariantAccess(expr.resolvedType, expr.variant);
+      }
       if (expr.enumName) {
         return `${expr.enumName}::${expr.variant}`;
       }
@@ -164,7 +168,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "dot-shorthand":
       if (expr.resolvedType?.kind === "enum") {
-        return `${expr.resolvedType.symbol.name}::${expr.name}`;
+        return emitEnumVariantAccess(expr.resolvedType, expr.name);
       }
       throw new Error(`Cannot emit unresolved dot shorthand ".${expr.name}"`);
 
@@ -183,6 +187,14 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
     case "non-null-assertion": {
       const inner = emitExpression(expr.expression, ctx);
       const innerType = expr.expression.resolvedType;
+      if (innerType && innerType.kind === "result") {
+        const tmp = `_assert_${ctx.tempCounter++}`;
+        if (innerType.successType.kind === "void") {
+          return `[&]() -> void { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
+        }
+        const valueType = emitType(innerType.successType);
+        return `[&]() -> ${valueType} { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
+      }
       // For std::optional<T>, unwrap with .value()
       if (innerType && isOptionalNullable(innerType)) {
         return `${inner}.value()`;

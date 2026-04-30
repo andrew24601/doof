@@ -13,10 +13,11 @@ import type {
   IndexExpression,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable } from "./emitter-types.js";
+import { emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
+import { emitPanicAt, emitPanicLocationArgs } from "./emitter-panic.js";
 
 function getNamedClassStaticAccess(expr: MemberExpression): string | null {
   if (expr.object.kind !== "identifier") return null;
@@ -266,12 +267,12 @@ export function emitUnaryExpression(expr: UnaryExpression, ctx: EmitContext): st
       const operandType = expr.operand.resolvedType;
       if (operandType && operandType.kind === "result") {
         if (operandType.successType.kind === "void") {
-          return `[&]() -> void { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) doof::panic("try! failed: " + doof::to_string(${tmp}.error())); ${tmp}.value(); }()`;
+          return `[&]() -> void { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
         }
         const valType = emitType(operandType.successType);
-        return `[&]() -> ${valType} { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) doof::panic("try! failed: " + doof::to_string(${tmp}.error())); return std::move(${tmp}.value()); }()`;
+        return `[&]() -> ${valType} { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
       }
-      return `[&]() { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) doof::panic("try! failed"); return std::move(${tmp}.value()); }()`;
+      return `[&]() { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed"`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
     }
     case "try?": {
       const tmp = `_try_${ctx.tempCounter++}`;
@@ -301,9 +302,10 @@ export function emitAssignmentExpression(expr: AssignmentExpression, ctx: EmitCo
     const index = emitExpression(expr.target.index, ctx);
     const mapType = getNullableMapType(expr.target.object.resolvedType);
     if (mapType) {
+      const locationArgs = emitPanicLocationArgs(expr.target.span, ctx);
       target = expr.operator === "="
-        ? `doof::map_index(${object}, ${index})`
-        : `doof::map_at(${object}, ${index})`;
+        ? `doof::map_index(${object}, ${index}, ${locationArgs})`
+        : `doof::map_at(${object}, ${index}, ${locationArgs})`;
     } else {
       target = emitExpression(expr.target, ctx);
     }
@@ -416,10 +418,10 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     }
     if (prop === "name") {
       const object = emitExpression(expr.object, ctx);
-      return `${objType.symbol.name}_name(${object})`;
+      return `${emitEnumHelperName(objType, "_name")}(${object})`;
     }
     // Static variant access (fallback) → EnumName::Variant
-    return `${objType.symbol.name}::${prop}`;
+    return emitEnumVariantAccess(objType, prop);
   }
 
   const staticClassAccess = getNamedClassStaticAccess(expr);
@@ -576,22 +578,23 @@ export function emitQualifiedMemberExpression(expr: QualifiedMemberExpression, c
 export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): string {
   const object = emitExpression(expr.object, ctx);
   const index = emitExpression(expr.index, ctx);
+  const locationArgs = emitPanicLocationArgs(expr.span, ctx);
   const objType = expr.object.resolvedType;
   const arrayType = getNullableArrayType(objType);
   const mapType = getNullableMapType(objType);
 
   if (expr.optional) {
     if (arrayType) {
-      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::array_at(${object}, ${index}))`;
+      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::array_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const arrayObject = objType && isOptionalNullable(objType) ? `*${object}` : object;
-      return `[&]() -> ${resultType} { if (${object}) return doof::array_at(${arrayObject}, ${index}); return ${nullValue}; }()`;
+      return `[&]() -> ${resultType} { if (${object}) return doof::array_at(${arrayObject}, ${index}, ${locationArgs}); return ${nullValue}; }()`;
     }
     if (mapType) {
-      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::map_at(${object}, ${index}))`;
+      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::map_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const mapObject = objType && isOptionalNullable(objType) ? `*${object}` : object;
-      return `[&]() -> ${resultType} { if (${object}) return doof::map_at(${mapObject}, ${index}); return ${nullValue}; }()`;
+      return `[&]() -> ${resultType} { if (${object}) return doof::map_at(${mapObject}, ${index}, ${locationArgs}); return ${nullValue}; }()`;
     }
     return `(${object} ? (*${object})[${index}] : decltype((*${object})[${index}]){})`;
   }
@@ -599,13 +602,13 @@ export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): st
   // Arrays are shared_ptr<vector> and route through a runtime helper so
   // out-of-bounds access becomes a Doof panic instead of C++ UB.
   if (arrayType) {
-    return `doof::array_at(${object}, ${index})`;
+    return `doof::array_at(${object}, ${index}, ${locationArgs})`;
   }
 
   // Maps are shared_ptr<doof::ordered_map> and route through a runtime helper so
   // missing-key reads become a Doof panic instead of implicit insertion.
   if (mapType) {
-    return `doof::map_at(${object}, ${index})`;
+    return `doof::map_at(${object}, ${index}, ${locationArgs})`;
   }
 
   return `${object}[${index}]`;

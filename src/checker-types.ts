@@ -1072,10 +1072,7 @@ export function substituteTypeParams(
         elementType: substituteTypeParams(type.elementType, paramMap),
       };
     case "union":
-      return {
-        kind: "union",
-        types: type.types.map((t) => substituteTypeParams(t, paramMap)),
-      };
+      return buildNormalizedUnionType(type.types.map((t) => substituteTypeParams(t, paramMap)));
     case "tuple":
       return {
         kind: "tuple",
@@ -1141,6 +1138,28 @@ export function substituteTypeParams(
     default:
       return type;
   }
+}
+
+function buildNormalizedUnionType(types: ResolvedType[]): ResolvedType {
+  const flattened: ResolvedType[] = [];
+  for (const type of types) {
+    if (type.kind === "union") {
+      flattened.push(...type.types);
+      continue;
+    }
+    flattened.push(type);
+  }
+
+  const deduped: ResolvedType[] = [];
+  for (const type of flattened) {
+    if (!deduped.some((candidate) => typesEqual(candidate, type))) {
+      deduped.push(type);
+    }
+  }
+
+  if (deduped.length === 0) return UNKNOWN_TYPE;
+  if (deduped.length === 1) return deduped[0];
+  return { kind: "union", types: deduped };
 }
 
 export function typeContainsTypeVar(type: ResolvedType): boolean {

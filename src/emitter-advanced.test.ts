@@ -84,6 +84,18 @@ describe("emitter — Result type", () => {
     expect(cpp).toContain("-> int32_t");
   });
 
+  it("emits postfix ! on Result with panic-on-failure lowering", () => {
+    const cpp = emit(`
+      function getVal(): Result<int, string> { return Success(0) }
+      function f(): void {
+        x := getVal()!
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain('doof::panic_at("main.do", 4, "! failed: " + doof::to_string(');
+    expect(cpp).toContain("-> int32_t");
+  });
+
   it("emits try? with typed std::optional<T>", () => {
     const cpp = emit(`
       function getVal(): Result<int, string> { return Success(0) }
@@ -99,6 +111,50 @@ describe("emitter — Result type", () => {
     const header = generateRuntimeHeader();
     expect(header).toContain("doof::Result<V, std::string> map_get");
     expect(header).toContain('doof::Result<V, std::string>::failure("Map key not found")');
+  });
+
+  it("emits Result.map() as a success transform with failure passthrough", () => {
+    const cpp = emit(`
+      function f(r: Result<int, string>): Result<string, string> {
+        return r.map((value: int): string => string(value))
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::Result<std::string, std::string>::failure(std::move(");
+    expect(cpp).toContain("doof::Result<std::string, std::string>::success(");
+    expect(cpp).toContain(".value()");
+  });
+
+  it("emits Result.andThen() with direct success chaining", () => {
+    const cpp = emit(`
+      function step(value: int): Result<string, bool> => Success(string(value))
+
+      function f(r: Result<int, string>): Result<string, string | bool> {
+        return r.andThen(step)
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::Result<std::string, std::variant<std::string, bool>>::failure(std::move(");
+    expect(cpp).toContain("auto _result_");
+    expect(cpp).toContain("step(std::move(");
+    expect(cpp).toContain("::success(std::move(");
+  });
+
+  it("emits Result.unwrapOr(), ok(), and err() with fallback/null lowering", () => {
+    const cpp = emit(`
+      function fallback(error: string): int => error.length
+
+      function f(r: Result<int, string>): void {
+        value := r.unwrapOr(7)
+        value2 := r.unwrapOrElse(fallback)
+        maybeValue := r.ok()
+        maybeError := r.err()
+      }
+    `);
+    expect(cpp).toContain("return 7;");
+    expect(cpp).toContain("return fallback(std::move(");
+    expect(cpp).toContain("std::nullopt");
+    expect(cpp).toContain(".error()");
   });
 
   it("always includes JSON runtime support", () => {

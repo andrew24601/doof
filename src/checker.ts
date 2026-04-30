@@ -906,6 +906,11 @@ export class TypeChecker {
       this.unifyType(paramType.returnType, argType.returnType, typeParams, result);
       return;
     }
+    if (paramType.kind === "result" && argType.kind === "result") {
+      this.unifyType(paramType.successType, argType.successType, typeParams, result);
+      this.unifyType(paramType.errorType, argType.errorType, typeParams, result);
+      return;
+    }
     if (paramType.kind === "union" && argType.kind === "union") {
       const len = Math.min(paramType.types.length, argType.types.length);
       for (let i = 0; i < len; i++) {

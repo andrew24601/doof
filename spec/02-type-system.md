@@ -235,12 +235,17 @@ copy.push(4)                      // ✅ OK
 
 ### Non-Null Assertion
 
-The postfix `!` operator asserts that a nullable expression is non-null. It strips `null` from the type at compile time. At runtime, if the value is actually null, the program will panic.
+The postfix `!` operator asserts that a nullable expression is non-null or unwraps a `Result<T, E>` success value. It strips `null` from nullable types at compile time, and for `Result<T, E>` it yields `T`. At runtime, if the value is actually null or the Result is a `Failure`, the program will panic.
+
+Applying `!` to a value that is neither nullable nor a `Result` is a compile error.
 
 ```javascript
 name: string | null := "Alice"
 println(name!)                  // ✅ Asserts non-null, type is string
 greet(name!)                    // ✅ Works in function argument position
+
+parsed: Result<int, ParseError> := int.parse("12")
+println(parsed! + 2)            // ✅ Unwraps Success, type is int
 
 node.next!.value                // ✅ Alternative: !. force-unwrap member access
 ```
@@ -1406,7 +1411,12 @@ Use `expr!` when you want an assertion rather than a typed failure path:
 ```javascript
 name: string | null := maybeName()
 println(name!)  // panics at runtime if name is null
+
+parsed: Result<int, ParseError> := int.parse("12")
+println(parsed! + 2)  // panics at runtime if parsed is Failure
 ```
+
+Use `!` only for nullable and `Result` values. Applying it to an already non-null, non-Result value is a compile error.
 
 **Simple rule:** `if` conditions do not narrow types implicitly. For unions, nullable values, Results, and checked runtime conversions, use `case`, declaration-`else`, `as`, or `!`.
 

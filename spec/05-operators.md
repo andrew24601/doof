@@ -309,6 +309,15 @@ name := result!.name
 name := (try! result).name
 ```
 
+The postfix `!` operator on a `Result<T, E>` does the same unwrap-or-panic step when you want the success value itself:
+
+```javascript
+value := int.parse("12")!      // int
+sum := int.parse("12")! + 2    // int
+```
+
+Applying postfix `!` to a value that is neither nullable nor a `Result` is a compile error.
+
 **Note:** Weak references use Result semantics (see [Type System — Weak References](02-type-system.md)), so `!.` works with them as a consequence of working with Result types.
 
 **When to use `!.`:**

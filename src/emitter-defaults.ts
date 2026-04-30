@@ -1,6 +1,7 @@
 import type { Expression, ObjectProperty } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
+import { emitEnumVariantAccess } from "./emitter-types.js";
 import { emitType } from "./emitter-types.js";
 import { escapeChar, escapeString, formatDouble, formatFloat, emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitNullForType } from "./emitter-types.js";
@@ -55,17 +56,20 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       return emitIdentifierSafe(expr.name);
 
     case "enum-access":
+      if (expr.enumName && expr.resolvedType?.kind === "enum") {
+        return emitEnumVariantAccess(expr.resolvedType, expr.variant);
+      }
       return expr.enumName ? `${expr.enumName}::${expr.variant}` : expr.variant;
 
     case "dot-shorthand":
       if (expr.resolvedType?.kind === "enum") {
-        return `${expr.resolvedType.symbol.name}::${expr.name}`;
+        return emitEnumVariantAccess(expr.resolvedType, expr.name);
       }
       return unsupportedDefault(expr, contextType);
 
     case "member-expression":
       if (expr.resolvedType?.kind === "enum" && expr.object.resolvedType?.kind === "enum") {
-        return `${expr.object.resolvedType.symbol.name}::${expr.property}`;
+        return emitEnumVariantAccess(expr.object.resolvedType, expr.property);
       }
       return unsupportedDefault(expr, contextType);
 
