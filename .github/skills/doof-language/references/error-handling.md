@@ -2,10 +2,10 @@
 
 ## Overview
 
-Doof has no exceptions. Two mechanisms:
+Doof has no exceptions.
 
-- **Result types** — for expected, recoverable errors
-- **Panic** — for unrecoverable programmer errors (bugs)
+- Use `Result<T, E>` for expected, recoverable failures.
+- Use `panic(...)` for unrecoverable programmer errors.
 
 ## Result Types
 
@@ -27,7 +27,7 @@ function parseInt(s: string): Result<int, string> {
 }
 ```
 
-### Handling with Case
+### Handling with `case`
 
 ```doof
 case result {
@@ -36,112 +36,160 @@ case result {
 }
 ```
 
-### Direct Field Access Not Supported
-
-```doof
-result.value    // ❌ Error: must destructure with case
-result.error    // ❌ Error
-```
+Direct field access such as `result.value` or `result.error` is rejected.
 
 ### Must-Use Rule
 
-Result values cannot be silently discarded — ignoring a `Result` is a compile error.
+Result values cannot be silently discarded. Ignoring a `Result` is a compile error.
 
-## Result Propagation Operators
+## Propagation and Unwrapping
 
-### `try` — Early Return on Failure (Statement-Level)
+### `try` Statement
 
-Unwraps `Success` or returns the `Failure` from the enclosing function. Only usable in functions returning `Result<T, E>`:
+Statement-level `try` unwraps `Success` or returns the `Failure` from the enclosing function. It only works inside functions that themselves return `Result<..., ...>`.
 
 ```doof
 function loadConfig(): Result<Config, Error> {
-    try content := readFile("config.json")    // string or early return
-    try parsed := parseJSON(content)           // JSON or early return
-    try config := validate(parsed)             // Config or early return
+    try content := readFile("config.json")
+    try parsed := parseJSON(content)
+    try config := validate(parsed)
     return Success { value: config }
 }
 ```
 
-Supported binding forms:
+Supported binding forms include declarations, typed declarations, destructuring, and assignment:
 
 ```doof
-try x := expr               // immutable binding
-try x: Type := expr         // typed immutable binding
-try const x = expr           // const declaration
-try readonly x = expr        // readonly declaration
-try let x = expr             // let declaration
-try (a, b) := expr           // positional destructuring
-try {name, age} := expr      // named destructuring
-try x = expr                 // assignment to existing variable
+try x := expr
+try x: Type := expr
+try const x = expr
+try readonly x = expr
+try let x = expr
+try (a, b) := expr
+try { name, age } := expr
+try x = expr
 ```
 
-### `try!` — Panic on Failure (Expression-Level)
+### `try!`
+
+Expression-level unwrap-or-panic:
 
 ```doof
-config := try! loadConfig()   // Config (panics if Failure)
+config := try! loadConfig()
 ```
 
-### `try?` — Convert to Nullable (Expression-Level)
+### `try?`
+
+Expression-level convert-to-null:
 
 ```doof
-config := try? loadConfig()   // Config | null (null on Failure)
+config := try? loadConfig()
 ```
 
-### `??` — Null-Coalescing / Failure Fallback
+`try?` requires a non-`void` success type.
+
+### `??` and `??=`
 
 ```doof
-config := loadConfig() ?? defaultConfig   // Config
-// Right-to-left, lazy evaluation:
-data := loadCache() ?? loadDisk() ?? compute()
-```
+config := loadConfig() ?? defaultConfig
 
-### `??=` — Null/Failure-Coalescing Assignment
-
-```doof
 let cache: string | null = null
-cache ??= loadFromDisk()       // assigns only if null
+cache ??= loadFromDisk()
 ```
 
-### Optional Chaining with Results
+`??` works on nullable and `Result` sources. Evaluation is right-associative and lazy.
+
+### Force Access
 
 ```doof
-// foo(): Result<MyObj, E1>, MyObj.bar(): Result<int, E2>
-result := foo()?.bar()         // Result<int | null, E1 | E2>
+result!.field
+user!.name
 ```
 
-### Force Access (`!.`)
+`!` unwraps nullable values or `Result` values and panics on the unhappy path.
+
+## Declaration-`else`
+
+Declaration-`else` provides an unwrap-or-bail pattern for nullable and `Result` values.
 
 ```doof
-result!.field     // unwraps Success or panics, then accesses field
-user!.name        // panics if user is null
+config := loadConfig() else { return "" }
+name := maybeName else { panic("missing name") }
 ```
 
-## Catch Expression
+Rules:
 
-Groups fallible operations and captures errors locally without propagating:
+- The `else` block must exit the current scope via `return`, `break`, `continue`, or `panic(...)`.
+- Inside the `else` block, the binding has the original full type.
+- After the block, the binding has the narrowed happy-path type.
+- It applies only to nullable and/or `Result` types.
+
+```doof
+x := loadConfig() else {
+    return case x {
+        _: Success => "unexpected",
+        f: Failure => f.error.message
+    }
+}
+```
+
+## Checked Narrowing with `as`
+
+`as` performs checked runtime narrowing or conversion.
+
+```doof
+x: int | string := "hello"
+s := x as string
+
+payload: JsonValue := { ok: true }
+obj := payload as readonly Map<string, JsonValue>
+
+numeric: int | string := 42
+wide := numeric as long
+```
+
+Behavior:
+
+- For plain values, `as` yields `Result<T, string>`.
+- For `Result<V, F>` sources, it narrows the success channel and yields `Result<T, F | string>`.
+- Supported sources include unions, nullable types, interfaces, exact numeric conversions, `JsonValue`, and `Result` values wrapping those forms.
+- Numeric `as` is checked. It fails when the runtime value cannot be represented exactly in the target type.
+
+Useful combinations:
+
+```doof
+try s := x as string
+s := try! x as string
+s := x as string else { return "" }
+```
+
+## Optional Chaining Across Results
+
+```doof
+result := foo()?.bar()
+```
+
+When `foo()` returns `Result<MyObj, E1>` and `bar()` returns `Result<int, E2>`, the final type is `Result<int | null, E1 | E2>`.
+
+## Catch Expressions
+
+`catch` captures fallible work locally instead of propagating it.
 
 ```doof
 const err = catch {
     try a()
     try b()
 }
-// err: ErrorA | ErrorB | null
-
-// With case for dispatch
-case catch { try a(); try b() } {
-    io: IOError => handleIO(io),
-    ex: ParseError => handleParse(ex),
-    _ => println("all good")
-}
 ```
 
-- `try` inside `catch` breaks out of the catch block instead of returning from the function
-- `try!` and `try?` behave normally inside catch blocks
-- The type is the union of all error types + `null`
+The resulting type is the union of all captured error types plus `null`.
+
+Inside `catch`:
+
+- statement-level `try` exits the `catch` block, not the outer function
+- `try!` and `try?` keep their usual behavior
 
 ## Panic
-
-For unrecoverable programmer errors only:
 
 ```doof
 if index < 0 || index >= array.length {
@@ -149,20 +197,21 @@ if index < 0 || index >= array.length {
 }
 ```
 
-Immediately terminates the program with a stack trace.
+Use panic for impossible states, assertion failures, or other programmer bugs.
 
-## When to Use Each
+## When to Use What
 
 | Mechanism | Use For |
-|-----------|---------|
-| `Result` + `case` | Detailed error handling, retry logic, fallbacks |
-| `try` statement | Sequential error propagation in Result-returning functions |
-| `try!` | When failure is unrecoverable (required config, initialization) |
-| `try?` | When error details don't matter, convert to optional |
-| `??` | Provide specific fallback value on null/Failure |
-| `catch` | Capture errors locally without propagating |
-| `panic` | Programmer errors / bugs (assertion failures, impossible states) |
+| --- | --- |
+| `Result` + `case` | detailed error handling and branching |
+| statement-level `try` | sequential propagation in `Result`-returning functions |
+| `try!` | required success or crash |
+| `try?` | convert failure to nullable when details do not matter |
+| declaration-`else` | unwrap-or-bail control flow |
+| `??` | specific fallback value |
+| `catch` | local error capture without propagation |
+| `panic` | programmer errors |
 
 ## Resource Cleanup
 
-No `finally` or `defer`. Resources cleaned up by deterministic destructors (reference counting). Destructors run on scope exit regardless of exit path.
+There is no `finally` or `defer`. Cleanup relies on deterministic destructors and reference counting.

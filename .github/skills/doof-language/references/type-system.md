@@ -2,107 +2,104 @@
 
 ## Primitive Types
 
-| Type | Size | Description |
-|------|------|-------------|
-| `int` | 32-bit | Integer (default for integer literals) |
-| `long` | 64-bit | Large integer |
-| `float` | 32-bit | Single-precision floating point |
-| `double` | 64-bit | Double-precision floating point (default for decimal literals) |
-| `string` | — | Text |
-| `char` | — | UTF-8 character |
-| `bool` | — | Boolean (`true` / `false`) |
-| `void` | — | Unit type |
+| Type | Description |
+| --- | --- |
+| `byte` | 8-bit unsigned integer |
+| `int` | 32-bit integer; default integer literal type |
+| `long` | 64-bit integer |
+| `float` | 32-bit floating point |
+| `double` | 64-bit floating point; default decimal literal type |
+| `string` | text |
+| `char` | UTF-8 character |
+| `bool` | boolean |
+| `void` | unit type |
 
-### Numeric Literals and Suffixes
-
-```doof
-let a = 42       // int
-let b = 42L      // long (L suffix)
-let c = 3.14     // double
-let d = 3.14f    // float (f suffix)
-```
-
-### Implicit Widening
-
-`int` → `long`, `float` → `double`. Narrowing requires explicit conversion.
-
-### Contextual Numeric Narrowing
-
-When an expected type is known, literals narrow to that type:
+### Numeric Literals and Conversions
 
 ```doof
-class Point { x, y: float }
-let p = Point(0.0, 0.0)      // 0.0 narrowed to float
-n: long := 42                 // 42 widened to long
+a := 42
+b := 42L
+c := 3.14
+d := 3.14f
+
+x: float := 3.14
+n: long := 42
+count := 30_000
 ```
 
-This applies in declarations, function arguments, return statements, array elements, and constructor fields.
+Rules:
+
+- `int` widens to `long`.
+- `float` widens to `double`.
+- Contextual literal narrowing applies when the target type is known.
+- Numeric separators may appear between digits only.
+
+Explicit numeric casts use function-call syntax:
+
+```doof
+small := int(large)
+ratio := double(count)
+```
+
+Checked numeric narrowing uses `as` rather than cast syntax.
+
+### String Conversion and Parse Helpers
+
+```doof
+label := string(42)
+ok := string(true)
+
+parsed := int.parse("42")
+big := long.parse("9007199254740991")
+ratio := double.parse("3.14")
+```
+
+`string(...)` accepts primitive values. Numeric parse helpers return `Result<T, ParseError>`.
 
 ## Type Inference
 
-Bidirectional type inference — single-step, context-aware.
+Doof uses single-step, context-aware inference.
 
 ```doof
-// Bottom-up: inferred from expression
-let x = 42                       // int
-let names = ["Alice", "Bob"]     // string[]
+names := ["Alice", "Bob"]
+process([1, 2, 3])
 
-// Top-down: type flows from context
-function process(items: int[]): void { }
-process([1, 2, 3])               // literal infers int[] from parameter
-
-// Empty collections and null require annotation
-let empty: int[] = []
-let x: int | null = null
+empty: int[] = []
+maybeName: string | null := null
 ```
 
-### Binding-Sensitive Inference
+Binding kind affects inference:
 
 ```doof
-items := [1, 2, 3]               // int[] (mutable array, immutable binding)
-readonly frozen = [1, 2, 3]      // readonly int[] (deep immutability)
-let buffer = [1, 2, 3]           // int[] (fully mutable)
-data := readonly [1, 2, 3]       // readonly int[] (explicit modifier)
+items := [1, 2, 3]
+let buffer = [1, 2, 3]
+readonly frozen = [1, 2, 3]
+data := readonly [1, 2, 3]
 ```
 
-### Function Return Type Inference
-
-Return type can be omitted for unambiguous single-return-type bodies.
+Return types may be inferred for unambiguous functions.
 
 ## Nullable Types
 
-No implicit null. Nullability is explicit via union types:
+Nullability is explicit through unions.
 
 ```doof
-let x: int = null               // ❌ Error
-let y: int | null = null         // ✅ Explicit nullable
+name: string | null := null
+value: int := null
 ```
 
-### Nullable vs Optional Fields
+The second line is a compile error.
+
+Important rule: plain `if value != null` and `if value == null` do not change the static type. Use declaration-`else`, `case`, `as`, or postfix `!` for explicit narrowing.
 
 ```doof
-class User {
-    name: string                   // Required, non-null
-    email: string | null           // Required, nullable (must provide, can be null)
-    nickname: string | null = null // Optional (has default), nullable
-}
-```
-
-### Null Safety via Narrowing
-
-```doof
-if value != null {
-    // value narrowed to non-null type
+if name != null {
+    println(name!)
 }
 
-// Null-coalescing
 displayName := name ?? "Anonymous"
-
-// Optional chaining
-city := user?.address?.city    // string | null
-
-// Force access (panics on null)
-age := user!.age               // panics if user is null
+city := user?.address?.city
+age := user!.age
 ```
 
 ## Union Types
@@ -112,82 +109,181 @@ type Value = int | string | bool
 type Optional<T> = T | null
 ```
 
-### Discriminated Unions
-
-Use `const` fields for safe discrimination:
+Discriminated unions usually use shared `const` fields.
 
 ```doof
 class Success { const kind = "Success"; value: int }
 class Failure { const kind = "Failure"; error: string }
-type Result = Success | Failure
+type ParseResult = Success | Failure
 ```
+
+## `JsonValue`
+
+`JsonValue` is an exact recursive JSON carrier.
+
+```doof
+payload: JsonValue := { name: "Ada", scores: [1, 2, 3] }
+```
+
+Accepted shapes:
+
+- `null`
+- `bool`, `byte`, `int`, `long`, `float`, `double`, `string`
+- `JsonValue[]`
+- `Map<string, JsonValue>`
+- unions composed from those cases
+
+Rules:
+
+- Contextual typing keeps literals ergonomic.
+- Pre-built `int[]` or `Map<string, int>` values do not implicitly convert to `JsonValue`.
+- `long` values are preserved, including parsed JSON integers beyond `int` range.
+- Object key insertion order is preserved for literals, formatting, and generated JSON methods.
+- Assignments from `JsonValue[]` or `Map<string, JsonValue>` preserve shared-container reference semantics.
 
 ## Enum Types
 
-### Simple Enums (opaque identifiers)
-
 ```doof
 enum Direction { North, South, East, West }
+enum HttpStatus { OK = 200, NotFound = 404 }
+enum Color { Red = "RED", Green = "GREEN", Blue = "BLUE" }
 ```
 
-### Integer-Valued Enums
+Features:
 
 ```doof
-enum HttpStatus { OK = 200, Created, Accepted, NoContent = 204 }
-// Created = 201, Accepted = 202 (auto-increment)
+let d: Direction = .East
+d.name
+HttpStatus.OK.value
+Direction.values()
+Direction.fromName("North")
+HttpStatus.fromValue(200)
 ```
 
-### String-Valued Enums
+Dot-shorthand works when the target type is known.
+
+## Collections
+
+### Arrays
+
+`T[]` is an ordered, reference-counted collection.
 
 ```doof
-enum LogLevel { Debug = "DEBUG", Info = "INFO", Warn = "WARN", Error = "ERROR" }
-// Every variant must have a value — no auto-increment for strings
+numbers := [1, 2, 3]
+names: string[] = ["Alice", "Bob"]
 ```
 
-### Enum Features
+Common APIs:
+
+| Member | Notes |
+| --- | --- |
+| `.length` | element count |
+| `.push(value)` | mutable arrays only |
+| `.pop()` | `Result<T, string>` |
+| `.contains(value)` | membership test |
+| `.indexOf(value)` | first match or `-1` |
+| `.some(pred)` | any match |
+| `.every(pred)` | all match |
+| `.filter(pred)` | preserves mutability |
+| `.map(mapper)` | preserves mutability |
+| `.slice(start, end)` | shallow slice |
+| `.buildReadonly()` | mutable array only |
+| `.cloneMutable()` | shallow copy |
+
+`readonly T[]` and `ReadonlyArray<T>` are readonly collection types. Mutable and readonly arrays are distinct and do not implicitly convert between each other.
+
+### Tuples
 
 ```doof
-let d = Direction.North
-d.name                        // "North"
-HttpStatus.OK.value           // 200
-Direction.values()            // readonly Direction[]
-Direction.fromName("North")   // Direction | null
-HttpStatus.fromValue(200)     // HttpStatus | null
+pair: (int, string) = (1, "one")
+(id, label) := pair
 ```
 
-### Dot-Shorthand
+Tuples are fixed-length and positionally destructured.
 
-When the target type is known from context:
+### Maps
 
 ```doof
-let c: Direction = .East
-move(.North)
-case direction { .North => moveUp(), .South => moveDown(), ... }
+scores: Map<string, int> = { "Alice": 100, "Bob": 95 }
+ids: Map<long, string> = { 1L: "one", 2L: "two" }
+frozenScores: ReadonlyMap := { "Alice": 100 }
 ```
 
-### Enums as Union Discriminators
+Supported key types are `string`, `int`, `long`, `char`, `bool`, and enums.
+
+Rules:
+
+- Insertion order is preserved.
+- Replacing an existing key does not move it.
+- Deleting and reinserting appends it to the end.
+- Empty maps require a full annotation.
+- Omitted `Map` or `ReadonlyMap` type arguments work only for same-site non-empty homogeneous literals.
+
+Common APIs:
+
+| Member | Return | Notes |
+| --- | --- | --- |
+| `.get(key)` | `Result<V, string>` | failure when missing |
+| `.set(key, value)` | `void` | mutable maps only |
+| `.has(key)` | `bool` | key test |
+| `.delete(key)` | `void` | mutable maps only |
+| `.keys()` | `K[]` | insertion order |
+| `.values()` | `V[]` | insertion order |
+| `.size` | `int` | entry count |
+
+Index access reads and writes directly. `ReadonlyMap<K, V>` is the readonly variant.
+
+### Sets
 
 ```doof
-enum ShapeKind { Circle, Rectangle }
-
-class CircleShape { const kind = ShapeKind.Circle; radius: float }
-class RectangleShape { const kind = ShapeKind.Rectangle; width, height: float }
-type Shape = CircleShape | RectangleShape
-
-let s: Shape = { kind: .Circle, radius: 5.0 }  // structural construction
+unique: Set<int> = [1, 2, 3, 2, 1]
+palette: Set<Color> = [Color.Red, Color.Blue]
+frozenIds: ReadonlySet := [1, 2, 3]
 ```
 
-## Class Types (Nominal)
+Supported element types are `string`, `int`, `long`, `char`, `bool`, and enums.
 
-Two classes with identical structure are distinct types. Use interfaces for structural matching.
+Rules:
 
-## Interface Types (Structural)
+- Insertion order is preserved.
+- Duplicate inserts keep the first position.
+- Empty literals require a full type annotation.
+- Omitted `Set` or `ReadonlySet` type arguments work only for same-site non-empty homogeneous literals.
 
-Interfaces are automatically satisfied by any class with matching structure. At compile time, they resolve to concrete union types of all matching classes (closed-world compilation).
+Common APIs: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`.
+
+`Set<T>` and `ReadonlySet<T>` are distinct collection types.
+
+### Streams
+
+`Stream<T>` is a pull-based iteration surface with `next(): T | null`.
+
+```doof
+class Counter implements Stream<int> {
+    current = 0
+    end: int
+
+    next(): int | null {
+        if current < end {
+            value := current
+            current = current + 1
+            return value
+        }
+        return null
+    }
+}
+```
+
+`for value of someStream` works anywhere an iterable is expected.
+
+## Class and Interface Type Identity
+
+- Classes are nominal.
+- Interfaces are structural.
+- Interface types resolve against the closed world of matching classes at compile time.
 
 ```doof
 interface Drawable { draw(canvas: Canvas): void }
-// Any class with a matching draw() method satisfies Drawable
 ```
 
-Optional explicit `implements` clause for documentation and early error detection.
+Use classes for identity-rich domain types and interfaces for structural contracts.
