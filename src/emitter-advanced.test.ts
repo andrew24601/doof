@@ -750,22 +750,23 @@ describe("Private fields and methods emit valid C++", () => {
 });
 
 // ============================================================================
-// JSON serialization — toJsonValue / fromJsonValue emission
+// JSON serialization — toJsonObject / fromJsonValue emission
 // ============================================================================
 
 describe("emitter — JSON serialization", () => {
-  it("emits toJsonValue method for simple class", () => {
+  it("emits toJsonObject method for simple class", () => {
     const cpp = emit(`
       class Point {
         x: int
         y: int
       }
-      function test(p: Point): JsonValue => p.toJsonValue()
+      function test(p: Point): JsonObject => p.toJsonObject()
     `);
-    expect(cpp).toContain("doof::JsonValue toJsonValue() const {");
+    expect(cpp).toContain("doof::JsonObject toJsonObject() const {");
     expect(cpp).toContain("std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>()");
     expect(cpp).toContain('(*_j)["x"] = doof::json_value(this->x);');
     expect(cpp).toContain('(*_j)["y"] = doof::json_value(this->y);');
+    expect(cpp).toContain("return _j;");
   });
 
   it("emits fromJsonValue method for simple class", () => {
@@ -797,13 +798,13 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain("doof::json_as_bool_lenient(_it_enabled->second)");
   });
 
-  it("emits toJsonValue for class with string and bool fields", () => {
+  it("emits toJsonObject for class with string and bool fields", () => {
     const cpp = emit(`
       class Config {
         name: string
         enabled: bool
       }
-      function test(c: Config): JsonValue => c.toJsonValue()
+      function test(c: Config): JsonObject => c.toJsonObject()
     `);
     expect(cpp).toContain('(*_j)["name"] = doof::json_value(this->name);');
     expect(cpp).toContain('(*_j)["enabled"] = doof::json_value(this->enabled);');
@@ -834,19 +835,19 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).not.toContain("_f_notes = nullptr;");
   });
 
-  it("handles const fields in toJsonValue and fromJsonValue", () => {
+  it("handles const fields in toJsonObject and fromJsonValue", () => {
     const cpp = emit(`
       class Dog {
         const kind = "dog"
         name: string
       }
-      function test(d: Dog): JsonValue => d.toJsonValue()
+      function test(d: Dog): JsonObject => d.toJsonObject()
     `);
     expect(cpp).toContain('(*_j)["kind"]');
     expect(cpp).toContain('"dog"');
   });
 
-  it("emits toJsonValue for class with nested class field", () => {
+  it("emits toJsonObject for class with nested class field", () => {
     const cpp = emit(`
       class Inner {
         value: int
@@ -854,9 +855,9 @@ describe("emitter — JSON serialization", () => {
       class Outer {
         inner: Inner
       }
-      function test(o: Outer): JsonValue => o.toJsonValue()
+      function test(o: Outer): JsonObject => o.toJsonObject()
     `);
-    expect(cpp).toContain("this->inner->toJsonValue()");
+    expect(cpp).toContain('(*_j)["inner"] = doof::json_value(this->inner->toJsonObject());');
   });
 
   it("emits fromJsonValue for class with nested class field", () => {
@@ -872,33 +873,33 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain("Inner::fromJsonValue(_it_inner->second, _lenient)");
   });
 
-  it("emits toJsonValue for class with array field", () => {
+  it("emits toJsonObject for class with array field", () => {
     const cpp = emit(`
       class Numbers {
         values: int[]
       }
-      function test(n: Numbers): JsonValue => n.toJsonValue()
+      function test(n: Numbers): JsonObject => n.toJsonObject()
     `);
     expect(cpp).toContain("_arr->push_back");
   });
 
-  it("emits toJsonValue for nullable field", () => {
+  it("emits toJsonObject for nullable field", () => {
     const cpp = emit(`
       class Container {
         label: string | null
       }
-      function test(c: Container): JsonValue => c.toJsonValue()
+      function test(c: Container): JsonObject => c.toJsonObject()
     `);
     expect(cpp).toContain("doof::json_is_null(");
   });
 
-  it("does NOT emit toJsonValue for non-serializable class", () => {
+  it("does NOT emit toJsonObject for non-serializable class", () => {
     const cpp = emit(`
       class Handler {
         callback: (x: int): void
       }
     `);
-    expect(cpp).not.toContain("toJsonValue");
+    expect(cpp).not.toContain("toJsonObject");
     expect(cpp).not.toContain("fromJsonValue");
   });
 
@@ -914,16 +915,16 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain("User::fromJsonValue(json)");
   });
 
-  it("emits obj.toJsonValue() as instance call", () => {
+  it("emits obj.toJsonObject() as instance call", () => {
     const cpp = emit(`
       class User {
         name: string
       }
-      function serialize(u: User): JsonValue {
-        return u.toJsonValue()
+      function serialize(u: User): JsonObject {
+        return u.toJsonObject()
       }
     `);
-    expect(cpp).toContain("u->toJsonValue()");
+    expect(cpp).toContain("u->toJsonObject()");
   });
 
   it("emits interface fromJsonValue dispatcher with discriminator", () => {
@@ -1022,7 +1023,7 @@ describe("emitter — JSON serialization", () => {
         x: int
         y: int
       }
-      function test(p: Pixel): JsonValue => p.toJsonValue()
+      function test(p: Pixel): JsonObject => p.toJsonObject()
     `);
     expect(cpp).toContain("Color_name(");
     expect(cpp).toContain("Color_fromName(");
@@ -1030,7 +1031,7 @@ describe("emitter — JSON serialization", () => {
 
   // --- On-demand generation tests ---
 
-  it("does NOT emit JSON methods when toJsonValue/fromJsonValue are not called", () => {
+  it("does NOT emit JSON methods when toJsonObject/fromJsonValue are not called", () => {
     const cpp = emit(`
       class Point {
         x: int
@@ -1038,7 +1039,7 @@ describe("emitter — JSON serialization", () => {
       }
       function test(p: Point): int => p.x + p.y
     `);
-    expect(cpp).not.toContain("toJsonValue");
+    expect(cpp).not.toContain("toJsonObject");
     expect(cpp).not.toContain("fromJsonValue");
     expect(cpp).toContain('#include "doof_runtime.hpp"');
   });
@@ -1053,25 +1054,25 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain('#include "doof_runtime.hpp"');
   });
 
-  it("uses runtime JSON helpers when toJsonValue is called", () => {
+  it("uses runtime JSON helpers when toJsonObject is called", () => {
     const cpp = emit(`
       class Point {
         x: int
         y: int
       }
-      function test(p: Point): JsonValue => p.toJsonValue()
+      function test(p: Point): JsonObject => p.toJsonObject()
     `);
     expect(cpp).toContain('#include "doof_runtime.hpp"');
-    expect(cpp).toContain("toJsonValue()");
+    expect(cpp).toContain("toJsonObject()");
   });
 
-  it("generates JSON for nested class transitively via toJsonValue call", () => {
+  it("generates JSON for nested class transitively via toJsonObject call", () => {
     const cpp = emit(`
       class Inner { value: int }
       class Outer { inner: Inner }
-      function test(o: Outer): JsonValue => o.toJsonValue()
+      function test(o: Outer): JsonObject => o.toJsonObject()
     `);
-    expect(cpp).toContain("this->inner->toJsonValue()");
+    expect(cpp).toContain("this->inner->toJsonObject()");
     expect(cpp).toContain("Inner::fromJsonValue");
   });
 });

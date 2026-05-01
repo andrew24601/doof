@@ -261,7 +261,7 @@ const JSON_VALUE_ARRAY_TYPE: ArrayResolvedType = {
   readonly_: false,
 };
 
-const JSON_VALUE_OBJECT_TYPE: MapResolvedType = {
+export const JSON_OBJECT_TYPE: MapResolvedType = {
   kind: "map",
   keyType: STRING_TYPE,
   valueType: JSON_VALUE_TYPE,
@@ -276,7 +276,7 @@ JSON_VALUE_TYPE.types.push(
   DOUBLE_TYPE,
   STRING_TYPE,
   JSON_VALUE_ARRAY_TYPE,
-  JSON_VALUE_OBJECT_TYPE,
+  JSON_OBJECT_TYPE,
 );
 
 // ============================================================================

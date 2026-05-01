@@ -249,7 +249,7 @@ describe("emitter — structured metadata", () => {
     expect(reflectionCount).toBe(2);
   });
 
-  it("also generates toJsonValue/fromJsonValue when metadata is used", () => {
+  it("also generates toJsonObject/fromJsonValue when metadata is used", () => {
     const cpp = emit(`
       class Tool {
         name: string
@@ -257,7 +257,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("toJsonValue()");
+    expect(cpp).toContain("toJsonObject()");
     expect(cpp).toContain("fromJsonValue(");
   });
 
@@ -288,7 +288,7 @@ describe("emitter — metadata not generated when unused", () => {
     expect(cpp).not.toContain("MethodReflection");
   });
 
-  it("does not emit metadata when only toJsonValue is used", () => {
+  it("does not emit metadata when only toJsonObject is used", () => {
     const cpp = emit(`
       class Tool {
         name: string
@@ -296,10 +296,10 @@ describe("emitter — metadata not generated when unused", () => {
       }
       function main(): void {
         const t = Tool { name: "test" }
-        const json = t.toJsonValue()
+        const json = t.toJsonObject()
       }
     `);
-    expect(cpp).toContain("toJsonValue()");
+    expect(cpp).toContain("toJsonObject()");
     expect(cpp).not.toContain("_metadata");
     expect(cpp).not.toContain("MethodReflection");
   });

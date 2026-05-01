@@ -47,6 +47,13 @@ This has two important consequences:
 - JSON literals remain ergonomic through contextual typing, so `value: JsonValue := [1, 2, 3]` and `value: JsonValue := { answer: 42 }` are valid.
 - Pre-built typed collections do not implicitly convert to `JsonValue`. For example, `int[]` and `Map<string, int>` are not assignable to `JsonValue`; use JsonValue-shaped collections instead.
 
+`JsonObject` is a built-in intrinsic alias for `Map<string, JsonValue>`. It is interchangeable with that exact map shape in annotations, assignments, and return types:
+
+```doof
+payload: JsonObject := { "name": "Ada" }
+row: Map<string, JsonValue> := payload
+```
+
 64-bit integers are preserved as `long` inside `JsonValue`, including values parsed from JSON that do not fit in `int`.
 
 When a `Map<string, JsonValue>` or `JsonValue[]` is assigned to `JsonValue`, the runtime preserves reference semantics for the underlying shared container rather than copying it.

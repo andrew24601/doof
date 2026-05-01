@@ -1,5 +1,5 @@
 /**
- * C++ JSON serialization code generation — toJsonValue / fromJsonValue methods.
+ * C++ JSON serialization code generation — toJsonObject / fromJsonValue methods.
  *
  * Generates doof::JsonValue-based serialization and deserialization code
  * for classes, interface variant types, and discriminated class-union aliases. Handles nested classes, arrays,
@@ -23,7 +23,7 @@ import type { ClassSymbol } from "./types.js";
  * Transitively propagate `needsJson` flags across the project.
  *
  * After the checker marks classes/interfaces where user code accesses
- * `.toJsonValue()` / `.fromJsonValue()`, this function:
+ * `.toJsonObject()` / `.fromJsonValue()`, this function:
  *   1. Marks all implementing classes of a `needsJson` interface
  *   2. Recursively marks all class types referenced by fields of
  *      `needsJson` classes (so nested serialization works)
@@ -156,7 +156,7 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
       return `doof::json_value(${fieldExpr})`;
 
     case "class":
-      return `${fieldExpr}->toJsonValue()`;
+      return `doof::json_value(${fieldExpr}->toJsonObject())`;
 
     case "array":
       return `[&]() { auto _arr = std::make_shared<std::vector<doof::JsonValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::json_value(_arr); }()`;
@@ -346,10 +346,10 @@ export function jsonTypeName(type: ResolvedType): string {
 }
 
 // ============================================================================
-// toJsonValue / fromJsonValue method generation
+// toJsonObject / fromJsonValue method generation
 // ============================================================================
 
-/** Generate toJsonValue() for a class. */
+/** Generate toJsonObject() for a class. */
 export function emitToJSON(
   decl: ClassDeclaration,
   _cppName: string,
@@ -359,7 +359,7 @@ export function emitToJSON(
   const bodyInd = indent({ indent: ctx.indent + 2 });
 
   ctx.sourceLines.push("");
-  ctx.sourceLines.push(`${memberInd}doof::JsonValue toJsonValue() const {`);
+  ctx.sourceLines.push(`${memberInd}doof::JsonObject toJsonObject() const {`);
   ctx.sourceLines.push(`${bodyInd}auto _j = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();`);
 
   for (const field of decl.fields) {
@@ -376,7 +376,7 @@ export function emitToJSON(
     }
   }
 
-  ctx.sourceLines.push(`${bodyInd}return doof::json_value(_j);`);
+  ctx.sourceLines.push(`${bodyInd}return _j;`);
   ctx.sourceLines.push(`${memberInd}}`);
 }
 

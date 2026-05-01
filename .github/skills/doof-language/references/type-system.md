@@ -137,9 +137,15 @@ Rules:
 
 - Contextual typing keeps literals ergonomic.
 - Pre-built `int[]` or `Map<string, int>` values do not implicitly convert to `JsonValue`.
+- `JsonObject` is a built-in alias for the exact object carrier type `Map<string, JsonValue>`.
 - `long` values are preserved, including parsed JSON integers beyond `int` range.
 - Object key insertion order is preserved for literals, formatting, and generated JSON methods.
 - Assignments from `JsonValue[]` or `Map<string, JsonValue>` preserve shared-container reference semantics.
+
+```doof
+payload: JsonObject := { "name": "Ada" }
+row: Map<string, JsonValue> := payload
+```
 
 ## Enum Types
 

@@ -2,11 +2,11 @@
 
 ## JSON Serialization
 
-Classes with all-serializable fields automatically get `.toJsonValue()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
+Classes with all-serializable fields automatically get `.toJsonObject()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
 
-### `.toJsonValue()` — Instance Method
+### `.toJsonObject()` — Instance Method
 
-Returns a `JsonValue` representation.
+Returns a `JsonObject` representation. `JsonObject` is the intrinsic alias for `Map<string, JsonValue>`, so it is still accepted anywhere a `JsonValue` is expected.
 
 ```doof
 import { formatJsonValue } from "std/json"
@@ -17,7 +17,7 @@ class User {
     private email: string
 }
 
-println(formatJsonValue(User("Alice", 30, "a@b.com").toJsonValue()))
+println(formatJsonValue(User("Alice", 30, "a@b.com").toJsonObject()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
 
@@ -93,7 +93,7 @@ Compile error if implementing classes lack a shared const discriminator.
 
 ### Reserved Names
 
-`toJsonValue` and `fromJsonValue` are reserved — user-defined methods with these names produce a compile error.
+`toJsonObject` and `fromJsonValue` are reserved — user-defined methods with these names produce a compile error.
 
 ## Description Metadata
 

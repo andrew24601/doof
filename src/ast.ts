@@ -635,7 +635,7 @@ export interface ClassDeclaration {
   mock_?: boolean;
   exported: boolean;
   private_: boolean;
-  /** Set by the checker when user code accesses .toJsonValue() or .fromJsonValue() */
+  /** Set by the checker when user code accesses .toJsonObject() or .fromJsonValue() */
   needsJson?: boolean;
   /** Set by the checker when user code accesses .metadata or .invoke() */
   needsMetadata?: boolean;

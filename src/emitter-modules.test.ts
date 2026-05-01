@@ -529,7 +529,7 @@ describe("emitter-module — emitProject", () => {
   it("hpp relies on doof runtime when JSON is used", () => {
     const { hppCode } = emitSplit(`
       export class Point { x: int; y: int }
-      function test(p: Point): JsonValue => p.toJsonValue()
+      function test(p: Point): JsonObject => p.toJsonObject()
     `);
     expect(hppCode).toContain('#include "doof_runtime.hpp"');
   });
@@ -1049,7 +1049,7 @@ describe("Concurrency", () => {
     `);
     // Methods should NOT have const qualifier — mutating methods need to modify fields
     expect(cpp).toContain("void increment() {");
-    // The increment() method itself should not be const (toJsonValue is const, which is fine)
+    // The increment() method itself should not be const (toJsonObject is const, which is fine)
     expect(cpp).not.toContain("void increment() const {");
   });
 });

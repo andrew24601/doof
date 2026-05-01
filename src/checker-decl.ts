@@ -336,7 +336,7 @@ export function checkClass(
   }
 
   for (const method of decl.methods) {
-    if (method.name === "toJsonValue" || method.name === "fromJsonValue" || method.name === "metadata") {
+    if (method.name === "toJsonObject" || method.name === "fromJsonValue" || method.name === "metadata") {
       info.diagnostics.push({
         severity: "error",
         message: `"${method.name}" is a reserved intrinsic method and cannot be user-defined`,

@@ -415,7 +415,7 @@ function prettyRoundTrip(input: string): Result<string, string> {
 }
 ```
 
-See [spec/12-json-serialization.md](12-json-serialization.md) for class-level auto-serialization via `.toJsonValue()` and `.fromJsonValue()`.
+See [spec/12-json-serialization.md](12-json-serialization.md) for class-level auto-serialization via `.toJsonObject()` and `.fromJsonValue()`.
 
 ---
 
@@ -975,7 +975,7 @@ class CreateUserResponse { id: int; name: string }
 
 function createUser(req: CreateUserRequest): Result<CreateUserResponse, string> {
     client := createClient()
-    try resp := postJsonValue(client, "https://api.example.com/users", req.toJsonValue())
+    try resp := postJsonValue(client, "https://api.example.com/users", req.toJsonObject())
     if !resp.ok() {
         return Failure { error: "HTTP ${string(resp.status)}" }
     }

@@ -144,7 +144,7 @@ describe("emitter — destructuring", () => {
     expect(cpp).toContain("const auto email =");
     expect(cpp).toContain("->email");
     // The function body should destructure only email (not name/age)
-    // But toJsonValue() references all fields — so check the function body specifically
+    // But toJsonObject() references all fields — so check the function body specifically
     const fnBody = cpp.slice(cpp.indexOf("void f("));
     expect(fnBody).toContain("->email");
     expect(fnBody).not.toContain("->name");

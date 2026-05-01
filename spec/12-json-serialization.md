@@ -1,6 +1,6 @@
 # 12. JSON Serialization
 
-Doof provides built-in JSON serialization and deserialization for class instances. Classes with all-serializable fields are eligible for `.toJsonValue()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
+Doof provides built-in JSON serialization and deserialization for class instances. Classes with all-serializable fields are eligible for `.toJsonObject()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
 
 ## Overview
 
@@ -10,7 +10,7 @@ class Point {
 }
 
 const p = Point { x: 1.5, y: 2.5 }
-const json = p.toJsonValue()                // JsonValue
+const json = p.toJsonObject()               // JsonObject
 const result = Point.fromJsonValue(json)    // Result<Point, string>
 ```
 
@@ -19,28 +19,28 @@ When you need text rather than structured JSON, use the standard JSON helpers:
 ```doof
 import { parseJsonValue, formatJsonValue } from "std/json"
 
-const text = formatJsonValue(p.toJsonValue())
+const text = formatJsonValue(p.toJsonObject())
 const parsed = parseJsonValue(text)         // Result<JsonValue, string>
 ```
 
-`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonValue()` methods emit class fields in declaration order.
+`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonObject()` methods emit class fields in declaration order.
 
 ## On-Demand Generation
 
-JSON methods are only generated for classes and interfaces where user code actually accesses `.toJsonValue()` or `.fromJsonValue()`. If a program never calls these methods, no class JSON code is generated.
+JSON methods are only generated for classes and interfaces where user code actually accesses `.toJsonObject()` or `.fromJsonValue()`. If a program never calls these methods, no class JSON code is generated.
 
-Generation is transitive: if class `A` has a field of type `B` and you call `A.toJsonValue()`, the compiler automatically generates JSON methods for `B` as well.
+Generation is transitive: if class `A` has a field of type `B` and you call `A.toJsonObject()`, the compiler automatically generates JSON methods for `B` as well.
 
 ```doof
 class Inner { value: int }
 class Outer { inner: Inner }
 
-const json = Outer { inner: Inner { value: 42 } }.toJsonValue()
+const json = Outer { inner: Inner { value: 42 } }.toJsonObject()
 ```
 
-## Serialization — `.toJsonValue()`
+## Serialization — `.toJsonObject()`
 
-Every eligible class instance has a `.toJsonValue()` method that returns a `JsonValue` object.
+Every eligible class instance has a `.toJsonObject()` method that returns a `JsonObject` value. `JsonObject` is the intrinsic alias for `Map<string, JsonValue>`, so it can still be passed anywhere a `JsonValue` is expected.
 
 ```doof
 class User {
@@ -50,7 +50,7 @@ class User {
 }
 
 const u = User { name: "Alice", age: 30, email: "alice@example.com" }
-println(formatJsonValue(u.toJsonValue()))
+println(formatJsonValue(u.toJsonObject()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
 
@@ -81,7 +81,7 @@ println(formatJsonValue(u.toJsonValue()))
 
 ### Non-Serializable Types
 
-The following types are not JSON-serializable. A compile-time error is produced if `.toJsonValue()` or `.fromJsonValue()` is used on a class containing these field types:
+The following types are not JSON-serializable. A compile-time error is produced if `.toJsonObject()` or `.fromJsonValue()` is used on a class containing these field types:
 
 - Function types (`(int) → string`)
 - `weak` references
@@ -96,7 +96,7 @@ class Bad {
 }
 
 const b = Bad { callback: (x) => println(x) }
-b.toJsonValue()  // compile error
+b.toJsonObject()  // compile error
 ```
 
 ## Deserialization — `.fromJsonValue()`
@@ -286,7 +286,7 @@ const line = Line {
   end: Point { x: 1.0, y: 1.0 }
 }
 
-const json = line.toJsonValue()
+const json = line.toJsonObject()
 const restored = Line.fromJsonValue(json)
 ```
 
@@ -301,7 +301,7 @@ const poly = Polygon {
   vertices: [Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }]
 }
 
-println(formatJsonValue(poly.toJsonValue()))
+println(formatJsonValue(poly.toJsonObject()))
 // {"vertices":[{"x":0.0,"y":0.0},{"x":1.0,"y":0.0},{"x":0.0,"y":1.0}]}
 ```
 
@@ -312,7 +312,7 @@ class Pair {
   value: Tuple<string, int>
 }
 
-println(formatJsonValue(Pair { value: ("hello", 42) }.toJsonValue()))
+println(formatJsonValue(Pair { value: ("hello", 42) }.toJsonObject()))
 // {"value":["hello",42]}
 ```
 
@@ -326,7 +326,7 @@ class Pixel {
   color: Color
 }
 
-println(formatJsonValue(Pixel { x: 10, y: 20, color: Color.Green }.toJsonValue()))
+println(formatJsonValue(Pixel { x: 10, y: 20, color: Color.Green }.toJsonObject()))
 // {"x":10,"y":20,"color":"Green"}
 ```
 
@@ -338,14 +338,14 @@ import { formatJsonValue } from "std/json"
 
 ## Reserved Method Names
 
-`toJsonValue` and `fromJsonValue` are reserved intrinsic method names. User-defined methods with these names on classes produce a compile-time error:
+`toJsonObject` and `fromJsonValue` are reserved intrinsic method names. User-defined methods with these names on classes produce a compile-time error:
 
 ```doof
 class Foo {
   x: int
 
-  function toJsonValue(): JsonValue {
-    return null
+  function toJsonObject(): JsonObject {
+    return { "x": 1 }
   }
 }
 ```

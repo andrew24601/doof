@@ -1265,12 +1265,12 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe('"demo"');
   });
 
-  it("round-trips a simple class through toJsonValue/fromJsonValue", () => {
+  it("round-trips a simple class through toJsonObject/fromJsonValue", () => {
     const result = ctx.compileAndRun(`
       class Point { x: int; y: int }
       function main(): int {
         const p = Point { x: 10, y: 20 }
-        const json = p.toJsonValue()
+        const json = p.toJsonObject()
         const p2 = Point.fromJsonValue(json)
         case p2 {
           s: Success -> {
@@ -1290,11 +1290,13 @@ describe("E2E — JSON serialization", () => {
 
   it("serializes string and bool fields", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class User { name: string; active: bool }
       function main(): int {
         const u = User { name: "Alice", active: true }
-        const json = u.toJsonValue()
-        println(json)
+        const json = u.toJsonObject()
+        println(formatJsonValue(json))
         return 0
       }
     `);
@@ -1361,7 +1363,7 @@ describe("E2E — JSON serialization", () => {
           start: Point { x: 1, y: 2 },
           end: Point { x: 3, y: 4 }
         }
-        const json = line.toJsonValue()
+        const json = line.toJsonObject()
         const r = Line.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1386,7 +1388,7 @@ describe("E2E — JSON serialization", () => {
       class Numbers { values: int[] }
       function main(): int {
         const n = Numbers { values: [10, 20, 30] }
-        const json = n.toJsonValue()
+        const json = n.toJsonObject()
         const r = Numbers.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1407,10 +1409,12 @@ describe("E2E — JSON serialization", () => {
 
   it("serializes nullable fields", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class MaybeNamed { name: string | null }
       function main(): int {
         const a = MaybeNamed { name: "hello" }
-        println(a.toJsonValue())
+        println(formatJsonValue(a.toJsonObject()))
         return 0
       }
     `);
@@ -1427,7 +1431,7 @@ describe("E2E — JSON serialization", () => {
       class Palette { primary: Color; secondary: Color }
       function main(): int {
         const p = Palette { primary: Color.Red, secondary: Color.Blue }
-        const json = p.toJsonValue()
+        const json = p.toJsonObject()
         const r = Palette.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1447,10 +1451,12 @@ describe("E2E — JSON serialization", () => {
 
   it("serializes const fields as discriminators", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Dog { const kind: string = "dog"; name: string }
       function main(): int {
         const d = Dog { name: "Rex" }
-        println(d.toJsonValue())
+        println(formatJsonValue(d.toJsonObject()))
         return 0
       }
     `);
@@ -1566,7 +1572,7 @@ describe("E2E — JSON serialization", () => {
       class Coords { lat: double; lng: double }
       function main(): int {
         const c = Coords { lat: 51.5074, lng: -0.1278 }
-        const json = c.toJsonValue()
+        const json = c.toJsonObject()
         const r = Coords.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1594,9 +1600,9 @@ describe("E2E — JSON serialization", () => {
         return 0
       }
     `);
-    // Should compile fine — no toJsonValue/fromJsonValue generated for class with weak fields
+    // Should compile fine — no toJsonObject/fromJsonValue generated for class with weak fields
     expect(r.success).toBe(true);
-    expect(r.code).not.toContain("toJsonValue");
+    expect(r.code).not.toContain("toJsonObject");
   });
 
   it("round-trips interface via shared discriminator", () => {
@@ -1606,7 +1612,7 @@ describe("E2E — JSON serialization", () => {
       interface Shape {}
       function main(): int {
         const c = Circle { radius: 5.0 }
-        const json = c.toJsonValue()
+        const json = c.toJsonObject()
         const r = Shape.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1633,7 +1639,7 @@ describe("E2E — JSON serialization", () => {
       type Shape = Circle | Rect
       function main(): int {
         const c = Circle { radius: 5.0 }
-        const json = c.toJsonValue()
+        const json = c.toJsonObject()
         const r = Shape.fromJsonValue(json)
         case r {
           s: Success -> {
@@ -1661,7 +1667,7 @@ describe("E2E — JSON serialization", () => {
         const inv = Inventory {
           items: [Item { name: "sword" }, Item { name: "shield" }]
         }
-        const json = inv.toJsonValue()
+        const json = inv.toJsonObject()
         const r = Inventory.fromJsonValue(json)
         case r {
           s: Success -> {

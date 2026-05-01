@@ -1158,6 +1158,21 @@ describe("e2e — type aliases", () => {
     `);
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
+
+  it("compiles intrinsic JsonObject alias", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      import { formatJsonValue } from "std/json"
+
+      function unwrap(value: JsonObject): Map<string, JsonValue> => value
+
+      function main(): int {
+        payload: JsonObject := { "answer": 42 }
+        println(formatJsonValue(unwrap(payload)))
+        return 0
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
 });
 
 // ============================================================================

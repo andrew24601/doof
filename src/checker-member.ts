@@ -8,6 +8,7 @@ import {
   type ModuleTypeInfo,
   type ResolvedType,
   JSON_VALUE_TYPE,
+  JSON_OBJECT_TYPE,
   STRING_TYPE,
   BOOL_TYPE,
   CHAR_TYPE,
@@ -196,7 +197,7 @@ function inferClassInstanceMemberType(
   return withClassTypeParams(host, classDecl, () => {
     const classSubMap = buildClassTypeSubstitution(host, objectType);
 
-    if (property === "toJsonValue") {
+    if (property === "toJsonObject") {
       classDecl.needsJson = true;
       const nonSerializable = collectNonSerializableFields(objectType);
       if (nonSerializable.length > 0 && info && span) {
@@ -209,7 +210,7 @@ function inferClassInstanceMemberType(
           });
         }
       }
-      return { kind: "function", params: [], returnType: JSON_VALUE_TYPE };
+      return { kind: "function", params: [], returnType: JSON_OBJECT_TYPE };
     }
 
     if (property === "fromJsonValue" || property === "metadata") {
@@ -320,7 +321,7 @@ function inferClassStaticMemberType(
       return { kind: "class-metadata", classType: objectType };
     }
 
-    if (property === "toJsonValue") {
+    if (property === "toJsonObject") {
       reportMemberDiagnostic(
         info,
         table,

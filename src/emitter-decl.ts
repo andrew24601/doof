@@ -281,7 +281,7 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     ctx.sourceLines.push(`${memberInd}}`);
   }
 
-  // JSON serialization methods (toJsonValue / fromJsonValue)
+  // JSON serialization methods (toJsonObject / fromJsonValue)
   // Only generate if the class was marked as needing JSON (on-demand)
   // AND all fields are JSON-serializable
   if (decl.needsJson) {

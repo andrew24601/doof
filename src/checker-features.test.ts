@@ -2368,20 +2368,20 @@ describe("Private access control", () => {
 });
 
 // ============================================================================
-// JSON serialization — toJsonValue / fromJsonValue
+// JSON serialization — toJsonObject / fromJsonValue
 // ============================================================================
 
-describe("JSON serialization — toJsonValue", () => {
-  it("resolves toJsonValue() to () → JsonValue on class instances", () => {
+describe("JSON serialization — toJsonObject", () => {
+  it("resolves toJsonObject() to () → JsonObject on class instances", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       const p = Point { x: 1.0, y: 2.0 }
-      const json = p.toJsonValue()
+      const json = p.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
     const stmts = info.program.statements;
     const jsonDecl = stmts[2] as ConstDeclaration;
-    expect(jsonDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
+    expect(typeToString(jsonDecl.resolvedType!)).toBe("Map<string, JsonValue>");
   });
 
   it("errors for non-serializable field (function type)", () => {
@@ -2390,7 +2390,7 @@ describe("JSON serialization — toJsonValue", () => {
         callback: (x: int): void
       }
       const b = Bad { callback: (x: int) => { } }
-      const json = b.toJsonValue()
+      const json = b.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("not JSON-serializable"))).toBe(true);
     expect(info.diagnostics.some((d) => d.message.includes("callback"))).toBe(true);
@@ -2402,11 +2402,11 @@ describe("JSON serialization — toJsonValue", () => {
         weak parent: Node
       }
     ` }, "/main.do");
-    // No error until toJsonValue is actually used — the type is only checked on access
+    // No error until toJsonObject is actually used — the type is only checked on access
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJsonValue on class with all serializable fields", () => {
+  it("allows toJsonObject on class with all serializable fields", () => {
     const info = check({ "/main.do": `
       class Config {
         host: string
@@ -2414,34 +2414,34 @@ describe("JSON serialization — toJsonValue", () => {
         debug: bool
       }
       const c = Config { host: "localhost", port: 8080, debug: false }
-      const json = c.toJsonValue()
+      const json = c.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJsonValue on class with nested class fields", () => {
+  it("allows toJsonObject on class with nested class fields", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       class Line { start, end_: Point }
       const l = Line { start: Point { x: 0.0, y: 0.0 }, end_: Point { x: 1.0, y: 1.0 } }
-      const json = l.toJsonValue()
+      const json = l.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJsonValue on class with array fields", () => {
+  it("allows toJsonObject on class with array fields", () => {
     const info = check({ "/main.do": `
       class Point { x, y: float }
       class Polygon {
         vertices: Point[]
       }
       const p = Polygon { vertices: [Point { x: 0.0, y: 0.0 }] }
-      const json = p.toJsonValue()
+      const json = p.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("allows toJsonValue on class with enum fields", () => {
+  it("allows toJsonObject on class with enum fields", () => {
     const info = check({ "/main.do": `
       enum Color { Red, Green, Blue }
       class Pixel {
@@ -2449,7 +2449,7 @@ describe("JSON serialization — toJsonValue", () => {
         color: Color
       }
       const p = Pixel { x: 0, y: 0, color: Color.Red }
-      const json = p.toJsonValue()
+      const json = p.toJsonObject()
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
@@ -2624,15 +2624,15 @@ describe("Interface emission constraints", () => {
 });
 
 describe("JSON serialization — reserved method names", () => {
-  it("errors when user defines toJsonValue method on a class", () => {
+  it("errors when user defines toJsonObject method on a class", () => {
     const info = check({ "/main.do": `
       class Foo {
         x: int
-        function toJsonValue(): JsonValue => null
+        function toJsonObject(): JsonObject => { "x": 1 }
       }
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("reserved intrinsic method"))).toBe(true);
-    expect(info.diagnostics.some((d) => d.message.includes("toJsonValue"))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("toJsonObject"))).toBe(true);
   });
 
   it("errors when user defines fromJsonValue method on a class", () => {
@@ -4696,6 +4696,27 @@ describe("checker — string methods", () => {
     const fromMapDecl = stmts[4] as ConstDeclaration;
     expect(fromArrayDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
     expect(fromMapDecl.resolvedType).toEqual(JSON_VALUE_TYPE);
+  });
+
+  it("treats JsonObject as Map<string, JsonValue>", () => {
+    const cr = check({ "/main.do": `
+      function identity(value: JsonObject): Map<string, JsonValue> => value
+
+      function test(): void {
+        payload: JsonObject := { "answer": 42 }
+        items: Map<string, JsonValue> := payload
+        roundTrip: JsonObject := identity(items)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const fn = cr.program!.statements[1] as FunctionDeclaration;
+    const stmts = fn.body.kind === "block" ? fn.body.statements : [];
+    const payloadDecl = stmts[0] as ConstDeclaration;
+    const itemsDecl = stmts[1] as ConstDeclaration;
+    const roundTripDecl = stmts[2] as ConstDeclaration;
+    expect(typeToString(payloadDecl.resolvedType!)).toBe("Map<string, JsonValue>");
+    expect(typeToString(itemsDecl.resolvedType!)).toBe("Map<string, JsonValue>");
+    expect(typeToString(roundTripDecl.resolvedType!)).toBe("Map<string, JsonValue>");
   });
 
   it("rejects non-JsonValue collections in JsonValue positions", () => {

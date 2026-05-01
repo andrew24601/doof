@@ -53,6 +53,7 @@ import {
   CHAR_TYPE,
   BOOL_TYPE,
   JSON_VALUE_TYPE,
+  JSON_OBJECT_TYPE,
   VOID_TYPE,
   NULL_TYPE,
   UNKNOWN_TYPE,
@@ -496,6 +497,7 @@ export class TypeChecker {
       case "named-type": {
         const name = ann.name;
         if (name === "JsonValue") return JSON_VALUE_TYPE;
+        if (name === "JsonObject") return JSON_OBJECT_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
         if (name === "void") return VOID_TYPE;
         if (name === "null") return NULL_TYPE;
