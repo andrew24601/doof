@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type {
   BinaryExpression, Identifier, FunctionDeclaration,
-  ConstDeclaration, LetDeclaration, ClassDeclaration,
+  ConstDeclaration, LetDeclaration, ClassDeclaration, ExpressionStatement,
 } from "./ast.js";
 import { validateEmitReadyDeclarations } from "./checker.js";
 import { UNKNOWN_TYPE, typeToString } from "./checker-types.js";
@@ -564,6 +564,53 @@ describe("Declaration validation", () => {
 
     expect(info.diagnostics.some((d) => d.message.includes("Undefined identifier \"missingValue\""))).toBe(true);
     expect(info.diagnostics.some((d) => d.message.includes("Cannot emit declaration \"value\""))).toBe(false);
+  });
+
+  it("reports expressions that lose resolved types before emission", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            println("hello")
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const table = info.result.modules.get("/main.do")!;
+    const fn = table.program.statements[0] as FunctionDeclaration;
+    if (fn.body.kind !== "block") {
+      throw new Error("Expected block body in test fixture");
+    }
+    const stmt = fn.body.statements[0];
+    if (stmt.kind !== "expression-statement") {
+      throw new Error("Expected expression statement in test fixture");
+    }
+
+    (stmt as ExpressionStatement).expression.resolvedType = UNKNOWN_TYPE;
+    const validationInfo = {
+      diagnostics: [] as typeof info.diagnostics,
+    };
+    validateEmitReadyDeclarations(table, validationInfo);
+
+    expect(validationInfo.diagnostics.some((d) => d.message.includes("Cannot emit call expression with unresolved type"))).toBe(true);
+  });
+
+  it("does not duplicate expression emit blockers when a nested error already exists", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            println(missingValue)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes("Undefined identifier \"missingValue\""))).toBe(true);
+    expect(info.diagnostics.some((d) => d.message.includes("Cannot emit call expression"))).toBe(false);
   });
 });
 

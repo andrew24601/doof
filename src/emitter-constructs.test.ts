@@ -576,6 +576,21 @@ describe("emitter — case expressions", () => {
     expect(cpp).toContain(">= 80");
     expect(cpp).toContain("< 90");
   });
+
+  it("resolves type-alias patterns in case statements", () => {
+    const cpp = emit(`
+      type JsonAlias = Map<string, JsonValue>
+
+      function describe(value: JsonAlias | null): int {
+        case value {
+          payload: JsonAlias -> return 1
+          _ -> return 0
+        }
+      }
+    `);
+
+    expect(cpp).toContain("std::holds_alternative<std::shared_ptr<doof::ordered_map<std::string, doof::JsonValue>>>");
+  });
 });
 
 // ============================================================================

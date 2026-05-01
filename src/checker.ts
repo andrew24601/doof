@@ -25,9 +25,12 @@ import type {
   Statement,
   TypeAnnotation,
   Block,
+  CaseArm,
+  CasePattern,
   FunctionDeclaration,
   ClassDeclaration,
   InterfaceDeclaration,
+  Parameter,
   SourceSpan,
   TryBinding,
   TypeAliasDeclaration,
@@ -113,6 +116,215 @@ export function validateEmitReadyDeclarations(
     });
   };
 
+  const validateTypedNode = (
+    kind: string,
+    resolvedType: ResolvedType | undefined,
+    span: SourceSpan,
+  ): void => {
+    if (!resolvedType || resolvedType.kind !== "unknown") return;
+    if (hasBlockingDiagnostic(span)) return;
+
+    info.diagnostics.push({
+      severity: "error",
+      message: `Cannot emit ${kind.replace(/-/g, " ")} with unresolved type`,
+      span,
+      module: table.path,
+    });
+  };
+
+  const visitParameter = (param: Parameter): void => {
+    if (param.defaultValue) {
+      visitExpression(param.defaultValue);
+    }
+  };
+
+  const visitFunctionLike = (fn: FunctionDeclaration): void => {
+    for (const param of fn.params) {
+      visitParameter(param);
+    }
+    if (fn.body.kind === "block") {
+      visitBlock(fn.body);
+    } else {
+      visitExpression(fn.body);
+    }
+  };
+
+  const visitPattern = (pattern: CasePattern): void => {
+    switch (pattern.kind) {
+      case "value-pattern":
+        visitExpression(pattern.value);
+        break;
+
+      case "range-pattern":
+        if (pattern.start) visitExpression(pattern.start);
+        if (pattern.end) visitExpression(pattern.end);
+        break;
+
+      case "type-pattern":
+      case "wildcard-pattern":
+        break;
+    }
+  };
+
+  const visitCaseArm = (arm: CaseArm): void => {
+    for (const pattern of arm.patterns) {
+      visitPattern(pattern);
+    }
+    if (arm.body.kind === "block") {
+      visitBlock(arm.body);
+    } else {
+      visitExpression(arm.body);
+    }
+  };
+
+  const visitExpression = (expr: Expression): void => {
+    validateTypedNode(expr.kind, expr.resolvedType, expr.span);
+
+    switch (expr.kind) {
+      case "string-literal":
+        for (const part of expr.parts) {
+          if (typeof part !== "string") {
+            visitExpression(part);
+          }
+        }
+        break;
+
+      case "binary-expression":
+        visitExpression(expr.left);
+        visitExpression(expr.right);
+        break;
+
+      case "unary-expression":
+        visitExpression(expr.operand);
+        break;
+
+      case "assignment-expression":
+        visitExpression(expr.target);
+        visitExpression(expr.value);
+        break;
+
+      case "member-expression":
+      case "qualified-member-expression":
+        visitExpression(expr.object);
+        break;
+
+      case "index-expression":
+        visitExpression(expr.object);
+        visitExpression(expr.index);
+        break;
+
+      case "call-expression":
+        visitExpression(expr.callee);
+        for (const arg of expr.args) {
+          visitExpression(arg.value);
+        }
+        break;
+
+      case "yield-block-expression":
+        visitBlock(expr.body);
+        break;
+
+      case "array-literal":
+      case "tuple-literal":
+        for (const element of expr.elements) {
+          visitExpression(element);
+        }
+        break;
+
+      case "object-literal":
+        for (const property of expr.properties) {
+          if (property.value) {
+            visitExpression(property.value);
+          }
+        }
+        if (expr.spread) {
+          visitExpression(expr.spread);
+        }
+        break;
+
+      case "map-literal":
+        for (const entry of expr.entries) {
+          visitExpression(entry.key);
+          visitExpression(entry.value);
+        }
+        break;
+
+      case "lambda-expression":
+        for (const param of expr.params) {
+          visitParameter(param);
+        }
+        if (expr.body.kind === "block") {
+          visitBlock(expr.body);
+        } else {
+          visitExpression(expr.body);
+        }
+        break;
+
+      case "if-expression":
+        visitExpression(expr.condition);
+        visitExpression(expr.then);
+        visitExpression(expr.else_);
+        break;
+
+      case "case-expression":
+        visitExpression(expr.subject);
+        for (const arm of expr.arms) {
+          visitCaseArm(arm);
+        }
+        break;
+
+      case "construct-expression":
+        if (expr.named) {
+          for (const property of expr.args as import("./ast.js").ObjectProperty[]) {
+            if (property.value) {
+              visitExpression(property.value);
+            }
+          }
+        } else {
+          for (const arg of expr.args as Expression[]) {
+            visitExpression(arg);
+          }
+        }
+        break;
+
+      case "catch-expression":
+        visitStatements(expr.body);
+        break;
+
+      case "async-expression":
+        if (expr.expression.kind === "block") {
+          visitBlock(expr.expression);
+        } else {
+          visitExpression(expr.expression);
+        }
+        break;
+
+      case "non-null-assertion":
+      case "as-expression":
+        visitExpression(expr.expression);
+        break;
+
+      case "actor-creation-expression":
+        for (const arg of expr.args) {
+          visitExpression(arg);
+        }
+        break;
+
+      case "int-literal":
+      case "long-literal":
+      case "float-literal":
+      case "double-literal":
+      case "char-literal":
+      case "bool-literal":
+      case "null-literal":
+      case "identifier":
+      case "enum-access":
+      case "dot-shorthand":
+      case "this-expression":
+        break;
+    }
+  };
+
   const visitBlock = (block: Block): void => {
     for (const stmt of block.statements) {
       visitStatement(stmt);
@@ -132,10 +344,18 @@ export function validateEmitReadyDeclarations(
       case "immutable-binding":
       case "let-declaration":
         validateNamedValue("declaration", stmt.name, stmt.resolvedType, stmt.span);
+        if (stmt.value) {
+          visitExpression(stmt.value);
+        }
+        break;
+
+      case "yield-block-assignment-statement":
+        validateTypedNode(stmt.kind, stmt.resolvedType, stmt.span);
+        visitExpression(stmt.value);
         break;
 
       case "function-declaration":
-        if (stmt.body.kind === "block") visitBlock(stmt.body);
+        visitFunctionLike(stmt);
         break;
 
       case "class-declaration":
@@ -143,36 +363,61 @@ export function validateEmitReadyDeclarations(
           for (const fieldName of field.names) {
             validateNamedValue("declaration", fieldName, field.resolvedType, field.span);
           }
+          if (field.defaultValue) {
+            visitExpression(field.defaultValue);
+          }
         }
         for (const method of stmt.methods) {
-          if (method.body.kind === "block") visitBlock(method.body);
+          visitFunctionLike(method);
+        }
+        if (stmt.destructor) {
+          visitBlock(stmt.destructor);
+        }
+        break;
+
+      case "enum-declaration":
+        for (const variant of stmt.variants) {
+          if (variant.value) {
+            visitExpression(variant.value);
+          }
         }
         break;
 
       case "if-statement":
+        visitExpression(stmt.condition);
         visitBlock(stmt.body);
-        for (const elseIf of stmt.elseIfs) visitBlock(elseIf.body);
+        for (const elseIf of stmt.elseIfs) {
+          visitExpression(elseIf.condition);
+          visitBlock(elseIf.body);
+        }
         if (stmt.else_) visitBlock(stmt.else_);
         break;
 
       case "case-statement":
+        visitExpression(stmt.subject);
         for (const arm of stmt.arms) {
-          if (arm.body.kind === "block") visitBlock(arm.body);
+          visitCaseArm(arm);
         }
         break;
 
       case "while-statement":
+        visitExpression(stmt.condition);
         visitBlock(stmt.body);
         if (stmt.then_) visitBlock(stmt.then_);
         break;
 
       case "for-statement":
         if (stmt.init) visitStatement(stmt.init);
+        if (stmt.condition) visitExpression(stmt.condition);
+        for (const update of stmt.update) {
+          visitExpression(update);
+        }
         visitBlock(stmt.body);
         if (stmt.then_) visitBlock(stmt.then_);
         break;
 
       case "for-of-statement":
+        visitExpression(stmt.iterable);
         visitBlock(stmt.body);
         if (stmt.then_) visitBlock(stmt.then_);
         break;
@@ -180,12 +425,19 @@ export function validateEmitReadyDeclarations(
       case "with-statement":
         for (const binding of stmt.bindings) {
           validateNamedValue("binding", binding.name, binding.resolvedType, binding.span);
+          visitExpression(binding.value);
         }
         visitBlock(stmt.body);
         break;
 
       case "try-statement":
         visitStatement(stmt.binding);
+        break;
+
+      case "else-narrow-statement":
+        validateNamedValue("binding", stmt.name, stmt.resolvedType, stmt.span);
+        visitExpression(stmt.subject);
+        visitBlock(stmt.elseBlock);
         break;
 
       case "export-declaration":
@@ -196,25 +448,38 @@ export function validateEmitReadyDeclarations(
         visitBlock(stmt);
         break;
 
-      case "import-declaration":
-      case "mock-import-directive":
-      case "extern-class-declaration":
-      case "extern-function-declaration":
-      case "export-list":
-      case "export-all-declaration":
       case "return-statement":
+        if (stmt.value) {
+          visitExpression(stmt.value);
+        }
+        break;
+
       case "expression-statement":
-      case "break-statement":
-      case "continue-statement":
+        visitExpression(stmt.expression);
+        break;
+
       case "array-destructuring":
       case "positional-destructuring":
       case "named-destructuring":
       case "array-destructuring-assignment":
       case "positional-destructuring-assignment":
       case "named-destructuring-assignment":
-      case "else-narrow-statement":
+        visitExpression(stmt.value);
+        break;
+
+      case "yield-statement":
+        visitExpression(stmt.value);
+        break;
+
+      case "import-declaration":
+      case "mock-import-directive":
+      case "extern-class-declaration":
+      case "extern-function-declaration":
+      case "export-list":
+      case "export-all-declaration":
+      case "break-statement":
+      case "continue-statement":
       case "interface-declaration":
-      case "enum-declaration":
       case "type-alias-declaration":
         break;
     }

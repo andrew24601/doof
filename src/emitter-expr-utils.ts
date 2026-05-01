@@ -3,8 +3,17 @@
  */
 
 import type { Expression, FunctionDeclaration, ObjectProperty, TypeAnnotation } from "./ast.js";
-import { isPrimitiveName, type ResolvedType } from "./checker-types.js";
-import type { ClassSymbol } from "./types.js";
+import {
+  isPrimitiveName,
+  JSON_OBJECT_TYPE,
+  JSON_VALUE_TYPE,
+  NULL_TYPE,
+  substituteTypeParams,
+  UNKNOWN_TYPE,
+  VOID_TYPE,
+  type ResolvedType,
+} from "./checker-types.js";
+import type { ClassSymbol, ModuleSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitType } from "./emitter-types.js";
 
@@ -17,42 +26,188 @@ export function resolveTypeAnnotation(
   typeAnn: TypeAnnotation,
   ctx?: EmitContext,
 ): ResolvedType {
-  if (typeAnn.kind === "named-type" && typeAnn.resolvedSymbol) {
-    const sym = typeAnn.resolvedSymbol;
-    switch (sym.symbolKind) {
-      case "class": return { kind: "class", symbol: sym };
-      case "interface": return { kind: "interface", symbol: sym };
-      case "enum": return { kind: "enum", symbol: sym };
-      default: return { kind: "unknown" };
-    }
+  switch (typeAnn.kind) {
+    case "named-type":
+      return resolveNamedTypeAnnotation(typeAnn, ctx);
+
+    case "array-type":
+      return {
+        kind: "array",
+        elementType: resolveTypeAnnotation(typeAnn.elementType, ctx),
+        readonly_: typeAnn.readonly_,
+      };
+
+    case "union-type":
+      return {
+        kind: "union",
+        types: typeAnn.types.map((type) => resolveTypeAnnotation(type, ctx)),
+      };
+
+    case "function-type":
+      return {
+        kind: "function",
+        params: typeAnn.params.map((param) => ({
+          name: param.name,
+          type: resolveTypeAnnotation(param.type, ctx),
+        })),
+        returnType: resolveTypeAnnotation(typeAnn.returnType, ctx),
+      };
+
+    case "tuple-type":
+      return {
+        kind: "tuple",
+        elements: typeAnn.elements.map((element) => resolveTypeAnnotation(element, ctx)),
+      };
+
+    case "weak-type":
+      return {
+        kind: "weak",
+        inner: resolveTypeAnnotation(typeAnn.type, ctx),
+      };
+  }
+}
+
+function resolveNamedTypeAnnotation(
+  typeAnn: Extract<TypeAnnotation, { kind: "named-type" }>,
+  ctx?: EmitContext,
+): ResolvedType {
+  const { name } = typeAnn;
+  if (name === "JsonValue") return JSON_VALUE_TYPE;
+  if (name === "JsonObject") return JSON_OBJECT_TYPE;
+  if (isPrimitiveName(name)) return { kind: "primitive", name };
+  if (name === "void") return VOID_TYPE;
+  if (name === "null") return NULL_TYPE;
+
+  if (name === "Array" || name === "ReadonlyArray") {
+    const elementType = typeAnn.typeArgs.length > 0
+      ? resolveTypeAnnotation(typeAnn.typeArgs[0], ctx)
+      : UNKNOWN_TYPE;
+    return { kind: "array", elementType, readonly_: name === "ReadonlyArray" };
   }
 
-  if (typeAnn.kind === "named-type" && ctx) {
-    const name = typeAnn.name;
-    if (isPrimitiveName(name)) {
-      return { kind: "primitive", name };
-    }
-    const sym = ctx.module.symbols.get(name);
-    if (sym) {
-      switch (sym.symbolKind) {
-        case "class": return { kind: "class", symbol: sym };
-        case "interface": return { kind: "interface", symbol: sym };
-        case "enum": return { kind: "enum", symbol: sym };
-      }
-    }
-    for (const [, table] of ctx.allModules) {
-      const s = table.symbols.get(name);
-      if (s) {
-        switch (s.symbolKind) {
-          case "class": return { kind: "class", symbol: s };
-          case "interface": return { kind: "interface", symbol: s };
-          case "enum": return { kind: "enum", symbol: s };
-        }
-      }
-    }
+  if (name === "Tuple") {
+    return {
+      kind: "tuple",
+      elements: typeAnn.typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx)),
+    };
   }
 
-  return { kind: "unknown" };
+  if (name === "Map" || name === "ReadonlyMap") {
+    const keyType = typeAnn.typeArgs.length > 0
+      ? resolveTypeAnnotation(typeAnn.typeArgs[0], ctx)
+      : UNKNOWN_TYPE;
+    const valueType = typeAnn.typeArgs.length > 1
+      ? resolveTypeAnnotation(typeAnn.typeArgs[1], ctx)
+      : UNKNOWN_TYPE;
+    return { kind: "map", keyType, valueType, readonly_: name === "ReadonlyMap" };
+  }
+
+  if (name === "Set" || name === "ReadonlySet") {
+    const elementType = typeAnn.typeArgs.length > 0
+      ? resolveTypeAnnotation(typeAnn.typeArgs[0], ctx)
+      : UNKNOWN_TYPE;
+    return { kind: "set", elementType, readonly_: name === "ReadonlySet" };
+  }
+
+  if (name === "Actor") {
+    if (typeAnn.typeArgs.length === 1) {
+      const innerType = resolveTypeAnnotation(typeAnn.typeArgs[0], ctx);
+      if (innerType.kind === "class") {
+        return { kind: "actor", innerClass: innerType };
+      }
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  if (name === "Promise") {
+    if (typeAnn.typeArgs.length === 1) {
+      return {
+        kind: "promise",
+        valueType: resolveTypeAnnotation(typeAnn.typeArgs[0], ctx),
+      };
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  if (name === "Result") {
+    if (typeAnn.typeArgs.length === 2) {
+      return {
+        kind: "result",
+        successType: resolveTypeAnnotation(typeAnn.typeArgs[0], ctx),
+        errorType: resolveTypeAnnotation(typeAnn.typeArgs[1], ctx),
+      };
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  if (name === "Stream") {
+    if (typeAnn.typeArgs.length === 1) {
+      return {
+        kind: "stream",
+        elementType: resolveTypeAnnotation(typeAnn.typeArgs[0], ctx),
+      };
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  const symbol = typeAnn.resolvedSymbol ?? lookupNamedTypeSymbol(name, ctx);
+  if (!symbol) return UNKNOWN_TYPE;
+  return resolveModuleSymbolType(symbol, typeAnn.typeArgs, ctx);
+}
+
+function lookupNamedTypeSymbol(name: string, ctx?: EmitContext): ModuleSymbol | undefined {
+  if (!ctx) return undefined;
+
+  const local = ctx.module.symbols.get(name);
+  if (local) return local;
+
+  for (const [, table] of ctx.allModules) {
+    const symbol = table.symbols.get(name);
+    if (symbol) return symbol;
+  }
+
+  return undefined;
+}
+
+function resolveModuleSymbolType(
+  symbol: ModuleSymbol,
+  typeArgs: readonly TypeAnnotation[],
+  ctx?: EmitContext,
+): ResolvedType {
+  switch (symbol.symbolKind) {
+    case "class": {
+      const resolvedArgs = typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx));
+      return resolvedArgs.length > 0
+        ? { kind: "class", symbol, typeArgs: resolvedArgs }
+        : { kind: "class", symbol };
+    }
+
+    case "interface": {
+      const resolvedArgs = typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx));
+      return resolvedArgs.length > 0
+        ? { kind: "interface", symbol, typeArgs: resolvedArgs }
+        : { kind: "interface", symbol };
+    }
+
+    case "enum":
+      return { kind: "enum", symbol };
+
+    case "type-alias": {
+      const aliasType = resolveTypeAnnotation(symbol.declaration.type, ctx);
+      if (symbol.declaration.typeParams.length === 0 || typeArgs.length === 0) {
+        return aliasType;
+      }
+
+      const typeParamMap = new Map<string, ResolvedType>();
+      for (let index = 0; index < symbol.declaration.typeParams.length && index < typeArgs.length; index++) {
+        typeParamMap.set(symbol.declaration.typeParams[index], resolveTypeAnnotation(typeArgs[index], ctx));
+      }
+      return substituteTypeParams(aliasType, typeParamMap);
+    }
+
+    default:
+      return UNKNOWN_TYPE;
+  }
 }
 
 /**
