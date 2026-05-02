@@ -701,11 +701,17 @@ export class TypeChecker {
       validateCollectionTypeAnnotation(method.returnType, method.returnType.span, table, info, { allowOmittedTypeArgs: false });
       const returnType = this.resolveTypeAnnotation(method.returnType, table);
       this.reportUnsupportedHashCollectionConstraint(returnType, method.returnType.span, table, info);
+      const typeParamConstraints = this.resolveTypeParamConstraintTypes(
+        method.typeParams,
+        method.typeParamConstraints,
+        table,
+      );
       method.resolvedType = {
         kind: "function",
         params,
         returnType,
         typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+        typeParamConstraints,
       };
 
       if (method.typeParams.length > 0) {
@@ -1063,6 +1069,11 @@ export class TypeChecker {
       }
       case "function": {
         const declTypeParams = sym.declaration.typeParams;
+        const typeParamConstraints = this.resolveTypeParamConstraintTypes(
+          declTypeParams,
+          sym.declaration.typeParamConstraints,
+          table,
+        );
         if (declTypeParams.length > 0) {
           this.typeParamStack.push(new Set(declTypeParams));
         }
@@ -1083,6 +1094,7 @@ export class TypeChecker {
           params,
           returnType,
           typeParams: declTypeParams.length > 0 ? declTypeParams : undefined,
+          typeParamConstraints,
           mockCall: sym.declaration.mock_
             ? buildMockCallMetadata(sym.module, sym.declaration.name, params)
             : undefined,
@@ -1090,6 +1102,9 @@ export class TypeChecker {
       }
       case "const":
       case "readonly":
+        if (sym.declaration.resolvedType) {
+          return sym.declaration.resolvedType;
+        }
         return sym.declaration.type
           ? this.resolveTypeAnnotation(sym.declaration.type, table)
           : UNKNOWN_TYPE; // will be refined during checkStatement
@@ -1105,6 +1120,31 @@ export class TypeChecker {
     if (!typeArgs || typeArgs.length === 0) return undefined;
     if (declTypeParams.length === 0) return undefined;
     return typeArgs.map((arg) => this.resolveTypeAnnotation(arg, table));
+  }
+
+  private resolveTypeParamConstraintTypes(
+    typeParams: string[],
+    typeParamConstraints: (TypeAnnotation | null)[] | undefined,
+    table: ModuleSymbolTable,
+  ): (ResolvedType | null)[] | undefined {
+    if (!typeParamConstraints || typeParamConstraints.length === 0 || typeParams.length === 0) {
+      return undefined;
+    }
+
+    if (typeParams.length > 0) {
+      this.typeParamStack.push(new Set(typeParams));
+    }
+
+    const resolved = typeParams.map((_, index) => {
+      const constraint = typeParamConstraints[index] ?? null;
+      return constraint ? this.resolveTypeAnnotation(constraint, table) : null;
+    });
+
+    if (typeParams.length > 0) {
+      this.typeParamStack.pop();
+    }
+
+    return resolved.some((constraint) => constraint !== null) ? resolved : undefined;
   }
 
   /**

@@ -886,6 +886,7 @@ describe("Parser — import function declarations", () => {
     expect(stmt.kind).toBe("extern-function-declaration");
     if (stmt.kind === "extern-function-declaration") {
       expect(stmt.name).toBe("cos");
+      expect(stmt.typeParams).toEqual([]);
       expect(stmt.headerPath).toBeNull();
       expect(stmt.cppName).toBeNull();
       expect(stmt.params).toHaveLength(1);
@@ -922,6 +923,32 @@ describe("Parser — import function declarations", () => {
       expect(stmt.params[0].name).toBe("y");
       expect(stmt.params[1].name).toBe("x");
       expect(stmt.cppName).toBe("std::atan2");
+    }
+  });
+
+  it("parses constrained generic import function", () => {
+    const stmt = firstStmt(`import function abs<T: int | long | float | double>(x: T): T from "<cmath>" as std::abs`);
+    expect(stmt.kind).toBe("extern-function-declaration");
+    if (stmt.kind === "extern-function-declaration") {
+      expect(stmt.name).toBe("abs");
+      expect(stmt.typeParams).toEqual(["T"]);
+      expect(stmt.typeParamConstraints).toHaveLength(1);
+      expect(stmt.typeParamConstraints?.[0]?.kind).toBe("union-type");
+      expect(stmt.params[0].type?.kind).toBe("named-type");
+      if (stmt.params[0].type?.kind === "named-type") {
+        expect(stmt.params[0].type.name).toBe("T");
+      }
+      expect(stmt.returnType.kind).toBe("named-type");
+    }
+  });
+
+  it("parses constrained generic function declaration", () => {
+    const stmt = firstStmt(`function cos<T: float | double>(x: T): T => x`);
+    expect(stmt.kind).toBe("function-declaration");
+    if (stmt.kind === "function-declaration") {
+      expect(stmt.typeParams).toEqual(["T"]);
+      expect(stmt.typeParamConstraints).toHaveLength(1);
+      expect(stmt.typeParamConstraints?.[0]?.kind).toBe("union-type");
     }
   });
 

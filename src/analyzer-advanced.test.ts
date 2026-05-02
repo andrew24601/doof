@@ -573,4 +573,23 @@ describe("Analyzer — import function declarations", () => {
     expect(table.imports[0].symbol).toBeDefined();
     expect(table.imports[0].symbol!.symbolKind).toBe("function");
   });
+
+  it("preserves generic type params on import function symbols", () => {
+    const result = analyze(
+      {
+        "/math.do": `export import function abs<T: int | long | float | double>(x: T): T from "<cmath>" as std::abs`,
+      },
+      "/math.do",
+    );
+    expect(result.diagnostics).toHaveLength(0);
+    const table = result.modules.get("/math.do")!;
+    const sym = table.symbols.get("abs");
+    expect(sym).toBeDefined();
+    expect(sym?.symbolKind).toBe("function");
+    if (sym?.symbolKind === "function") {
+      expect(sym.declaration.typeParams).toEqual(["T"]);
+      expect(sym.declaration.typeParamConstraints).toHaveLength(1);
+      expect(sym.declaration.typeParamConstraints?.[0]?.kind).toBe("union-type");
+    }
+  });
 });

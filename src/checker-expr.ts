@@ -9,6 +9,7 @@ import type {
   ObjectProperty,
   SourceSpan,
   Statement,
+  TypeAnnotation,
   TupleLiteral,
 } from "./ast.js";
 import {
@@ -243,6 +244,83 @@ function getResolvedGenericTypeArgs(
   paramMap: Map<string, ResolvedType>,
 ): ResolvedType[] {
   return typeParams.map((typeParam) => paramMap.get(typeParam) ?? UNKNOWN_TYPE);
+}
+
+function resolveDeclarationTypeParamConstraints(
+  host: CheckerHost,
+  typeParams: string[],
+  typeParamConstraints: (TypeAnnotation | null)[] | undefined,
+  table: ModuleSymbolTable,
+): (ResolvedType | null)[] | undefined {
+  if (!typeParamConstraints || typeParamConstraints.length === 0 || typeParams.length === 0) {
+    return undefined;
+  }
+
+  host.typeParamStack.push(new Set(typeParams));
+  const resolved = typeParams.map((_, index) => {
+    const constraint = typeParamConstraints[index] ?? null;
+    return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
+  });
+  host.typeParamStack.pop();
+
+  return resolved.some((constraint) => constraint !== null) ? resolved : undefined;
+}
+
+function reportTypeArgumentConstraintViolation(
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+  typeParam: string,
+  argType: ResolvedType,
+  constraint: ResolvedType,
+): void {
+  info.diagnostics.push({
+    severity: "error",
+    message: `Type "${typeToString(argType)}" does not satisfy constraint "${typeToString(constraint)}" for type parameter "${typeParam}"`,
+    span,
+    module: table.path,
+  });
+}
+
+function validateResolvedTypeArgsAgainstConstraints(
+  typeParams: string[],
+  typeParamConstraints: (ResolvedType | null)[] | undefined,
+  resolvedTypeArgs: ResolvedType[] | undefined,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+): ResolvedType[] | undefined {
+  if (!resolvedTypeArgs || !typeParamConstraints) return resolvedTypeArgs;
+
+  return resolvedTypeArgs.map((argType, index) => {
+    const constraint = typeParamConstraints[index] ?? null;
+    if (!constraint || argType.kind === "unknown" || isAssignableTo(argType, constraint)) {
+      return argType;
+    }
+    reportTypeArgumentConstraintViolation(info, table, span, typeParams[index] ?? "T", argType, constraint);
+    return UNKNOWN_TYPE;
+  });
+}
+
+function validateInferredTypeArgsAgainstConstraints(
+  typeParams: string[],
+  typeParamConstraints: (ResolvedType | null)[] | undefined,
+  paramMap: Map<string, ResolvedType>,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+): void {
+  if (!typeParamConstraints) return;
+
+  for (let index = 0; index < typeParams.length; index++) {
+    const constraint = typeParamConstraints[index] ?? null;
+    if (!constraint) continue;
+    const typeParam = typeParams[index];
+    const argType = paramMap.get(typeParam);
+    if (!argType || argType.kind === "unknown" || isAssignableTo(argType, constraint)) continue;
+    reportTypeArgumentConstraintViolation(info, table, span, typeParam, argType, constraint);
+    paramMap.set(typeParam, UNKNOWN_TYPE);
+  }
 }
 
 function buildResolvedGenericClassType(
@@ -1215,6 +1293,14 @@ function inferExprTypeInner(
               providedArgTypes.push(orderedArgs[i]!.type);
             }
             const paramMap = host.inferTypeArgs(calleeType.typeParams, providedParams, providedArgTypes);
+            validateInferredTypeArgsAgainstConstraints(
+              calleeType.typeParams,
+              calleeType.typeParamConstraints,
+              paramMap,
+              table,
+              info,
+              expr.span,
+            );
             applyResultMethodGenericDefaults(expr, calleeType, paramMap);
             for (const arg of expr.args) {
               applyTypeSubstitutionToExpression(arg.value, paramMap);
@@ -1233,6 +1319,14 @@ function inferExprTypeInner(
             argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
+          validateInferredTypeArgsAgainstConstraints(
+            calleeType.typeParams,
+            calleeType.typeParamConstraints,
+            paramMap,
+            table,
+            info,
+            expr.span,
+          );
           applyResultMethodGenericDefaults(expr, calleeType, paramMap);
           for (const arg of expr.args) {
             applyTypeSubstitutionToExpression(arg.value, paramMap);
@@ -1277,7 +1371,21 @@ function inferExprTypeInner(
             argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
           }
 
+          const typeParamConstraints = resolveDeclarationTypeParamConstraints(
+            host,
+            calleeType.symbol.declaration.typeParams,
+            calleeType.symbol.declaration.typeParamConstraints,
+            table,
+          );
           const paramMap = host.inferTypeArgs(calleeType.symbol.declaration.typeParams, constructorParams, argTypes);
+          validateInferredTypeArgsAgainstConstraints(
+            calleeType.symbol.declaration.typeParams,
+            typeParamConstraints,
+            paramMap,
+            table,
+            info,
+            expr.span,
+          );
           effectiveClassType = buildResolvedGenericClassType(calleeType, paramMap);
 
           if (effectiveClassType.typeArgs && effectiveClassType.typeArgs.length > 0) {
@@ -1420,7 +1528,20 @@ function inferExprTypeInner(
         : null;
       const sym = targetBinding ? resolvedClassSymbol : table.symbols.get(expr.type);
       if (sym?.symbolKind === "class") {
-        const resolvedTypeArgs = host.resolveGenericTypeArgs(sym.declaration.typeParams, expr.typeArgs, table);
+        const typeParamConstraints = resolveDeclarationTypeParamConstraints(
+          host,
+          sym.declaration.typeParams,
+          sym.declaration.typeParamConstraints,
+          table,
+        );
+        const resolvedTypeArgs = validateResolvedTypeArgsAgainstConstraints(
+          sym.declaration.typeParams,
+          typeParamConstraints,
+          host.resolveGenericTypeArgs(sym.declaration.typeParams, expr.typeArgs, table),
+          table,
+          info,
+          expr.span,
+        );
         let paramSubMap: Map<string, ResolvedType> | undefined;
         if (resolvedTypeArgs && sym.declaration.typeParams.length > 0) {
           paramSubMap = new Map<string, ResolvedType>();
@@ -1545,6 +1666,14 @@ function inferExprTypeInner(
             providedArgTypes.push(orderedArgs[i]!.type);
           }
           const paramMap = host.inferTypeArgs(targetBinding.type.typeParams, providedParams, providedArgTypes);
+          validateInferredTypeArgsAgainstConstraints(
+            targetBinding.type.typeParams,
+            targetBinding.type.typeParamConstraints,
+            paramMap,
+            table,
+            info,
+            expr.span,
+          );
           effectiveCalleeType = substituteTypeParams(targetBinding.type, paramMap) as typeof targetBinding.type;
         }
         validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);

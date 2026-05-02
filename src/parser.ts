@@ -646,7 +646,7 @@ export class Parser {
     this.expect(TokenType.Function);
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
 
     this.expect(TokenType.LeftParen);
     const params = this.parseParameterList();
@@ -679,6 +679,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       params,
       returnType,
       body,
@@ -692,17 +693,73 @@ export class Parser {
     };
   }
 
-  /** Parse optional type parameter list: `<T, U, V>`. Returns empty array if no `<`. */
-  private parseTypeParams(): string[] {
-    const typeParams: string[] = [];
+  /** Parse optional type parameter list: `<T, U : Foo | Bar, V>`. */
+  private parseTypeParams(): { names: string[]; constraints: (TypeAnnotation | null)[] } {
+    const names: string[] = [];
+    const constraints: (TypeAnnotation | null)[] = [];
     if (this.match(TokenType.Less)) {
-      typeParams.push(this.expect(TokenType.Identifier).value);
-      while (this.match(TokenType.Comma)) {
-        typeParams.push(this.expect(TokenType.Identifier).value);
-      }
+      do {
+        names.push(this.expect(TokenType.Identifier).value);
+        let constraint: TypeAnnotation | null = null;
+        if (this.match(TokenType.Colon)) {
+          constraint = this.parseTypeAnnotation();
+        }
+        constraints.push(constraint);
+      } while (this.match(TokenType.Comma));
       this.expect(TokenType.Greater);
     }
-    return typeParams;
+    return { names, constraints };
+  }
+
+  private skipTypeAnnotationTokens(offset: number): number {
+    let index = offset;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    let angleDepth = 0;
+
+    while (true) {
+      const token = this.peek(index).type;
+      if (token === TokenType.EOF) return -1;
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0
+        && (token === TokenType.Comma || token === TokenType.Greater)) {
+        return index;
+      }
+      switch (token) {
+        case TokenType.LeftParen:
+          parenDepth++;
+          break;
+        case TokenType.RightParen:
+          if (parenDepth === 0) return -1;
+          parenDepth--;
+          break;
+        case TokenType.LeftBracket:
+          bracketDepth++;
+          break;
+        case TokenType.RightBracket:
+          if (bracketDepth === 0) return -1;
+          bracketDepth--;
+          break;
+        case TokenType.LeftBrace:
+          braceDepth++;
+          break;
+        case TokenType.RightBrace:
+          if (braceDepth === 0) return -1;
+          braceDepth--;
+          break;
+        case TokenType.Less:
+          angleDepth++;
+          break;
+        case TokenType.Greater:
+          if (angleDepth > 0) {
+            angleDepth--;
+          } else {
+            return index;
+          }
+          break;
+      }
+      index++;
+    }
   }
 
   private parseParameterList(): Parameter[] {
@@ -743,7 +800,7 @@ export class Parser {
     this.expect(TokenType.Class);
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
 
     const implements_: NamedType[] = [];
     if (this.match(TokenType.Implements)) {
@@ -795,6 +852,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       implements_,
       fields,
       methods,
@@ -851,20 +909,24 @@ export class Parser {
 
   /** Check if tokens at `offset` look like `<T, U, ...>(` — type params followed by left paren. */
   private looksLikeTypeParamsAt(offset: number): boolean {
-    // Must start with <
     if (this.peek(offset).type !== TokenType.Less) return false;
-    let i = offset + 1;
+    let index = offset + 1;
     while (true) {
-      const t = this.peek(i);
-      if (t.type === TokenType.EOF) return false;
-      if (t.type === TokenType.Greater) {
-        // After >, check for ( or "description"(
-        const next = this.peek(i + 1);
-        return next.type === TokenType.LeftParen
-          || (next.type === TokenType.StringLiteral && this.peek(i + 2).type === TokenType.LeftParen);
+      if (this.peek(index).type !== TokenType.Identifier) return false;
+      index++;
+      if (this.peek(index).type === TokenType.Colon) {
+        index = this.skipTypeAnnotationTokens(index + 1);
+        if (index === -1) return false;
       }
-      if (t.type !== TokenType.Identifier && t.type !== TokenType.Comma) return false;
-      i++;
+      const separator = this.peek(index).type;
+      if (separator === TokenType.Comma) {
+        index++;
+        continue;
+      }
+      if (separator !== TokenType.Greater) return false;
+      const next = this.peek(index + 1);
+      return next.type === TokenType.LeftParen
+        || (next.type === TokenType.StringLiteral && this.peek(index + 2).type === TokenType.LeftParen);
     }
   }
 
@@ -877,7 +939,7 @@ export class Parser {
 
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
     this.expect(TokenType.LeftParen);
     const params = this.parseParameterList();
     this.expect(TokenType.RightParen);
@@ -909,6 +971,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       params,
       returnType,
       body,
@@ -993,7 +1056,7 @@ export class Parser {
     this.expect(TokenType.Interface);
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
 
     this.expect(TokenType.LeftBrace);
 
@@ -1028,6 +1091,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       fields,
       methods,
       exported,
@@ -1062,7 +1126,7 @@ export class Parser {
     const startLoc = this.loc();
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
     this.expect(TokenType.LeftParen);
     const params = this.parseParameterList();
     this.expect(TokenType.RightParen);
@@ -1075,6 +1139,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       params,
       returnType,
       static_,
@@ -1138,7 +1203,7 @@ export class Parser {
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
 
-    const typeParams = this.parseTypeParams();
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
 
     this.expect(TokenType.Equal);
     const type = this.parseTypeAnnotation();
@@ -1149,6 +1214,7 @@ export class Parser {
       name,
       description,
       typeParams,
+      typeParamConstraints,
       type,
       exported,
       span: this.span(startLoc),
@@ -1364,6 +1430,7 @@ export class Parser {
   ): ExternFunctionDeclaration {
     this.expect(TokenType.Function);
     const name = this.expect(TokenType.Identifier).value;
+    const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
 
     this.expect(TokenType.LeftParen);
     const params = this.parseParameterList();
@@ -1388,6 +1455,8 @@ export class Parser {
     return {
       kind: "extern-function-declaration",
       name,
+      typeParams,
+      typeParamConstraints,
       headerPath,
       cppName,
       params,

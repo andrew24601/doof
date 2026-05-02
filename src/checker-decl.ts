@@ -24,6 +24,26 @@ import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
 
+function resolveTypeParamConstraintTypes(
+  host: CheckerHost,
+  typeParams: string[],
+  typeParamConstraints: (import("./ast.js").TypeAnnotation | null)[] | undefined,
+  table: ModuleSymbolTable,
+): (ResolvedType | null)[] | undefined {
+  if (!typeParamConstraints || typeParamConstraints.length === 0 || typeParams.length === 0) {
+    return undefined;
+  }
+
+  host.typeParamStack.push(new Set(typeParams));
+  const resolved = typeParams.map((_, index) => {
+    const constraint = typeParamConstraints[index] ?? null;
+    return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
+  });
+  host.typeParamStack.pop();
+
+  return resolved.some((constraint) => constraint !== null) ? resolved : undefined;
+}
+
 function addUnsupportedDefaultDiagnostic(
   info: ModuleTypeInfo,
   table: ModuleSymbolTable,
@@ -48,6 +68,12 @@ function buildMethodBindingType(
   classDecl: ClassDeclaration,
   table: ModuleSymbolTable,
 ): ResolvedType {
+  const typeParamConstraints = resolveTypeParamConstraintTypes(
+    host,
+    method.typeParams,
+    method.typeParamConstraints,
+    table,
+  );
   if (method.typeParams.length > 0) {
     host.typeParamStack.push(new Set(method.typeParams));
   }
@@ -64,6 +90,7 @@ function buildMethodBindingType(
       ? host.resolveTypeAnnotation(method.returnType, table)
       : VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+    typeParamConstraints,
     mockCall: method.mock_
       ? buildMockCallMetadata(
           table.path,
@@ -212,6 +239,7 @@ export function checkFunction(
     })),
     returnType: inferredReturnType,
     typeParams: decl.typeParams.length > 0 ? decl.typeParams : undefined,
+    typeParamConstraints: resolveTypeParamConstraintTypes(host, decl.typeParams, decl.typeParamConstraints, table),
     mockCall: decl.mock_
       ? buildMockCallMetadata(
           table.path,
@@ -550,6 +578,7 @@ export function checkMethod(
     })),
     returnType: returnType ?? VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+    typeParamConstraints: resolveTypeParamConstraintTypes(host, method.typeParams, method.typeParamConstraints, table),
     mockCall: method.mock_
       ? buildMockCallMetadata(
           table.path,

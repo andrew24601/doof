@@ -505,6 +505,7 @@ export interface FunctionDeclaration extends Typed {
   name: string;
   description?: string;
   typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   params: Parameter[];
   returnType: TypeAnnotation | null;
   body: Expression | Block;
@@ -628,6 +629,7 @@ export interface ClassDeclaration {
   name: string;
   description?: string;
   typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   implements_: NamedType[];
   fields: ClassField[];
   methods: FunctionDeclaration[];
@@ -661,6 +663,7 @@ export interface InterfaceDeclaration {
   name: string;
   description?: string;
   typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   fields: InterfaceField[];
   methods: InterfaceMethod[];
   exported: boolean;
@@ -684,6 +687,7 @@ export interface InterfaceMethod extends Typed {
   name: string;
   description?: string;
   typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   params: Parameter[];
   returnType: TypeAnnotation;
   static_: boolean;
@@ -712,6 +716,7 @@ export interface TypeAliasDeclaration {
   name: string;
   description?: string;
   typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   type: TypeAnnotation;
   exported: boolean;
   /** Set by the checker when user code accesses .fromJsonValue() */
@@ -835,6 +840,8 @@ export interface ExternClassMethod {
 export interface ExternFunctionDeclaration {
   kind: "extern-function-declaration";
   name: string;
+  typeParams: string[];
+  typeParamConstraints?: (TypeAnnotation | null)[];
   /** Explicit header path, or null to infer from function name. */
   headerPath: string | null;
   /** Fully-qualified C++ name when `as` clause is present (e.g. "std::sin"). */

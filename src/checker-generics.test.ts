@@ -215,6 +215,78 @@ describe("Checker — generic functions", () => {
       expect(fnType.typeParams).toEqual(["T"]);
     }
   });
+
+  it("accepts inferred args that satisfy generic constraints", () => {
+    const cr = check({
+      "/main.do": `
+        function cos<T: float | double>(x: T): T => x
+        const result = cos(1.5)
+        const use = result
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "result");
+    expect(ids[0]?.type.kind).toBe("primitive");
+    if (ids[0]?.type.kind === "primitive") {
+      expect(ids[0].type.name).toBe("double");
+    }
+  });
+
+  it("rejects inferred args that violate generic constraints", () => {
+    const cr = check({
+      "/main.do": `
+        function cos<T: float | double>(x: T): T => x
+        const result = cos("nope")
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint'))).toBe(true);
+  });
+
+  it("applies constraints to imported generic functions", () => {
+    const cr = check({
+      "/main.do": `
+        import function abs<T: int | long | float | double>(x: T): T from "<cmath>" as std::abs
+        const result = abs(1)
+        const use = result
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "result");
+    expect(ids[0]?.type.kind).toBe("primitive");
+    if (ids[0]?.type.kind === "primitive") {
+      expect(ids[0].type.name).toBe("int");
+    }
+  });
+
+  it("rejects imported generic calls outside their constraints", () => {
+    const cr = check({
+      "/main.do": `
+        import function abs<T: int | long | float | double>(x: T): T from "<cmath>" as std::abs
+        const result = abs("nope")
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint'))).toBe(true);
+  });
+
+  it("allows imported inferred constants to participate in constrained imported calls", () => {
+    const cr = check({
+      "/math.do": `
+        export const PI = 3.141592653589793
+        export import function sin<T: float | double>(x: T): T from "<cmath>" as std::sin
+      `,
+      "/main.do": `
+        import { PI, sin } from "./math"
+        const result = sin(PI / 2.0)
+        const use = result
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const ids = findId(cr, "result");
+    expect(ids[0]?.type.kind).toBe("primitive");
+    if (ids[0]?.type.kind === "primitive") {
+      expect(ids[0].type.name).toBe("double");
+    }
+  });
 });
 
 // ==========================================================================
@@ -407,6 +479,30 @@ describe("Checker — generic classes", () => {
       expect(ids[0].type.symbol.name).toBe("Chain");
       expect(ids[0].type.typeArgs?.map(typeToString)).toEqual(["int"]);
     }
+  });
+
+  it("rejects explicit generic class args outside their constraints", () => {
+    const cr = check({
+      "/main.do": `
+        class Box<T: int | long> {
+          value: T
+        }
+        const b = Box<string> { value: "hi" }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint'))).toBe(true);
+  });
+
+  it("rejects inferred generic class args outside their constraints", () => {
+    const cr = check({
+      "/main.do": `
+        class Box<T: int | long> {
+          value: T
+        }
+        const b = Box("hi")
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint'))).toBe(true);
   });
 });
 

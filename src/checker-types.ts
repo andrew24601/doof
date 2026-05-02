@@ -69,6 +69,8 @@ export interface FunctionResolvedType {
   returnType: ResolvedType;
   /** Type parameter names for generic functions. */
   typeParams?: string[];
+  /** Resolved constraints aligned with typeParams for generic functions. */
+  typeParamConstraints?: (ResolvedType | null)[];
   /** Present when this function is a mock callable with typed call recording. */
   mockCall?: MockCallMetadata;
 }

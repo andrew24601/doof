@@ -876,7 +876,8 @@ function synthesizeExternFuncDecl(ext: ExternFunctionDeclaration): FunctionDecla
   return {
     kind: "function-declaration",
     name: ext.name,
-    typeParams: [],
+    typeParams: ext.typeParams,
+    typeParamConstraints: ext.typeParamConstraints,
     params: ext.params,
     returnType: ext.returnType,
     body: emptyBlock,

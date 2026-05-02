@@ -924,6 +924,16 @@ describe("emitter — import function imports", () => {
     );
     expect(cpp).toContain("std::sin(x)");
   });
+
+  it("emits constrained imported generic calls via cppName", () => {
+    const cpp = emit(`
+      import function abs<T: int | long | float | double>(x: T): T from "<cmath>" as std::abs
+      function test(x: int): int => abs(x)
+    `);
+    expect(cpp).toContain("#include <cmath>");
+    expect(cpp).toContain("std::abs(x)");
+    expect(cpp).not.toContain("template<typename T>\nint abs");
+  });
 });
 
 // ============================================================================
