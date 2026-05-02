@@ -1186,6 +1186,20 @@ describe("Result<T, E> type integration", () => {
     expect(diag).toBeDefined();
   });
 
+  it("allows positional Success(value) with nullable Result return type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function f(): Result<int, string> | null {
+            return Success(42)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("errors on positional Failure(error) without contextual Result type", () => {
     const cr = check(
       {
@@ -1197,6 +1211,20 @@ describe("Result<T, E> type integration", () => {
     );
     const diag = cr.diagnostics.find(d => d.message.includes("Failure requires contextual Result type"));
     expect(diag).toBeDefined();
+  });
+
+  it("allows positional Failure(error) with nullable Result return type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function f(): Result<int, string> | null {
+            return Failure("bad")
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("errors on Success construct without contextual Result type", () => {
@@ -1212,6 +1240,20 @@ describe("Result<T, E> type integration", () => {
     expect(diag).toBeDefined();
   });
 
+  it("allows Success construct with nullable Result return type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function f(): Result<int, string> | null {
+            return Success { value: 42 }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("errors on Failure construct without contextual Result type", () => {
     const cr = check(
       {
@@ -1223,6 +1265,20 @@ describe("Result<T, E> type integration", () => {
     );
     const diag = cr.diagnostics.find(d => d.message.includes("Failure requires contextual Result type"));
     expect(diag).toBeDefined();
+  });
+
+  it("allows Failure construct with nullable Result return type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function f(): Result<int, string> | null {
+            return Failure { error: "bad" }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("reports error for positional Success with wrong arg count", () => {

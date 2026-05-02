@@ -73,6 +73,8 @@ export interface EmitContext {
   qualifiedFunctionName?: string;
   /** Force a function definition emitted in a header to be inline. */
   forceInline?: boolean;
+  /** Emit the declaration or definition with cpp-local internal linkage. */
+  internalLinkage?: boolean;
   /** When true, emit doof::coverage::cov_mark() calls for executable statements. */
   coverageEnabled?: boolean;
   /** Stable integer ID for the current module in coverage data (only set when coverageEnabled). */

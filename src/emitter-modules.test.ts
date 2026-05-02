@@ -212,44 +212,92 @@ describe("emitter-module — hpp/cpp split", () => {
       }
     `)).toThrow('Cannot emit interface "Shape" without implementing classes');
   });
+
+  it("emits ordinary class methods in cpp so they can call private helpers", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      function helper(x: int): int => x + 1
+
+      export class Counter {
+        value: int
+        next(): int => helper(value)
+      }
+    `);
+
+    expect(hppCode).toContain("int32_t next();");
+    expect(hppCode).not.toContain("return helper(value);");
+    expect(cppCode).toContain("int32_t helper(int32_t x)");
+    expect(cppCode).toContain("int32_t Counter::next()");
+
+    const helperPos = cppCode.indexOf("int32_t helper(int32_t x)");
+    const methodPos = cppCode.indexOf("int32_t Counter::next()");
+    expect(helperPos).toBeGreaterThan(-1);
+    expect(methodPos).toBeGreaterThan(-1);
+    expect(helperPos).toBeLessThan(methodPos);
+  });
+
+  it("coerces concrete stream instances into Stream aliases inside Result success values", () => {
+    const { cppCode } = emitSplit(`
+      class Counter implements Stream<int> {
+        current: int
+
+        next(): int | null {
+          if this.current < 1 {
+            value := this.current
+            this.current = this.current + 1
+            return value
+          }
+          return null
+        }
+      }
+
+      export function query(): Result<Stream<int>, string> {
+        return Success { value: Counter(0) }
+      }
+    `);
+
+    expect(cppCode).toContain("Result<__doof_stream_int, std::string>::success(__doof_stream_int{");
+    expect(cppCode).toContain("std::in_place_type<std::shared_ptr<Counter>>");
+  });
 });
 
 describe("emitter-module — non-exported symbols", () => {
-  it("puts non-exported functions in anonymous namespace", () => {
+  it("gives non-exported functions static internal linkage", () => {
     const { cppCode } = emitSplit(`
       function helper(x: int): int => x * 2
       export function doubleIt(x: int): int => helper(x)
     `);
-    expect(cppCode).toContain("namespace {");
-    // Helper should be inside anonymous namespace
-    const nsStart = cppCode.indexOf("namespace {");
-    const nsEnd = cppCode.indexOf("} // anonymous namespace");
-    const helperPos = cppCode.indexOf("int32_t helper(");
-    expect(helperPos).toBeGreaterThan(nsStart);
-    expect(helperPos).toBeLessThan(nsEnd);
+    expect(cppCode).toContain("static int32_t helper(int32_t x)");
   });
 
-  it("exported functions are outside anonymous namespace", () => {
+  it("emits static forward declarations for non-exported helpers", () => {
+    const { cppCode } = emitSplit(`
+      function first(): int => second()
+      function second(): int => 2
+      export function read(): int => first()
+    `);
+
+    expect(cppCode).toContain("static int32_t first();");
+    expect(cppCode).toContain("static int32_t second();");
+    expect(cppCode).toContain("static int32_t first() {");
+    expect(cppCode).toContain("static int32_t second() {");
+  });
+
+  it("exported functions are not emitted as static helpers", () => {
     const { cppCode } = emitSplit(`
       function helper(x: int): int => x * 2
       export function doubleIt(x: int): int => helper(x)
     `);
-    const nsEnd = cppCode.indexOf("} // anonymous namespace");
     const doubleItPos = cppCode.lastIndexOf("int32_t doubleIt(");
-    expect(doubleItPos).toBeGreaterThan(nsEnd);
+    expect(doubleItPos).toBeGreaterThan(-1);
+    expect(cppCode).not.toContain("static int32_t doubleIt(");
   });
 
-  it("non-exported variables in anonymous namespace", () => {
+  it("gives non-exported variables static internal linkage", () => {
     const { cppCode } = emitSplit(`
       x := 42
       export function getX(): int => x
     `);
-    expect(cppCode).toContain("namespace {");
-    const nsStart = cppCode.indexOf("namespace {");
-    const nsEnd = cppCode.indexOf("} // anonymous namespace");
-    const varPos = cppCode.indexOf("const auto x =");
-    expect(varPos).toBeGreaterThan(nsStart);
-    expect(varPos).toBeLessThan(nsEnd);
+    expect(cppCode).toContain("static const auto x = 42");
   });
 });
 
@@ -310,7 +358,8 @@ describe("emitter-module — mock call storage", () => {
     `);
 
     expect(hppCode).toContain("std::shared_ptr<std::vector<__PaymentGateway_sendPayment_Call>> __sendPayment_calls = std::make_shared<std::vector<__PaymentGateway_sendPayment_Call>>();");
-    expect(hppCode).toContain("this->__sendPayment_calls->push_back(__PaymentGateway_sendPayment_Call{targetId, amount});");
+    expect(hppCode).toContain("bool sendPayment(std::string targetId, int32_t amount);");
+    expect(cppCode).toContain("__sendPayment_calls->push_back(__PaymentGateway_sendPayment_Call{targetId, amount});");
     expect(cppCode).toContain('return doof::array_at(gateway->__sendPayment_calls, 0, "main.do",');
   });
 });
@@ -1045,7 +1094,8 @@ describe("Concurrency", () => {
       }
     `);
     // Isolated method emits as a regular method — no C++ equivalent
-    expect(cpp).toContain("int32_t process(int32_t x) {");
+    expect(cpp).toContain("int32_t process(int32_t x);");
+    expect(cpp).toContain("int32_t Worker::process(int32_t x) {");
   });
 
   it("emits mutating method without const qualifier", () => {
@@ -1058,7 +1108,8 @@ describe("Concurrency", () => {
       }
     `);
     // Methods should NOT have const qualifier — mutating methods need to modify fields
-    expect(cpp).toContain("void increment() {");
+    expect(cpp).toContain("void increment();");
+    expect(cpp).toContain("void Counter::increment() {");
     // The increment() method itself should not be const (toJsonObject is const, which is fine)
     expect(cpp).not.toContain("void increment() const {");
   });

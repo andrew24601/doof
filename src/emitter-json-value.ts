@@ -22,6 +22,21 @@ export function emitRuntimeCoercion(sourceExpr: string, sourceType: ResolvedType
     return emitNullForType(targetType);
   }
 
+  if (sourceType.kind === "result" && targetType.kind === "result") {
+    const targetCpp = emitType(targetType);
+    const successExpr = targetType.successType.kind === "void"
+      ? `${targetCpp}::success()`
+      : `${targetCpp}::success(${emitRuntimeCoercion("_coerce_src.value()", sourceType.successType, targetType.successType)})`;
+    const errorExpr = `${targetCpp}::failure(${emitRuntimeCoercion("_coerce_src.error()", sourceType.errorType, targetType.errorType)})`;
+    return `([&]() -> ${targetCpp} { auto&& _coerce_src = ${sourceExpr}; if (_coerce_src.isSuccess()) return ${successExpr}; return ${errorExpr}; })()`;
+  }
+
+  if (targetType.kind === "stream") {
+    const targetCpp = emitType(targetType);
+    const sourceCpp = emitType(sourceType);
+    return `${targetCpp}{std::in_place_type<${sourceCpp}>, ${sourceExpr}}`;
+  }
+
   if (sourceType.kind === "union") {
     return emitCoerceUnionSource(sourceExpr, sourceType, targetType);
   }

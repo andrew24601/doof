@@ -56,9 +56,21 @@ function resolveExpectedResultContext(
   scope: Scope,
   expectedType?: ResolvedType,
 ): Extract<ResolvedType, { kind: "result" }> | null {
-  if (expectedType?.kind === "result") return expectedType;
+  const extractResultContext = (type?: ResolvedType): Extract<ResolvedType, { kind: "result" }> | null => {
+    if (!type) return null;
+    if (type.kind === "result") return type;
+    if (type.kind !== "union") return null;
+
+    const nonNullMembers = type.types.filter((member) => member.kind !== "null");
+    return nonNullMembers.length === 1 && nonNullMembers[0].kind === "result"
+      ? nonNullMembers[0]
+      : null;
+  };
+
+  const expectedResult = extractResultContext(expectedType);
+  if (expectedResult) return expectedResult;
   const fnReturn = host.findReturnType(scope);
-  return fnReturn?.kind === "result" ? fnReturn : null;
+  return extractResultContext(fnReturn ?? undefined);
 }
 
 function reportMissingResultContext(

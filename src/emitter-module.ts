@@ -451,7 +451,10 @@ function emitHpp(
   // Full struct definitions (with inline methods)
   // Skip extern classes — their struct is defined in the external header.
   for (const cls of nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
-    const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+    const ctx = {
+      ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      emitMethodBodiesInline: false,
+    };
     emitStatement(cls.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
@@ -627,42 +630,40 @@ function emitCppFile(
   const monomorphizedForModule = [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path);
   const nonExportedMockFunctions = classified.functions.filter((fn) => !fn.exported && hasMockCall(fn.decl));
   const exportedMockFunctions = classified.functions.filter((fn) => fn.exported && hasMockCall(fn.decl));
+  const nativeClasses = classified.classes.filter((cls) => {
+    const sym = table.symbols.get(cls.decl.name);
+    return !(sym?.symbolKind === "class" && sym.extern_);
+  });
 
-  // Anonymous namespace for non-exported functions (skip generics — they're in .hpp)
+  // Non-exported functions use static internal linkage in the cpp.
   const nonExportedFns = classified.functions.filter(
     (fn) => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length === 0,
   );
   const mainDecl = classified.functions.find((fn) => fn.decl.name === "main");
-  
-  // Emit non-exported functions in namespace, and put doof_main there too (if there are non-exported funcs)
-  // This way doof_main can call non-exported functions without ambiguity with stdlib names
-  const hasNonExportedCode = nonExportedFns.length > 0 || nonExportedMockFunctions.length > 0;
-  
-  if (hasNonExportedCode) {
-    lines.push("namespace {");
+  for (const fn of nonExportedMockFunctions) {
+    const resolvedType = fn.decl.resolvedType;
+    if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
+    const mockCall = resolvedType.mockCall;
+    lines.push(`static std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
+  }
+  if (nonExportedMockFunctions.length > 0) {
     lines.push("");
-    for (const fn of nonExportedMockFunctions) {
-      const resolvedType = fn.decl.resolvedType;
-      if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
-      const mockCall = resolvedType.mockCall;
-      lines.push(`std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
-    }
-    if (nonExportedMockFunctions.length > 0) {
-      lines.push("");
-    }
-    for (const fn of nonExportedFns) {
-      const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
-      emitStatement(fn.decl as Statement, ctx);
-      lines.push(...ctx.sourceLines);
-      lines.push("");
-    }
-    
-    // Emit doof_main inside the namespace so it can call non-exported functions without ambiguity
-    if (mainDecl) {
-      emitDoofMainFunction(mainDecl.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
-    }
-    
-    lines.push("} // anonymous namespace");
+  }
+  for (const fn of nonExportedFns) {
+    lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls, undefined, undefined, false)};`);
+  }
+  if (nonExportedFns.length > 0) {
+    lines.push("");
+  }
+  for (const fn of nonExportedFns) {
+    const ctx = {
+      ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
+      emitParameterDefaults: false,
+      internalLinkage: true,
+    };
+    emitStatement(fn.decl as Statement, ctx);
+    lines.push(...ctx.sourceLines);
     lines.push("");
   }
 
@@ -695,18 +696,28 @@ function emitCppFile(
     lines.push("");
   }
 
-  // Non-exported variable definitions (in anonymous namespace)
+  // Non-exported variable definitions with static internal linkage.
   const nonExportedVars = classified.variables.filter((v) => !v.exported);
   if (nonExportedVars.length > 0) {
-    lines.push("namespace {");
-    lines.push("");
     for (const v of nonExportedVars) {
-      const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
+      const ctx = {
+        ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+        ...covCtx,
+        internalLinkage: true,
+      };
       emitStatement(v.stmt, ctx);
       lines.push(...ctx.sourceLines);
       lines.push("");
     }
-    lines.push("} // anonymous namespace");
+    lines.push("");
+  }
+
+  for (const cls of nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
+    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
+    emitClassMethodDefinitions(cls.decl, ctx);
+    lines.push(...ctx.sourceLines);
+  }
+  if (nativeClasses.some((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.methods.length > 0)) {
     lines.push("");
   }
 
@@ -735,14 +746,10 @@ function emitCppFile(
     emitInitFunction(table, analysisResult, classified, interfaceImpls, monomorphizedFunctions, lines, baseDir);
   }
 
-  // main() wrapper - emit if not already emitted inside the namespace
+  // main() wrapper
   const mainFn = classified.functions.find((fn) => fn.decl.name === "main");
   if (mainFn) {
-    // If doof_main was not emitted inside the namespace, emit it now with the app-entry wrapper.
-    if (!hasNonExportedCode) {
-      emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
-    }
-
+    emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
     emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
     if (buildTarget?.kind !== "ios-app") {
       emitNativeMainWrapper(lines);
@@ -979,6 +986,7 @@ function emitFunctionSignature(
   _interfaceImpls: Map<string, ClassSymbol[]>,
   nameOverride?: string,
   typeSubstitution?: Map<string, ResolvedType>,
+  includeDefaults = true,
 ): string {
   const name = emitIdentifierSafe(nameOverride ?? decl.name);
   const resolvedType = decl.resolvedType && typeSubstitution
@@ -987,17 +995,17 @@ function emitFunctionSignature(
   const retType = resolvedType && resolvedType.kind === "function"
     ? emitType(resolvedType.returnType)
     : "auto";
-  const params = decl.params.map((p) => emitParamSignature(p, typeSubstitution)).join(", ");
+  const params = decl.params.map((p) => emitParamSignature(p, typeSubstitution, includeDefaults)).join(", ");
   return `${retType} ${name}(${params})`;
 }
 
-function emitParamSignature(param: Parameter, typeSubstitution?: Map<string, ResolvedType>): string {
+function emitParamSignature(param: Parameter, typeSubstitution?: Map<string, ResolvedType>, includeDefault = true): string {
   const resolvedType = param.resolvedType && typeSubstitution
     ? substituteTypeParams(param.resolvedType, typeSubstitution)
     : param.resolvedType;
   const pType = resolvedType ? emitType(resolvedType) : "auto";
   const name = emitIdentifierSafe(param.name);
-  if (param.defaultValue) {
+  if (includeDefault && param.defaultValue) {
     const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined);
     return `${pType} ${name} = ${defaultVal}`;
   }

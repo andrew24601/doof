@@ -74,6 +74,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
   const name = ctx.qualifiedFunctionName ?? emitIdentifierSafe(ctx.functionNameOverride ?? decl.name);
   const resolvedDeclType = substituteEmitType(decl.resolvedType, ctx);
   const inlinePrefix = ctx.forceInline ? "inline " : "";
+  const linkagePrefix = ctx.internalLinkage && !ctx.inClass ? "static " : "";
 
   // Emit description comment
   if (decl.description) {
@@ -110,7 +111,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
     : undefined;
 
   if (decl.body.kind === "block") {
-    ctx.sourceLines.push(`${ind}${inlinePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
+    ctx.sourceLines.push(`${ind}${inlinePrefix}${linkagePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
     const fnRetType = resolvedDeclType && resolvedDeclType.kind === "function"
       ? resolvedDeclType.returnType
       : undefined;
@@ -136,7 +137,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
       ? resolvedDeclType.returnType
       : undefined;
     const body = emitExpression(decl.body as Expression, ctx, fnRetType);
-    ctx.sourceLines.push(`${ind}${inlinePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
+    ctx.sourceLines.push(`${ind}${inlinePrefix}${linkagePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
     emitMockRecordingPrelude(decl, mockCall, ctx);
     ctx.sourceLines.push(`${ind}    return ${body};`);
     ctx.sourceLines.push(`${ind}}`);

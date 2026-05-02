@@ -372,6 +372,7 @@ function emitConstDecl(
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
 
   // Emit description comment
   if (stmt.description) {
@@ -383,14 +384,14 @@ function emitConstDecl(
 
   // For variant union types, emit explicit type instead of auto
   if (explicitCppType) {
-    ctx.sourceLines.push(`${ind}const ${explicitCppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
   } else if (declType && isVariantUnionType(declType)) {
     const cppType = emitType(declType);
-    ctx.sourceLines.push(`${ind}const ${cppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const ${cppType} ${name} = ${val};`);
   } else if (isConstexprValue(stmt.value)) {
-    ctx.sourceLines.push(`${ind}constexpr auto ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}constexpr auto ${name} = ${val};`);
   } else {
-    ctx.sourceLines.push(`${ind}const auto ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const auto ${name} = ${val};`);
   }
 }
 
@@ -408,6 +409,7 @@ function emitReadonlyDecl(
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
 
   // Emit description comment
   if (stmt.description) {
@@ -420,11 +422,11 @@ function emitReadonlyDecl(
   // readonly on class types → shared_ptr<const T>
   if (declType && declType.kind === "class") {
     const innerType = declType.symbol.name;
-    ctx.sourceLines.push(`${ind}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
   } else if (explicitCppType) {
-    ctx.sourceLines.push(`${ind}const ${explicitCppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
   } else {
-    ctx.sourceLines.push(`${ind}const auto ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const auto ${name} = ${val};`);
   }
 }
 
@@ -442,17 +444,18 @@ function emitImmutableBinding(
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
 
   // := → const auto (shallow immutable: binding can't change, pointee mutable)
   if (declType && declType.kind === "class") {
     const cppType = emitType(declType);
-    ctx.sourceLines.push(`${ind}const ${cppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const ${cppType} ${name} = ${val};`);
   } else if (explicitCppType) {
-    ctx.sourceLines.push(`${ind}const ${explicitCppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
   } else {
-    ctx.sourceLines.push(`${ind}const auto ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}const auto ${name} = ${val};`);
   }
 }
 
@@ -470,13 +473,14 @@ function emitLetDecl(
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
   const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
 
   // Heap-box captured mutable variables so escaping lambdas don't dangle.
   if (ctx.capturedMutables?.has(stmt.name) && declType) {
     const cppType = emitType(declType);
-    ctx.sourceLines.push(`${ind}auto ${name} = std::make_shared<${cppType}>(${val});`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}auto ${name} = std::make_shared<${cppType}>(${val});`);
     return;
   }
 
@@ -484,12 +488,12 @@ function emitLetDecl(
   // instead of auto, because auto would deduce the narrower type of the initializer
   // (e.g. shared_ptr<Foo>) and fail on later reassignment to other variants.
   if (explicitCppType) {
-    ctx.sourceLines.push(`${ind}${explicitCppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}${explicitCppType} ${name} = ${val};`);
   } else if (declType && isVariantUnionType(declType)) {
     const cppType = emitType(declType);
-    ctx.sourceLines.push(`${ind}${cppType} ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}${cppType} ${name} = ${val};`);
   } else {
-    ctx.sourceLines.push(`${ind}auto ${name} = ${val};`);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}auto ${name} = ${val};`);
   }
 }
 

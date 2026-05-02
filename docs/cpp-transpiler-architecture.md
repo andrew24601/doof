@@ -102,6 +102,13 @@ It owns:
 - `main()` wrapper generation where appropriate
 - project-level support-file emission for native targets and bundled stdlib assets
 
+Current placement rules that matter for declaration-order bugs:
+
+- ordinary class declarations are emitted in `.hpp` with method prototypes, while their out-of-line definitions live in the module `.cpp`
+- private top-level functions and variables in `.cpp` use `static` internal linkage rather than anonymous-namespace wrapping so out-of-line class methods can call them
+- the `.cpp` emits forward declarations for private helper functions before their definitions so private helper chains can reference later helpers in the same module
+- stream aliases and stream-next helpers stay header-visible because call sites need the alias and dispatch helper types during normal expression emission
+
 If the generated project layout changes, update this document and the tests in `src/emitter-modules.test.ts` and `src/emitter-e2e-modules.test.ts`.
 
 ### 6. Runtime and Feature Support
