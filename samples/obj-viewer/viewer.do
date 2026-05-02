@@ -1,4 +1,4 @@
-import { PI, sin, cos, sqrt, min, clamp } from "./math"
+import { PI, sin, cos, sqrt, min, clamp } from "std/math"
 import { ObjError, ObjFace, ObjModel, Vec3, parseObj } from "./obj"
 
 export import class NativeLineViewer from "./native_obj_viewer.hpp" as doof_obj_viewer::NativeLineViewer {
@@ -72,8 +72,8 @@ function buildWindowTitle(model: ObjModel, path: string): string {
 }
 
 function restoreViewerState(state: ViewerState): void {
-  state.yaw = PI * 0.2f
-  state.pitch = -PI * 0.12f
+  state.yaw = float(PI) * 0.2f
+  state.pitch = -float(PI) * 0.12f
   state.distance = 4.0f
   state.panX = 0.0f
   state.panY = 0.0f
@@ -357,7 +357,7 @@ function viewLoop(viewer: NativeLineViewer, model: ObjModel): void {
     }
 
     state.yaw += orbitX
-    state.pitch = clamp(state.pitch + orbitY, -PI * 0.45f, PI * 0.45f)
+    state.pitch = clamp(state.pitch + orbitY, -float(PI) * 0.45f, float(PI) * 0.45f)
     state.panX += panX * state.distance * 0.9f
     state.panY += panY * state.distance * 0.9f
 

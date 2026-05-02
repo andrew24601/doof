@@ -8,7 +8,6 @@
         "./native_obj_viewer.hpp"
       ],
       "macos": {
-        "includePaths": ["."],
         "sourceFiles": [
           "native_obj_viewer.mm"
         ],

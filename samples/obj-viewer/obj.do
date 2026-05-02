@@ -1,4 +1,4 @@
-import { max } from "./math"
+import { max } from "std/math"
 
 export class Vec3 {
   x: float = 0.0f
