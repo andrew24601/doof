@@ -108,7 +108,9 @@ function materializeLocalStdPackage(sourceRoot: string, packageName: string, ver
   nodeFs.cpSync(sourceDir, targetDir, {
     recursive: true,
     filter(entryPath) {
-      return nodePath.basename(entryPath) !== ".git";
+      const base = nodePath.basename(entryPath);
+      // Ignore VCS and common build output directories
+      return base !== ".git" && base !== "build" && base !== "dist";
     },
   });
 
