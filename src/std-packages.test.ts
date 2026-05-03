@@ -73,6 +73,7 @@ describe("std package metadata", () => {
       "std/math",
       "std/os",
       "std/path",
+      "std/postgres",
       "std/regex",
       "std/stream",
       "std/sqlite",

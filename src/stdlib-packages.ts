@@ -8,6 +8,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   math: "0.1",
   os: "0.1",
   path: "0.1",
+  postgres: "0.1",
   regex: "0.1",
   stream: "0.1",
   sqlite: "0.1",
