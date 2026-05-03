@@ -10,8 +10,9 @@ import type {
   ObjectProperty,
   MemberExpression,
   QualifiedMemberExpression,
+  FunctionDeclaration,
 } from "./ast.js";
-import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
+import { substituteTypeParams, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
 import { emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -22,7 +23,9 @@ import { emitTypeAnnotation } from "./emitter-decl.js";
 import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
+  buildConstructorFieldInfoListForClassType,
   buildFieldTypeList,
+  buildFieldTypeListForClassType,
   buildFieldTypeMap,
   emitClassConstruction,
   emitResolvedClassName,
@@ -116,6 +119,40 @@ function buildPositionalCallValues(
     const targetType = params && index < params.length ? params[index].type : undefined;
     return emitExpression(arg.value, ctx, targetType);
   });
+}
+
+function buildGenericCallTypeSubstitution(
+  expr: CallExpression,
+  ctx: EmitContext,
+): Map<string, ResolvedType> | null {
+  const symbol = expr.resolvedGenericBinding?.symbol;
+  if (!symbol || symbol.symbolKind !== "function" || !expr.resolvedGenericTypeArgs) {
+    return null;
+  }
+
+  const typeArgs = resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx);
+  if (!typeArgs || typeArgs.length === 0) return null;
+
+  const decl = symbol.declaration as FunctionDeclaration;
+  const map = new Map<string, ResolvedType>();
+  for (let index = 0; index < decl.typeParams.length && index < typeArgs.length; index++) {
+    map.set(decl.typeParams[index], typeArgs[index]);
+  }
+  return map;
+}
+
+function specializeFunctionParamsForGenericCall(
+  params: FunctionResolvedParam[] | undefined,
+  expr: CallExpression,
+  ctx: EmitContext,
+): FunctionResolvedParam[] | undefined {
+  if (!params) return undefined;
+  const substitution = buildGenericCallTypeSubstitution(expr, ctx);
+  if (!substitution) return params;
+  return params.map((param) => ({
+    ...param,
+    type: substituteTypeParams(param.type, substitution),
+  }));
 }
 
 function emitIdentifierCallByName(
@@ -315,7 +352,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType);
-    const args = buildConstructorFieldInfoList(calleeType.symbol).map((field) => {
+    const args = buildConstructorFieldInfoListForClassType(classType).map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
@@ -325,7 +362,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       }
       throw new Error(`Missing constructor field "${field.name}" during call emission`);
     });
-    return emitClassConstruction(cppName, calleeType.symbol, args);
+    return emitClassConstruction(cppName, classType.symbol, args);
   }
 
   if (expr.callee.kind === "identifier"
@@ -352,7 +389,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   }
 
   // Build argument list, passing parameter target types for null coercion.
-  const paramTypes = calleeType?.kind === "function" ? calleeType.params : undefined;
+  const paramTypes = calleeType?.kind === "function"
+    ? specializeFunctionParamsForGenericCall(calleeType.params, expr, ctx)
+    : undefined;
   const positionalCallValues = buildPositionalCallValues(paramTypes, expr.args, ctx);
   const args = positionalCallValues.join(", ");
   const explicitGenericMethodCall = emitExplicitGenericMethodCall(expr, ctx, args);
@@ -393,12 +432,17 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     // Constructor call → std::make_shared<ClassName>(args...) or extern create(...)
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType);
+    const fieldTypes = buildFieldTypeListForClassType(classType);
+    const classPositionalValues = expr.args.map((arg, index) => {
+      const targetType = index < fieldTypes.length ? fieldTypes[index] : undefined;
+      return emitExpression(arg.value, ctx, targetType);
+    });
     const positionalArgs = buildPositionalConstructorArgList(
-      calleeType.symbol,
-      positionalCallValues,
+      classType.symbol,
+      classPositionalValues,
       (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
     );
-    return emitClassConstruction(cppName, calleeType.symbol, positionalArgs);
+    return emitClassConstruction(cppName, classType.symbol, positionalArgs);
   }
 
   // Check if this is a method call on an interface-typed object → std::visit
@@ -717,7 +761,10 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     // Named construction: Type { field: value, ... }
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
-    const args = buildConstructorFieldInfoList(sym).map((field) => {
+    const fields = resolvedExprType?.kind === "class"
+      ? buildConstructorFieldInfoListForClassType(resolvedExprType)
+      : buildConstructorFieldInfoList(sym);
+    const args = fields.map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
@@ -731,7 +778,9 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Positional construction: Type(arg1, arg2, ...)
-  const fieldTypes = buildFieldTypeList(sym);
+  const fieldTypes = resolvedExprType?.kind === "class"
+    ? buildFieldTypeListForClassType(resolvedExprType)
+    : buildFieldTypeList(sym);
   const args = (expr.args as Expression[]).map((a, i) => {
     const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
     return emitExpression(a, ctx, fieldType);
@@ -798,4 +847,3 @@ function resolveFunctionParams(
 
   return null;
 }
-

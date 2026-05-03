@@ -36,7 +36,9 @@ import { emitLambdaExpression, emitAsyncExpression, emitActorCreationExpression 
 import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
+  buildConstructorFieldInfoListForClassType,
   buildFieldTypeList,
+  buildFieldTypeListForClassType,
   buildFieldTypeMap,
   emitClassConstruction,
   emitResolvedClassName,
@@ -57,9 +59,10 @@ import {
  */
 export function emitExpression(expr: Expression, ctx: EmitContext, targetType?: ResolvedType): string {
   const raw = emitExpressionInner(expr, ctx, targetType);
-  const sourceType = expr.resolvedType;
-  if (targetType && sourceType) {
-    return emitRuntimeCoercion(raw, sourceType, targetType);
+  const sourceType = substituteEmitType(expr.resolvedType, ctx);
+  const resolvedTargetType = substituteEmitType(targetType, ctx);
+  if (resolvedTargetType && sourceType) {
+    return emitRuntimeCoercion(raw, sourceType, resolvedTargetType);
   }
   return raw;
 }
@@ -274,7 +277,7 @@ function emitTupleLiteral(expr: TupleLiteral, ctx: EmitContext): string {
   if (expr.resolvedType?.kind === "class") {
     const sym = expr.resolvedType.symbol;
     const cppName = sym.extern_?.cppName ?? sym.name;
-    const fieldTypes = buildFieldTypeList(sym);
+    const fieldTypes = buildFieldTypeListForClassType(expr.resolvedType);
     const elements = expr.elements.map((e, i) => {
       const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
       return emitExpression(e, ctx, fieldType);
@@ -335,7 +338,7 @@ function emitObjectLiteral(
     const sym = expr.resolvedType.symbol;
     const cppName = emitResolvedClassName(expr.resolvedType);
     const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
-    const args = buildConstructorFieldInfoList(sym).map((field) => {
+    const args = buildConstructorFieldInfoListForClassType(expr.resolvedType).map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);

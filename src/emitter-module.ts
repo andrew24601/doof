@@ -205,10 +205,11 @@ export function emitModuleSplit(
 
   const interfaceImpls = buildInterfaceImplMap(analysisResult);
   const monomorphizedFunctions = collectDirectStreamFunctionInstantiations(analysisResult);
-  const monomorphizedClasses = collectConcreteStreamSensitiveClassInstantiations(analysisResult);
+  const monomorphizedMethods = new Map<string, GenericMethodInstantiation>();
+  const monomorphizedClasses = collectConcreteStreamSensitiveClassInstantiations(analysisResult, monomorphizedMethods);
   const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
-  const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, baseDir, packageOutputPaths);
+  const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, monomorphizedMethods, baseDir, packageOutputPaths);
   const { code: cppCode, instrumentedLines } = emitCppFile(
     table,
     analysisResult,
@@ -317,6 +318,7 @@ function emitHpp(
   interfaceImpls: Map<string, ClassSymbol[]>,
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
   monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  monomorphizedMethods: Map<string, GenericMethodInstantiation>,
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
 ): string {
@@ -488,6 +490,24 @@ function emitHpp(
     emitClassMethodDefinitions(inst.decl, ctx);
     lines.push(...ctx.sourceLines);
   }
+  const monomorphizedMethodsForModule = [...monomorphizedMethods.values()].filter((inst) => inst.ownerModulePath === table.path);
+  for (const inst of monomorphizedMethodsForModule) {
+    const ownerTypeSubstitution = buildClassTypeSubstitutionMap(inst.ownerDecl, inst.ownerTypeArgs);
+    const methodTypeSubstitution = buildFunctionTypeSubstitutionMap(inst.methodDecl, inst.methodTypeArgs);
+    const typeSubstitution = combineTypeSubstitutions(ownerTypeSubstitution, methodTypeSubstitution);
+    const ownerTypeArgs = inst.ownerTypeArgs.map(emitType).join(", ");
+    const methodTypeArgs = inst.methodTypeArgs.map(emitType).join(", ");
+    const ctx = {
+      ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      typeSubstitution,
+      forceInline: true,
+      suppressTemplatePrefix: true,
+      qualifiedFunctionName: `${emitIdentifierSafe(inst.ownerDecl.name)}<${ownerTypeArgs}>::${emitIdentifierSafe(inst.methodDecl.name)}<${methodTypeArgs}>`,
+    };
+    lines.push("template<>");
+    emitStatement(inst.methodDecl as Statement, ctx);
+    lines.push(...ctx.sourceLines);
+  }
   const dependencyModules = new Set(collectReferencedModulePaths(table));
   for (const [aliasName, info] of streamAliases) {
     emitStreamNextHelperDefinition(aliasName, info, table, dependencyModules, lines);
@@ -650,7 +670,7 @@ function emitCppFile(
     lines.push("");
   }
   for (const fn of nonExportedFns) {
-    lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls, undefined, undefined, false)};`);
+    lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls)};`);
   }
   if (nonExportedFns.length > 0) {
     lines.push("");
@@ -2128,6 +2148,7 @@ function collectDirectStreamInstantiationsFromExpression(
 
 function collectConcreteStreamSensitiveClassInstantiations(
   analysisResult: AnalysisResult,
+  methodResult = new Map<string, GenericMethodInstantiation>(),
 ): Map<string, GenericClassInstantiation> {
   const result = new Map<string, GenericClassInstantiation>();
   const pendingClasses: GenericClassInstantiation[] = [];
@@ -2142,6 +2163,10 @@ function collectConcreteStreamSensitiveClassInstantiations(
   while (pendingClasses.length > 0 || pendingMethods.length > 0) {
     const methodInstantiation = pendingMethods.pop();
     if (methodInstantiation) {
+      if (methodResult.has(methodInstantiation.key)) {
+        continue;
+      }
+      methodResult.set(methodInstantiation.key, methodInstantiation);
       collectConcreteClassInstantiationsFromMethodInstantiation(
         methodInstantiation,
         result,

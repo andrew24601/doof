@@ -445,7 +445,9 @@ describe("emitter — case expression on Result", () => {
     expect(cpp).toContain("_case_result.isSuccess()");
     // Inside f(), getVal() should appear only in the temp initialization,
     // not repeated in each arm. (It also appears once in its own definition.)
-    const fBody = cpp.slice(cpp.indexOf("int32_t f()"));
+    const fBodyStart = cpp.indexOf("int32_t f()");
+    const fBodyEnd = cpp.indexOf("\n}\n", fBodyStart) + "\n}\n".length;
+    const fBody = cpp.slice(fBodyStart, fBodyEnd);
     const callCount = (fBody.match(/getVal\(\)/g) || []).length;
     expect(callCount).toBe(1);
   });

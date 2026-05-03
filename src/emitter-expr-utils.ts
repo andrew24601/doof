@@ -232,10 +232,46 @@ export function buildFieldTypeList(classSym: ClassSymbol | undefined): ResolvedT
     .flatMap((field) => field.type ? [field.type] : []);
 }
 
+export function buildConstructorFieldInfoListForClassType(
+  classType: Extract<ResolvedType, { kind: "class" }>,
+): ConstructorFieldInfo[] {
+  const typeSubstitution = buildClassTypeSubstitution(classType);
+  if (!typeSubstitution) {
+    return buildConstructorFieldInfoList(classType.symbol);
+  }
+
+  return buildConstructorFieldInfoList(classType.symbol).map((field) => ({
+    ...field,
+    type: field.type ? substituteTypeParams(field.type, typeSubstitution) : undefined,
+  }));
+}
+
+export function buildFieldTypeListForClassType(
+  classType: Extract<ResolvedType, { kind: "class" }>,
+): ResolvedType[] {
+  return buildConstructorFieldInfoListForClassType(classType)
+    .flatMap((field) => field.type ? [field.type] : []);
+}
+
 export interface ConstructorFieldInfo {
   name: string;
   type: ResolvedType | undefined;
   defaultValue: Expression | null;
+}
+
+function buildClassTypeSubstitution(
+  classType: Extract<ResolvedType, { kind: "class" }>,
+): Map<string, ResolvedType> | null {
+  const typeArgs = classType.typeArgs ?? [];
+  if (typeArgs.length === 0 || classType.symbol.declaration.typeParams.length === 0) {
+    return null;
+  }
+
+  const map = new Map<string, ResolvedType>();
+  for (let index = 0; index < classType.symbol.declaration.typeParams.length && index < typeArgs.length; index++) {
+    map.set(classType.symbol.declaration.typeParams[index], typeArgs[index]);
+  }
+  return map;
 }
 
 function findExternConstructorFactoryMethod(

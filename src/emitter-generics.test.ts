@@ -132,7 +132,8 @@ class Chain<T> implements Stream<T> {
 
 const chain = Chain(Counter(1, 4))
 `);
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(std::make_shared<Counter>(1, 4))");
+    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, std::make_shared<Counter>(1, 4)})");
+    expect(cpp).not.toContain("__doof_stream_T");
   });
 
   it("emits contextual object literals with concrete generic class names", () => {
@@ -160,7 +161,8 @@ class Chain<T> implements Stream<T> {
 const base = Counter(1, 4)
 const chain: Chain<int> = { source: base }
 `);
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(base)");
+    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, base})");
+    expect(cpp).not.toContain("__doof_stream_T");
   });
 
   it("emits inferred type args for imported generic class call syntax", () => {
@@ -193,7 +195,8 @@ const chain: Chain<int> = { source: base }
       `,
     }, "/main.do");
 
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(std::make_shared<Counter>(1, 4))");
+    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, std::make_shared<Counter>(1, 4)})");
+    expect(cpp).not.toContain("__doof_stream_T");
   });
 });
 

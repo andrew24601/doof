@@ -92,6 +92,7 @@ const CPP_RESERVED = new Set([
   "struct", "switch", "template", "this", "thread_local", "throw", "true",
   "try", "typedef", "typeid", "typename", "union", "unsigned", "using",
   "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+  "abs",
 ]);
 
 export function emitIdentifierSafe(name: string): string {

@@ -546,7 +546,8 @@ describe("emitter — classes", () => {
         function area(): float => 3.14159f * radius * radius
       }
     `);
-    expect(cpp).toContain("float area() {");
+    expect(cpp).toContain("float area();");
+    expect(cpp).toContain("float Circle::area() {");
     // 3.14159 parses as a double literal — verify it appears in output
     expect(cpp).toContain("3.14159");
   });

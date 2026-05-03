@@ -70,10 +70,12 @@ describe("std package metadata", () => {
       "std/fs",
       "std/http",
       "std/json",
+      "std/math",
       "std/os",
       "std/path",
       "std/regex",
       "std/stream",
+      "std/sqlite",
       "std/time",
     ]);
   });

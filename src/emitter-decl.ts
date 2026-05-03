@@ -164,7 +164,8 @@ export function emitFunctionPrototype(decl: FunctionDeclaration, ctx: EmitContex
   const retType = resolvedDeclType && resolvedDeclType.kind === "function"
     ? emitType(resolvedDeclType.returnType)
     : "auto";
-  const params = decl.params.map((p) => emitParam(p, ctx, false)).join(", ");
+  const includeDefaults = ctx.emitParameterDefaults ?? true;
+  const params = decl.params.map((p) => emitParam(p, ctx, includeDefaults)).join(", ");
   const staticPrefix = ctx.inClass && decl.static_ ? "static " : "";
   ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params});`);
 }
@@ -266,7 +267,7 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     ctx.sourceLines.push("");
     for (const method of decl.methods) {
       const methodCtx = { ...ctx, indent: ctx.indent + 1, inClass: true };
-      if (ctx.emitMethodBodiesInline === false) {
+      if (ctx.emitMethodBodiesInline === false && (method.typeParams.length === 0 || ctx.emitExplicitClassSpecialization)) {
         emitFunctionPrototype(method, methodCtx);
       } else {
         emitFunctionDecl(method, methodCtx);
@@ -312,6 +313,7 @@ export function emitClassMethodDefinitions(decl: ClassDeclaration, ctx: EmitCont
   const name = ctx.classNameOverride ?? emitIdentifierSafe(decl.name);
 
   for (const method of decl.methods) {
+    if (method.typeParams.length > 0) continue;
     emitFunctionDecl(method, {
       ...ctx,
       inClass: false,
