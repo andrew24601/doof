@@ -12,6 +12,7 @@ export enum TokenType {
 
   // Identifiers & Keywords
   Identifier = "Identifier",
+  CallerIntrinsic = "CallerIntrinsic",
   Const = "Const",
   Readonly = "Readonly",
   Let = "Let",
@@ -632,6 +633,28 @@ export class Lexer {
     const ch = this.peek();
 
     switch (ch) {
+      case "@":
+        if (this.source.slice(this.pos, this.pos + 7) === "@caller"
+            && !this.isIdentPart(this.peek(7))) {
+          this.advance();
+          this.advance();
+          this.advance();
+          this.advance();
+          this.advance();
+          this.advance();
+          this.advance();
+          this.addToken(TokenType.CallerIntrinsic, "@caller", startLine, startCol);
+          break;
+        }
+        this.diagnostics.push({
+          severity: "error",
+          message: `Unexpected character: '${this.peek()}'`,
+          line: this.line,
+          column: this.column,
+        });
+        this.advance();
+        break;
+
       case "(": this.advance(); this.addToken(TokenType.LeftParen, "(", startLine, startCol); break;
       case ")": this.advance(); this.addToken(TokenType.RightParen, ")", startLine, startCol); break;
       case "{":

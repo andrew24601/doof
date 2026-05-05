@@ -191,8 +191,7 @@ function inferClassInstanceMemberType(
   span?: SourceSpan,
 ): ResolvedType {
   const classDecl = objectType.symbol.declaration;
-  const classTable = host.analysisResult.modules.get(objectType.symbol.module);
-  if (!classTable) return UNKNOWN_TYPE;
+  const classTable = host.analysisResult.modules.get(objectType.symbol.module) ?? table;
 
   return withClassTypeParams(host, classDecl, () => {
     const classSubMap = buildClassTypeSubstitution(host, objectType);

@@ -124,9 +124,11 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
     // Pre-scan for let variables captured by lambdas → heap-box them
     const paramNameSet = new Set(decl.params.map((p) => p.name));
     const capturedMutables = scanCapturedMutables(decl.body, paramNameSet);
+    const currentCallableName = ctx.currentCallableName ?? decl.name;
     emitBlockStatements(decl.body, {
       ...ctx,
       indent: ctx.indent + 1,
+      currentCallableName,
       currentFunctionReturnType: fnRetType,
       capturedMutables: capturedMutables.size > 0 ? capturedMutables : undefined,
     });
@@ -136,7 +138,10 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
     const fnRetType = resolvedDeclType && resolvedDeclType.kind === "function"
       ? resolvedDeclType.returnType
       : undefined;
-    const body = emitExpression(decl.body as Expression, ctx, fnRetType);
+    const body = emitExpression(decl.body as Expression, {
+      ...ctx,
+      currentCallableName: ctx.currentCallableName ?? decl.name,
+    }, fnRetType);
     ctx.sourceLines.push(`${ind}${inlinePrefix}${linkagePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
     emitMockRecordingPrelude(decl, mockCall, ctx);
     ctx.sourceLines.push(`${ind}    return ${body};`);
@@ -266,7 +271,12 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   if (decl.methods.length > 0) {
     ctx.sourceLines.push("");
     for (const method of decl.methods) {
-      const methodCtx = { ...ctx, indent: ctx.indent + 1, inClass: true };
+      const methodCtx = {
+        ...ctx,
+        indent: ctx.indent + 1,
+        inClass: true,
+        currentCallableName: `${decl.name}.${method.name}`,
+      };
       if (ctx.emitMethodBodiesInline === false && (method.typeParams.length === 0 || ctx.emitExplicitClassSpecialization)) {
         emitFunctionPrototype(method, methodCtx);
       } else {
@@ -318,6 +328,7 @@ export function emitClassMethodDefinitions(decl: ClassDeclaration, ctx: EmitCont
       ...ctx,
       inClass: false,
       emitParameterDefaults: false,
+      currentCallableName: `${decl.name}.${method.name}`,
       qualifiedFunctionName: `${name}::${emitIdentifierSafe(method.name)}`,
     });
     ctx.sourceLines.push("");

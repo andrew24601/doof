@@ -253,6 +253,33 @@ describe("e2e — compile and run", () => {
       console.log("Compile error:", result.stderr);
     }
   });
+
+  it("captures @caller at function and construction call sites", () => {
+    const result = ctx.compileAndRun(`function render(loc: SourceLocation): string => loc.fileName + ":" + string(loc.line) + ":" + loc.functionName
+function debug(source: SourceLocation = @caller): void {
+  println(render(source))
+}
+class Marker {
+  source: SourceLocation = @caller
+}
+function wrapper(): void {
+  debug()
+  marker := Marker {}
+  println(render(marker.source))
+}
+function main(): void {
+  wrapper()
+}`);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim().split(/\r?\n/)).toEqual([
+        "main:9:wrapper",
+        "main:10:wrapper",
+      ]);
+    } else {
+      console.log("Compile error:", result.stderr);
+    }
+  });
 });
 
 // ============================================================================

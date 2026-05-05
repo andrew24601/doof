@@ -191,6 +191,21 @@ describe("emitter — functions", () => {
     expect(cpp).toContain("return 0;");
     expect(cpp).not.toContain("void main()");
   });
+
+  it("materializes @caller defaults at the call site", () => {
+    const cpp = emit(`
+      function debug(message: string, source: SourceLocation = @caller): void {
+        println(source.fileName)
+      }
+
+      function main(): void {
+        debug("hello")
+      }
+    `);
+
+    expect(cpp).toContain('debug(std::string("hello"), std::make_shared<doof::SourceLocation>(std::string("main"),');
+    expect(cpp).toContain('std::string("main")))');
+  });
 });
 
 describe("emitter — expressions", () => {

@@ -30,6 +30,7 @@ import type {
   FunctionDeclaration,
   ClassDeclaration,
   InterfaceDeclaration,
+  ObjectProperty,
   Parameter,
   SourceSpan,
   TryBinding,
@@ -67,6 +68,7 @@ import {
 } from "./checker-types.js";
 import {
   BUILTIN_PARSE_ERROR_TYPE,
+  BUILTIN_SOURCE_LOCATION_TYPE,
   BUILTIN_SPAN,
   NUMERIC_PRIMITIVE_NAMES,
   STRING_CONVERTIBLE_PRIMITIVE_NAMES,
@@ -321,6 +323,7 @@ export function validateEmitReadyDeclarations(
       case "enum-access":
       case "dot-shorthand":
       case "this-expression":
+      case "caller-expression":
         break;
     }
   };
@@ -696,6 +699,9 @@ export class TypeChecker {
         if (param.type) {
           this.reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
         }
+        if (param.defaultValue) {
+          this.inferExprType(param.defaultValue, this.buildModuleScope(table), table, info, paramType, true);
+        }
         return { name: param.name, type: paramType };
       });
       validateCollectionTypeAnnotation(method.returnType, method.returnType.span, table, info, { allowOmittedTypeArgs: false });
@@ -767,6 +773,7 @@ export class TypeChecker {
     switch (ann.kind) {
       case "named-type": {
         const name = ann.name;
+        if (name === "SourceLocation") return BUILTIN_SOURCE_LOCATION_TYPE;
         if (name === "JsonValue") return JSON_VALUE_TYPE;
         if (name === "JsonObject") return JSON_OBJECT_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
@@ -956,6 +963,17 @@ export class TypeChecker {
         name: "ParseError",
         kind: "enum",
         type: BUILTIN_PARSE_ERROR_TYPE,
+        mutable: false,
+        span: BUILTIN_SPAN,
+        module: "<builtin>",
+      });
+    }
+
+    if (!scope.bindings.has("SourceLocation")) {
+      scope.bindings.set("SourceLocation", {
+        name: "SourceLocation",
+        kind: "class",
+        type: BUILTIN_SOURCE_LOCATION_TYPE,
         mutable: false,
         span: BUILTIN_SPAN,
         module: "<builtin>",
@@ -1352,8 +1370,9 @@ export class TypeChecker {
     table: ModuleSymbolTable,
     info: ModuleTypeInfo,
     expectedType?: ResolvedType,
+    allowCaller?: boolean,
   ): ResolvedType {
-    return inferExprType(this.host, expr, scope, table, info, expectedType);
+    return inferExprType(this.host, expr, scope, table, info, expectedType, allowCaller);
   }
 
   // --------------------------------------------------------------------------

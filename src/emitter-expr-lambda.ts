@@ -38,13 +38,18 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
 
   const captures = analyzeLambdaCaptures(expr, ctx);
   const captureList = captures.length > 0 ? captures.join(", ") : "=";
+  const lambdaSuffix = `<lambda:${expr.span.start.line}>`;
+  const bodyCtx: EmitContext = {
+    ...ctx,
+    currentCallableName: `${ctx.currentCallableName ?? "<module>"}.${lambdaSuffix}`,
+  };
 
   if (expr.body.kind === "block") {
-    const bodyLines = emitBlockBody(expr.body as Block, ctx);
+    const bodyLines = emitBlockBody(expr.body as Block, bodyCtx);
     return `[${captureList}](${params}) -> ${retType} {\n${bodyLines}\n${indent(ctx)}}`;
   }
 
-  const body = emitExpression(expr.body as Expression, ctx);
+  const body = emitExpression(expr.body as Expression, bodyCtx);
   return `[${captureList}](${params}) -> ${retType} { return ${body}; }`;
 }
 
@@ -171,6 +176,8 @@ function collectCaptures(
       break;
     case "this-expression":
       captures.set("this", "this");
+      break;
+    case "caller-expression":
       break;
     case "binary-expression":
       collectCaptures(expr.left, paramNames, captures, ctx);

@@ -6,7 +6,7 @@
  * (which need EmitContext).
  */
 
-import type { Block } from "./ast.js";
+import type { Block, SourceSpan } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
 import type { ResolvedType } from "./checker-types.js";
 
@@ -35,6 +35,10 @@ export interface EmitContext {
   emitParameterDefaults?: boolean;
   /** Emit block body helper — wired to emitter-stmt's emitBlockStatements. */
   emitBlock: (block: Block, ctx: EmitContext) => string;
+  /** Encoded Doof callable name for the current emission scope. */
+  currentCallableName?: string;
+  /** Override used when emitting call-site-sensitive defaults such as @caller. */
+  sourceLocationSpanOverride?: SourceSpan;
   /** The return type of the current enclosing function (for Result wrapping). */
   currentFunctionReturnType?: ResolvedType;
   /**

@@ -79,6 +79,48 @@ The `{` must immediately follow the callee token with no whitespace: `clamp{ ...
 
 The same named-call form applies to methods and imported functions.
 
+### `SourceLocation` and `@caller`
+
+Doof provides a built-in `SourceLocation` class and a special `@caller` default-expression intrinsic for call-site attribution.
+
+```doof
+function debug(message: string, source: SourceLocation = @caller): void {
+    println(source.fileName + ":" + string(source.line) + ":" + source.functionName)
+}
+```
+
+`SourceLocation` is always in scope and has this shape:
+
+```doof
+class SourceLocation {
+    readonly fileName: string
+    readonly line: int
+    readonly functionName: string = "<module>"
+}
+```
+
+Rules:
+
+- `@caller` is only valid as a default value for a parameter or a class field.
+- It evaluates at the call or construction site, not where the function or class was declared.
+- Callers can override it explicitly by passing a `SourceLocation` argument.
+- `fileName` uses the module import-path form: no `.do` extension, `index.do` barrels collapse to the directory path.
+- `functionName` is `"<module>"` at module scope, the function name for free functions, and `ClassName.methodName` for methods.
+
+This makes wrapper APIs straightforward:
+
+```doof
+function assert(condition: bool, message: string, source: SourceLocation = @caller): void {
+    if !condition {
+        panic("Assertion failed at " + source.fileName + ":" + string(source.line) + ": " + message)
+    }
+}
+
+function assertEqual<T>(left: T, right: T, message: string, source: SourceLocation = @caller): void {
+    assert(left == right, message, source)
+}
+```
+
 ### Modifiers
 
 Top-level and class-level function declarations accept modifiers that control visibility and concurrency behaviour.

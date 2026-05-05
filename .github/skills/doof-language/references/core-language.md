@@ -106,6 +106,25 @@ clamp{ value, min: 0, max: 100 }
 
 Named calls match parameters by name. Any omitted parameter must have a default. The `{` must immediately follow the callee.
 
+`SourceLocation` is a builtin class for source attribution. Use `@caller` only in parameter or field defaults when you want the call or construction site:
+
+```doof
+function info(message: string, source: SourceLocation = @caller): void {
+    println(source.fileName + ":" + string(source.line))
+}
+
+class SourceLocation {
+    readonly fileName: string
+    readonly line: int
+    readonly functionName: string = "<module>"
+}
+
+class Failure {
+    message: string
+    source: SourceLocation = @caller
+}
+```
+
 ### Lambdas
 
 ```doof

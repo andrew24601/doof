@@ -390,6 +390,11 @@ export interface ThisExpression extends Typed {
   span: SourceSpan;
 }
 
+export interface CallerExpression extends Typed {
+  kind: "caller-expression";
+  span: SourceSpan;
+}
+
 export interface CatchExpression extends Typed {
   kind: "catch-expression";
   body: Statement[];
@@ -454,6 +459,7 @@ export type Expression =
   | EnumAccess
   | DotShorthand
   | ThisExpression
+  | CallerExpression
   | CatchExpression
   | AsyncExpression
   | NonNullAssertionExpression

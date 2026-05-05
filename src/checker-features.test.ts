@@ -19,6 +19,79 @@ import {
 } from "./checker-types.js";
 import { collectExprs, check, findId, findTypes } from "./checker-test-helpers.js";
 
+describe("checker — SourceLocation and @caller", () => {
+  it("treats SourceLocation as a builtin class and types @caller defaults", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function debug(message: string, source: SourceLocation = @caller): SourceLocation {
+            return source
+          }
+
+          function main(): void {
+            loc := SourceLocation("main", 42, "main")
+            debug("hello")
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const callerExpr = collectExprs(cr.program).find((expr) => expr.kind === "caller-expression");
+    expect(callerExpr?.resolvedType).toMatchObject({
+      kind: "class",
+      symbol: expect.objectContaining({ name: "SourceLocation", module: "<builtin>" }),
+    });
+  });
+
+  it("rejects @caller outside parameter and field defaults", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            loc := @caller
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes('"@caller" is only valid'))).toBe(true);
+  });
+
+  it("rejects nested @caller inside a default expression", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function identity(source: SourceLocation): SourceLocation => source
+
+          function debug(source: SourceLocation = identity(@caller)): void {}
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes('"@caller" is only valid'))).toBe(true);
+  });
+
+  it("treats SourceLocation fields as readonly", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function mutate(source: SourceLocation): void {
+            source.fileName = "other"
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes('Cannot assign to "fileName" because it is a readonly field'))).toBe(true);
+  });
+});
+
 // ============================================================================
 // Namespace imports
 // ============================================================================

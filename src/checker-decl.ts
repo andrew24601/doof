@@ -170,7 +170,7 @@ export function checkFunction(
     });
     if (param.defaultValue) {
       const collectionAnnotation = getCollectionTypeAnnotationInfo(param.type);
-      const inferredDefaultType = host.inferExprType(param.defaultValue, fnScope, table, info, paramType);
+      const inferredDefaultType = host.inferExprType(param.defaultValue, fnScope, table, info, paramType, true);
       const finalizedDefaultType = finalizeDeclaredCollectionType(
         param.type,
         param.type ? paramType : null,
@@ -317,6 +317,7 @@ export function checkClass(
         table,
         info,
         declaredFieldType ?? undefined,
+        true,
       );
       const finalizedDefaultType = finalizeDeclaredCollectionType(
         field.type,
@@ -519,7 +520,7 @@ export function checkMethod(
     });
     if (param.defaultValue) {
       const collectionAnnotation = getCollectionTypeAnnotationInfo(param.type);
-      const inferredDefaultType = host.inferExprType(param.defaultValue, methodScope, table, info, paramType);
+      const inferredDefaultType = host.inferExprType(param.defaultValue, methodScope, table, info, paramType, true);
       const finalizedDefaultType = finalizeDeclaredCollectionType(
         param.type,
         param.type ? paramType : null,

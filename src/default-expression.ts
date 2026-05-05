@@ -82,6 +82,9 @@ export function getUnsupportedDefaultExpressionReason(
     case "identifier":
       return identifierIssue(expr);
 
+    case "caller-expression":
+      return null;
+
     case "dot-shorthand":
       return expr.resolvedType?.kind === "enum"
         ? null

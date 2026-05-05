@@ -215,6 +215,7 @@ export const BUILTIN_TYPE_NAMES = new Set([
   "string",
   "char",
   "bool",
+  "SourceLocation",
   "JsonValue",
   "JsonObject",
   "ParseError",

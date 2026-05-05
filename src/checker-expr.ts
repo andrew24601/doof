@@ -42,6 +42,7 @@ import {
 } from "./checker-types.js";
 import {
   NUMERIC_PRIMITIVE_NAMES,
+  BUILTIN_SOURCE_LOCATION_TYPE,
   STRING_CONVERTIBLE_PRIMITIVE_NAMES,
   type CheckerHost,
   type ConstructorParam,
@@ -889,8 +890,9 @@ export function inferExprType(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
   expectedType?: ResolvedType,
+  allowCaller: boolean = false,
 ): ResolvedType {
-  const type = inferExprTypeInner(host, expr, scope, table, info, expectedType);
+  const type = inferExprTypeInner(host, expr, scope, table, info, expectedType, allowCaller);
   expr.resolvedType = type;
   return type;
 }
@@ -902,6 +904,7 @@ function inferExprTypeInner(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
   expectedType?: ResolvedType,
+  allowCaller: boolean = false,
 ): ResolvedType {
   switch (expr.kind) {
     case "int-literal":
@@ -974,6 +977,17 @@ function inferExprTypeInner(
       });
       return UNKNOWN_TYPE;
     }
+
+    case "caller-expression":
+      if (!allowCaller) {
+        info.diagnostics.push({
+          severity: "error",
+          message: '"@caller" is only valid as a default value for a parameter or class field',
+          span: expr.span,
+          module: table.path,
+        });
+      }
+      return BUILTIN_SOURCE_LOCATION_TYPE;
 
     case "binary-expression": {
       let left: ResolvedType;
@@ -1975,6 +1989,9 @@ function inferExprTypeInner(
           span: param.span,
           module: table.path,
         });
+        if (param.defaultValue) {
+          inferExprType(host, param.defaultValue, lambdaScope, table, info, pType, true);
+        }
       }
 
       let returnType: ResolvedType;

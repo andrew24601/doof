@@ -96,15 +96,17 @@ function buildOrderedNamedCallValues(
   params: FunctionResolvedParam[],
   args: Array<{ name: string; value: Expression | null }>,
   ctx: EmitContext,
+  callSiteSpan: CallExpression["span"],
 ): string[] {
   const argMap = new Map(args.map((arg) => [arg.name, arg]));
+  const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: callSiteSpan };
   return params.flatMap((param) => {
     const arg = argMap.get(param.name);
     if (arg) {
       return [arg.value ? emitExpression(arg.value, ctx, param.type) : emitIdentifierSafe(arg.name)];
     }
     if (param.defaultValue) {
-      return [emitExpression(param.defaultValue, ctx, param.type)];
+      return [emitExpression(param.defaultValue, defaultCtx, param.type)];
     }
     return [];
   });
@@ -114,11 +116,25 @@ function buildPositionalCallValues(
   params: FunctionResolvedParam[] | undefined,
   args: Array<{ value: Expression }>,
   ctx: EmitContext,
+  callSiteSpan: CallExpression["span"],
 ): string[] {
-  return args.map((arg, index) => {
+  const values = args.map((arg, index) => {
     const targetType = params && index < params.length ? params[index].type : undefined;
     return emitExpression(arg.value, ctx, targetType);
   });
+
+  if (!params || args.length >= params.length) {
+    return values;
+  }
+
+  const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: callSiteSpan };
+  for (let index = args.length; index < params.length; index++) {
+    const param = params[index];
+    if (!param.defaultValue) break;
+    values.push(emitExpression(param.defaultValue, defaultCtx, param.type));
+  }
+
+  return values;
 }
 
 function buildGenericCallTypeSubstitution(
@@ -328,6 +344,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       calleeType.params,
       expr.args.map((arg) => ({ name: arg.name!, value: arg.value })),
       ctx,
+      expr.span,
     );
 
     if (monomorphizedName) {
@@ -352,13 +369,14 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType);
+    const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const args = buildConstructorFieldInfoListForClassType(classType).map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
       }
       if (field.defaultValue) {
-        return emitExpression(field.defaultValue, ctx, field.type);
+        return emitExpression(field.defaultValue, defaultCtx, field.type);
       }
       throw new Error(`Missing constructor field "${field.name}" during call emission`);
     });
@@ -392,7 +410,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   const paramTypes = calleeType?.kind === "function"
     ? specializeFunctionParamsForGenericCall(calleeType.params, expr, ctx)
     : undefined;
-  const positionalCallValues = buildPositionalCallValues(paramTypes, expr.args, ctx);
+  const positionalCallValues = buildPositionalCallValues(paramTypes, expr.args, ctx, expr.span);
   const args = positionalCallValues.join(", ");
   const explicitGenericMethodCall = emitExplicitGenericMethodCall(expr, ctx, args);
 
@@ -440,7 +458,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const positionalArgs = buildPositionalConstructorArgList(
       classType.symbol,
       classPositionalValues,
-      (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
+      (defaultExpr, targetType) => emitExpression(defaultExpr, { ...ctx, sourceLocationSpanOverride: expr.span }, targetType),
     );
     return emitClassConstruction(cppName, classType.symbol, positionalArgs);
   }
@@ -738,7 +756,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   if (!sym && expr.named && expr.tightBraces && functionParams) {
-    const args = buildOrderedNamedCallValues(functionParams, expr.args as ObjectProperty[], ctx);
+    const args = buildOrderedNamedCallValues(functionParams, expr.args as ObjectProperty[], ctx, expr.span);
     return emitIdentifierCallByName(expr.type, args, ctx);
   }
 
@@ -764,13 +782,14 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     const fields = resolvedExprType?.kind === "class"
       ? buildConstructorFieldInfoListForClassType(resolvedExprType)
       : buildConstructorFieldInfoList(sym);
+    const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const args = fields.map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
       }
       if (field.defaultValue) {
-        return emitExpression(field.defaultValue, ctx, field.type);
+        return emitExpression(field.defaultValue, defaultCtx, field.type);
       }
       throw new Error(`Missing constructor field \"${field.name}\" during construct emission`);
     });
@@ -788,7 +807,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   const positionalArgs = buildPositionalConstructorArgList(
     sym,
     args,
-    (defaultExpr, targetType) => emitExpression(defaultExpr, ctx, targetType),
+    (defaultExpr, targetType) => emitExpression(defaultExpr, { ...ctx, sourceLocationSpanOverride: expr.span }, targetType),
   );
   return emitClassConstruction(typeName, sym, positionalArgs);
 }

@@ -3116,6 +3116,11 @@ export class Parser {
       return { kind: "this-expression", span: this.span(startLoc) };
     }
 
+    if (this.check(TokenType.CallerIntrinsic)) {
+      this.advance();
+      return { kind: "caller-expression", span: this.span(startLoc) };
+    }
+
     // Readonly modifier on collection literal
     if (this.check(TokenType.Readonly) && this.peek(1).type === TokenType.LeftBracket) {
       this.advance();

@@ -117,6 +117,10 @@ describe("Parser — literals", () => {
   it("parses this", () => {
     expect(parseExpr("this")).toMatchObject({ kind: "this-expression" });
   });
+
+  it("parses @caller", () => {
+    expect(parseExpr("@caller")).toMatchObject({ kind: "caller-expression" });
+  });
 });
 
 // ==========================================================================

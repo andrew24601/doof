@@ -61,6 +61,7 @@ export function collectExprs(program: Program): Expression[] {
         break;
       case "non-null-assertion": walkExpr(e.expression); break;
       case "as-expression": walkExpr(e.expression); break;
+      case "caller-expression": break;
     }
   }
 

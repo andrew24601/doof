@@ -21,6 +21,18 @@ class User {
 }
 ```
 
+Field defaults are evaluated at construction time. They can use `@caller` to capture who constructed the instance:
+
+```doof
+class AssertionError {
+    message: string
+    source: SourceLocation = @caller
+}
+
+err := AssertionError { message: "boom" }
+// err.source points at the construction site above
+```
+
 ### Field Modifiers
 
 | Modifier | Behaviour |

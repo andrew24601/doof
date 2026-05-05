@@ -240,6 +240,14 @@ describe("Parser — function declarations", () => {
       });
     }
   });
+
+  it("parses @caller parameter defaults", () => {
+    const stmt = firstStmt("function debug(message: string, source: SourceLocation = @caller): void {}");
+    expect(stmt).toMatchObject({ kind: "function-declaration", name: "debug" });
+    if (stmt.kind === "function-declaration") {
+      expect(stmt.params[1]?.defaultValue).toMatchObject({ kind: "caller-expression" });
+    }
+  });
 });
 
 // ==========================================================================
@@ -281,6 +289,17 @@ describe("Parser — class declarations", () => {
     if (stmt.kind === "class-declaration") {
       expect(stmt.fields[0].const_).toBe(true);
       expect(stmt.fields[0].names).toEqual(["kind"]);
+    }
+  });
+
+  it("parses @caller field defaults", () => {
+    const stmt = firstStmt(`class AssertionError {
+      message: string
+      source: SourceLocation = @caller
+    }`);
+    expect(stmt).toMatchObject({ kind: "class-declaration", name: "AssertionError" });
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.fields[1]?.defaultValue).toMatchObject({ kind: "caller-expression" });
     }
   });
 

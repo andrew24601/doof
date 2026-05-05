@@ -23,6 +23,8 @@ import type {
 import type { EnumDeclaration } from "./ast.js";
 import type { ClassSymbol, EnumSymbol, ModuleSymbol, ModuleSymbolTable } from "./types.js";
 
+import { INT_TYPE as BUILTIN_INT_TYPE, STRING_TYPE as BUILTIN_STRING_TYPE } from "./checker-types.js";
+
 export const BUILTIN_SPAN: SourceSpan = {
   start: { line: 0, column: 0, offset: 0 },
   end: { line: 0, column: 0, offset: 0 },
@@ -52,6 +54,88 @@ const BUILTIN_PARSE_ERROR_SYMBOL: EnumSymbol = {
 export const BUILTIN_PARSE_ERROR_TYPE: EnumType = {
   kind: "enum",
   symbol: BUILTIN_PARSE_ERROR_SYMBOL,
+};
+
+const BUILTIN_SOURCE_LOCATION_DECL: ClassDeclaration = {
+  kind: "class-declaration",
+  name: "SourceLocation",
+  description: undefined,
+  typeParams: [],
+  typeParamConstraints: undefined,
+  implements_: [],
+  fields: [
+    {
+      kind: "class-field",
+      names: ["fileName"],
+      descriptions: [undefined],
+      type: { kind: "named-type", name: "string", typeArgs: [], span: BUILTIN_SPAN },
+      defaultValue: null,
+      static_: false,
+      readonly_: true,
+      const_: false,
+      weak_: false,
+      private_: false,
+      resolvedType: BUILTIN_STRING_TYPE,
+      span: BUILTIN_SPAN,
+    },
+    {
+      kind: "class-field",
+      names: ["line"],
+      descriptions: [undefined],
+      type: { kind: "named-type", name: "int", typeArgs: [], span: BUILTIN_SPAN },
+      defaultValue: null,
+      static_: false,
+      readonly_: true,
+      const_: false,
+      weak_: false,
+      private_: false,
+      resolvedType: BUILTIN_INT_TYPE,
+      span: BUILTIN_SPAN,
+    },
+    {
+      kind: "class-field",
+      names: ["functionName"],
+      descriptions: [undefined],
+      type: { kind: "named-type", name: "string", typeArgs: [], span: BUILTIN_SPAN },
+      defaultValue: {
+        kind: "string-literal",
+        value: "<module>",
+        parts: ["<module>"],
+        resolvedType: BUILTIN_STRING_TYPE,
+        span: BUILTIN_SPAN,
+      },
+      static_: false,
+      readonly_: true,
+      const_: false,
+      weak_: false,
+      private_: false,
+      resolvedType: BUILTIN_STRING_TYPE,
+      span: BUILTIN_SPAN,
+    },
+  ],
+  methods: [],
+  destructor: null,
+  mock_: false,
+  exported: false,
+  private_: false,
+  span: BUILTIN_SPAN,
+};
+
+const BUILTIN_SOURCE_LOCATION_SYMBOL: ClassSymbol = {
+  symbolKind: "class",
+  name: "SourceLocation",
+  declaration: BUILTIN_SOURCE_LOCATION_DECL,
+  exported: false,
+  module: "<builtin>",
+  extern_: {
+    headerPath: null,
+    cppName: "doof::SourceLocation",
+  },
+};
+
+export const BUILTIN_SOURCE_LOCATION_TYPE: ResolvedType = {
+  kind: "class",
+  symbol: BUILTIN_SOURCE_LOCATION_SYMBOL,
 };
 
 export const NUMERIC_PRIMITIVE_NAMES = new Set(["byte", "int", "long", "float", "double"]);
@@ -89,6 +173,7 @@ export interface CheckerHost {
     table: ModuleSymbolTable,
     info: ModuleTypeInfo,
     expectedType?: ResolvedType,
+    allowCaller?: boolean,
   ): ResolvedType;
   inferTypeArgs(
     typeParams: string[],

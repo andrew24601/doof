@@ -55,6 +55,9 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
     case "identifier":
       return emitIdentifierSafe(expr.name);
 
+    case "caller-expression":
+      return 'std::make_shared<doof::SourceLocation>(std::string("<module>"), 0, std::string("<module>"))';
+
     case "enum-access":
       if (expr.enumName && expr.resolvedType?.kind === "enum") {
         return emitEnumVariantAccess(expr.resolvedType, expr.variant);

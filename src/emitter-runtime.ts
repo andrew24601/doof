@@ -91,6 +91,17 @@ inline void assert_at(const char* file, int32_t line, bool condition, const std:
     }
 }
 
+struct SourceLocation {
+    const std::string fileName;
+    const int32_t line;
+    const std::string functionName;
+
+    SourceLocation(std::string fileNameValue, int32_t lineValue, std::string functionNameValue = "<module>")
+        : fileName(std::move(fileNameValue)),
+          line(lineValue),
+          functionName(std::move(functionNameValue)) {}
+};
+
 [[noreturn]] inline void panic_ordered_collection_invariant(
     const char* collection,
     const char* context,

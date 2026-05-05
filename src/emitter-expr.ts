@@ -17,6 +17,7 @@ import { typesEqual, type ResolvedType } from "./checker-types.js";
 import { emitAsNarrowExpression } from "./emitter-narrowing.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitPanicAt } from "./emitter-panic.js";
+import { emitCallerSourceLocation } from "./emitter-panic.js";
 import { emitRuntimeCoercion } from "./emitter-json-value.js";
 import { emitEnumVariantAccess, emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
@@ -177,6 +178,9 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "this-expression":
       return "this->shared_from_this()";
+
+    case "caller-expression":
+      return emitCallerSourceLocation(ctx.sourceLocationSpanOverride ?? expr.span, ctx);
 
     case "object-literal":
       return emitObjectLiteral(expr, ctx);

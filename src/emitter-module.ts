@@ -817,6 +817,7 @@ function emitDoofMainFunction(
     emitBlockStatements(mainDecl.body, {
       ...ctx,
       indent: 1,
+      currentCallableName: mainDecl.name,
       currentFunctionReturnType: mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
         ? mainDecl.resolvedType.returnType
         : undefined,
@@ -825,7 +826,10 @@ function emitDoofMainFunction(
     lines.push(...ctx.sourceLines);
     lines.push("}");
   } else {
-    const body = emitExpression(mainDecl.body as Expression, ctx);
+    const body = emitExpression(mainDecl.body as Expression, {
+      ...ctx,
+      currentCallableName: mainDecl.name,
+    });
     lines.push(`${retType} doof_main(${params}) {`);
     lines.push(`    return ${body};`);
     lines.push("}");
