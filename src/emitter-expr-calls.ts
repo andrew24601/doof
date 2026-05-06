@@ -30,6 +30,7 @@ import {
   emitClassConstruction,
   emitResolvedClassName,
   emitStreamNextHelperName,
+  emitStreamValueHelperName,
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
@@ -590,6 +591,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       const method = emitIdentifierSafe(memberExpr.property);
       if (memberExpr.property === "next" && !args) {
         return `${emitStreamNextHelperName(emitType(objType))}(${obj})`;
+      }
+      if (memberExpr.property === "value" && !args) {
+        return `${emitStreamValueHelperName(emitType(objType))}(${obj})`;
       }
       if (args) {
         return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;

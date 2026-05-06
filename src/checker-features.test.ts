@@ -319,24 +319,32 @@ describe("checker — for-of ranges", () => {
 });
 
 describe("checker — streams", () => {
-  it("types next() on Stream<int> and validates explicit implements", () => {
+  it("types stream intrinsic members and validates explicit implements", () => {
     const cr = check(
       {
         "/main.do": `
           class CounterStream implements Stream<int> {
             current: int = 0
+            currentValue: int = 0
 
-            function next(): int | null {
+            function next(): bool {
               if current < 3 {
-                value := current
+                currentValue = current
                 current += 1
-                return value
+                return true
               }
-              return null
+              return false
             }
+
+            function value(): int => currentValue
           }
 
-          function readOnce(stream: Stream<int>): int | null => stream.next()
+          function readOnce(stream: Stream<int>): int | null {
+            if stream.next() {
+              return stream.value()
+            }
+            return null
+          }
         `,
       },
       "/main.do",
@@ -352,7 +360,13 @@ describe("checker — streams", () => {
     const nextCalls = collectExprs(cr.program)
       .filter((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression" && expr.callee.kind === "member-expression" && expr.callee.property === "next");
     expect(nextCalls.length).toBeGreaterThan(0);
-    expect(typeToString(nextCalls[0].resolvedType!)).toBe("int | null");
+
+    const valueCalls = collectExprs(cr.program)
+      .filter((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression" && expr.callee.kind === "member-expression" && expr.callee.property === "value");
+    expect(valueCalls.length).toBeGreaterThan(0);
+
+    expect(typeToString(nextCalls[0].resolvedType!)).toBe("bool");
+    expect(typeToString(valueCalls[0].resolvedType!)).toBe("int");
   });
 
   it("infers for-of loop bindings from Stream<int>", () => {
@@ -361,15 +375,18 @@ describe("checker — streams", () => {
         "/main.do": `
           class CounterStream implements Stream<int> {
             current: int = 0
+            currentValue: int = 0
 
-            function next(): int | null {
+            function next(): bool {
               if current < 2 {
-                value := current
+                currentValue = current
                 current += 1
-                return value
+                return true
               }
-              return null
+              return false
             }
+
+            function value(): int => currentValue
           }
 
           function sum(stream: Stream<int>): int {
@@ -399,7 +416,8 @@ describe("checker — streams", () => {
       {
         "/main.do": `
           class BrokenStream implements Stream<int> {
-            function next(): string | null => null
+            function next(): bool => true
+            function value(): string => "oops"
           }
         `,
       },
@@ -5569,6 +5587,19 @@ describe("checker — as expression", () => {
 
         m := v as readonly Map<string, JsonValue> else {
           panic("Not a map")
+          return
+        }
+
+        println(m.size)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("treats unions as narrowable to readonly runtime-equivalent collection members", () => {
+    const cr = check({ "/main.do": `
+      function main(v: Map<string, JsonValue> | string): void {
+        m := v as readonly Map<string, JsonValue> else {
           return
         }
 

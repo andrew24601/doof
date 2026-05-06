@@ -832,24 +832,31 @@ describe("emitter — for-of loops", () => {
       class Counter implements Stream<int> {
         current: int
         end: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       function readOnce(stream: Stream<int>): int | null {
-        return stream.next()
+        if stream.next() {
+          return stream.value()
+        }
+        return null
       }
     `);
 
     expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<Counter>>;");
     expect(cpp).toContain("__doof_stream_next___doof_stream_int(stream)");
+    expect(cpp).toContain("__doof_stream_value___doof_stream_int(stream)");
   });
 
   it("lowers for-of over streams to next-driven loops", () => {
@@ -857,15 +864,18 @@ describe("emitter — for-of loops", () => {
       class Counter implements Stream<int> {
         current: int
         end: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       function sum(items: Stream<int>): int {
@@ -881,6 +891,7 @@ describe("emitter — for-of loops", () => {
     expect(cpp).toContain("auto _stream_next_");
     expect(cpp).toContain("__doof_stream_next___doof_stream_int(_stream_");
     expect(cpp).toContain("if (!_stream_next_");
+    expect(cpp).toContain("__doof_stream_value___doof_stream_int(_stream_");
   });
 });
 

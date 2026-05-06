@@ -858,24 +858,28 @@ function classImplementsInterface(source: ClassType, target: InterfaceType): boo
 function classImplementsStream(source: ClassType, target: StreamResolvedType): boolean {
   const classDecl = source.symbol.declaration;
   const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_);
-  if (!nextMethod || nextMethod.params.length !== 0) return false;
+  const valueMethod = classDecl.methods.find((method) => method.name === "value" && !method.static_);
+  if (!nextMethod || nextMethod.params.length !== 0 || !valueMethod || valueMethod.params.length !== 0) return false;
 
-  let methodType = nextMethod.resolvedType;
-  if (!methodType || methodType.kind !== "function") return false;
+  let nextMethodType = nextMethod.resolvedType;
+  let valueMethodType = valueMethod.resolvedType;
+  if (!nextMethodType || nextMethodType.kind !== "function" || !valueMethodType || valueMethodType.kind !== "function") {
+    return false;
+  }
 
   if (source.typeArgs && source.typeArgs.length > 0 && classDecl.typeParams.length > 0) {
     const paramMap = new Map<string, ResolvedType>();
     for (let i = 0; i < Math.min(classDecl.typeParams.length, source.typeArgs.length); i++) {
       paramMap.set(classDecl.typeParams[i], source.typeArgs[i]);
     }
-    methodType = substituteTypeParams(methodType, paramMap) as FunctionResolvedType;
+    nextMethodType = substituteTypeParams(nextMethodType, paramMap) as FunctionResolvedType;
+    valueMethodType = substituteTypeParams(valueMethodType, paramMap) as FunctionResolvedType;
   }
 
-  const expectedReturn: ResolvedType = {
-    kind: "union",
-    types: [target.elementType, NULL_TYPE],
-  };
-  return methodType.params.length === 0 && isAssignableTo(methodType.returnType, expectedReturn);
+  return nextMethodType.params.length === 0
+    && isAssignableTo(nextMethodType.returnType, BOOL_TYPE)
+    && valueMethodType.params.length === 0
+    && isAssignableTo(valueMethodType.returnType, target.elementType);
 }
 
 /** Check whether two types are structurally equal. */

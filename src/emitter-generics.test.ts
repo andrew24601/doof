@@ -113,21 +113,25 @@ const b = Box<int>(42)
 class Counter implements Stream<int> {
   current: int
   endExclusive: int
+  currentValue: int = 0
 
-  next(): int | null {
+  next(): bool {
     if this.current < this.endExclusive {
-      value := this.current
+      this.currentValue = this.current
       this.current = this.current + 1
-      return value
+      return true
     }
-    return null
+    return false
   }
+
+  value(): int => this.currentValue
 }
 
 class Chain<T> implements Stream<T> {
   source: Stream<T>
 
-  next(): T | null => this.source.next()
+  next(): bool => this.source.next()
+  value(): T => this.source.value()
 }
 
 const chain = Chain(Counter(1, 4))
@@ -141,21 +145,25 @@ const chain = Chain(Counter(1, 4))
 class Counter implements Stream<int> {
   current: int
   endExclusive: int
+  currentValue: int = 0
 
-  next(): int | null {
+  next(): bool {
     if this.current < this.endExclusive {
-      value := this.current
+      this.currentValue = this.current
       this.current = this.current + 1
-      return value
+      return true
     }
-    return null
+    return false
   }
+
+  value(): int => this.currentValue
 }
 
 class Chain<T> implements Stream<T> {
   source: Stream<T>
 
-  next(): T | null => this.source.next()
+  next(): bool => this.source.next()
+  value(): T => this.source.value()
 }
 
 const base = Counter(1, 4)
@@ -171,7 +179,8 @@ const chain: Chain<int> = { source: base }
         export class Chain<T> implements Stream<T> {
           source: Stream<T>
 
-          next(): T | null => this.source.next()
+          next(): bool => this.source.next()
+          value(): T => this.source.value()
         }
       `,
       "/main.do": `
@@ -180,15 +189,18 @@ const chain: Chain<int> = { source: base }
         class Counter implements Stream<int> {
           current: int
           endExclusive: int
+          currentValue: int = 0
 
-          next(): int | null {
+          next(): bool {
             if this.current < this.endExclusive {
-              value := this.current
+              this.currentValue = this.current
               this.current = this.current + 1
-              return value
+              return true
             }
-            return null
+            return false
           }
+
+          value(): int => this.currentValue
         }
 
         const chain = Chain(Counter(1, 4))
@@ -225,15 +237,18 @@ describe("emitter — generic module splitting", () => {
       class Counter implements Stream<int> {
         current: int
         end: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       export function collect<T>(items: Stream<T>): T[] {
@@ -260,15 +275,18 @@ describe("emitter — generic module splitting", () => {
       class Counter implements Stream<int> {
         current: int
         end: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       function collect<T>(items: Stream<T>): T[] {
@@ -298,21 +316,25 @@ describe("emitter — generic module splitting", () => {
       class Counter implements Stream<int> {
         current: int
         end: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       export class Chain<T> implements Stream<T> {
         source: Stream<T>
 
-        next(): T | null => this.source.next()
+        next(): bool => this.source.next()
+        value(): T => this.source.value()
 
         collect(): T[] {
           let values: T[] = []
@@ -344,68 +366,82 @@ describe("emitter — generic module splitting", () => {
       class Counter implements Stream<int> {
         current: int
         endExclusive: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < this.endExclusive {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       class FilteredStream<T> implements Stream<T> {
         source: Stream<T>
         pred: (value: T): bool
+        currentValue: T | null = null
 
-        next(): T | null {
+        next(): bool {
           while true {
-            candidate := this.source.next()
-            if candidate == null {
-              return null
+            if !this.source.next() {
+              return false
             }
-            if this.pred(candidate!) {
-              return candidate!
+            candidate := this.source.value()
+            if this.pred(candidate) {
+              this.currentValue = candidate
+              return true
             }
           }
         }
+
+        value(): T => this.currentValue!
       }
 
       class MappedStream<T, U> implements Stream<U> {
         source: Stream<T>
         transform: (value: T): U
+        currentValue: U | null = null
 
-        next(): U | null {
-          value := this.source.next()
-          if value == null {
-            return null
+        next(): bool {
+          if !this.source.next() {
+            return false
           }
-          return this.transform(value!)
+          this.currentValue = this.transform(this.source.value())
+          return true
         }
+
+        value(): U => this.currentValue!
       }
 
       class TakeStream<T> implements Stream<T> {
         source: Stream<T>
         remaining: int
+        currentValue: T | null = null
 
-        next(): T | null {
+        next(): bool {
           if this.remaining <= 0 {
-            return null
+            return false
           }
-          value := this.source.next()
-          if value == null {
-            return null
+          if !this.source.next() {
+            return false
           }
           this.remaining = this.remaining - 1
-          return value
+          this.currentValue = this.source.value()
+          return true
         }
+
+        value(): T => this.currentValue!
       }
 
       export class Chain<T> implements Stream<T> {
         source: Stream<T>
 
-        next(): T | null => this.source.next()
+        next(): bool => this.source.next()
+        value(): T => this.source.value()
 
         filter(pred: (value: T): bool): Chain<T> => Chain<T> { source: FilteredStream<T> { source: this.source, pred } }
         map<U>(transform: (value: T): U): Chain<U> => Chain<U> { source: MappedStream<T, U> { source: this.source, transform } }

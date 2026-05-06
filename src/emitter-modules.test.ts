@@ -239,15 +239,18 @@ describe("emitter-module — hpp/cpp split", () => {
     const { cppCode } = emitSplit(`
       class Counter implements Stream<int> {
         current: int
+        currentValue: int = 0
 
-        next(): int | null {
+        next(): bool {
           if this.current < 1 {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
           }
-          return null
+          return false
         }
+
+        value(): int => this.currentValue
       }
 
       export function query(): Result<Stream<int>, string> {
@@ -257,6 +260,127 @@ describe("emitter-module — hpp/cpp split", () => {
 
     expect(cppCode).toContain("Result<__doof_stream_int, std::string>::success(__doof_stream_int{");
     expect(cppCode).toContain("std::in_place_type<std::shared_ptr<Counter>>");
+  });
+
+  it("emits stream helper definitions in the concrete implementation module", () => {
+    const project = emitProjectHelper(
+      {
+        "/stream.do": `
+          export class FilteredStream<T> implements Stream<T> {
+            source: Stream<T>
+            currentValue: T | null = null
+
+            next(): bool {
+              if !this.source.next() {
+                return false
+              }
+              this.currentValue = this.source.value()
+              return true
+            }
+
+            value(): T => this.currentValue!
+          }
+
+          export class Chain<T> implements Stream<T> {
+            source: Stream<T>
+
+            next(): bool => this.source.next()
+            value(): T => this.source.value()
+
+            filter(): Chain<T> => Chain<T> { source: FilteredStream<T> { source: this.source } }
+          }
+        `,
+        "/main.do": `
+          import { Chain } from "./stream"
+
+          class Counter implements Stream<int> {
+            current: int
+            currentValue: int = 0
+
+            next(): bool {
+              if this.current < 1 {
+                this.currentValue = this.current
+                this.current = this.current + 1
+                return true
+              }
+              return false
+            }
+
+            value(): int => this.currentValue
+          }
+
+          function main(): int {
+            chain := Chain<int> { source: Counter(0) }
+            chain.filter().next()
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const mainModule = project.modules.find((module) => module.modulePath === "/main.do");
+    const streamModule = project.modules.find((module) => module.modulePath === "/stream.do");
+    expect(mainModule).toBeDefined();
+    expect(streamModule).toBeDefined();
+
+    expect(mainModule!.cppCode).toContain("bool __doof_stream_next___doof_stream_int(const __doof_stream_int& stream)");
+    expect(mainModule!.cppCode).toContain("int32_t __doof_stream_value___doof_stream_int(const __doof_stream_int& stream)");
+    expect(streamModule!.hppCode).toContain("bool __doof_stream_next___doof_stream_int(const __doof_stream_int& stream);");
+  });
+
+  it("does not leak unrelated stream aliases into imported headers", () => {
+    const project = emitProjectHelper(
+      {
+        "/blob.do": `
+          export class BlobThing {
+            value: int
+          }
+        `,
+        "/stream.do": `
+          import { BlobThing } from "./blob"
+
+          export class Chain<T> implements Stream<T> {
+            source: Stream<T>
+            extra: BlobThing = BlobThing(0)
+
+            next(): bool => this.source.next()
+            value(): T => this.source.value()
+          }
+        `,
+        "/main.do": `
+          import { Chain } from "./stream"
+
+          class Counter implements Stream<int> {
+            currentValue: int = 0
+
+            next(): bool {
+              if this.currentValue == 0 {
+                this.currentValue = 1
+                return true
+              }
+              return false
+            }
+
+            value(): int => this.currentValue
+          }
+
+          function main(): int {
+            chain := Chain<int> { source: Counter() }
+            if chain.next() {
+              return chain.value()
+            }
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const blobModule = project.modules.find((module) => module.modulePath === "/blob.do");
+    expect(blobModule).toBeDefined();
+    expect(blobModule!.hppCode).not.toContain("__doof_stream_int");
+    expect(blobModule!.hppCode).not.toContain("Counter");
   });
 });
 

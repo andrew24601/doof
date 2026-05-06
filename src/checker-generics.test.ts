@@ -138,18 +138,26 @@ describe("Checker — generic functions", () => {
         class Counter implements Stream<int> {
           current: int
           endExclusive: int
+          currentValue: int = 0
 
-          next(): int | null {
+          next(): bool {
             if this.current < this.endExclusive {
-              value := this.current
+              this.currentValue = this.current
               this.current = this.current + 1
-              return value
+              return true
             }
-            return null
+            return false
           }
+
+          value(): int => this.currentValue
         }
 
-        function readOnce<T>(stream: Stream<T>): T | null => stream.next()
+        function readOnce<T>(stream: Stream<T>): T | null {
+          if stream.next() {
+            return stream.value()
+          }
+          return null
+        }
 
         source: Stream<int> := Counter(1, 3)
         const value = readOnce(source)
@@ -170,18 +178,26 @@ describe("Checker — generic functions", () => {
         class Counter implements Stream<int> {
           current: int
           endExclusive: int
+          currentValue: int = 0
 
-          next(): int | null {
+          next(): bool {
             if this.current < this.endExclusive {
-              value := this.current
+              this.currentValue = this.current
               this.current = this.current + 1
-              return value
+              return true
             }
-            return null
+            return false
           }
+
+          value(): int => this.currentValue
         }
 
-        function readOnce<T>(stream: Stream<T>): T | null => stream.next()
+        function readOnce<T>(stream: Stream<T>): T | null {
+          if stream.next() {
+            return stream.value()
+          }
+          return null
+        }
         source: Stream<int> := Counter(1, 3)
         const value = readOnce(source)
       `,
@@ -410,21 +426,25 @@ describe("Checker — generic classes", () => {
         class Counter implements Stream<int> {
           current: int
           endExclusive: int
+          currentValue: int = 0
 
-          next(): int | null {
+          next(): bool {
             if this.current < this.endExclusive {
-              value := this.current
+              this.currentValue = this.current
               this.current = this.current + 1
-              return value
+              return true
             }
-            return null
+            return false
           }
+
+          value(): int => this.currentValue
         }
 
         class Chain<T> implements Stream<T> {
           source: Stream<T>
 
-          next(): T | null => this.source.next()
+          next(): bool => this.source.next()
+          value(): T => this.source.value()
         }
 
         const chain = Chain(Counter(1, 4))
@@ -447,7 +467,8 @@ describe("Checker — generic classes", () => {
         export class Chain<T> implements Stream<T> {
           source: Stream<T>
 
-          next(): T | null => this.source.next()
+          next(): bool => this.source.next()
+          value(): T => this.source.value()
         }
       `,
       "/main.do": `
@@ -456,15 +477,18 @@ describe("Checker — generic classes", () => {
         class Counter implements Stream<int> {
           current: int
           endExclusive: int
+          currentValue: int = 0
 
-          next(): int | null {
+          next(): bool {
             if this.current < this.endExclusive {
-              value := this.current
+              this.currentValue = this.current
               this.current = this.current + 1
-              return value
+              return true
             }
-            return null
+            return false
           }
+
+          value(): int => this.currentValue
         }
 
         const chain = Chain(Counter(1, 4))

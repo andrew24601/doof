@@ -686,10 +686,15 @@ function inferStreamInstanceMemberType(
     return {
       kind: "function",
       params: [],
-      returnType: {
-        kind: "union",
-        types: [objectType.elementType, NULL_TYPE],
-      },
+      returnType: BOOL_TYPE,
+    };
+  }
+
+  if (property === "value") {
+    return {
+      kind: "function",
+      params: [],
+      returnType: objectType.elementType,
     };
   }
 

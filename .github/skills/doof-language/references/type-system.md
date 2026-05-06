@@ -262,20 +262,18 @@ Common APIs: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`.
 
 ### Streams
 
-`Stream<T>` is a pull-based iteration surface with `next(): T | null`.
+`Stream<T>` is a pull-based iteration surface with `next(): bool` and `value(): T`. Call `value()` only after `next()` returns `true`. Do not call `value()` multiple times per `next()`.
 
 ```doof
 class Counter implements Stream<int> {
     current = 0
     end: int
 
-    next(): int | null {
-        if current < end {
-            value := current
-            current = current + 1
-            return value
-        }
-        return null
+    next(): bool => current < end
+    value(): int {
+        v := current
+        current = current + 1
+        return v
     }
 }
 ```

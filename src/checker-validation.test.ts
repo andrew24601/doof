@@ -283,6 +283,24 @@ describe("Assignment validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts readonly fields with recursive JsonValue maps", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Jwt {
+            readonly claims: readonly Map<string, JsonValue>
+          }
+
+          const jwt = Jwt {
+            claims: { "ok": true }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects readonly fields that reference mutable classes transitively", () => {
     const info = check(
       {
@@ -611,6 +629,29 @@ describe("Declaration validation", () => {
 
     expect(info.diagnostics.some((d) => d.message.includes("Undefined identifier \"missingValue\""))).toBe(true);
     expect(info.diagnostics.some((d) => d.message.includes("Cannot emit call expression"))).toBe(false);
+  });
+
+  it("does not mark imported calls with inferred return types as unresolved", () => {
+    const info = check(
+      {
+        "/helper.do": `
+          export function testAll() {
+            return 1
+          }
+        `,
+        "/main.do": `
+          import { testAll } from "./helper"
+
+          function run(): void {
+            testAll()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes("Cannot emit call expression with unresolved type"))).toBe(false);
+    expect(info.diagnostics).toHaveLength(0);
   });
 });
 

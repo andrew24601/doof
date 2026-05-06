@@ -1086,6 +1086,10 @@ export class TypeChecker {
         return this.resolveTypeAnnotation(sym.declaration.type, table);
       }
       case "function": {
+        if (sym.declaration.resolvedType?.kind === "function") {
+          return sym.declaration.resolvedType;
+        }
+
         const declTypeParams = sym.declaration.typeParams;
         const typeParamConstraints = this.resolveTypeParamConstraintTypes(
           declTypeParams,
@@ -1267,25 +1271,32 @@ export class TypeChecker {
   private extractStreamElementType(classType: ClassType): ResolvedType | null {
     const classDecl = classType.symbol.declaration;
     const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_);
-    if (!nextMethod || nextMethod.params.length !== 0 || !nextMethod.resolvedType || nextMethod.resolvedType.kind !== "function") {
+    const valueMethod = classDecl.methods.find((method) => method.name === "value" && !method.static_);
+    if (!nextMethod || nextMethod.params.length !== 0 || !valueMethod || valueMethod.params.length !== 0) {
       return null;
     }
 
-    let methodType = nextMethod.resolvedType;
+    if (!nextMethod.resolvedType || nextMethod.resolvedType.kind !== "function"
+      || !valueMethod.resolvedType || valueMethod.resolvedType.kind !== "function") {
+      return null;
+    }
+
+    let nextMethodType = nextMethod.resolvedType;
+    let valueMethodType = valueMethod.resolvedType;
     if (classType.typeArgs && classType.typeArgs.length > 0 && classDecl.typeParams.length > 0) {
       const paramMap = new Map<string, ResolvedType>();
       for (let i = 0; i < Math.min(classDecl.typeParams.length, classType.typeArgs.length); i++) {
         paramMap.set(classDecl.typeParams[i], classType.typeArgs[i]);
       }
-      methodType = substituteTypeParams(methodType, paramMap) as typeof methodType;
+      nextMethodType = substituteTypeParams(nextMethodType, paramMap) as typeof nextMethodType;
+      valueMethodType = substituteTypeParams(valueMethodType, paramMap) as typeof valueMethodType;
     }
 
-    if (methodType.returnType.kind !== "union") {
+    if (!isAssignableTo(nextMethodType.returnType, BOOL_TYPE)) {
       return null;
     }
 
-    const nonNullMembers = methodType.returnType.types.filter((type) => type.kind !== "null");
-    return nonNullMembers.length === 1 ? nonNullMembers[0] : null;
+    return valueMethodType.returnType;
   }
 
   // --------------------------------------------------------------------------

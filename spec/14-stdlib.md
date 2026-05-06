@@ -613,7 +613,7 @@ result := ci.replaceAll("Hello, HELLO!", "hi")   // "hi, hi!"
 
 Combinators for the built-in `Stream<T>` pull-iteration protocol.
 
-Any class with a `next(): T | null` method satisfies `Stream<T>`.  `std/stream` provides:
+Any class with `next(): bool` and `value(): T` methods satisfies `Stream<T>`. `value()` is read after `next()` returns `true`. `std/stream` provides:
 
 ```doof
 import { Chain, blobStreamToLineStream } from "std/stream"
@@ -630,7 +630,8 @@ filter(pred: (it: T): bool): Chain<T>
 map<U>(transform: (it: T): U): Chain<U>
 take(count: int): Chain<T>
 collect(): T[]
-next(): T | null                    // Stream<T> interface
+next(): bool                        // Stream<T> interface
+value(): T                          // Stream<T> interface
 ```
 
 Combinators return a new `Chain` wrapping an inner stream; no evaluation occurs until iteration.

@@ -21,6 +21,7 @@ import {
   escapeHtml,
   type TestReporter,
 } from "./test-runner.js";
+import { DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
 
 const tmpDirs: string[] = [];
 
@@ -437,6 +438,9 @@ describe("test runner execution", () => {
 
     const reporter = createReporter();
     const originalCwd = process.cwd();
+    const originalStdlibRoot = process.env[DOOF_STDLIB_ROOT_ENV];
+    const stdlibRoot = path.join(originalCwd, "stdlib");
+    process.env[DOOF_STDLIB_ROOT_ENV] = stdlibRoot;
     process.chdir(outsideDir);
 
     try {
@@ -453,6 +457,11 @@ describe("test runner execution", () => {
       expect(result).toMatchObject({ passed: 1, failed: 0 });
     } finally {
       process.chdir(originalCwd);
+      if (originalStdlibRoot === undefined) {
+        delete process.env[DOOF_STDLIB_ROOT_ENV];
+      } else {
+        process.env[DOOF_STDLIB_ROOT_ENV] = originalStdlibRoot;
+      }
     }
 
     expect(fs.readFileSync(path.join(packageDir, "build", "tests", "runtime-cwd.txt"), "utf8")).toBe("ok");

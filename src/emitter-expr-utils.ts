@@ -307,6 +307,10 @@ export function emitStreamNextHelperName(aliasName: string): string {
   return `__doof_stream_next_${aliasName.replace(/[^A-Za-z0-9]/g, "_")}`;
 }
 
+export function emitStreamValueHelperName(aliasName: string): string {
+  return `__doof_stream_value_${aliasName.replace(/[^A-Za-z0-9]/g, "_")}`;
+}
+
 export function buildConstructorFieldInfoList(
   classSym: ClassSymbol | undefined,
 ): ConstructorFieldInfo[] {

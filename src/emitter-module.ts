@@ -49,7 +49,7 @@ import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app
 import { getBundledStdlibSupportFiles } from "./stdlib.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
-import { emitStreamNextHelperName } from "./emitter-expr-utils.js";
+import { emitStreamNextHelperName, emitStreamValueHelperName } from "./emitter-expr-utils.js";
 
 // ============================================================================
 // Public types
@@ -207,7 +207,8 @@ export function emitModuleSplit(
   const monomorphizedFunctions = collectDirectStreamFunctionInstantiations(analysisResult);
   const monomorphizedMethods = new Map<string, GenericMethodInstantiation>();
   const monomorphizedClasses = collectConcreteStreamSensitiveClassInstantiations(analysisResult, monomorphizedMethods);
-  const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
+    const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
+    const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
 
   const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, monomorphizedMethods, baseDir, packageOutputPaths);
   const { code: cppCode, instrumentedLines } = emitCppFile(
@@ -421,7 +422,11 @@ function emitHpp(
   }
 
   const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
-  for (const [aliasName, info] of streamAliases) {
+  const streamTypesForModule = collectUsedStreamTypesForModule(table, monomorphizedClasses);
+  for (const streamType of streamTypesForModule) {
+    const aliasName = emitType(streamType);
+    const info = streamAliases.get(aliasName);
+    if (!info) continue;
     emitStreamAliasHpp(aliasName, info, table, lines);
     lines.push("");
   }
@@ -507,10 +512,6 @@ function emitHpp(
     lines.push("template<>");
     emitStatement(inst.methodDecl as Statement, ctx);
     lines.push(...ctx.sourceLines);
-  }
-  const dependencyModules = new Set(collectReferencedModulePaths(table));
-  for (const [aliasName, info] of streamAliases) {
-    emitStreamNextHelperDefinition(aliasName, info, table, dependencyModules, lines);
   }
   if (monomorphizedClassesForModule.length > 0) {
     lines.push("");
@@ -627,7 +628,7 @@ function emitCppFile(
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
-  _monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
   buildTarget?: ResolvedDoofBuildTarget | null,
@@ -640,11 +641,20 @@ function emitCppFile(
     ? { coverageEnabled: true as const, coverageModuleId, coverageInstrumentedLines }
     : {};
   const { hppName } = modulePathToCppNames(table.path, baseDir, packageOutputPaths);
+    const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
 
   // Include own header and runtime
   lines.push(`#include "${hppName}"`);
   lines.push(`#include "doof_runtime.hpp"`);
   lines.push("");
+
+  for (const [aliasName, info] of streamAliases) {
+    emitStreamNextHelperDefinition(aliasName, info, table, analysisResult, monomorphizedClasses, lines);
+    emitStreamValueHelperDefinition(aliasName, info, table, analysisResult, monomorphizedClasses, lines);
+  }
+  if ([...streamAliases.values()].some((info) => findStreamHelperOwnerModule(info, analysisResult, monomorphizedClasses) === table.path)) {
+    lines.push("");
+  }
 
   const classified = classifyStatements(table);
   const monomorphizedForModule = [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path);
@@ -1158,10 +1168,6 @@ function emitStreamAliasHpp(
   lines: string[],
 ): void {
   const { impls, streamType } = aliasInfo;
-  if (impls.length === 0) {
-    throw new Error(`Cannot emit stream alias "${aliasName}" without implementing classes`);
-  }
-
   const localClassNames = new Set<string>();
   for (const [symName, sym] of table.symbols) {
     if (sym.symbolKind === "class") localClassNames.add(symName);
@@ -1178,12 +1184,23 @@ function emitStreamAliasHpp(
 
   const guardName = `DOOF_STREAM_ALIAS_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
   const variants = impls.map((cls) => `std::shared_ptr<${cls.cppTypeName}>`).join(", ");
-  const nextType = emitType({ kind: "union", types: [streamType.elementType, { kind: "null" }] });
-  const helperName = emitStreamNextHelperName(aliasName);
+  const nextHelperName = emitStreamNextHelperName(aliasName);
+  const valueHelperName = emitStreamValueHelperName(aliasName);
+  const valueType = emitType(streamType.elementType);
   lines.push(`#ifndef ${guardName}`);
   lines.push(`#define ${guardName}`);
+
+  if (impls.length === 0) {
+    lines.push(`using ${aliasName} = std::variant<std::monostate>;`);
+    lines.push(`inline bool ${nextHelperName}(const ${aliasName}&) { return false; }`);
+    lines.push(`inline ${valueType} ${valueHelperName}(const ${aliasName}&) { doof::panic("Stream alias ${aliasName} has no implementing classes in this build"); }`);
+    lines.push(`#endif`);
+    return;
+  }
+
   lines.push(`using ${aliasName} = std::variant<${variants}>;`);
-  lines.push(`${nextType} ${helperName}(const ${aliasName}& stream);`);
+  lines.push(`bool ${nextHelperName}(const ${aliasName}& stream);`);
+  lines.push(`${valueType} ${valueHelperName}(const ${aliasName}& stream);`);
   lines.push(`#endif`);
 }
 
@@ -1191,23 +1208,72 @@ function emitStreamNextHelperDefinition(
   aliasName: string,
   aliasInfo: StreamAliasInfo,
   table: ModuleSymbolTable,
-  dependencyModules: Set<string>,
+  analysisResult: AnalysisResult,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
   lines: string[],
 ): void {
-  if (!aliasInfo.impls.every((impl) => impl.modulePath === table.path || dependencyModules.has(impl.modulePath))) {
+  if (findStreamHelperOwnerModule(aliasInfo, analysisResult, monomorphizedClasses) !== table.path) {
     return;
   }
 
-  const guardName = `DOOF_STREAM_NEXT_HELPER_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
   const helperName = emitStreamNextHelperName(aliasName);
-  const nextType = emitType({ kind: "union", types: [aliasInfo.streamType.elementType, { kind: "null" }] });
-  lines.push(`#ifndef ${guardName}`);
-  lines.push(`#define ${guardName}`);
-  lines.push(`inline ${nextType} ${helperName}(const ${aliasName}& stream) {`);
+  lines.push(`bool ${helperName}(const ${aliasName}& stream) {`);
   lines.push(`    return std::visit([](auto&& _obj) { return _obj->next(); }, stream);`);
   lines.push("}");
-  lines.push(`#endif`);
   lines.push("");
+}
+
+function emitStreamValueHelperDefinition(
+  aliasName: string,
+  aliasInfo: StreamAliasInfo,
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  lines: string[],
+): void {
+  if (findStreamHelperOwnerModule(aliasInfo, analysisResult, monomorphizedClasses) !== table.path) {
+    return;
+  }
+
+  const helperName = emitStreamValueHelperName(aliasName);
+  const valueType = emitType(aliasInfo.streamType.elementType);
+  lines.push(`${valueType} ${helperName}(const ${aliasName}& stream) {`);
+  lines.push(`    return std::visit([](auto&& _obj) { return _obj->value(); }, stream);`);
+  lines.push("}");
+  lines.push("");
+}
+
+function canModuleDefineStreamHelper(
+  aliasInfo: StreamAliasInfo,
+  table: ModuleSymbolTable,
+): boolean {
+  const dependencyModules = new Set(collectReferencedModulePaths(table));
+  return aliasInfo.impls.every((impl) => impl.modulePath === table.path || dependencyModules.has(impl.modulePath));
+}
+
+function findStreamHelperOwnerModule(
+  aliasInfo: StreamAliasInfo,
+  analysisResult: AnalysisResult,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+): string | null {
+  if (aliasInfo.impls.length === 0) return null;
+
+  const aliasName = emitType(aliasInfo.streamType);
+  const candidates: string[] = [];
+  for (const [modulePath, table] of analysisResult.modules) {
+    const streamTypesForModule = collectUsedStreamTypesForModule(table, monomorphizedClasses);
+    const moduleUsesAlias = streamTypesForModule.some((streamType) => emitType(streamType) === aliasName);
+    const moduleOwnsImpl = aliasInfo.impls.some((impl) => impl.modulePath === modulePath);
+    if (!moduleUsesAlias && !moduleOwnsImpl) {
+      continue;
+    }
+    if (canModuleDefineStreamHelper(aliasInfo, table)) {
+      candidates.push(modulePath);
+    }
+  }
+
+  candidates.sort();
+  return candidates[0] ?? null;
 }
 
 // ============================================================================
@@ -1534,6 +1600,24 @@ function collectUsedStreamTypes(
   }
 
   for (const inst of monomorphizedClasses.values()) {
+    collectStreamTypesFromGenericClassInstantiation(inst, result);
+  }
+
+  return [...result.values()];
+}
+
+function collectUsedStreamTypesForModule(
+  table: ModuleSymbolTable,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+): Extract<ResolvedType, { kind: "stream" }>[] {
+  const result = new Map<string, Extract<ResolvedType, { kind: "stream" }>>();
+
+  for (const stmt of table.program.statements) {
+    collectStreamTypesFromStatement(stmt, result);
+  }
+
+  for (const inst of monomorphizedClasses.values()) {
+    if (inst.modulePath !== table.path) continue;
     collectStreamTypesFromGenericClassInstantiation(inst, result);
   }
 

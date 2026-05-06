@@ -37,6 +37,7 @@ import {
   type Scope,
   typeToString,
   typesEqual,
+  typesEqualAtRuntime,
   UNKNOWN_TYPE,
   VOID_TYPE,
 } from "./checker-types.js";
@@ -2573,6 +2574,9 @@ function isValidAsNarrow(sourceType: ResolvedType, targetType: ResolvedType): bo
 
     // T | null -> T
     if (hasNull && nonNull.length === 1 && typesEqual(nonNull[0], targetType)) return true;
+
+    // Union member extraction also permits runtime-equivalent readonly collection targets.
+    if (sourceType.types.some((member) => typesEqualAtRuntime(member, targetType))) return true;
 
     // Union member extraction: U1 | U2 | ... -> T where T is an exact member
     // or a numeric member can be converted to T with checked runtime conversion.

@@ -23,7 +23,7 @@ import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emi
 import type { EmitContext } from "./emitter-context.js";
 import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
-import { emitStreamNextHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
+import { emitStreamNextHelperName, emitStreamValueHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
 import { emitYieldBlockIIFE } from "./emitter-expr-control.js";
 import {
   emitFunctionDecl,
@@ -1170,10 +1170,7 @@ function emitForOfStatement(
   if (iterableType?.kind === "stream") {
     const streamVar = `_stream_${ctx.tempCounter++}`;
     const nextVar = `_stream_next_${ctx.tempCounter++}`;
-    const nextType = {
-      kind: "union",
-      types: [iterableType.elementType, { kind: "null" }],
-    } as import("./checker-types.js").ResolvedType;
+    const valueVar = `_stream_value_${ctx.tempCounter++}`;
 
     ctx.sourceLines.push(`${ind}auto ${streamVar} = ${iterable};`);
     ctx.sourceLines.push(`${ind}while (true) {`);
@@ -1186,33 +1183,15 @@ function emitForOfStatement(
     const innerInd = indent(innerCtx);
 
     ctx.sourceLines.push(`${innerInd}auto ${nextVar} = ${emitStreamNextHelperName(emitType(iterableType))}(${streamVar});`);
-
-    if (isMonostateNullable(nextType)) {
-      ctx.sourceLines.push(`${innerInd}if (std::holds_alternative<std::monostate>(${nextVar})) break;`);
-    } else if (isOptionalNullable(nextType)) {
-      ctx.sourceLines.push(`${innerInd}if (!${nextVar}.has_value()) break;`);
-    } else if (isPointerType(nextType)) {
-      ctx.sourceLines.push(`${innerInd}if (${nextVar} == nullptr) break;`);
-    }
+    ctx.sourceLines.push(`${innerInd}if (!${nextVar}) break;`);
+    ctx.sourceLines.push(`${innerInd}auto ${valueVar} = ${emitStreamValueHelperName(emitType(iterableType))}(${streamVar});`);
 
     if (stmt.bindings.length === 1) {
       const binding = emitIdentifierSafe(stmt.bindings[0]);
-      if (isMonostateNullable(nextType)) {
-        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = std::get<${emitType(iterableType.elementType)}>(${nextVar});`);
-      } else if (isOptionalNullable(nextType)) {
-        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = ${nextVar}.value();`);
-      } else {
-        ctx.sourceLines.push(`${innerInd}const auto& ${binding} = ${nextVar};`);
-      }
+      ctx.sourceLines.push(`${innerInd}const auto& ${binding} = ${valueVar};`);
     } else {
       const bindings = stmt.bindings.map(emitIdentifierSafe).join(", ");
-      if (isMonostateNullable(nextType)) {
-        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = std::get<${emitType(iterableType.elementType)}>(${nextVar});`);
-      } else if (isOptionalNullable(nextType)) {
-        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = ${nextVar}.value();`);
-      } else {
-        ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = ${nextVar};`);
-      }
+      ctx.sourceLines.push(`${innerInd}const auto& [${bindings}] = ${valueVar};`);
     }
 
     emitBlockStatements(stmt.body, innerCtx);

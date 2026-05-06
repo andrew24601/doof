@@ -4,14 +4,13 @@ class Counter implements Stream<int> {
   current: int
   endExclusive: int
 
-  next(): int | null {
-    if this.current < this.endExclusive {
-      value := this.current
-      this.current = this.current + 1
-      return value
+    next(): bool => current < endExclusive
+
+    value(): int {
+        v := current
+        current = current + 1
+        return v
     }
-    return null
-  }
 }
 
 function main(): int {

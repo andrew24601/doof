@@ -77,21 +77,24 @@ class Counter {
 
 ### Stream Implementations
 
-Classes can explicitly implement `Stream<T>`. A class satisfies `Stream<T>` when it exposes a zero-argument `next()` method returning `T | null`.
+Classes can explicitly implement `Stream<T>`. A class satisfies `Stream<T>` when it exposes zero-argument `next(): bool` and `value(): T` methods. `value()` is only valid after a successful `next()` call.
 
 ```javascript
 class Counter implements Stream<int> {
     current = 0
     end: int
+    currentValue: int = 0
 
-    next(): int | null {
+    next(): bool {
         if this.current < this.end {
-            value := this.current
+            this.currentValue = this.current
             this.current = this.current + 1
-            return value
+            return true
         }
-        return null
+        return false
     }
+
+    value(): int => this.currentValue
 }
 ```
 
