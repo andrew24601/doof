@@ -234,22 +234,22 @@ Plain `if value != null` checks help control flow but do not narrow the static t
 
 ```doof
 result := case status {
-    200 | 201 => "success",
-    404 => "not found",
-    500..599 => "server error",
-    _ => "unknown"
+    200 | 201 -> "success",
+    404 -> "not found",
+    500..599 -> "server error",
+    _ -> "unknown"
 }
 
 case shape {
-    c: Circle => println("radius: ${c.radius}"),
-    r: Rect => println("area: ${r.width * r.height}")
+    c: Circle -> println("radius: ${c.radius}"),
+    r: Rect -> println("area: ${r.width * r.height}")
 }
 
 case direction {
-    .North => moveUp(),
-    .South => moveDown(),
-    .East => moveRight(),
-    .West => moveLeft()
+    .North -> moveUp(),
+    .South -> moveDown(),
+    .East -> moveRight(),
+    .West -> moveLeft()
 }
 ```
 

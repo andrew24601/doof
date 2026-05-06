@@ -42,8 +42,8 @@ isolated function compute(n: int): int => n * n
 let promise = async compute(42)
 
 case promise.get() {
-    s: Success => println("Result: ${s.value}"),
-    f: Failure => println("Error: ${f.error}")
+    s: Success -> println("Result: ${s.value}"),
+    f: Failure -> println("Error: ${f.error}")
 }
 
 // Or shorthand

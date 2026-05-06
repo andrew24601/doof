@@ -31,8 +31,8 @@ function parseInt(s: string): Result<int, string> {
 
 ```doof
 case result {
-    s: Success => println(s.value),
-    f: Failure => println(f.error)
+    s: Success -> println(s.value),
+    f: Failure -> println(f.error)
 }
 ```
 
@@ -127,8 +127,8 @@ Rules:
 ```doof
 x := loadConfig() else {
     return case x {
-        _: Success => "unexpected",
-        f: Failure => f.error.message
+        _: Success -> "unexpected",
+        f: Failure -> f.error.message
     }
 }
 ```
