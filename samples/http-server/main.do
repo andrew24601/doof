@@ -9,7 +9,7 @@ function dispatchRequest(request: Request): void {
 
 function main(): int {
   requests: AsyncEventChannel<Request> := createMainAsyncEventChannel<Request>{
-    handler: (request: Request): void => dispatchRequest(request),
+    handler: => dispatchRequest(event),
     capacity: 256,
     keepsAlive: true,
   }
