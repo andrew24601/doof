@@ -10,8 +10,6 @@ import {
 } from "./checker-readonly.js";
 import {
   computeElseNarrowType,
-  findUnsupportedHashCollectionConstraint,
-  formatUnsupportedHashCollectionConstraintMessage,
   isAssignableTo,
   type Binding,
   type ModuleTypeInfo,
@@ -20,6 +18,7 @@ import {
   typeToString,
   UNKNOWN_TYPE,
 } from "./checker-types.js";
+import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics.js";
 import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { resolveExpectedEnumType } from "./checker-expr-ops.js";
@@ -866,23 +865,6 @@ function reportUnresolvedObjectLiteralBindingType(
     message: `Could not infer type for "${stmt.name}"; provide an explicit type annotation`,
     span: stmt.span,
     module: modulePath,
-  });
-}
-
-function reportUnsupportedHashCollectionConstraint(
-  type: ResolvedType,
-  span: SourceSpan,
-  table: ModuleSymbolTable,
-  info: ModuleTypeInfo,
-): void {
-  const issue = findUnsupportedHashCollectionConstraint(type);
-  if (!issue) return;
-
-  info.diagnostics.push({
-    severity: "error",
-    message: formatUnsupportedHashCollectionConstraintMessage(issue),
-    span,
-    module: table.path,
   });
 }
 

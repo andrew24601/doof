@@ -14,6 +14,7 @@
  */
 
 import { isJsonValueType, type ResolvedType, type PrimitiveName } from "./checker-types.js";
+import type { ClassSymbol } from "./types.js";
 
 export function emitEnumTypeName(type: Extract<ResolvedType, { kind: "enum" }>): string {
   return type.symbol.module === "<builtin>" ? `doof::${type.symbol.name}` : type.symbol.name;
@@ -33,6 +34,43 @@ export function emitEnumVariantAccess(
   variant: string,
 ): string {
   return `${emitEnumTypeName(type)}::${variant}`;
+}
+
+export function emitClassCppName(symbol: ClassSymbol): string {
+  if (symbol.extern_) return symbol.extern_.cppName ?? symbol.name;
+  if (symbol.emittedCppName) return symbol.emittedCppName;
+  return symbol.name;
+}
+
+export function emitPrivateClassCppName(symbol: ClassSymbol): string {
+  return `__doof_private_${mangleModulePathForCppName(symbol.module)}_${sanitizeCppIdentifierPart(symbol.name)}`;
+}
+
+export function emitClassForwardDeclName(symbol: ClassSymbol): string {
+  return emitClassCppName(symbol);
+}
+
+export function emitClassInnerType(type: Extract<ResolvedType, { kind: "class" }>): string {
+  const typeArgStr = type.typeArgs && type.typeArgs.length > 0
+    ? `<${type.typeArgs.map(emitType).join(", ")}>`
+    : "";
+  return `${emitClassCppName(type.symbol)}${typeArgStr}`;
+}
+
+export function emitClassSharedPtrType(type: Extract<ResolvedType, { kind: "class" }>): string {
+  return `std::shared_ptr<${emitClassInnerType(type)}>`;
+}
+
+function mangleModulePathForCppName(modulePath: string): string {
+  const withoutExtension = modulePath.replace(/\.[^/.]+$/, "");
+  const sanitized = sanitizeCppIdentifierPart(withoutExtension);
+  return sanitized || "module";
+}
+
+function sanitizeCppIdentifierPart(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  if (!sanitized) return "";
+  return /^[0-9]/.test(sanitized) ? `_${sanitized}` : sanitized;
 }
 
 // ============================================================================
@@ -73,11 +111,7 @@ export function emitType(type: ResolvedType): string {
       throw new Error(`Cannot emit builtin namespace type "${type.name}" in value position`);
 
     case "class": {
-      const cppName = type.symbol.extern_?.cppName ?? type.symbol.name;
-      const typeArgStr = type.typeArgs && type.typeArgs.length > 0
-        ? `<${type.typeArgs.map(emitType).join(", ")}>`
-        : "";
-      return `std::shared_ptr<${cppName}${typeArgStr}>`;
+      return emitClassSharedPtrType(type);
     }
 
     case "interface": {
@@ -164,13 +198,11 @@ export function emitType(type: ResolvedType): string {
       return type.name;
 
     case "class-metadata": {
-      const cppName = type.classType.symbol.extern_?.cppName ?? type.classType.symbol.name;
-      return `doof::ClassMetadata<${cppName}>`;
+      return `doof::ClassMetadata<${emitClassInnerType(type.classType)}>`;
     }
 
     case "method-reflection": {
-      const cppName = type.classType.symbol.extern_?.cppName ?? type.classType.symbol.name;
-      return `doof::MethodReflection<${cppName}>`;
+      return `doof::MethodReflection<${emitClassInnerType(type.classType)}>`;
     }
   }
 }
@@ -184,7 +216,7 @@ export function mangleTypeForCppName(type: ResolvedType): string {
     case "primitive":
       return type.name;
     case "class":
-      return type.symbol.name;
+      return emitClassCppName(type.symbol);
     case "enum":
       return type.symbol.name;
     case "array":
@@ -242,11 +274,7 @@ export function mangleTypeForCppName(type: ResolvedType): string {
  */
 export function emitInnerType(type: ResolvedType): string {
   if (type.kind === "class") {
-    const cppName = type.symbol.extern_?.cppName ?? type.symbol.name;
-    const typeArgStr = type.typeArgs && type.typeArgs.length > 0
-      ? `<${type.typeArgs.map(emitType).join(", ")}>`
-      : "";
-    return `${cppName}${typeArgStr}`;
+    return emitClassInnerType(type);
   }
   return emitType(type);
 }

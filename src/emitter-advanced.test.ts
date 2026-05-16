@@ -989,7 +989,7 @@ describe("emitter — JSON serialization", () => {
       type Shape = Circle | Square
       function test(json: JsonValue): Result<Shape, string> => Shape.fromJsonValue(json)
     `);
-    expect(cpp).toContain("using Shape = std::variant<std::shared_ptr<Circle>, std::shared_ptr<Square>>;");
+    expect(cpp).toContain("using Shape = std::variant<std::shared_ptr<__doof_private_main_Circle>, std::shared_ptr<__doof_private_main_Square>>;");
     expect(cpp).toContain("Shape_fromJsonValue");
     expect(cpp).toContain("Shape_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false)");
     expect(cpp).toContain('_disc == "circle"');
@@ -1587,8 +1587,8 @@ describe("emitter — as expression", () => {
         return s as Circle
       }
     `);
-    expect(cpp).toContain("std::holds_alternative<std::shared_ptr<Circle>>");
-    expect(cpp).toContain("std::get<std::shared_ptr<Circle>>");
+    expect(cpp).toContain("std::holds_alternative<std::shared_ptr<__doof_private_main_Circle>>");
+    expect(cpp).toContain("std::get<std::shared_ptr<__doof_private_main_Circle>>");
   });
 
   it("emits JsonValue→readonly Map<string, JsonValue> narrowing via canonical union checks", () => {

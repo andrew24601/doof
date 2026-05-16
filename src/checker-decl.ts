@@ -10,8 +10,6 @@ import {
 } from "./checker-readonly.js";
 import {
   buildMockCallMetadata,
-  findUnsupportedHashCollectionConstraint,
-  formatUnsupportedHashCollectionConstraintMessage,
   isAssignableTo,
   type ModuleTypeInfo,
   type ResolvedType,
@@ -20,6 +18,7 @@ import {
   UNKNOWN_TYPE,
   VOID_TYPE,
 } from "./checker-types.js";
+import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics.js";
 import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
@@ -598,21 +597,4 @@ export function checkMethod(
   if (method.typeParams.length > 0) {
     host.typeParamStack.pop();
   }
-}
-
-function reportUnsupportedHashCollectionConstraint(
-  type: ResolvedType,
-  span: import("./ast.js").SourceSpan,
-  table: ModuleSymbolTable,
-  info: ModuleTypeInfo,
-): void {
-  const issue = findUnsupportedHashCollectionConstraint(type);
-  if (!issue) return;
-
-  info.diagnostics.push({
-    severity: "error",
-    message: formatUnsupportedHashCollectionConstraintMessage(issue),
-    span,
-    module: table.path,
-  });
 }

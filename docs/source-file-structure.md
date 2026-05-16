@@ -54,9 +54,12 @@ Tests:
 - `checker-result.ts` — `Result`, `catch`, and try-propagation helpers
 - `checker-expr-ops.ts` — unary and binary operator typing helpers
 - `checker-collection-annotations.ts` — collection annotation handling
+- `checker-diagnostics.ts` — shared checker diagnostics that must stay consistent across modules
 - `checker-readonly.ts` — readonly-specific validation helpers
 - `checker-internal.ts` — shared checker contracts and built-ins
 - `checker-test-helpers.ts` — shared checker fixtures
+
+Cross-cutting checker semantics are documented in [type-checker-concepts.md](./type-checker-concepts.md).
 
 Tests:
 

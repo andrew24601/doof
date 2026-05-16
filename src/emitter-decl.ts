@@ -18,7 +18,7 @@ import type {
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
-import { emitType, emitInnerType } from "./emitter-types.js";
+import { emitClassCppName, emitClassSharedPtrType, emitInnerType, emitType } from "./emitter-types.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -243,9 +243,9 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
         if (cf.field.weak_) {
           // weak fields get weak_ptr parameter type
           const innerName = resolvedFieldType?.kind === "class"
-            ? resolvedFieldType.symbol.name
+            ? emitInnerType(resolvedFieldType)
             : resolvedFieldType?.kind === "weak" && resolvedFieldType.inner.kind === "class"
-              ? resolvedFieldType.inner.symbol.name
+              ? emitInnerType(resolvedFieldType.inner)
               : "auto";
           fType = `std::weak_ptr<${innerName}>`;
         } else {
@@ -374,7 +374,7 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
         if (resolvedFieldType.kind === "weak") {
           innerType = emitInnerType(resolvedFieldType.inner);
         } else if (resolvedFieldType.kind === "class") {
-          innerType = resolvedFieldType.symbol.name;
+          innerType = emitInnerType(resolvedFieldType);
         } else {
           innerType = emitType(resolvedFieldType);
         }
@@ -429,7 +429,7 @@ export function emitInterfaceDecl(decl: InterfaceDeclaration, ctx: EmitContext):
   const impls = ctx.interfaceImpls.get(decl.name);
   if (impls && impls.length > 0) {
     const variants = impls
-      .map((cls) => `std::shared_ptr<${cls.name}>`)
+      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }))
       .join(", ");
     ctx.sourceLines.push(`${ind}using ${name} = std::variant<${variants}>;`);
 
@@ -593,7 +593,7 @@ export function emitTypeAnnotation(
       if (typeAnn.resolvedSymbol) {
         const sym = typeAnn.resolvedSymbol;
         if (sym.symbolKind === "class") {
-          return `std::shared_ptr<${sym.name}>`;
+          return `std::shared_ptr<${emitClassCppName(sym)}>`;
         }
         // Interface/enum — use name directly (alias was already emitted)
         return sym.name;
@@ -621,7 +621,7 @@ export function emitTypeAnnotation(
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "named-type" && inner.resolvedSymbol?.symbolKind === "class") {
-          return `std::shared_ptr<${inner.resolvedSymbol.name}>`;
+          return `std::shared_ptr<${emitClassCppName(inner.resolvedSymbol)}>`;
         }
         return `std::optional<${emitTypeAnnotation(inner, ctx)}>`;
       }

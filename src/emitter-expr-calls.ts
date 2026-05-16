@@ -13,7 +13,7 @@ import type {
   FunctionDeclaration,
 } from "./ast.js";
 import { substituteTypeParams, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
-import { emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
+import { emitClassCppName, emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -51,14 +51,14 @@ function getStaticClassMethodCall(memberExpr: MemberExpression): string | null {
   );
   if (!method) return null;
 
-  const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+  const className = emitClassCppName(objectType.symbol);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
 function getQualifiedClassMethodCall(memberExpr: QualifiedMemberExpression): string | null {
   const objectType = memberExpr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
-  const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+  const className = emitClassCppName(objectType.symbol);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
@@ -243,7 +243,7 @@ function emitExplicitGenericMethodCall(
   if (expr.callee.kind === "qualified-member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
     if (!objectType || objectType.kind !== "class") return null;
-    const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+    const className = emitClassCppName(objectType.symbol);
     const typeArgs = methodTypeArgs.map(emitType).join(", ");
     return `${className}::${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
   }
@@ -557,7 +557,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
     // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)
     if (objType && objType.kind === "class" && memberExpr.property === "fromJsonValue") {
-      const className = objType.symbol.extern_?.cppName ?? objType.symbol.name;
+      const className = emitClassCppName(objType.symbol);
       return `${className}::fromJsonValue(${args})`;
     }
 
@@ -680,7 +680,7 @@ function emitActorSyncCall(
 ): string {
   const obj = emitExpression(memberExpr.object, ctx);
   const method = emitIdentifierSafe(memberExpr.property);
-  const className = objType.innerClass.symbol.name;
+  const className = emitClassCppName(objType.innerClass.symbol);
 
   if (method === "stop") {
     return `${obj}->stop()`;
@@ -766,8 +766,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
 
   // Resolve the C++ class name and class symbol
   let typeName = emitIdentifierSafe(expr.type);
-  if (sym?.extern_?.cppName) {
-    typeName = sym.extern_.cppName;
+  if (sym) {
+    typeName = emitClassCppName(sym);
   }
 
   // Append generic type arguments: Box<int> → Box<int32_t>

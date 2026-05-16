@@ -1,10 +1,8 @@
 import type { Expression, ObjectProperty } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
-import { emitEnumVariantAccess } from "./emitter-types.js";
-import { emitType } from "./emitter-types.js";
+import { emitClassCppName, emitEnumVariantAccess, emitNullForType, emitType } from "./emitter-types.js";
 import { escapeChar, escapeString, formatDouble, formatFloat, emitIdentifierSafe } from "./emitter-expr-literals.js";
-import { emitNullForType } from "./emitter-types.js";
 import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
@@ -141,7 +139,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         return unsupportedDefault(expr, contextType);
       }
 
-      const className = ctorType.symbol.extern_?.cppName ?? ctorType.symbol.name;
+      const className = emitClassCppName(ctorType.symbol);
       if (expr.named) {
         const propMap = new Map((expr.args as ObjectProperty[]).map((prop) => [prop.name, prop]));
         const args = buildConstructorFieldInfoList(ctorType.symbol).map((field) => {

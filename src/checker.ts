@@ -30,7 +30,6 @@ import type {
   FunctionDeclaration,
   ClassDeclaration,
   InterfaceDeclaration,
-  ObjectProperty,
   Parameter,
   SourceSpan,
   TryBinding,
@@ -47,14 +46,7 @@ import {
   type Scope,
   type ScopeKind,
   type ModuleTypeInfo,
-  findUnsupportedHashCollectionConstraint,
-  INT_TYPE,
-  LONG_TYPE,
-  FLOAT_TYPE,
-  formatUnsupportedHashCollectionConstraintMessage,
-  DOUBLE_TYPE,
   STRING_TYPE,
-  CHAR_TYPE,
   BOOL_TYPE,
   JSON_VALUE_TYPE,
   JSON_OBJECT_TYPE,
@@ -70,18 +62,14 @@ import {
   BUILTIN_PARSE_ERROR_TYPE,
   BUILTIN_SOURCE_LOCATION_TYPE,
   BUILTIN_SPAN,
-  NUMERIC_PRIMITIVE_NAMES,
-  STRING_CONVERTIBLE_PRIMITIVE_NAMES,
-  type BuiltinFunctionSpec,
   type CheckerHost,
 } from "./checker-internal.js";
 import { checkStatements, checkStatement, checkBlock } from "./checker-stmt.js";
 import { checkFunction, checkClass, checkMethod } from "./checker-decl.js";
+import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics.js";
 import { inferExprType } from "./checker-expr.js";
-import { inferBinaryType, inferUnaryType, resolveExpectedEnumType } from "./checker-expr-ops.js";
-import { inferMemberType, lookupFieldType, getPositionalFieldTypes } from "./checker-member.js";
+import { lookupFieldType, getPositionalFieldTypes } from "./checker-member.js";
 import {
-  buildResultArmScope,
   checkCatchExpression,
   checkTryStatement,
   getTryBindingValue,
@@ -680,7 +668,7 @@ export class TypeChecker {
     for (const field of decl.fields) {
       validateCollectionTypeAnnotation(field.type, field.type.span, table, info, { allowOmittedTypeArgs: false });
       field.resolvedType = this.resolveTypeAnnotation(field.type, table);
-      this.reportUnsupportedHashCollectionConstraint(field.resolvedType, field.type.span, table, info);
+      reportUnsupportedHashCollectionConstraint(field.resolvedType, field.type.span, table, info);
     }
 
     for (const method of decl.methods) {
@@ -697,7 +685,7 @@ export class TypeChecker {
           : UNKNOWN_TYPE;
         param.resolvedType = paramType;
         if (param.type) {
-          this.reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
+          reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
         }
         if (param.defaultValue) {
           this.inferExprType(param.defaultValue, this.buildModuleScope(table), table, info, paramType, true);
@@ -706,7 +694,7 @@ export class TypeChecker {
       });
       validateCollectionTypeAnnotation(method.returnType, method.returnType.span, table, info, { allowOmittedTypeArgs: false });
       const returnType = this.resolveTypeAnnotation(method.returnType, table);
-      this.reportUnsupportedHashCollectionConstraint(returnType, method.returnType.span, table, info);
+      reportUnsupportedHashCollectionConstraint(returnType, method.returnType.span, table, info);
       const typeParamConstraints = this.resolveTypeParamConstraintTypes(
         method.typeParams,
         method.typeParamConstraints,
@@ -741,28 +729,11 @@ export class TypeChecker {
 
     validateCollectionTypeAnnotation(decl.type, decl.type.span, table, info, { allowOmittedTypeArgs: false });
     const aliasType = this.resolveTypeAnnotation(decl.type, table);
-    this.reportUnsupportedHashCollectionConstraint(aliasType, decl.type.span, table, info);
+    reportUnsupportedHashCollectionConstraint(aliasType, decl.type.span, table, info);
 
     if (decl.typeParams.length > 0) {
       this.typeParamStack.pop();
     }
-  }
-
-  private reportUnsupportedHashCollectionConstraint(
-    type: ResolvedType,
-    span: SourceSpan,
-    table: ModuleSymbolTable,
-    info: ModuleTypeInfo,
-  ): void {
-    const issue = findUnsupportedHashCollectionConstraint(type);
-    if (!issue) return;
-
-    info.diagnostics.push({
-      severity: "error",
-      message: formatUnsupportedHashCollectionConstraintMessage(issue),
-      span,
-      module: table.path,
-    });
   }
 
   /**
@@ -1387,50 +1358,8 @@ export class TypeChecker {
   }
 
   // --------------------------------------------------------------------------
-  // Binary / unary type helpers
-  // --------------------------------------------------------------------------
-
-  private inferBinaryType(
-    op: string,
-    left: ResolvedType,
-    right: ResolvedType,
-    info: ModuleTypeInfo,
-    table: ModuleSymbolTable,
-    span: { start: { line: number; column: number; offset: number }; end: { line: number; column: number; offset: number } },
-  ): ResolvedType {
-    return inferBinaryType(op, left, right, info, table, span);
-  }
-
-  private inferUnaryType(
-    op: string,
-    operand: ResolvedType,
-    scope: Scope,
-    table: ModuleSymbolTable,
-    info: ModuleTypeInfo,
-    span: SourceSpan,
-  ): ResolvedType {
-    return inferUnaryType(op, operand, info, table, span);
-  }
-
-  private resolveExpectedEnumType(type?: ResolvedType) {
-    return resolveExpectedEnumType(type);
-  }
-
-  // --------------------------------------------------------------------------
   // Member / field helpers
   // --------------------------------------------------------------------------
-
-  private inferMemberType(
-    objectType: ResolvedType,
-    property: string,
-    table: ModuleSymbolTable,
-    mode: "instance" | "named-static" | "qualified-static" = "instance",
-    info?: ModuleTypeInfo,
-    span?: SourceSpan,
-    binding?: Binding,
-  ): ResolvedType {
-    return inferMemberType(this.host, objectType, property, table, mode, info, span, binding);
-  }
 
   /** Look up the type of a single field by name on a class type. */
   private lookupFieldType(
@@ -1535,19 +1464,6 @@ export class TypeChecker {
       default:
         return false;
     }
-  }
-
-  /**
-   * Build a child scope for a case arm that matches on a Result type.
-   * Binds the pattern name to a success-wrapper or failure-wrapper type so
-   * that `.value` / `.error` member access works in the arm body.
-   */
-  private buildResultArmScope(
-    arm: import("./ast.js").CaseArm,
-    subjectType: import("./checker-types.js").ResultResolvedType,
-    parentScope: Scope,
-  ): Scope {
-    return buildResultArmScope(this.host, arm, subjectType, parentScope);
   }
 
   /**

@@ -259,7 +259,7 @@ describe("emitter-module — hpp/cpp split", () => {
     `);
 
     expect(cppCode).toContain("Result<__doof_stream_int, std::string>::success(__doof_stream_int{");
-    expect(cppCode).toContain("std::in_place_type<std::shared_ptr<Counter>>");
+    expect(cppCode).toContain("std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>");
   });
 
   it("emits stream helper definitions in the concrete implementation module", () => {
@@ -423,6 +423,138 @@ describe("emitter-module — non-exported symbols", () => {
     `);
     expect(cppCode).toContain("static const auto x = 42");
   });
+
+  it("keeps private implementation classes out of module headers", () => {
+    const project = emitProjectHelper(
+      {
+        "/helpers.do": `
+          class Helper {
+            value: int
+
+            read(): int => this.value
+          }
+
+          export function readHelper(): int {
+            return Helper(42).read()
+          }
+        `,
+        "/main.do": `
+          import { readHelper } from "./helpers"
+
+          function main(): int {
+            return readHelper()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const helpersModule = project.modules.find((module) => module.modulePath === "/helpers.do");
+    expect(helpersModule).toBeDefined();
+    expect(helpersModule!.hppCode).not.toContain("struct Helper");
+    expect(helpersModule!.cppCode).toContain("struct Helper");
+    expect(helpersModule!.cppCode).toContain("int32_t Helper::read()");
+  });
+
+  it("allows duplicate private Helper classes across imported modules", () => {
+    const project = emitProjectHelper(
+      {
+        "/left.do": `
+          class Helper {
+            value: int
+          }
+
+          export function left(): int {
+            return Helper(20).value
+          }
+        `,
+        "/right.do": `
+          class Helper {
+            value: int
+          }
+
+          export function right(): int {
+            return Helper(22).value
+          }
+        `,
+        "/main.do": `
+          import { left } from "./left"
+          import { right } from "./right"
+
+          function main(): int {
+            return left() + right()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const leftModule = project.modules.find((module) => module.modulePath === "/left.do");
+    const rightModule = project.modules.find((module) => module.modulePath === "/right.do");
+    expect(leftModule).toBeDefined();
+    expect(rightModule).toBeDefined();
+    expect(leftModule!.hppCode).not.toContain("struct Helper");
+    expect(rightModule!.hppCode).not.toContain("struct Helper");
+    expect(leftModule!.cppCode).toContain("struct Helper");
+    expect(rightModule!.cppCode).toContain("struct Helper");
+  });
+
+  it("mangles private classes that remain visible in headers", () => {
+    const project = emitProjectHelper(
+      {
+        "/left.do": `
+          export interface LeftReadable {
+            readLeft(): int
+          }
+
+          class Helper implements LeftReadable {
+            value: int
+
+            readLeft(): int => this.value
+          }
+
+          export function left(): int {
+            return Helper(20).readLeft()
+          }
+        `,
+        "/right.do": `
+          export interface RightReadable {
+            readRight(): int
+          }
+
+          class Helper implements RightReadable {
+            value: int
+
+            readRight(): int => this.value
+          }
+
+          export function right(): int {
+            return Helper(22).readRight()
+          }
+        `,
+        "/main.do": `
+          import { left } from "./left"
+          import { right } from "./right"
+
+          function main(): int {
+            return left() + right()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const leftModule = project.modules.find((module) => module.modulePath === "/left.do");
+    const rightModule = project.modules.find((module) => module.modulePath === "/right.do");
+    expect(leftModule).toBeDefined();
+    expect(rightModule).toBeDefined();
+    expect(leftModule!.hppCode).toContain("struct __doof_private_left_Helper;");
+    expect(leftModule!.hppCode).toContain("using LeftReadable = std::variant<std::shared_ptr<__doof_private_left_Helper>>;");
+    expect(leftModule!.hppCode).toContain("struct __doof_private_left_Helper");
+    expect(rightModule!.hppCode).toContain("struct __doof_private_right_Helper;");
+    expect(rightModule!.hppCode).toContain("using RightReadable = std::variant<std::shared_ptr<__doof_private_right_Helper>>;");
+    expect(rightModule!.hppCode).toContain("struct __doof_private_right_Helper");
+  });
 });
 
 describe("emitter-module — mock call storage", () => {
@@ -481,8 +613,8 @@ describe("emitter-module — mock call storage", () => {
       }
     `);
 
-    expect(hppCode).toContain("std::shared_ptr<std::vector<__PaymentGateway_sendPayment_Call>> __sendPayment_calls = std::make_shared<std::vector<__PaymentGateway_sendPayment_Call>>();");
-    expect(hppCode).toContain("bool sendPayment(std::string targetId, int32_t amount);");
+    expect(cppCode).toContain("std::shared_ptr<std::vector<__PaymentGateway_sendPayment_Call>> __sendPayment_calls = std::make_shared<std::vector<__PaymentGateway_sendPayment_Call>>();");
+    expect(cppCode).toContain("bool sendPayment(std::string targetId, int32_t amount);");
     expect(cppCode).toContain("__sendPayment_calls->push_back(__PaymentGateway_sendPayment_Call{targetId, amount});");
     expect(cppCode).toContain('return doof::array_at(gateway->__sendPayment_calls, 0, "main.do",');
   });
@@ -551,8 +683,8 @@ describe("emitter-module — main wrapper", () => {
 });
 
 describe("emitter-module — multi-module hpp includes", () => {
-  it("hpp includes imported module headers", () => {
-    const { hppCode } = emitSplitMulti(
+  it("keeps implementation-only function imports out of headers", () => {
+    const result = emitSplitMulti(
       {
         "/main.do": `
           import { add } from "./math"
@@ -564,7 +696,229 @@ describe("emitter-module — multi-module hpp includes", () => {
       },
       "/main.do",
     );
+    const { hppCode, cppCode } = result;
+    expect(hppCode).not.toContain('#include "math.hpp"');
+    expect(cppCode).toContain('#include "math.hpp"');
+    expect(hppCode).toContain("int32_t double_(int32_t x);");
+  });
+
+  it("hpp includes imported enum definitions for exported surfaces", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/main.do": `
+          import { Mode } from "./mode"
+
+          export class Config {
+            mode: Mode
+          }
+        `,
+        "/mode.do": `
+          export enum Mode { Fast, Slow }
+        `,
+      },
+      "/main.do",
+    );
+    expect(hppCode).toContain('#include "mode.hpp"');
+    expect(hppCode).toContain("Mode mode;");
+  });
+
+  it("hpp includes imported extern class modules for header-visible fields", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/main.do": `
+          import { NativeThing } from "./interop"
+
+          export class Holder {
+            thing: NativeThing
+          }
+        `,
+        "/interop.do": `
+          export import class NativeThing from "native_thing.hpp" as native::Thing {
+            value(): int
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(hppCode).toContain('#include "interop.hpp"');
+    expect(hppCode).toContain("std::shared_ptr<native::Thing> thing;");
+  });
+
+  it("hpp includes imported class definitions for extern interop surfaces", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/main.do": `
+          import { Timestamp } from "./time"
+
+          export class LogEntry {
+            timestamp: Timestamp
+          }
+
+          export import function dispatch(entry: LogEntry): void from "native_log.hpp" as native_log::dispatch
+        `,
+        "/time.do": `
+          export class Timestamp {
+            nanos: long
+
+            toNanos(): long => this.nanos
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(hppCode).toContain('#include "time.hpp"');
+    expect(hppCode).toContain("std::shared_ptr<Timestamp> timestamp;");
+  });
+
+  it("hpp includes re-exported module headers for barrel surfaces", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/main.do": `
+          export { add } from "./math"
+        `,
+        "/math.do": `
+          export function add(a: int, b: int): int => a + b
+        `,
+      },
+      "/main.do",
+    );
     expect(hppCode).toContain('#include "math.hpp"');
+  });
+
+  it("forward declares imported class fields for exported class surfaces", () => {
+    const project = emitProjectHelper(
+      {
+        "/data.do": `
+          export class Data {
+            value: int
+          }
+        `,
+        "/holder.do": `
+          import { Data } from "./data"
+
+          export class Holder {
+            data: Data
+          }
+        `,
+        "/main.do": `
+          import { Holder } from "./holder"
+          import { Data } from "./data"
+
+          function main(): int {
+            return Holder(Data(42)).data.value
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const holderModule = project.modules.find((module) => module.modulePath === "/holder.do");
+    expect(holderModule).toBeDefined();
+    expect(holderModule!.hppCode).toContain("struct Data;");
+    expect(holderModule!.hppCode).not.toContain('#include "data.hpp"');
+    expect(holderModule!.hppCode).toContain("std::shared_ptr<Data> data;");
+    expect(holderModule!.cppCode).toContain('#include "data.hpp"');
+  });
+
+  it("forward declares circular imported class fields before header bodies", () => {
+    const project = emitProjectHelper(
+      {
+        "/a.do": `
+          import { B } from "./b"
+
+          export class A {
+            b: B | null = null
+          }
+        `,
+        "/b.do": `
+          import { A } from "./a"
+
+          export class B {
+            a: A | null = null
+          }
+        `,
+        "/main.do": `
+          import { A } from "./a"
+
+          function main(): int {
+            a := A()
+            if a.b == null {
+              return 0
+            }
+            return 1
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const aModule = project.modules.find((module) => module.modulePath === "/a.do");
+    const bModule = project.modules.find((module) => module.modulePath === "/b.do");
+    expect(aModule).toBeDefined();
+    expect(bModule).toBeDefined();
+    expect(aModule!.hppCode).toContain("struct B;");
+    expect(bModule!.hppCode).toContain("struct A;");
+  });
+
+  it("renders header sections in the planned dependency order", () => {
+    const project = emitProjectHelper(
+      {
+        "/dep.do": `
+          export class Dep {
+            value: int
+          }
+        `,
+        "/status.do": `
+          export enum Status { Ready, Busy }
+        `,
+        "/main.do": `
+          import { Dep } from "./dep"
+          import { Status } from "./status"
+
+          import class NativeThing from "native_thing.hpp" {
+            value(): int
+          }
+
+          export interface Readable {
+            value(): int
+          }
+
+          class Impl implements Readable {
+            dep: Dep
+            status: Status
+            native: NativeThing
+
+            value(): int => dep.value
+          }
+
+          export function read(input: Readable): int => input.value()
+        `,
+      },
+      "/main.do",
+    );
+
+    const mainModule = project.modules.find((module) => module.modulePath === "/main.do");
+    expect(mainModule).toBeDefined();
+    const hppCode = mainModule!.hppCode;
+
+    const expectBefore = (earlier: string, later: string) => {
+      const earlierPos = hppCode.indexOf(earlier);
+      const laterPos = hppCode.indexOf(later);
+      expect(earlierPos).toBeGreaterThan(-1);
+      expect(laterPos).toBeGreaterThan(-1);
+      expect(earlierPos).toBeLessThan(laterPos);
+    };
+
+    expectBefore("#pragma once", "#include <cstdint>");
+    expectBefore('#include "doof_runtime.hpp"', '#include "native_thing.hpp"');
+    expectBefore('#include "native_thing.hpp"', "struct Dep;");
+    expectBefore("struct Dep;", '#include "status.hpp"');
+    expectBefore('#include "status.hpp"', "struct __doof_private_main_Impl;");
+    expectBefore("struct __doof_private_main_Impl;", "using Readable = std::variant");
+    expectBefore("using Readable = std::variant", "struct __doof_private_main_Impl :");
+    expectBefore("struct __doof_private_main_Impl :", "int32_t read(Readable input);");
   });
 });
 
@@ -605,7 +959,8 @@ describe("emitter-module — emitProject", () => {
     ]);
 
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
-    expect(mainModule?.hppCode).toContain('#include "shared/math.hpp"');
+    expect(mainModule?.hppCode).not.toContain('#include "shared/math.hpp"');
+    expect(mainModule?.cppCode).toContain('#include "shared/math.hpp"');
   });
 
   it("emits remote package modules under .packages output roots", () => {
@@ -639,7 +994,8 @@ describe("emitter-module — emitProject", () => {
       "main.hpp",
     ]);
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
-    expect(mainModule?.hppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
+    expect(mainModule?.hppCode).not.toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
+    expect(mainModule?.cppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
   });
 
   it("emits package extern headers as direct sibling includes", () => {
@@ -861,7 +1217,7 @@ describe("emitter — namespace imports", () => {
   });
 
   it("includes namespace-imported module header in module split", () => {
-    const { hppCode } = emitSplitMulti(
+    const { hppCode, cppCode } = emitSplitMulti(
       {
         "/main.do": `
           import * as math from "./math"
@@ -873,7 +1229,8 @@ describe("emitter — namespace imports", () => {
       },
       "/main.do",
     );
-    expect(hppCode).toContain('#include "math.hpp"');
+    expect(hppCode).not.toContain('#include "math.hpp"');
+    expect(cppCode).toContain('#include "math.hpp"');
   });
 
   it("wraps main(args) using the Doof array representation", () => {
@@ -963,6 +1320,22 @@ describe("emitter — extern class imports", () => {
       }
     `);
     expect(cpp).toContain("std::shared_ptr<httplib::Client>");
+  });
+
+  it("uses cppName in interface aliases for namespaced extern implementors", () => {
+    const { hppCode } = emitSplit(`
+      import class NativeThing from "native_thing.hpp" as native::Thing {
+        value(): int
+      }
+
+      export interface Thing {
+        value(): int
+      }
+    `);
+
+    expect(hppCode).toContain("using Thing = std::variant<std::shared_ptr<native::Thing>>;");
+    expect(hppCode).not.toContain("std::shared_ptr<NativeThing>");
+    expect(hppCode).not.toContain("struct NativeThing;");
   });
 
   it("emits static extern class method call as C++ scope access", () => {

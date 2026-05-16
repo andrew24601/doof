@@ -2,11 +2,11 @@
  * Module-level C++ emission — .hpp/.cpp splitting for multi-module programs.
  *
  * Splits each Doof module into a header (.hpp) and implementation (.cpp) file:
- *   - .hpp: include guard, forward declarations, struct definitions (with inline
- *           methods), interface aliases, enum declarations, type aliases,
+ *   - .hpp: planned include surface, forward declarations, API struct
+ *           definitions, interface aliases, enum declarations, type aliases,
  *           function forward declarations
- *   - .cpp: #include own header, function implementations, variable definitions,
- *           anonymous namespace for non-exported symbols, main() wrapper
+ *   - .cpp: #include own header, private implementation classes, function
+ *           implementations, variable definitions, main() wrapper
  *
  * Also exposes a top-level emitProject() function that produces all generated
  * output files for a project at once.
@@ -36,7 +36,7 @@ import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValu
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
-import { emitType, emitInnerType, mangleTypeForCppName } from "./emitter-types.js";
+import { emitClassCppName, emitClassForwardDeclName, emitClassSharedPtrType, emitPrivateClassCppName, emitType, emitInnerType, mangleTypeForCppName } from "./emitter-types.js";
 import { buildGenericFunctionKey, buildMonomorphizedFunctionName, functionDeclIsStreamSensitive } from "./emitter-monomorphize.js";
 import { emitClassMethodDefinitions } from "./emitter-decl.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
@@ -159,11 +159,34 @@ interface StreamImplRef {
   baseName: string;
   cppTypeName: string;
   modulePath: string;
+  isExtern: boolean;
 }
 
 interface StreamAliasInfo {
   streamType: Extract<ResolvedType, { kind: "stream" }>;
   impls: StreamImplRef[];
+}
+
+interface HeaderPlan {
+  standardIncludes: Set<string>;
+  externIncludes: string[];
+  crossModuleForwardDecls: string[];
+  moduleIncludes: string[];
+  classified: ClassifiedStatements;
+  nativeClasses: ClassifiedDecl<ClassDeclaration>[];
+  cppOnlyNativeClasses: ClassifiedDecl<ClassDeclaration>[];
+  monomorphizedClassesForModule: GenericClassInstantiation[];
+  monomorphizedMethodsForModule: GenericMethodInstantiation[];
+  mockCaptureTypes: MockCaptureType[];
+  streamAliases: Map<string, StreamAliasInfo>;
+  streamTypesForModule: Extract<ResolvedType, { kind: "stream" }>[];
+  nonGenericExportedFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  genericExportedFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  monomorphizedFunctionsForModule: GenericFunctionInstantiation[];
+  exportedMockFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  nonExportedGenericFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  exportedVariables: { stmt: Statement; exported: boolean }[];
+  hasInitDeclaration: boolean;
 }
 
 // ============================================================================
@@ -207,8 +230,8 @@ export function emitModuleSplit(
   const monomorphizedFunctions = collectDirectStreamFunctionInstantiations(analysisResult);
   const monomorphizedMethods = new Map<string, GenericMethodInstantiation>();
   const monomorphizedClasses = collectConcreteStreamSensitiveClassInstantiations(analysisResult, monomorphizedMethods);
-    const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
-    const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
+  markAllHeaderVisiblePrivateClassNames(analysisResult, interfaceImpls);
+  const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
   const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, monomorphizedMethods, baseDir, packageOutputPaths);
   const { code: cppCode, instrumentedLines } = emitCppFile(
@@ -313,7 +336,7 @@ export function emitProject(
 // Header (.hpp) generation
 // ============================================================================
 
-function emitHpp(
+function buildHeaderPlan(
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
   interfaceImpls: Map<string, ClassSymbol[]>,
@@ -322,14 +345,7 @@ function emitHpp(
   monomorphizedMethods: Map<string, GenericMethodInstantiation>,
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
-): string {
-  const lines: string[] = [];
-
-  // Pragma once
-  lines.push("#pragma once");
-  lines.push("");
-
-  // Standard system includes (used for dedup with extern includes below)
+): HeaderPlan {
   const standardIncludes = new Set([
     "#include <cstdint>",
     "#include <memory>",
@@ -342,17 +358,7 @@ function emitHpp(
     "#include <type_traits>",
     "#include <cmath>",
   ]);
-  for (const inc of standardIncludes) {
-    lines.push(inc);
-  }
 
-  lines.push("");
-
-  // Runtime header (needed for inline methods that use doof:: utilities)
-  lines.push(`#include "doof_runtime.hpp"`);
-  lines.push("");
-
-  // Extern C++ class imports → #include their headers
   const externIncludeSet = new Set<string>();
   for (const stmt of table.program.statements) {
     if (stmt.kind === "extern-class-declaration") {
@@ -370,69 +376,456 @@ function emitHpp(
       }
     }
   }
-  const externIncludes = [...externIncludeSet].filter((inc) => !standardIncludes.has(inc));
-  if (externIncludes.length > 0) {
-    for (const inc of externIncludes) {
+
+  const classified = classifyStatements(table);
+  const nativeClasses = classified.classes.filter((cls) => {
+    const sym = table.symbols.get(cls.decl.name);
+    return !(sym?.symbolKind === "class" && sym.extern_);
+  });
+  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+  const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
+  markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
+  const exportedFunctions = classified.functions.filter((fn) => fn.exported && fn.decl.name !== "main");
+
+  return {
+    standardIncludes,
+    externIncludes: [...externIncludeSet].filter((inc) => !standardIncludes.has(inc)),
+    crossModuleForwardDecls: collectCrossModuleClassForwardDecls(table, analysisResult),
+    moduleIncludes: collectHeaderReferencedModulePaths(table, classified, headerNativeClasses, monomorphizedClasses, monomorphizedMethods, monomorphizedFunctions)
+      .map((dependencyModule) => modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)),
+    classified,
+    nativeClasses: headerNativeClasses,
+    cppOnlyNativeClasses: nativeClasses.filter((cls) => !headerNativeClasses.includes(cls)),
+    monomorphizedClassesForModule: orderMonomorphizedClassInstantiations(
+      [...monomorphizedClasses.values()].filter((inst) => inst.modulePath === table.path),
+    ),
+    monomorphizedMethodsForModule: [...monomorphizedMethods.values()].filter((inst) => inst.ownerModulePath === table.path),
+    mockCaptureTypes: collectMockCaptureTypes(classified),
+    streamAliases: buildStreamImplMap(analysisResult, monomorphizedClasses),
+    streamTypesForModule: collectUsedStreamTypesForModule(table, monomorphizedClasses),
+    nonGenericExportedFunctions: exportedFunctions.filter((fn) => fn.decl.typeParams.length === 0),
+    genericExportedFunctions: exportedFunctions.filter((fn) => fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl)),
+    monomorphizedFunctionsForModule: [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path),
+    exportedMockFunctions: exportedFunctions.filter((fn) => hasMockCall(fn.decl)),
+    nonExportedGenericFunctions: classified.functions.filter(
+      (fn) => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl),
+    ),
+    exportedVariables: classified.variables.filter((v) => v.exported),
+    hasInitDeclaration: hasReadonlyGlobals(classified),
+  };
+}
+
+function isHeaderVisibleClass(
+  cls: ClassifiedDecl<ClassDeclaration>,
+  modulePath: string,
+  headerSurfaceClassKeys: Set<string>,
+): boolean {
+  return cls.exported
+    || cls.decl.typeParams.length > 0
+    || cls.decl.implements_.length > 0
+    || classDeclIsStreamSensitive(cls.decl)
+    || headerSurfaceClassKeys.has(`${modulePath}:${cls.decl.name}`);
+}
+
+function getClassSymbolForDecl(table: ModuleSymbolTable, decl: ClassDeclaration): ClassSymbol {
+  const sym = table.symbols.get(decl.name);
+  if (sym?.symbolKind !== "class") {
+    throw new Error(`Missing class symbol for "${decl.name}" during C++ emission`);
+  }
+  return sym;
+}
+
+function markHeaderVisiblePrivateClassNames(
+  table: ModuleSymbolTable,
+  classes: ClassifiedDecl<ClassDeclaration>[],
+): void {
+  for (const cls of classes) {
+    const sym = getClassSymbolForDecl(table, cls.decl);
+    if (sym.exported || sym.extern_) continue;
+    sym.emittedCppName = emitPrivateClassCppName(sym);
+  }
+}
+
+function markAllHeaderVisiblePrivateClassNames(
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+): void {
+  for (const table of analysisResult.modules.values()) {
+    const classified = classifyStatements(table);
+    const nativeClasses = classified.classes.filter((cls) => {
+      const sym = table.symbols.get(cls.decl.name);
+      return !(sym?.symbolKind === "class" && sym.extern_);
+    });
+    const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+    markHeaderVisiblePrivateClassNames(
+      table,
+      nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys)),
+    );
+  }
+}
+
+function collectHeaderReferencedModulePaths(
+  table: ModuleSymbolTable,
+  classified: ClassifiedStatements,
+  headerNativeClasses: ClassifiedDecl<ClassDeclaration>[],
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  monomorphizedMethods: Map<string, GenericMethodInstantiation>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+): string[] {
+  const dependencies = new Set<string>();
+  const hasExternInterop = moduleDeclaresExternInterop(table);
+  const addModule = (modulePath: string | null | undefined): void => {
+    if (!modulePath || modulePath === table.path || modulePath.startsWith("<")) return;
+    dependencies.add(modulePath);
+  };
+
+  const addTypeAnnotationDeps = (typeAnn: TypeAnnotation | null | undefined): void => {
+    if (!typeAnn) return;
+    switch (typeAnn.kind) {
+      case "named-type": {
+        const sym = typeAnn.resolvedSymbol;
+        if (sym) {
+          if (sym.symbolKind !== "class" || sym.extern_ || hasExternInterop) {
+            addModule(sym.module);
+          }
+        }
+        for (const arg of typeAnn.typeArgs) {
+          addTypeAnnotationDeps(arg);
+        }
+        break;
+      }
+      case "array-type":
+        addTypeAnnotationDeps(typeAnn.elementType);
+        break;
+      case "union-type":
+        for (const inner of typeAnn.types) {
+          addTypeAnnotationDeps(inner);
+        }
+        break;
+      case "function-type":
+        for (const param of typeAnn.params) {
+          addTypeAnnotationDeps(param.type);
+        }
+        addTypeAnnotationDeps(typeAnn.returnType);
+        break;
+      case "tuple-type":
+        for (const element of typeAnn.elements) {
+          addTypeAnnotationDeps(element);
+        }
+        break;
+      case "weak-type":
+        addTypeAnnotationDeps(typeAnn.type);
+        break;
+    }
+  };
+
+  const addResolvedTypeDeps = (type: ResolvedType | null | undefined): void => {
+    if (!type || isJsonValueType(type)) return;
+    switch (type.kind) {
+      case "interface":
+        addModule(type.symbol.module);
+        for (const arg of type.typeArgs ?? []) {
+          addResolvedTypeDeps(arg);
+        }
+        break;
+      case "enum":
+        addModule(type.symbol.module);
+        break;
+      case "class":
+        if (type.symbol.extern_ || hasExternInterop) {
+          addModule(type.symbol.module);
+        }
+        for (const arg of type.typeArgs ?? []) {
+          addResolvedTypeDeps(arg);
+        }
+        break;
+      case "function":
+        for (const param of type.params) {
+          addResolvedTypeDeps(param.type);
+        }
+        addResolvedTypeDeps(type.returnType);
+        break;
+      case "mock-capture":
+        for (const field of type.fields) {
+          addResolvedTypeDeps(field.type);
+        }
+        break;
+      case "array":
+      case "set":
+      case "stream":
+        addResolvedTypeDeps(type.elementType);
+        break;
+      case "map":
+        addResolvedTypeDeps(type.keyType);
+        addResolvedTypeDeps(type.valueType);
+        break;
+      case "union":
+        for (const inner of type.types) {
+          addResolvedTypeDeps(inner);
+        }
+        break;
+      case "tuple":
+        for (const element of type.elements) {
+          addResolvedTypeDeps(element);
+        }
+        break;
+      case "weak":
+        addResolvedTypeDeps(type.inner);
+        break;
+      case "actor":
+        addResolvedTypeDeps(type.innerClass);
+        break;
+      case "promise":
+        addResolvedTypeDeps(type.valueType);
+        break;
+      case "result":
+        addResolvedTypeDeps(type.successType);
+        addResolvedTypeDeps(type.errorType);
+        break;
+      case "class-metadata":
+      case "method-reflection":
+        addResolvedTypeDeps(type.classType);
+        break;
+      case "primitive":
+      case "builtin-namespace":
+      case "null":
+      case "void":
+      case "unknown":
+      case "namespace":
+      case "success-wrapper":
+      case "failure-wrapper":
+      case "typevar":
+        break;
+    }
+  };
+
+  const addFunctionSurfaceDeps = (decl: FunctionDeclaration): void => {
+    addResolvedTypeDeps(decl.resolvedType);
+    addTypeAnnotationDeps(decl.returnType);
+    for (const param of decl.params) {
+      addTypeAnnotationDeps(param.type);
+      addResolvedTypeDeps(param.resolvedType);
+    }
+  };
+
+  for (const sym of table.exports.values()) {
+    addModule(sym.module);
+  }
+
+  for (const cls of headerNativeClasses) {
+    for (const field of cls.decl.fields) {
+      addTypeAnnotationDeps(field.type);
+      addResolvedTypeDeps(field.resolvedType);
+    }
+    for (const method of cls.decl.methods) {
+      addFunctionSurfaceDeps(method);
+    }
+  }
+
+  for (const iface of classified.interfaces) {
+    for (const field of iface.decl.fields) {
+      addTypeAnnotationDeps(field.type);
+      addResolvedTypeDeps(field.resolvedType);
+    }
+    for (const method of iface.decl.methods) {
+      addTypeAnnotationDeps(method.returnType);
+      addResolvedTypeDeps(method.resolvedType);
+      for (const param of method.params) {
+        addTypeAnnotationDeps(param.type);
+        addResolvedTypeDeps(param.resolvedType);
+      }
+    }
+  }
+
+  for (const alias of classified.typeAliases) {
+    addTypeAnnotationDeps(alias.decl.type);
+  }
+
+  const exportedFunctions = classified.functions.filter((fn) => fn.exported && fn.decl.name !== "main");
+  for (const fn of exportedFunctions) {
+    addFunctionSurfaceDeps(fn.decl);
+  }
+
+  for (const variable of classified.variables.filter((v) => v.exported)) {
+    addResolvedTypeDeps((variable.stmt as ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration).resolvedType);
+  }
+
+  const emitsHeaderInlineBodies = classified.functions.some(
+    (fn) => fn.decl.name !== "main" && fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl),
+  )
+    || [...monomorphizedFunctions.values()].some((inst) => inst.modulePath === table.path)
+    || [...monomorphizedClasses.values()].some((inst) => inst.modulePath === table.path)
+    || [...monomorphizedMethods.values()].some((inst) => inst.ownerModulePath === table.path);
+  if (emitsHeaderInlineBodies) {
+    for (const dependencyModule of collectReferencedModulePaths(table)) {
+      addModule(dependencyModule);
+    }
+  }
+
+  const preferredOrder = collectReferencedModulePaths(table);
+  const ordered = preferredOrder.filter((modulePath) => dependencies.has(modulePath));
+  const remaining = [...dependencies].filter((modulePath) => !preferredOrder.includes(modulePath)).sort();
+  return [...ordered, ...remaining];
+}
+
+function moduleDeclaresExternInterop(table: ModuleSymbolTable): boolean {
+  for (const stmt of table.program.statements) {
+    const inner = stmt.kind === "export-declaration"
+      ? (stmt as any).declaration as Statement
+      : stmt;
+    if (inner.kind === "extern-class-declaration" || inner.kind === "extern-function-declaration") {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildHeaderSurfaceClassKeySet(
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  classified: ClassifiedStatements,
+): Set<string> {
+  const result = new Set<string>();
+  for (const impls of interfaceImpls.values()) {
+    for (const impl of impls) {
+      result.add(`${impl.module}:${impl.name}`);
+    }
+  }
+  for (const alias of classified.typeAliases) {
+    const members = collectTypeAliasClassSymbols(alias.decl.type);
+    if (!members) continue;
+    for (const member of members) {
+      result.add(`${member.module}:${member.name}`);
+    }
+  }
+  return result;
+}
+
+function collectCrossModuleClassForwardDecls(
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+): string[] {
+  const symbols = new Map<string, ClassSymbol>();
+
+  const addSymbol = (symbol: ClassSymbol | null): void => {
+    if (!symbol || symbol.module === table.path || symbol.extern_) return;
+    symbols.set(`${symbol.module}:${emitClassForwardDeclName(symbol)}`, symbol);
+  };
+
+  for (const imp of table.imports) {
+    if (imp.symbol?.symbolKind === "class") {
+      addSymbol(imp.symbol);
+    }
+  }
+
+  for (const nsImp of table.namespaceImports) {
+    const sourceTable = analysisResult.modules.get(nsImp.sourceModule);
+    if (!sourceTable) continue;
+    for (const sym of sourceTable.exports.values()) {
+      if (sym.symbolKind === "class") {
+        addSymbol(sym);
+      }
+    }
+  }
+
+  const lines: string[] = [];
+  const ordered = [...symbols.values()].sort((left, right) =>
+    `${left.module}:${emitClassForwardDeclName(left)}`.localeCompare(`${right.module}:${emitClassForwardDeclName(right)}`),
+  );
+  for (const symbol of ordered) {
+    const typeParams = symbol.declaration.typeParams;
+    if (typeParams.length > 0) {
+      lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
+    }
+    lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
+  }
+  return lines;
+}
+
+function emitHpp(
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  monomorphizedMethods: Map<string, GenericMethodInstantiation>,
+  baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
+): string {
+  const plan = buildHeaderPlan(
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    monomorphizedClasses,
+    monomorphizedMethods,
+    baseDir,
+    packageOutputPaths,
+  );
+  const lines: string[] = [];
+
+  // Pragma once
+  lines.push("#pragma once");
+  lines.push("");
+
+  for (const inc of plan.standardIncludes) {
+    lines.push(inc);
+  }
+
+  lines.push("");
+
+  // Runtime header (needed for inline methods that use doof:: utilities)
+  lines.push(`#include "doof_runtime.hpp"`);
+  lines.push("");
+
+  if (plan.externIncludes.length > 0) {
+    for (const inc of plan.externIncludes) {
       lines.push(inc);
     }
     lines.push("");
   }
 
-  // Module imports → #include their .hpp
-  const moduleIncludes = new Set<string>();
-  for (const dependencyModule of collectReferencedModulePaths(table)) {
-    moduleIncludes.add(modulePathToInclude(dependencyModule, baseDir, packageOutputPaths));
+  if (plan.crossModuleForwardDecls.length > 0) {
+    lines.push(...plan.crossModuleForwardDecls);
+    lines.push("");
   }
-  if (moduleIncludes.size > 0) {
-    for (const inc of moduleIncludes) {
+
+  if (plan.moduleIncludes.length > 0) {
+    for (const inc of plan.moduleIncludes) {
       lines.push(`#include "${inc}"`);
     }
     lines.push("");
   }
 
-  // Collect declarations by kind from the AST
-  const classified = classifyStatements(table);
-
   // Forward declarations for classes (needed before interface aliases)
   // Skip extern classes — their struct is defined in the external header.
-  const nativeClasses = classified.classes.filter((cls) => {
-    const sym = table.symbols.get(cls.decl.name);
-    return !(sym?.symbolKind === "class" && sym.extern_);
-  });
-  for (const cls of nativeClasses) {
+  for (const cls of plan.nativeClasses) {
+    const sym = getClassSymbolForDecl(table, cls.decl);
     const tpLen = cls.decl.typeParams.length;
     if (tpLen > 0) {
       const tpl = cls.decl.typeParams.map((p: string) => `typename ${p}`).join(", ");
       lines.push(`template<${tpl}>`);
     }
-    lines.push(`struct ${emitIdentifierSafe(cls.decl.name)};`);
+    lines.push(`struct ${emitClassForwardDeclName(sym)};`);
   }
-  if (nativeClasses.length > 0) {
+  if (plan.nativeClasses.length > 0) {
     lines.push("");
   }
 
-  const monomorphizedClassesForModule = orderMonomorphizedClassInstantiations(
-    [...monomorphizedClasses.values()].filter((inst) => inst.modulePath === table.path),
-  );
-
-  const mockCaptureTypes = collectMockCaptureTypes(classified);
-  for (const captureType of mockCaptureTypes) {
+  for (const captureType of plan.mockCaptureTypes) {
     emitMockCaptureStruct(lines, captureType);
     lines.push("");
   }
 
-  const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
-  const streamTypesForModule = collectUsedStreamTypesForModule(table, monomorphizedClasses);
-  for (const streamType of streamTypesForModule) {
+  for (const streamType of plan.streamTypesForModule) {
     const aliasName = emitType(streamType);
-    const info = streamAliases.get(aliasName);
+    const info = plan.streamAliases.get(aliasName);
     if (!info) continue;
     emitStreamAliasHpp(aliasName, info, table, lines);
     lines.push("");
   }
 
   // Interface aliases (use forward-declared class names via shared_ptr)
-  for (const iface of classified.interfaces) {
+  for (const iface of plan.classified.interfaces) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     emitInterfaceAliasHpp(iface.decl, ctx);
     lines.push(...ctx.sourceLines);
@@ -440,7 +833,7 @@ function emitHpp(
   }
 
   // Type aliases
-  for (const alias of classified.typeAliases) {
+  for (const alias of plan.classified.typeAliases) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     emitStatement({ ...alias.decl, needsJson: false } as TypeAliasDeclaration as Statement, ctx);
     lines.push(...ctx.sourceLines);
@@ -448,7 +841,7 @@ function emitHpp(
   }
 
   // Enum declarations
-  for (const en of classified.enums) {
+  for (const en of plan.classified.enums) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     emitStatement(en.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
@@ -457,9 +850,11 @@ function emitHpp(
 
   // Full struct definitions (with inline methods)
   // Skip extern classes — their struct is defined in the external header.
-  for (const cls of nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
+  for (const cls of plan.nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
+    const sym = getClassSymbolForDecl(table, cls.decl);
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      classNameOverride: emitClassCppName(sym),
       emitMethodBodiesInline: false,
     };
     emitStatement(cls.decl as Statement, ctx);
@@ -467,13 +862,14 @@ function emitHpp(
     lines.push("");
   }
 
-  for (const inst of monomorphizedClassesForModule) {
+  for (const inst of plan.monomorphizedClassesForModule) {
+    const sym = getClassSymbolForDecl(table, inst.decl);
     const typeSubstitution = buildClassTypeSubstitutionMap(inst.decl, inst.typeArgs);
     const typeArgs = inst.typeArgs.map(emitType).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       typeSubstitution,
-      classNameOverride: `${emitIdentifierSafe(inst.decl.name)}<${typeArgs}>`,
+      classNameOverride: `${emitClassCppName(sym)}<${typeArgs}>`,
       emitExplicitClassSpecialization: true,
       emitMethodBodiesInline: false,
     };
@@ -482,21 +878,22 @@ function emitHpp(
     lines.push("");
   }
 
-  for (const inst of monomorphizedClassesForModule) {
+  for (const inst of plan.monomorphizedClassesForModule) {
+    const sym = getClassSymbolForDecl(table, inst.decl);
     const typeSubstitution = buildClassTypeSubstitutionMap(inst.decl, inst.typeArgs);
     const typeArgs = inst.typeArgs.map(emitType).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       typeSubstitution,
-      classNameOverride: `${emitIdentifierSafe(inst.decl.name)}<${typeArgs}>`,
+      classNameOverride: `${emitClassCppName(sym)}<${typeArgs}>`,
       emitExplicitClassSpecialization: true,
       forceInline: true,
     };
     emitClassMethodDefinitions(inst.decl, ctx);
     lines.push(...ctx.sourceLines);
   }
-  const monomorphizedMethodsForModule = [...monomorphizedMethods.values()].filter((inst) => inst.ownerModulePath === table.path);
-  for (const inst of monomorphizedMethodsForModule) {
+  for (const inst of plan.monomorphizedMethodsForModule) {
+    const ownerSym = getClassSymbolForDecl(table, inst.ownerDecl);
     const ownerTypeSubstitution = buildClassTypeSubstitutionMap(inst.ownerDecl, inst.ownerTypeArgs);
     const methodTypeSubstitution = buildFunctionTypeSubstitutionMap(inst.methodDecl, inst.methodTypeArgs);
     const typeSubstitution = combineTypeSubstitutions(ownerTypeSubstitution, methodTypeSubstitution);
@@ -507,17 +904,17 @@ function emitHpp(
       typeSubstitution,
       forceInline: true,
       suppressTemplatePrefix: true,
-      qualifiedFunctionName: `${emitIdentifierSafe(inst.ownerDecl.name)}<${ownerTypeArgs}>::${emitIdentifierSafe(inst.methodDecl.name)}<${methodTypeArgs}>`,
+      qualifiedFunctionName: `${emitClassCppName(ownerSym)}<${ownerTypeArgs}>::${emitIdentifierSafe(inst.methodDecl.name)}<${methodTypeArgs}>`,
     };
     lines.push("template<>");
     emitStatement(inst.methodDecl as Statement, ctx);
     lines.push(...ctx.sourceLines);
   }
-  if (monomorphizedClassesForModule.length > 0) {
+  if (plan.monomorphizedClassesForModule.length > 0) {
     lines.push("");
   }
 
-  for (const iface of classified.interfaces) {
+  for (const iface of plan.classified.interfaces) {
     const impls = interfaceImpls.get(iface.decl.name);
     if (!impls || !iface.decl.needsJson) continue;
     const allSerializable = impls.every((cls) =>
@@ -532,7 +929,7 @@ function emitHpp(
     lines.push("");
   }
 
-  for (const alias of classified.typeAliases) {
+  for (const alias of plan.classified.typeAliases) {
     if (!alias.decl.needsJson) continue;
     const members = collectTypeAliasClassSymbols(alias.decl.type);
     const allSerializable = members && members.length > 0 && members.every((cls) =>
@@ -549,33 +946,28 @@ function emitHpp(
 
   // Function forward declarations (exported only, non-generic)
   // Generic functions get full body in .hpp since C++ templates must be header-only.
-  const exportedFunctions = classified.functions.filter(fn => fn.exported && fn.decl.name !== "main");
-  const nonGenericExported = exportedFunctions.filter(fn => fn.decl.typeParams.length === 0);
-  const genericExported = exportedFunctions.filter(fn => fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl));
-  const monomorphizedForModule = [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path);
-  for (const fn of nonGenericExported) {
+  for (const fn of plan.nonGenericExportedFunctions) {
     lines.push(emitFunctionSignature(fn.decl, interfaceImpls) + ";");
   }
-  for (const inst of monomorphizedForModule) {
+  for (const inst of plan.monomorphizedFunctionsForModule) {
     lines.push(emitFunctionSignature(inst.decl, interfaceImpls, inst.emittedName, buildFunctionTypeSubstitutionMap(inst.decl, inst.typeArgs)) + ";");
   }
-  if (nonGenericExported.length > 0 || monomorphizedForModule.length > 0) {
+  if (plan.nonGenericExportedFunctions.length > 0 || plan.monomorphizedFunctionsForModule.length > 0) {
     lines.push("");
   }
 
-  const exportedMockFunctions = exportedFunctions.filter((fn) => hasMockCall(fn.decl));
-  for (const fn of exportedMockFunctions) {
+  for (const fn of plan.exportedMockFunctions) {
     const resolvedType = fn.decl.resolvedType;
     if (!resolvedType || resolvedType.kind !== "function" || !resolvedType.mockCall) continue;
     const mockCall = resolvedType.mockCall;
     lines.push(`extern std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName};`);
   }
-  if (exportedMockFunctions.length > 0) {
+  if (plan.exportedMockFunctions.length > 0) {
     lines.push("");
   }
 
   // Generic function full definitions in .hpp (templates must be header-only)
-  for (const fn of genericExported) {
+  for (const fn of plan.genericExportedFunctions) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     emitStatement(fn.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
@@ -583,10 +975,7 @@ function emitHpp(
   }
 
   // Non-exported generic functions also go in .hpp (templates must be header-only)
-  const nonExportedGenericFns = classified.functions.filter(
-    fn => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl),
-  );
-  for (const fn of nonExportedGenericFns) {
+  for (const fn of plan.nonExportedGenericFunctions) {
     const ctx = makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     emitStatement(fn.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
@@ -594,18 +983,18 @@ function emitHpp(
   }
 
   // Exported variable declarations (extern)
-  for (const v of classified.variables.filter(v => v.exported)) {
+  for (const v of plan.exportedVariables) {
     const externDecl = emitExternVariableDecl(v.stmt);
     if (externDecl) {
       lines.push(externDecl);
     }
   }
-  if (classified.variables.some(v => v.exported)) {
+  if (plan.exportedVariables.length > 0) {
     lines.push("");
   }
 
   // Module init function declaration (for modules with readonly globals)
-  if (hasReadonlyGlobals(classified)) {
+  if (plan.hasInitDeclaration) {
     const initName = modulePathToInitName(table.path, baseDir);
     lines.push(`void ${initName}();`);
     lines.push("");
@@ -646,6 +1035,9 @@ function emitCppFile(
   // Include own header and runtime
   lines.push(`#include "${hppName}"`);
   lines.push(`#include "doof_runtime.hpp"`);
+  for (const dependencyModule of collectReferencedModulePaths(table)) {
+    lines.push(`#include "${modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)}"`);
+  }
   lines.push("");
 
   for (const [aliasName, info] of streamAliases) {
@@ -664,6 +1056,10 @@ function emitCppFile(
     const sym = table.symbols.get(cls.decl.name);
     return !(sym?.symbolKind === "class" && sym.extern_);
   });
+  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+  const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
+  markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
+  const cppOnlyNativeClasses = nativeClasses.filter((cls) => !headerNativeClasses.includes(cls));
 
   // Non-exported functions use static internal linkage in the cpp.
   const nonExportedFns = classified.functions.filter(
@@ -679,12 +1075,34 @@ function emitCppFile(
   if (nonExportedMockFunctions.length > 0) {
     lines.push("");
   }
+
+  emitCppOnlyClassDeclarations(
+    cppOnlyNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl)),
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    lines,
+    covCtx,
+  );
+
   for (const fn of nonExportedFns) {
     lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls)};`);
   }
   if (nonExportedFns.length > 0) {
     lines.push("");
   }
+
+  emitCppOnlyClassMethodDefinitions(
+    cppOnlyNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl)),
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    lines,
+    covCtx,
+  );
+
   for (const fn of nonExportedFns) {
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
@@ -742,12 +1160,17 @@ function emitCppFile(
     lines.push("");
   }
 
-  for (const cls of nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
-    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
+  for (const cls of headerNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
+    const sym = getClassSymbolForDecl(table, cls.decl);
+    const ctx = {
+      ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
+      classNameOverride: emitClassCppName(sym),
+    };
     emitClassMethodDefinitions(cls.decl, ctx);
     lines.push(...ctx.sourceLines);
   }
-  if (nativeClasses.some((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.methods.length > 0)) {
+  if (headerNativeClasses.some((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.methods.length > 0)) {
     lines.push("");
   }
 
@@ -792,6 +1215,63 @@ function emitCppFile(
   }
 
   return { code: lines.join("\n") + "\n", instrumentedLines: coverageInstrumentedLines ?? new Set<number>() };
+}
+
+function emitCppOnlyClassDeclarations(
+  classes: ClassifiedDecl<ClassDeclaration>[],
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+  lines: string[],
+  covCtx: object,
+): void {
+  if (classes.length === 0) return;
+
+  lines.push("namespace {");
+  lines.push("");
+  for (const cls of classes) {
+    const sym = getClassSymbolForDecl(table, cls.decl);
+    const declCtx = {
+      ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
+      classNameOverride: emitClassCppName(sym),
+      emitMethodBodiesInline: false,
+    };
+    emitStatement(cls.decl as Statement, declCtx);
+    lines.push(...declCtx.sourceLines);
+    lines.push("");
+  }
+  lines.push("}");
+  lines.push("");
+}
+
+function emitCppOnlyClassMethodDefinitions(
+  classes: ClassifiedDecl<ClassDeclaration>[],
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+  lines: string[],
+  covCtx: object,
+): void {
+  if (!classes.some((cls) => cls.decl.methods.length > 0)) return;
+
+  lines.push("namespace {");
+  lines.push("");
+  for (const cls of classes) {
+    if (cls.decl.methods.length === 0) continue;
+    const sym = getClassSymbolForDecl(table, cls.decl);
+    const methodCtx = {
+      ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
+      classNameOverride: emitClassCppName(sym),
+    };
+    emitClassMethodDefinitions(cls.decl, methodCtx);
+    lines.push(...methodCtx.sourceLines);
+  }
+  lines.push("}");
+  lines.push("");
 }
 
 // ============================================================================
@@ -1090,7 +1570,7 @@ function emitExternVariableDecl(stmt: Statement): string | null {
       const s = stmt as ReadonlyDeclaration;
       const name = emitIdentifierSafe(s.name);
       if (s.resolvedType && s.resolvedType.kind === "class") {
-        return `extern const std::shared_ptr<const ${s.resolvedType.symbol.name}> ${name};`;
+        return `extern const std::shared_ptr<const ${emitClassCppName(s.resolvedType.symbol)}> ${name};`;
       }
       if (s.resolvedType) {
         return `extern const ${emitType(s.resolvedType)} ${name};`;
@@ -1132,11 +1612,12 @@ function emitInterfaceAliasHpp(
   const name = emitIdentifierSafe(decl.name);
   const impls = ctx.interfaceImpls.get(decl.name);
   if (impls && impls.length > 0) {
-    // Deduplicate implementors by name (same class may be collected from multiple modules)
+    // Deduplicate implementors by C++ identity (same class may be collected from multiple modules).
     const seen = new Set<string>();
     const uniqueImpls = impls.filter((cls) => {
-      if (seen.has(cls.name)) return false;
-      seen.add(cls.name);
+      const cppName = emitClassCppName(cls);
+      if (seen.has(cppName)) return false;
+      seen.add(cppName);
       return true;
     });
 
@@ -1147,13 +1628,14 @@ function emitInterfaceAliasHpp(
       if (sym.symbolKind === "class") localClassNames.add(symName);
     }
     for (const cls of uniqueImpls) {
+      if (cls.extern_) continue;
       if (!localClassNames.has(cls.name)) {
-        ctx.sourceLines.push(`struct ${cls.name};`);
+        ctx.sourceLines.push(`struct ${emitClassForwardDeclName(cls)};`);
       }
     }
 
     const variants = uniqueImpls
-      .map((cls) => `std::shared_ptr<${cls.name}>`)
+      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }))
       .join(", ");
     ctx.sourceLines.push(`using ${name} = std::variant<${variants}>;`);
   } else {
@@ -1176,10 +1658,11 @@ function emitStreamAliasHpp(
   const seen = new Set<string>();
   for (const cls of impls) {
     if (localClassNames.has(cls.baseName)) continue;
+    if (cls.isExtern) continue;
     if (cls.cppTypeName.includes("<")) continue;
-    if (seen.has(cls.baseName)) continue;
-    seen.add(cls.baseName);
-    lines.push(`struct ${cls.baseName};`);
+    if (seen.has(cls.cppTypeName)) continue;
+    seen.add(cls.cppTypeName);
+    lines.push(`struct ${cls.cppTypeName};`);
   }
 
   const guardName = `DOOF_STREAM_ALIAS_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
@@ -1549,6 +2032,7 @@ function buildStreamImplMap(
       if (sym.symbolKind === "class") classes.push(sym);
     }
   }
+  const classSymbolsByKey = new Map(classes.map((cls) => [`${cls.module}:${cls.name}`, cls]));
 
   const result = new Map<string, StreamAliasInfo>();
   for (const streamType of streamTypes) {
@@ -1558,27 +2042,30 @@ function buildStreamImplMap(
       .filter((cls) => isAssignableTo({ kind: "class", symbol: cls }, streamType))
       .map((cls) => ({
         baseName: cls.name,
-        cppTypeName: cls.name,
+        cppTypeName: emitClassCppName(cls),
         modulePath: cls.module,
+        isExtern: !!cls.extern_,
       }));
 
     for (const inst of monomorphizedClasses.values()) {
+      const instSymbol = classSymbolsByKey.get(`${inst.modulePath}:${inst.decl.name}`) ?? {
+        name: inst.decl.name,
+        symbolKind: "class" as const,
+        module: inst.modulePath,
+        exported: false,
+        declaration: inst.decl,
+      };
       const classType: ResolvedType = {
         kind: "class",
-        symbol: {
-          name: inst.decl.name,
-          symbolKind: "class",
-          module: inst.modulePath,
-          exported: false,
-          declaration: inst.decl,
-        },
+        symbol: instSymbol,
         typeArgs: inst.typeArgs,
       };
       if (!isAssignableTo(classType, streamType)) continue;
       impls.push({
         baseName: inst.decl.name,
-        cppTypeName: `${inst.decl.name}<${inst.typeArgs.map(emitType).join(", ")}>`,
+        cppTypeName: `${emitClassCppName(instSymbol)}<${inst.typeArgs.map(emitType).join(", ")}>`,
         modulePath: inst.modulePath,
+        isExtern: false,
       });
     }
 

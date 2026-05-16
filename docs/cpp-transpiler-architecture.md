@@ -104,7 +104,26 @@ It owns:
 
 Current placement rules that matter for declaration-order bugs:
 
+- header emission first builds a small `HeaderPlan` so include lists,
+  cross-module forward declarations, stream aliases, declarations, prototypes,
+  extern variables, and init declarations are chosen before rendering
+- module headers include only re-exported module surfaces and imported
+  non-class definitions that the emitted header needs complete; ordinary
+  implementation dependencies are included from the generated `.cpp`
 - ordinary class declarations are emitted in `.hpp` with method prototypes, while their out-of-line definitions live in the module `.cpp`
+- imported classes referenced through pointer-shaped header surfaces are
+  forward-declared before module includes so circular `.hpp` dependencies can
+  still use `std::shared_ptr<T>` fields and constructor parameters
+- ordinary private implementation classes that are not part of the header API
+  are emitted in the module `.cpp` inside an unnamed namespace; their class
+  declarations come before private function prototypes, and their method
+  definitions come after those prototypes
+- classes that participate in interface aliases, `Stream<T>` aliases, union
+  type aliases, exported APIs, or generic/template surfaces remain header-visible
+  so aliases and generated dispatch code refer to the same global C++ type
+- private Doof classes that remain header-visible use deterministic
+  module-qualified C++ names such as `__doof_private_pkg_mod_Helper`; extern
+  classes always keep their native C++ name from the included header
 - private top-level functions and variables in `.cpp` use `static` internal linkage rather than anonymous-namespace wrapping so out-of-line class methods can call them
 - the `.cpp` emits forward declarations for private helper functions before their definitions so private helper chains can reference later helpers in the same module
 - stream aliases and stream dispatch helpers stay header-visible because call sites need the alias plus the generated `next()`/`value()` dispatch surfaces during normal expression emission

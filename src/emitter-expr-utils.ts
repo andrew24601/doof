@@ -15,7 +15,7 @@ import {
 } from "./checker-types.js";
 import type { ClassSymbol, ModuleSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
-import { emitType } from "./emitter-types.js";
+import { emitClassInnerType, emitType } from "./emitter-types.js";
 
 /**
  * Resolve a TypeAnnotation to a ResolvedType.
@@ -296,11 +296,7 @@ export function hasExternConstructorFactory(classSym: ClassSymbol | undefined): 
 }
 
 export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>): string {
-  const cppName = type.symbol.extern_?.cppName ?? type.symbol.name;
-  if (!type.typeArgs || type.typeArgs.length === 0) {
-    return cppName;
-  }
-  return `${cppName}<${type.typeArgs.map(emitType).join(", ")}>`;
+  return emitClassInnerType(type);
 }
 
 export function emitStreamNextHelperName(aliasName: string): string {

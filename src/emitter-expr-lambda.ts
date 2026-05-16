@@ -17,7 +17,7 @@ import type {
   Block,
   Statement,
 } from "./ast.js";
-import { emitType } from "./emitter-types.js";
+import { emitClassCppName, emitType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression, emitBlockBody, indent } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -93,7 +93,7 @@ function emitActorAsyncCall(
 ): string {
   const obj = emitExpression(memberExpr.object, ctx);
   const method = emitIdentifierSafe(memberExpr.property);
-  const className = objType.innerClass.symbol.name;
+  const className = emitClassCppName(objType.innerClass.symbol);
   const args = callExpr.args.map((a) => emitExpression(a.value, ctx)).join(", ");
 
   const promiseType = asyncExpr.resolvedType;
@@ -113,7 +113,9 @@ function emitActorAsyncCall(
 }
 
 export function emitActorCreationExpression(expr: ActorCreationExpression, ctx: EmitContext): string {
-  const className = emitIdentifierSafe(expr.className);
+  const className = expr.resolvedType?.kind === "actor"
+    ? emitClassCppName(expr.resolvedType.innerClass.symbol)
+    : emitIdentifierSafe(expr.className);
   const args = expr.args.map((a) => emitExpression(a, ctx)).join(", ");
   return `std::make_shared<doof::Actor<${className}>>(${args})`;
 }

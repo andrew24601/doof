@@ -775,8 +775,8 @@ describe("emitter — interfaces as variant", () => {
       "/main.do",
     );
     expect(cpp).toContain("using Shape = std::variant<");
-    expect(cpp).toContain("std::shared_ptr<Circle>");
-    expect(cpp).toContain("std::shared_ptr<Rectangle>");
+    expect(cpp).toContain("std::shared_ptr<__doof_private_main_Circle>");
+    expect(cpp).toContain("std::shared_ptr<__doof_private_main_Rectangle>");
   });
 
   it("emits forward declarations when interface precedes classes", () => {
@@ -794,8 +794,8 @@ describe("emitter — interfaces as variant", () => {
       `}`,
     ].join("\n"));
     // Forward declarations must appear before the using alias
-    const fwdCircle = cpp.indexOf("struct Circle;");
-    const fwdRect = cpp.indexOf("struct Rectangle;");
+    const fwdCircle = cpp.indexOf("struct __doof_private_main_Circle;");
+    const fwdRect = cpp.indexOf("struct __doof_private_main_Rectangle;");
     const alias = cpp.indexOf("using Shape = std::variant<");
     expect(fwdCircle).toBeGreaterThan(-1);
     expect(fwdRect).toBeGreaterThan(-1);
@@ -854,7 +854,7 @@ describe("emitter — for-of loops", () => {
       }
     `);
 
-    expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<Counter>>;");
+    expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<__doof_private_main_Counter>>;");
     expect(cpp).toContain("__doof_stream_next___doof_stream_int(stream)");
     expect(cpp).toContain("__doof_stream_value___doof_stream_int(stream)");
   });

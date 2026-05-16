@@ -149,6 +149,65 @@ describe("e2e — module splitting", () => {
     expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
   });
 
+  it("compiles exported class with imported class field", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/main.do": [
+          `import { Data } from "./data"`,
+          `import { Holder } from "./holder"`,
+          `function main(): int {`,
+          `  holder := Holder(Data(42))`,
+          `  return holder.data.value`,
+          `}`,
+        ].join("\n"),
+        "/data.do": [
+          `export class Data {`,
+          `  value: int`,
+          `}`,
+        ].join("\n"),
+        "/holder.do": [
+          `import { Data } from "./data"`,
+          `export class Holder {`,
+          `  data: Data`,
+          `}`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
+  it("compiles circular class fields across module headers", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/main.do": [
+          `import { A } from "./a"`,
+          `function main(): int {`,
+          `  a := A()`,
+          `  if a.b == null {`,
+          `    return 0`,
+          `  }`,
+          `  return 1`,
+          `}`,
+        ].join("\n"),
+        "/a.do": [
+          `import { B } from "./b"`,
+          `export class A {`,
+          `  b: B | null = null`,
+          `}`,
+        ].join("\n"),
+        "/b.do": [
+          `import { A } from "./a"`,
+          `export class B {`,
+          `  a: A | null = null`,
+          `}`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
   it("non-exported function stays internal to module", () => {
     const result = ctx.compileAndRunProject(
       {
@@ -159,6 +218,72 @@ describe("e2e — module splitting", () => {
         "/helpers.do": [
           `function helper(x: int): int => x * 2`,
           `export function doubleIt(x: int): int => helper(x)`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(42);
+  });
+
+  it("compiles duplicate private Helper classes across imported modules", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": [
+          `import { left } from "./left"`,
+          `import { right } from "./right"`,
+          `function main(): int => left() + right()`,
+        ].join("\n"),
+        "/left.do": [
+          `class Helper {`,
+          `  value: int`,
+          `}`,
+          `export function left(): int => Helper(20).value`,
+        ].join("\n"),
+        "/right.do": [
+          `class Helper {`,
+          `  value: int`,
+          `}`,
+          `export function right(): int => Helper(22).value`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(42);
+  });
+
+  it("compiles duplicate header-visible private Helper classes across imported modules", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": [
+          `import { left } from "./left"`,
+          `import { right } from "./right"`,
+          `function main(): int => left() + right()`,
+        ].join("\n"),
+        "/left.do": [
+          `export interface LeftReadable {`,
+          `  readLeft(): int`,
+          `}`,
+          `class Helper implements LeftReadable {`,
+          `  value: int`,
+          `  readLeft(): int => this.value`,
+          `}`,
+          `export function left(): int => Helper(20).readLeft()`,
+        ].join("\n"),
+        "/right.do": [
+          `export interface RightReadable {`,
+          `  readRight(): int`,
+          `}`,
+          `class Helper implements RightReadable {`,
+          `  value: int`,
+          `  readRight(): int => this.value`,
+          `}`,
+          `export function right(): int => Helper(22).readRight()`,
         ].join("\n"),
       },
       "/main.do",
@@ -427,6 +552,45 @@ struct Calculator {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).toBe(142);
+  });
+
+  it("compiles interface dispatch through namespaced extern class alias", () => {
+    const nativeHeader = `
+#pragma once
+#include <cstdint>
+namespace native {
+struct Thing {
+    int32_t n;
+    Thing(int32_t n) : n(n) {}
+    int32_t value() const { return n; }
+};
+}
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_thing.hpp"), nativeHeader);
+
+    const result = ctx.compileAndRun(`
+      import class NativeThing from "native_thing.hpp" as native::Thing {
+        n: int
+        value(): int
+      }
+
+      interface Thing {
+        value(): int
+      }
+
+      function read(thing: Thing): int {
+        return thing.value()
+      }
+
+      function main(): int {
+        thing := NativeThing(42)
+        return read(thing)
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(42);
   });
 
   it("compiles and runs extern class static method call", () => {

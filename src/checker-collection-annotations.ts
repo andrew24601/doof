@@ -1,10 +1,9 @@
 import type { Expression, NamedType, SourceSpan, TypeAnnotation } from "./ast.js";
 import {
-  findUnsupportedHashCollectionConstraint,
-  formatUnsupportedHashCollectionConstraintMessage,
   type ModuleTypeInfo,
   type ResolvedType,
 } from "./checker-types.js";
+import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics.js";
 import type { ModuleSymbolTable } from "./types.js";
 
 type CollectionAnnotationName = "Map" | "ReadonlyMap" | "Set" | "ReadonlySet";
@@ -148,7 +147,7 @@ export function finalizeDeclaredCollectionType(
       return inferredType;
     }
 
-    reportUnsupportedInferredCollectionConstraint(inferredType, valueExpr.span, table, info);
+    reportUnsupportedHashCollectionConstraint(inferredType, valueExpr.span, table, info);
     return inferredType;
   }
 
@@ -192,7 +191,7 @@ export function finalizeDeclaredCollectionType(
     return inferredType;
   }
 
-  reportUnsupportedInferredCollectionConstraint(inferredType, valueExpr.span, table, info);
+  reportUnsupportedHashCollectionConstraint(inferredType, valueExpr.span, table, info);
   return inferredType;
 }
 
@@ -212,21 +211,4 @@ function buildCollectionTypeAnnotationInfo(
     omitsTypeArgs: annotation.typeArgs.length === 0,
     hasFullTypeArgs: annotation.typeArgs.length === expectedTypeArgCount,
   };
-}
-
-function reportUnsupportedInferredCollectionConstraint(
-  type: ResolvedType,
-  span: SourceSpan,
-  table: ModuleSymbolTable,
-  info: ModuleTypeInfo,
-): void {
-  const issue = findUnsupportedHashCollectionConstraint(type);
-  if (!issue) return;
-
-  info.diagnostics.push({
-    severity: "error",
-    message: formatUnsupportedHashCollectionConstraintMessage(issue),
-    span,
-    module: table.path,
-  });
 }

@@ -49,7 +49,6 @@ function mergeUnionTypes(...types: ResolvedType[]): ResolvedType {
 }
 
 function buildClassTypeSubstitution(
-  host: CheckerHost,
   objectType: Extract<ResolvedType, { kind: "class" }>,
 ): Map<string, ResolvedType> | undefined {
   const classDecl = objectType.symbol.declaration;
@@ -194,7 +193,7 @@ function inferClassInstanceMemberType(
   const classTable = host.analysisResult.modules.get(objectType.symbol.module) ?? table;
 
   return withClassTypeParams(host, classDecl, () => {
-    const classSubMap = buildClassTypeSubstitution(host, objectType);
+    const classSubMap = buildClassTypeSubstitution(objectType);
 
     if (property === "toJsonObject") {
       classDecl.needsJson = true;
@@ -279,7 +278,7 @@ function inferClassStaticMemberType(
   if (!classTable) return UNKNOWN_TYPE;
 
   return withClassTypeParams(host, classDecl, () => {
-    const classSubMap = buildClassTypeSubstitution(host, objectType);
+    const classSubMap = buildClassTypeSubstitution(objectType);
 
     if (property === "fromJsonValue") {
       classDecl.needsJson = true;
@@ -1270,7 +1269,7 @@ export function lookupFieldType(
 export function getPositionalFieldTypes(
   host: CheckerHost,
   type: ResolvedType,
-  table: ModuleSymbolTable,
+  _table: ModuleSymbolTable,
 ): ResolvedType[] {
   if (type.kind === "class") {
     const classTable = host.analysisResult.modules.get(type.symbol.module);

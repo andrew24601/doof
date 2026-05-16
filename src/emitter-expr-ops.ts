@@ -13,7 +13,7 @@ import type {
   IndexExpression,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable } from "./emitter-types.js";
+import { emitClassCppName, emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -27,7 +27,7 @@ function getNamedClassStaticAccess(expr: MemberExpression): string | null {
   if (!objectType || objectType.kind !== "class") return null;
   if (binding?.kind !== "class" && binding?.kind !== "import") return null;
 
-  const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+  const className = emitClassCppName(objectType.symbol);
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }
@@ -72,7 +72,7 @@ function getNamedTypeAliasStaticAccess(expr: MemberExpression): string | null {
 function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string | null {
   const objectType = expr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
-  const className = objectType.symbol.extern_?.cppName ?? objectType.symbol.name;
+  const className = emitClassCppName(objectType.symbol);
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }

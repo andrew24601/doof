@@ -12,7 +12,7 @@ import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
-import { emitEnumHelperName, emitType } from "./emitter-types.js";
+import { emitClassCppName, emitEnumHelperName, emitType } from "./emitter-types.js";
 import type { ClassSymbol } from "./types.js";
 
 // ============================================================================
@@ -222,7 +222,7 @@ export function emitDeserializeExpr(
       throw new Error("Unsupported primitive JSON deserialization type");
 
     case "class":
-      return `${type.symbol.name}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
+      return `${emitClassCppName(type.symbol)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
 
     case "array": {
       const elementType = emitType(type.elementType);
@@ -497,7 +497,7 @@ export function emitInterfaceFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j, _lenient);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls)}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${ifaceName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);
@@ -537,7 +537,7 @@ export function emitTypeAliasFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${cls.name}::fromJsonValue(_j, _lenient);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls)}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${aliasName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);

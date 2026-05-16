@@ -71,6 +71,8 @@ export interface ClassSymbol {
     /** Fully-qualified C++ name (e.g. "httplib::Client"). */
     cppName: string | null;
   };
+  /** Optional generated C++ identity for private classes that must be header-visible. */
+  emittedCppName?: string;
 }
 
 export interface InterfaceSymbol {

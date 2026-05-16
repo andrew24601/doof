@@ -7,6 +7,7 @@ This document provides guidance for AI agents and developers working on the Doof
 Use these detailed references alongside AGENTS.md:
 
 - [docs/source-file-structure.md](docs/source-file-structure.md) — live map of the workspace and `src/` ownership boundaries
+- [docs/type-checker-concepts.md](docs/type-checker-concepts.md) — cross-cutting checker semantics that must stay aligned across modules
 - [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) — current Phase 4 emitter architecture and generated-output flow
 - [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) — concept-by-concept notes on how Doof constructs lower to C++
 
@@ -54,6 +55,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [checker-member.ts](src/checker-member.ts) (~480 lines) — Member lookup, built-in members, JSON/metadata access, and positional field extraction
 - [checker-result.ts](src/checker-result.ts) (~200 lines) — Result arm scopes, catch expressions, try propagation, and binding retyping
 - [checker-expr-ops.ts](src/checker-expr-ops.ts) (~180 lines) — Binary/unary operator typing and enum expectation helpers
+- [checker-diagnostics.ts](src/checker-diagnostics.ts) — Shared checker diagnostics that must remain consistent across modules
 - [ast.ts](src/ast.ts) (700 lines) — AST node definitions with `Typed` mixin for resolved types
 - See [docs/source-file-structure.md](docs/source-file-structure.md) for the live workspace map and the full emitter module inventory.
 - [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Project and module emission entry points, `.hpp` / `.cpp` splitting, and generated support files
@@ -265,6 +267,7 @@ import { BUILTIN_TYPE_NAMES } from "./types.js";
 - [ ] **Update the relevant `spec/` file** to document language behaviour
 - [ ] **Update [.github/skills/doof-language/SKILL.md](.github/skills/doof-language/SKILL.md)** when Doof syntax, semantics, or examples change
 - [ ] Update [docs/source-file-structure.md](docs/source-file-structure.md) when files move, split, or change ownership boundaries
+- [ ] Update [docs/type-checker-concepts.md](docs/type-checker-concepts.md) when checker semantics span files or a cross-cutting checker rule changes
 - [ ] Update [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) when emitter flow, generated artifacts, or runtime/support generation changes
 - [ ] Update [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) when a Doof construct lowers to C++ differently
 - [ ] Run full test suite: `npm test`
@@ -545,6 +548,7 @@ no separate lookup maps — the AST is the single source of truth after analysis
 ### When to Update
 
 - **Adding new files** — Update the file organization section and [docs/source-file-structure.md](docs/source-file-structure.md) with the new module's purpose and ownership boundary
+- **Adding or changing cross-cutting checker semantics** — Update [docs/type-checker-concepts.md](docs/type-checker-concepts.md), and add newly discovered multi-file invariants there in the same change rather than leaving them implicit
 - **Adding new architectural patterns** — Document the pattern in the "Common Patterns" section with an example
 - **Changing the analysis pipeline** — Update the "Compiler Architecture" section and [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) to reflect new phases or data flows
 - **Updating test counts** — Keep the test count examples current when adding/removing test suites

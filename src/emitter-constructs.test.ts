@@ -449,7 +449,7 @@ describe("emitter — type aliases", () => {
       class Point { x, y: float }
       type Pos = Point
     `);
-    expect(cpp).toContain("using Pos = std::shared_ptr<Point>;");
+    expect(cpp).toContain("using Pos = std::shared_ptr<__doof_private_main_Point>;");
   });
 
   it("emits using for function type alias", () => {
@@ -1278,4 +1278,3 @@ describe("emitter — trailing lambdas", () => {
     expect(cpp).toContain("print");
   });
 });
-

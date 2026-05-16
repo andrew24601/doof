@@ -17,7 +17,7 @@ import type {
   ElseNarrowStatement,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
+import { emitClassCppName, emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -421,7 +421,7 @@ function emitReadonlyDecl(
 
   // readonly on class types → shared_ptr<const T>
   if (declType && declType.kind === "class") {
-    const innerType = declType.symbol.name;
+    const innerType = emitClassCppName(declType.symbol);
     ctx.sourceLines.push(`${ind}${linkagePrefix}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);

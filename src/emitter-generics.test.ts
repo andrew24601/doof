@@ -61,7 +61,7 @@ describe("emitter — generic class declarations", () => {
   value: T
 }`);
     expect(cpp).toContain("template<typename T>");
-    expect(cpp).toContain("struct Box");
+    expect(cpp).toContain("struct __doof_private_main_Box");
   });
 
   it("emits template prefix with multiple type params on class", () => {
@@ -96,7 +96,7 @@ describe("emitter — generic construction", () => {
 }
 const b = Box<int> { value: 42 }
 `);
-    expect(cpp).toContain("make_shared<Box<int32_t>>");
+    expect(cpp).toContain("make_shared<__doof_private_main_Box<int32_t>>");
   });
 
   it("emits explicit type args for positional generic construction", () => {
@@ -105,7 +105,7 @@ const b = Box<int> { value: 42 }
 }
 const b = Box<int>(42)
 `);
-    expect(cpp).toContain("make_shared<Box<int32_t>>(42)");
+    expect(cpp).toContain("make_shared<__doof_private_main_Box<int32_t>>(42)");
   });
 
   it("emits inferred type args for generic class call syntax", () => {
@@ -136,7 +136,7 @@ class Chain<T> implements Stream<T> {
 
 const chain = Chain(Counter(1, 4))
 `);
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, std::make_shared<Counter>(1, 4)})");
+    expect(cpp).toContain("make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})");
     expect(cpp).not.toContain("__doof_stream_T");
   });
 
@@ -169,7 +169,7 @@ class Chain<T> implements Stream<T> {
 const base = Counter(1, 4)
 const chain: Chain<int> = { source: base }
 `);
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, base})");
+    expect(cpp).toContain("make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, base})");
     expect(cpp).not.toContain("__doof_stream_T");
   });
 
@@ -207,7 +207,7 @@ const chain: Chain<int> = { source: base }
       `,
     }, "/main.do");
 
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<Counter>>, std::make_shared<Counter>(1, 4)})");
+    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})");
     expect(cpp).not.toContain("__doof_stream_T");
   });
 });
@@ -463,9 +463,9 @@ describe("emitter — generic module splitting", () => {
 
     expect(result.hppCode).toContain("template<>\nstruct Chain<int32_t>");
     expect(result.hppCode).toContain("template<>\nstruct Chain<std::string>");
-    expect(result.hppCode).toContain("template<>\nstruct FilteredStream<int32_t>");
-    expect(result.hppCode).toContain("template<>\nstruct MappedStream<int32_t, std::string>");
-    expect(result.hppCode).toContain("template<>\nstruct TakeStream<std::string>");
+    expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_FilteredStream<int32_t>");
+    expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_MappedStream<int32_t, std::string>");
+    expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_TakeStream<std::string>");
     expect(result.cppCode).toContain("chain->filter(isEven)->map<std::string>(decorate)->take(3)->collect()");
     expect(result.hppCode).not.toContain("__doof_stream_T");
     expect(result.cppCode).not.toContain("__doof_stream_T");
