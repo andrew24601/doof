@@ -1,29 +1,31 @@
 import { handleRequest } from "./app"
-import { NativeHttpServer, parseRequest, sendResponse, textResponse } from "./http"
+import { AsyncEventChannel, createMainAsyncEventChannel, runMainEventLoop } from "std/event"
+import { Request, Server, ServerOptions } from "std/http-server"
+
+function dispatchRequest(request: Request): void {
+  response := handleRequest(request)
+  try! request.respond(response)
+}
 
 function main(): int {
-  server := NativeHttpServer(8080)
-  if !server.isReady() {
-    println("Failed to start server: " + server.errorMessage())
+  requests: AsyncEventChannel<Request> := createMainAsyncEventChannel<Request>{
+    handler: (request: Request): void => dispatchRequest(request),
+    capacity: 256,
+    keepsAlive: true,
+  }
+
+  server := Server.listen(ServerOptions { port: 8080 }, requests) else {
+    println("Failed to start server: ${server.error.kind}: ${server.error.message}")
     return 1
   }
 
-  println("Listening on http://127.0.0.1:8080")
+  println("Listening on http://${server.host}:${server.port}")
   println("Try: /, /health, /about")
   println("Press Ctrl+C to stop.")
 
-  let requestCount = 0
-  while true {
-    request := server.nextRequest()
-    parsed := parseRequest(request) else {
-      request.addHeader("Connection", "close")
-      sendResponse(request, textResponse(400, "Malformed HTTP request.\n"))
-      continue
-    }
-    requestCount += 1
-    response := handleRequest(parsed, requestCount)
-    sendResponse(request, response)
-  }
+  runMainEventLoop()
+
+  try! server.close()
 
   return 0
 }

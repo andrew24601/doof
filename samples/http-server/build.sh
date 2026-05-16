@@ -18,8 +18,7 @@ fi
 
 node "$ROOT_DIR/dist/cli.js" build \
     "$ENTRY_FILE" \
-    -o "$OUT_DIR" \
-    --include-path "$SCRIPT_DIR"
+    -o "$OUT_DIR"
 
 echo "Built $OUT_DIR/a.out"
 echo "Run it with: $OUT_DIR/a.out"
