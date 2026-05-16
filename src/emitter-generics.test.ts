@@ -71,6 +71,14 @@ describe("emitter — generic class declarations", () => {
 }`);
     expect(cpp).toContain("template<typename A, typename B>");
   });
+
+
+  it("uses the specialized self type for generic class enable_shared_from_this", () => {
+    const cpp = emit(`class Box<T> {
+  value: T
+}`);
+    expect(cpp).toContain("std::enable_shared_from_this<__doof_private_main_Box<T>>");
+  });
 });
 
 // ============================================================================
@@ -106,6 +114,18 @@ const b = Box<int> { value: 42 }
 const b = Box<int>(42)
 `);
     expect(cpp).toContain("make_shared<__doof_private_main_Box<int32_t>>(42)");
+  });
+
+  it("emits construct-style named generic function calls as function calls", () => {
+    const cpp = emit(`
+class Box<T> {
+  value: T
+}
+function makeBox<T>(value: T): Box<T> => Box<T> { value }
+const box = makeBox<int>{ value: 42 }
+`);
+    expect(cpp).toContain("makeBox<int32_t>(42)");
+    expect(cpp).not.toContain("std::make_shared<__doof_private_main_Box<int32_t>>(42)");
   });
 
   it("emits inferred type args for generic class call syntax", () => {
@@ -230,6 +250,16 @@ describe("emitter — generic module splitting", () => {
 }`);
     expect(result.hppCode).toContain("template<typename T>");
     expect(result.hppCode).toContain("Box");
+  });
+
+
+  it("keeps generic class method definitions inline in the header", () => {
+    const result = emitSplit(`export class Box<T> {
+  value: T
+  get(): T => value
+}`);
+    expect(result.hppCode).toContain("T get()");
+    expect(result.cppCode).not.toContain("Box::get");
   });
 
   it("monomorphizes direct stream-sensitive generic function calls", () => {

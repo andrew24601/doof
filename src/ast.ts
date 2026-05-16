@@ -369,6 +369,8 @@ export interface ConstructExpression extends Typed {
   args: ObjectProperty[] | Expression[];
   named: boolean;
   tightBraces?: boolean;
+  resolvedGenericTypeArgs?: ResolvedType[];
+  resolvedGenericBinding?: Binding;
   span: SourceSpan;
 }
 

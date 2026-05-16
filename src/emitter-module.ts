@@ -855,7 +855,7 @@ function emitHpp(
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       classNameOverride: emitClassCppName(sym),
-      emitMethodBodiesInline: false,
+      emitMethodBodiesInline: cls.decl.typeParams.length > 0 ? true : false,
     };
     emitStatement(cls.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
@@ -1160,7 +1160,7 @@ function emitCppFile(
     lines.push("");
   }
 
-  for (const cls of headerNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
+  for (const cls of headerNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.typeParams.length === 0)) {
     const sym = getClassSymbolForDecl(table, cls.decl);
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
@@ -1170,7 +1170,7 @@ function emitCppFile(
     emitClassMethodDefinitions(cls.decl, ctx);
     lines.push(...ctx.sourceLines);
   }
-  if (headerNativeClasses.some((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.methods.length > 0)) {
+  if (headerNativeClasses.some((candidate) => !classDeclIsStreamSensitive(candidate.decl) && candidate.decl.typeParams.length === 0 && candidate.decl.methods.length > 0)) {
     lines.push("");
   }
 

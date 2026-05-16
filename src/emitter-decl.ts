@@ -193,6 +193,9 @@ export function emitParam(param: Parameter, _ctx: EmitContext, includeDefault = 
 export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   const ind = indent(ctx);
   const name = ctx.classNameOverride ?? emitIdentifierSafe(decl.name);
+  const selfType = decl.typeParams.length > 0 && !ctx.emitExplicitClassSpecialization
+    ? `${name}<${decl.typeParams.map(emitIdentifierSafe).join(", ")}>`
+    : name;
   const memberInd = indent({ indent: ctx.indent + 1 });
 
   // Emit description comment
@@ -206,7 +209,7 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     : emitTemplatePrefix(decl.typeParams, ind);
   if (tpl) ctx.sourceLines.push(tpl);
 
-  ctx.sourceLines.push(`${ind}struct ${name} : public std::enable_shared_from_this<${name}> {`);
+  ctx.sourceLines.push(`${ind}struct ${name} : public std::enable_shared_from_this<${selfType}> {`);
 
   // Fields
   for (const field of decl.fields) {

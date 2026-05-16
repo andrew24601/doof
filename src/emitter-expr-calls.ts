@@ -172,11 +172,42 @@ function specializeFunctionParamsForGenericCall(
   }));
 }
 
+function resolveConstructGenericTypeArgs(
+  expr: ConstructExpression,
+  ctx: EmitContext,
+): ResolvedType[] | null {
+  if (!expr.resolvedGenericTypeArgs) return null;
+  return resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx) ?? null;
+}
+
+function specializeFunctionParamsForGenericConstructCall(
+  params: FunctionResolvedParam[],
+  expr: ConstructExpression,
+  ctx: EmitContext,
+): FunctionResolvedParam[] {
+  const symbol = expr.resolvedGenericBinding?.symbol;
+  const typeArgs = resolveConstructGenericTypeArgs(expr, ctx);
+  if (!symbol || symbol.symbolKind !== "function" || !typeArgs || typeArgs.length === 0) {
+    return params;
+  }
+
+  const decl = symbol.declaration as FunctionDeclaration;
+  const substitution = new Map<string, ResolvedType>();
+  for (let index = 0; index < decl.typeParams.length && index < typeArgs.length; index++) {
+    substitution.set(decl.typeParams[index], typeArgs[index]);
+  }
+  return params.map((param) => ({
+    ...param,
+    type: substituteTypeParams(param.type, substitution),
+  }));
+}
+
 function emitIdentifierCallByName(
   name: string,
   args: string[],
   ctx: EmitContext,
   panicSpan?: CallExpression["span"],
+  genericTypeArgs?: ResolvedType[] | null,
 ): string {
   const joinedArgs = args.join(", ");
 
@@ -211,12 +242,15 @@ function emitIdentifierCallByName(
     return `doof::${name}(${joinedArgs})`;
   }
 
+  const genericSuffix = genericTypeArgs && genericTypeArgs.length > 0
+    ? `<${genericTypeArgs.map(emitType).join(", ")}>`
+    : "";
   const externCppName = resolveExternFunctionCppName(name, ctx);
   if (externCppName) {
-    return `${externCppName}(${joinedArgs})`;
+    return `${externCppName}${genericSuffix}(${joinedArgs})`;
   }
 
-  return `${emitIdentifierSafe(name)}(${joinedArgs})`;
+  return `${emitIdentifierSafe(name)}${genericSuffix}(${joinedArgs})`;
 }
 
 function emitExplicitGenericMethodCall(
@@ -707,11 +741,11 @@ function emitActorSyncCall(
 
 export function emitConstructExpression(expr: ConstructExpression, ctx: EmitContext): string {
   const resolvedExprType = substituteEmitType(expr.resolvedType, ctx);
-  const sym = resolveClassSymbol(expr, ctx);
   const functionParams = resolveFunctionParams(expr, ctx);
+  const directClassSym = resolveDirectClassSymbol(expr, ctx);
 
   // Success { value: expr } → doof::Result<T, E>::success(val)
-  if (!sym && expr.type === "Success" && expr.named) {
+  if (!directClassSym && expr.type === "Success" && expr.named) {
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
@@ -741,7 +775,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Failure { error: expr } → doof::Result<T, E>::failure(err)
-  if (!sym && expr.type === "Failure" && expr.named) {
+  if (!directClassSym && expr.type === "Failure" && expr.named) {
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const errorProp = props.find((p) => p.name === "error");
     if (!errorProp?.value) {
@@ -759,10 +793,13 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     throw new Error("Failure { ... } is missing Result type context during emission");
   }
 
-  if (!sym && expr.named && expr.tightBraces && functionParams) {
-    const args = buildOrderedNamedCallValues(functionParams, expr.args as ObjectProperty[], ctx, expr.span);
-    return emitIdentifierCallByName(expr.type, args, ctx);
+  if (expr.named && expr.tightBraces && functionParams) {
+    const params = specializeFunctionParamsForGenericConstructCall(functionParams, expr, ctx);
+    const args = buildOrderedNamedCallValues(params, expr.args as ObjectProperty[], ctx, expr.span);
+    return emitIdentifierCallByName(expr.type, args, ctx, expr.span, resolveConstructGenericTypeArgs(expr, ctx));
   }
+
+  const sym = resolveClassSymbol(expr, ctx);
 
   // Resolve the C++ class name and class symbol
   let typeName = emitIdentifierSafe(expr.type);
@@ -824,17 +861,26 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
  * Resolve the class symbol for a construct expression.
  * Checks resolvedType first, then falls back to local module symbols.
  */
-export function resolveClassSymbol(
+function resolveDirectClassSymbol(
   expr: ConstructExpression,
   ctx: EmitContext,
 ): import("./types.js").ClassSymbol | undefined {
-  if (expr.resolvedType?.kind === "class") {
-    return expr.resolvedType.symbol;
-  }
   const sym = ctx.module.symbols.get(expr.type);
   if (sym?.symbolKind === "class") return sym;
   const imported = ctx.module.imports.find((imp) => imp.localName === expr.type)?.symbol;
   if (imported?.symbolKind === "class") return imported;
+  return undefined;
+}
+
+export function resolveClassSymbol(
+  expr: ConstructExpression,
+  ctx: EmitContext,
+): import("./types.js").ClassSymbol | undefined {
+  const direct = resolveDirectClassSymbol(expr, ctx);
+  if (direct) return direct;
+  if (expr.resolvedType?.kind === "class") {
+    return expr.resolvedType.symbol;
+  }
   return undefined;
 }
 

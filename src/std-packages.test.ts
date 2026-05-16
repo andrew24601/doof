@@ -67,6 +67,7 @@ describe("std package metadata", () => {
       "std/assert",
       "std/blob",
       "std/crypto",
+      "std/event",
       "std/fs",
       "std/http",
       "std/json",

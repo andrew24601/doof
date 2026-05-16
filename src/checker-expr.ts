@@ -1701,6 +1701,13 @@ function inferExprTypeInner(
             info,
             expr.span,
           );
+          expr.resolvedGenericTypeArgs = getResolvedGenericTypeArgs(targetBinding.type.typeParams, paramMap);
+          expr.resolvedGenericBinding = targetBinding;
+          for (const arg of expr.args as ObjectProperty[]) {
+            if (arg.value) {
+              applyTypeSubstitutionToExpression(arg.value, paramMap);
+            }
+          }
           effectiveCalleeType = substituteTypeParams(targetBinding.type, paramMap) as typeof targetBinding.type;
         }
         validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
