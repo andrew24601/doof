@@ -2,24 +2,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe as vitestDescribe, expect, it } from "vitest";
 import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
-import { DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
 
 const ctx = new E2EContext();
 const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
-const previousStdlibRoot = process.env[DOOF_STDLIB_ROOT_ENV];
 
 beforeAll(() => {
-  process.env[DOOF_STDLIB_ROOT_ENV] = path.join(process.cwd(), "stdlib");
   ctx.setup();
 });
 
 afterAll(() => {
-  if (previousStdlibRoot === undefined) {
-    delete process.env[DOOF_STDLIB_ROOT_ENV];
-  } else {
-    process.env[DOOF_STDLIB_ROOT_ENV] = previousStdlibRoot;
-  }
   ctx.cleanup();
+  fs.rmSync("app.log", { recursive: true, force: true });
 });
 
 function writeManifestProject(appName: string, mainSource: string): string {
@@ -62,8 +55,10 @@ describe("e2e — std/log", () => {
       `import { LogLevel, RollingFileLogger, info, setLogger } from "std/log"`,
       ``,
       `function main(): void {`,
-      `  setLogger(RollingFileLogger("app.log", LogLevel.Debug))`,
+      `  logger := RollingFileLogger("app.log", LogLevel.Debug)`,
+      `  setLogger(logger)`,
       `  info("Saved", { "id": 7 })`,
+      `  logger.flush()`,
       `  print(try! readText("app.log"))`,
       `}`,
     ].join("\n"));
@@ -74,7 +69,7 @@ describe("e2e — std/log", () => {
     }
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/\[INFO \] Saved id=7 source=.*:6/);
+    expect(result.stdout).toMatch(/\[INFO \] Saved id=7 source=.*:7/);
     expect(result.stderr.trim()).toBe("");
   });
 });
