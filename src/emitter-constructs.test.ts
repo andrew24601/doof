@@ -328,6 +328,53 @@ describe("emitter — lambda captures", () => {
     `);
     expect(cpp).toContain("(*x) = (*x) + 1");
   });
+
+  it("does not capture bindings declared inside the lambda body or its case arms", () => {
+    const cpp = emit(`
+      class Response {
+        static empty(): Response => Response {}
+      }
+
+      function invoke(handler: (): void): void {
+        handler()
+      }
+
+      function main(): int {
+        let secondKind = ""
+        invoke((): void => {
+          second: Result<int, string> := Failure { error: "already" }
+          case second {
+            _: Success -> Response.empty()
+            f: Failure -> {
+              secondKind = f.error
+            }
+          }
+        })
+        return secondKind.length
+      }
+    `);
+
+    expect(cpp).toContain("invoke([secondKind]() -> void");
+    expect(cpp).not.toContain("[second, secondKind, f]");
+    expect(cpp).not.toContain("[Response");
+  });
+
+  it("does not heap-box a mutable binding that is local to the lambda itself", () => {
+    const cpp = emit(`
+      function main(): void {
+        run := (): int => {
+          let local = 0
+          local = local + 1
+          return local
+        }
+      }
+    `);
+
+    expect(cpp).toContain("[=]() -> int32_t");
+    expect(cpp).toContain("auto local = 0;");
+    expect(cpp).not.toContain("std::make_shared<int32_t>(0)");
+    expect(cpp).not.toContain("[local]");
+  });
 });
 
 

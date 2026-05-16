@@ -97,6 +97,8 @@ Validation anchors:
 Strategy:
 
 - lambda lowering performs capture analysis before generating the C++ callable form
+- capture analysis only includes bindings that are free in that lambda; lambda-local declarations and case-pattern bindings stay local to the generated callable
+- every lambda establishes its own callable return context, so nested lambda returns do not inherit outer `Result<T, E>` wrapping rules
 - mutable captured locals may need special boxing or indirection so closures stay valid after escape
 - async and actor-related forms are lowered through the same lambda-focused emission surface rather than through a separate compiler phase
 

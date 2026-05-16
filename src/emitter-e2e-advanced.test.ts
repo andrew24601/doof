@@ -674,6 +674,43 @@ describe("e2e — Result helpers", () => {
     }
     expect(result.stdout.trim()).toBe("something broke");
   });
+
+  it("runs nested lambda returns inside an enclosing Result expression", () => {
+    const result = ctx.compileAndRun(`
+      function invoke(handler: (): int): int {
+        return handler()
+      }
+
+      function process(): Result<int, string> {
+        started: Result<int, string> := Success { value: 7 }
+        return case started {
+          s: Success -> Success {
+            value: invoke((): int => {
+              delivered: Result<void, string> := Failure { error: "full" }
+              return case delivered {
+                _: Success -> 0,
+                f: Failure -> if f.error == "full" then 1 else 2,
+              }
+            })
+          },
+          f: Failure -> Failure { error: f.error }
+        }
+      }
+
+      function main(): int {
+        outcome := process()
+        return case outcome {
+          s: Success -> s.value,
+          _: Failure -> 9,
+        }
+      }
+    `);
+
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 // ============================================================================

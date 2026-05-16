@@ -451,6 +451,36 @@ describe("emitter — case expression on Result", () => {
     const callCount = (fBody.match(/getVal\(\)/g) || []).length;
     expect(callCount).toBe(1);
   });
+
+  it("uses a nested lambda's own return type when lowering return case inside an enclosing Result function", () => {
+    const cpp = emit(`
+      function invoke(handler: (): int): int {
+        return handler()
+      }
+
+      function main(): Result<int, string> {
+        started: Result<int, string> := Success { value: 7 }
+
+        return case started {
+          s: Success -> Success {
+            value: invoke((): int => {
+              delivered: Result<void, string> := Failure { error: "full" }
+              return case delivered {
+                _: Success -> 0,
+                f: Failure -> if f.error == "full" then 1 else 2,
+              }
+            })
+          },
+          f: Failure -> Failure { error: f.error }
+        }
+      }
+    `);
+
+    expect(cpp).toContain("invoke([=]() -> int32_t");
+    expect(cpp).toContain("return [&]() -> int32_t");
+    expect(cpp).not.toContain("invoke([delivered, f]() -> int32_t");
+    expect(cpp).not.toContain("return doof::Result<int32_t, std::string>::success([&]() -> int32_t");
+  });
 });
 
 // ============================================================================

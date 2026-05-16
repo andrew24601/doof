@@ -16,7 +16,9 @@ import type {
   Expression,
   Block,
   Statement,
+  SourceSpan,
 } from "./ast.js";
+import type { Binding } from "./checker-types.js";
 import { emitClassCppName, emitType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression, emitBlockBody, indent } from "./emitter-expr.js";
@@ -32,8 +34,11 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
     return `${pType} ${emitIdentifierSafe(p.name)}`;
   }).join(", ");
 
-  const retType = expr.resolvedType && expr.resolvedType.kind === "function"
-    ? emitType(expr.resolvedType.returnType)
+  const lambdaReturnType = expr.resolvedType && expr.resolvedType.kind === "function"
+    ? expr.resolvedType.returnType
+    : undefined;
+  const retType = lambdaReturnType
+    ? emitType(lambdaReturnType)
     : "auto";
 
   const captures = analyzeLambdaCaptures(expr, ctx);
@@ -42,6 +47,7 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
   const bodyCtx: EmitContext = {
     ...ctx,
     currentCallableName: `${ctx.currentCallableName ?? "<module>"}.${lambdaSuffix}`,
+    currentFunctionReturnType: lambdaReturnType,
   };
 
   if (expr.body.kind === "block") {
@@ -134,7 +140,7 @@ function analyzeLambdaCaptures(expr: LambdaExpression, ctx: EmitContext): string
   const paramNames = new Set(expr.params.map((p) => p.name));
   const captures = new Map<string, string>(); // name → capture spec
 
-  collectCaptures(expr.body, paramNames, captures, ctx);
+  collectCaptures(expr.body, expr.body.span, paramNames, captures, ctx);
 
   if (captures.size === 0) return [];
   return Array.from(captures.values());
@@ -143,6 +149,7 @@ function analyzeLambdaCaptures(expr: LambdaExpression, ctx: EmitContext): string
 /** Recursively collect captured identifiers from an expression or block. */
 function collectCaptures(
   node: Expression | Block,
+  lambdaBodySpan: SourceSpan,
   paramNames: Set<string>,
   captures: Map<string, string>,
   ctx: EmitContext,
@@ -151,7 +158,7 @@ function collectCaptures(
 
   if (node.kind === "block") {
     for (const stmt of (node as Block).statements) {
-      collectCapturesFromStatement(stmt, paramNames, captures, ctx);
+      collectCapturesFromStatement(stmt, lambdaBodySpan, paramNames, captures, ctx);
     }
     return;
   }
@@ -159,7 +166,11 @@ function collectCaptures(
   const expr = node as Expression;
   switch (expr.kind) {
     case "identifier":
-      if (!paramNames.has(expr.name) && expr.resolvedBinding) {
+      if (
+        !paramNames.has(expr.name)
+        && expr.resolvedBinding
+        && !isBindingDeclaredWithin(expr.resolvedBinding, lambdaBodySpan)
+      ) {
         const binding = expr.resolvedBinding;
         if (["class", "function", "interface", "enum", "type-alias"].includes(binding.kind)) break;
         if (binding.kind === "field") {
@@ -182,88 +193,88 @@ function collectCaptures(
     case "caller-expression":
       break;
     case "binary-expression":
-      collectCaptures(expr.left, paramNames, captures, ctx);
-      collectCaptures(expr.right, paramNames, captures, ctx);
+      collectCaptures(expr.left, lambdaBodySpan, paramNames, captures, ctx);
+      collectCaptures(expr.right, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "unary-expression":
-      collectCaptures(expr.operand, paramNames, captures, ctx);
+      collectCaptures(expr.operand, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "member-expression":
-      collectCaptures(expr.object, paramNames, captures, ctx);
+      collectCaptures(expr.object, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "index-expression":
-      collectCaptures(expr.object, paramNames, captures, ctx);
-      collectCaptures(expr.index, paramNames, captures, ctx);
+      collectCaptures(expr.object, lambdaBodySpan, paramNames, captures, ctx);
+      collectCaptures(expr.index, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "call-expression":
-      collectCaptures(expr.callee, paramNames, captures, ctx);
+      collectCaptures(expr.callee, lambdaBodySpan, paramNames, captures, ctx);
       for (const arg of expr.args) {
-        collectCaptures(arg.value, paramNames, captures, ctx);
+        collectCaptures(arg.value, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "assignment-expression":
-      collectCaptures(expr.target, paramNames, captures, ctx);
-      collectCaptures(expr.value, paramNames, captures, ctx);
+      collectCaptures(expr.target, lambdaBodySpan, paramNames, captures, ctx);
+      collectCaptures(expr.value, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "lambda-expression":
       // Nested lambda — don't descend, it handles its own captures
       break;
     case "if-expression":
-      collectCaptures(expr.condition, paramNames, captures, ctx);
-      collectCaptures(expr.then, paramNames, captures, ctx);
-      collectCaptures(expr.else_, paramNames, captures, ctx);
+      collectCaptures(expr.condition, lambdaBodySpan, paramNames, captures, ctx);
+      collectCaptures(expr.then, lambdaBodySpan, paramNames, captures, ctx);
+      collectCaptures(expr.else_, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "array-literal":
-      for (const el of expr.elements) collectCaptures(el, paramNames, captures, ctx);
+      for (const el of expr.elements) collectCaptures(el, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "tuple-literal":
-      for (const el of expr.elements) collectCaptures(el, paramNames, captures, ctx);
+      for (const el of expr.elements) collectCaptures(el, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "string-literal":
       for (const part of expr.parts) {
-        if (typeof part !== "string") collectCaptures(part, paramNames, captures, ctx);
+        if (typeof part !== "string") collectCaptures(part, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "case-expression":
-      collectCaptures(expr.subject, paramNames, captures, ctx);
+      collectCaptures(expr.subject, lambdaBodySpan, paramNames, captures, ctx);
       for (const arm of expr.arms) {
         if (arm.body.kind === "block") {
-          for (const s of (arm.body as Block).statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+          for (const s of (arm.body as Block).statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
         } else {
-          collectCaptures(arm.body as Expression, paramNames, captures, ctx);
+          collectCaptures(arm.body as Expression, lambdaBodySpan, paramNames, captures, ctx);
         }
       }
       break;
     case "construct-expression":
       if (!expr.named) {
-        for (const a of (expr.args as Expression[])) collectCaptures(a, paramNames, captures, ctx);
+        for (const a of (expr.args as Expression[])) collectCaptures(a, lambdaBodySpan, paramNames, captures, ctx);
       } else {
         for (const p of (expr.args as import("./ast.js").ObjectProperty[])) {
-          if (p.value) collectCaptures(p.value, paramNames, captures, ctx);
+          if (p.value) collectCaptures(p.value, lambdaBodySpan, paramNames, captures, ctx);
         }
       }
       break;
     case "map-literal":
       for (const entry of expr.entries) {
-        collectCaptures(entry.key, paramNames, captures, ctx);
-        collectCaptures(entry.value, paramNames, captures, ctx);
+        collectCaptures(entry.key, lambdaBodySpan, paramNames, captures, ctx);
+        collectCaptures(entry.value, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "async-expression":
       if (expr.expression.kind === "block") {
-        for (const s of (expr.expression as Block).statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        for (const s of (expr.expression as Block).statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       } else {
-        collectCaptures(expr.expression as Expression, paramNames, captures, ctx);
+        collectCaptures(expr.expression as Expression, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "actor-creation-expression":
-      for (const a of expr.args) collectCaptures(a, paramNames, captures, ctx);
+      for (const a of expr.args) collectCaptures(a, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "catch-expression":
-      for (const s of expr.body) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      for (const s of expr.body) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "non-null-assertion":
-      collectCaptures(expr.expression, paramNames, captures, ctx);
+      collectCaptures(expr.expression, lambdaBodySpan, paramNames, captures, ctx);
       break;
     default:
       break;
@@ -272,77 +283,83 @@ function collectCaptures(
 
 function collectCapturesFromStatement(
   stmt: Statement,
+  lambdaBodySpan: SourceSpan,
   paramNames: Set<string>,
   captures: Map<string, string>,
   ctx: EmitContext,
 ): void {
   switch (stmt.kind) {
     case "expression-statement":
-      collectCaptures(stmt.expression, paramNames, captures, ctx);
+      collectCaptures(stmt.expression, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "return-statement":
-      if (stmt.value) collectCaptures(stmt.value, paramNames, captures, ctx);
+      if (stmt.value) collectCaptures(stmt.value, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "const-declaration":
     case "readonly-declaration":
     case "immutable-binding":
     case "let-declaration":
-      collectCaptures(stmt.value, paramNames, captures, ctx);
+      collectCaptures(stmt.value, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "if-statement":
-      collectCaptures(stmt.condition, paramNames, captures, ctx);
-      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      collectCaptures(stmt.condition, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       for (const ei of stmt.elseIfs) {
-        collectCaptures(ei.condition, paramNames, captures, ctx);
-        for (const s of ei.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        collectCaptures(ei.condition, lambdaBodySpan, paramNames, captures, ctx);
+        for (const s of ei.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       }
       if (stmt.else_) {
-        for (const s of stmt.else_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        for (const s of stmt.else_.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "case-statement":
-      collectCaptures(stmt.subject, paramNames, captures, ctx);
+      collectCaptures(stmt.subject, lambdaBodySpan, paramNames, captures, ctx);
       for (const arm of stmt.arms) {
         if (arm.body.kind === "block") {
-          for (const s of arm.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+          for (const s of arm.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
         } else {
-          collectCaptures(arm.body, paramNames, captures, ctx);
+          collectCaptures(arm.body, lambdaBodySpan, paramNames, captures, ctx);
         }
       }
       break;
     case "while-statement":
-      collectCaptures(stmt.condition, paramNames, captures, ctx);
-      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      collectCaptures(stmt.condition, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "for-statement":
-      if (stmt.init) collectCapturesFromStatement(stmt.init, paramNames, captures, ctx);
-      if (stmt.condition) collectCaptures(stmt.condition, paramNames, captures, ctx);
-      for (const update of stmt.update) collectCaptures(update, paramNames, captures, ctx);
-      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      if (stmt.init) collectCapturesFromStatement(stmt.init, lambdaBodySpan, paramNames, captures, ctx);
+      if (stmt.condition) collectCaptures(stmt.condition, lambdaBodySpan, paramNames, captures, ctx);
+      for (const update of stmt.update) collectCaptures(update, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "for-of-statement":
-      collectCaptures(stmt.iterable, paramNames, captures, ctx);
-      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      collectCaptures(stmt.iterable, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+        for (const s of stmt.then_.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       }
       break;
     case "with-statement":
-      for (const b of stmt.bindings) collectCaptures(b.value, paramNames, captures, ctx);
-      for (const s of stmt.body.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      for (const b of stmt.bindings) collectCaptures(b.value, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "block":
-      for (const s of stmt.statements) collectCapturesFromStatement(s, paramNames, captures, ctx);
+      for (const s of stmt.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
     default:
       break;
   }
+}
+
+function isBindingDeclaredWithin(binding: Binding, span: SourceSpan): boolean {
+  return binding.span.start.offset >= span.start.offset
+    && binding.span.end.offset <= span.end.offset;
 }
 
 // ============================================================================
@@ -459,7 +476,7 @@ function scanExprForLambdaCaptures(
   switch (expr.kind) {
     case "lambda-expression": {
       const lambdaParams = new Set(expr.params.map((p) => p.name));
-      collectMutableCaptureNames(expr.body, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.body, expr.body.span, lambdaParams, outerNames, result);
       if (expr.body.kind === "block") {
         scanStatementsForLambdaCaptures((expr.body as Block).statements, outerNames, result);
       } else {
@@ -558,6 +575,7 @@ function scanExprForLambdaCaptures(
  */
 function collectMutableCaptureNames(
   node: Expression | Block,
+  lambdaBodySpan: SourceSpan,
   lambdaParams: Set<string>,
   outerNames: Set<string>,
   result: Set<string>,
@@ -566,7 +584,7 @@ function collectMutableCaptureNames(
 
   if (node.kind === "block") {
     for (const stmt of (node as Block).statements) {
-      collectMutableCaptureNamesFromStmt(stmt, lambdaParams, outerNames, result);
+      collectMutableCaptureNamesFromStmt(stmt, lambdaBodySpan, lambdaParams, outerNames, result);
     }
     return;
   }
@@ -577,6 +595,7 @@ function collectMutableCaptureNames(
       if (
         !lambdaParams.has(expr.name) &&
         expr.resolvedBinding &&
+        !isBindingDeclaredWithin(expr.resolvedBinding, lambdaBodySpan) &&
         expr.resolvedBinding.mutable &&
         !["class", "function", "interface", "enum", "type-alias", "field"].includes(expr.resolvedBinding.kind)
       ) {
@@ -584,85 +603,85 @@ function collectMutableCaptureNames(
       }
       break;
     case "binary-expression":
-      collectMutableCaptureNames(expr.left, lambdaParams, outerNames, result);
-      collectMutableCaptureNames(expr.right, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.left, lambdaBodySpan, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.right, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "unary-expression":
-      collectMutableCaptureNames(expr.operand, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.operand, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "member-expression":
-      collectMutableCaptureNames(expr.object, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.object, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "index-expression":
-      collectMutableCaptureNames(expr.object, lambdaParams, outerNames, result);
-      collectMutableCaptureNames(expr.index, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.object, lambdaBodySpan, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.index, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "call-expression":
-      collectMutableCaptureNames(expr.callee, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.callee, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const arg of expr.args) {
-        collectMutableCaptureNames(arg.value, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(arg.value, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "assignment-expression":
-      collectMutableCaptureNames(expr.target, lambdaParams, outerNames, result);
-      collectMutableCaptureNames(expr.value, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.target, lambdaBodySpan, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.value, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "lambda-expression":
       // Don't descend into nested lambdas — they handle their own captures
       break;
     case "if-expression":
-      collectMutableCaptureNames(expr.condition, lambdaParams, outerNames, result);
-      collectMutableCaptureNames(expr.then, lambdaParams, outerNames, result);
-      collectMutableCaptureNames(expr.else_, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.condition, lambdaBodySpan, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.then, lambdaBodySpan, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.else_, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "array-literal":
-      for (const el of expr.elements) collectMutableCaptureNames(el, lambdaParams, outerNames, result);
+      for (const el of expr.elements) collectMutableCaptureNames(el, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "tuple-literal":
-      for (const el of expr.elements) collectMutableCaptureNames(el, lambdaParams, outerNames, result);
+      for (const el of expr.elements) collectMutableCaptureNames(el, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "string-literal":
       for (const part of expr.parts) {
-        if (typeof part !== "string") collectMutableCaptureNames(part, lambdaParams, outerNames, result);
+        if (typeof part !== "string") collectMutableCaptureNames(part, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "case-expression":
-      collectMutableCaptureNames(expr.subject, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.subject, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const arm of expr.arms) {
         if (arm.body.kind === "block") {
-          for (const s of (arm.body as Block).statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+          for (const s of (arm.body as Block).statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
         } else {
-          collectMutableCaptureNames(arm.body as Expression, lambdaParams, outerNames, result);
+          collectMutableCaptureNames(arm.body as Expression, lambdaBodySpan, lambdaParams, outerNames, result);
         }
       }
       break;
     case "construct-expression":
       if (!expr.named) {
-        for (const a of (expr.args as Expression[])) collectMutableCaptureNames(a, lambdaParams, outerNames, result);
+        for (const a of (expr.args as Expression[])) collectMutableCaptureNames(a, lambdaBodySpan, lambdaParams, outerNames, result);
       } else {
         for (const p of (expr.args as import("./ast.js").ObjectProperty[])) {
-          if (p.value) collectMutableCaptureNames(p.value, lambdaParams, outerNames, result);
+          if (p.value) collectMutableCaptureNames(p.value, lambdaBodySpan, lambdaParams, outerNames, result);
         }
       }
       break;
     case "map-literal":
       for (const entry of expr.entries) {
-        collectMutableCaptureNames(entry.key, lambdaParams, outerNames, result);
-        collectMutableCaptureNames(entry.value, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(entry.key, lambdaBodySpan, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(entry.value, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "async-expression":
       if (expr.expression.kind === "block") {
-        for (const s of (expr.expression as Block).statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        for (const s of (expr.expression as Block).statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       } else {
-        collectMutableCaptureNames(expr.expression as Expression, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(expr.expression as Expression, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "catch-expression":
-      for (const s of expr.body) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      for (const s of expr.body) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "non-null-assertion":
-      collectMutableCaptureNames(expr.expression, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(expr.expression, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     default:
       break;
@@ -671,75 +690,76 @@ function collectMutableCaptureNames(
 
 function collectMutableCaptureNamesFromStmt(
   stmt: Statement,
+  lambdaBodySpan: SourceSpan,
   lambdaParams: Set<string>,
   outerNames: Set<string>,
   result: Set<string>,
 ): void {
   switch (stmt.kind) {
     case "expression-statement":
-      collectMutableCaptureNames(stmt.expression, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.expression, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "return-statement":
-      if (stmt.value) collectMutableCaptureNames(stmt.value, lambdaParams, outerNames, result);
+      if (stmt.value) collectMutableCaptureNames(stmt.value, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "const-declaration":
     case "readonly-declaration":
     case "immutable-binding":
     case "let-declaration":
-      collectMutableCaptureNames(stmt.value, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.value, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "if-statement":
-      collectMutableCaptureNames(stmt.condition, lambdaParams, outerNames, result);
-      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.condition, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const ei of stmt.elseIfs) {
-        collectMutableCaptureNames(ei.condition, lambdaParams, outerNames, result);
-        for (const s of ei.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(ei.condition, lambdaBodySpan, lambdaParams, outerNames, result);
+        for (const s of ei.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       if (stmt.else_) {
-        for (const s of stmt.else_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        for (const s of stmt.else_.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "case-statement":
-      collectMutableCaptureNames(stmt.subject, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.subject, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const arm of stmt.arms) {
         if (arm.body.kind === "block") {
-          for (const s of arm.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+          for (const s of arm.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
         } else {
-          collectMutableCaptureNames(arm.body, lambdaParams, outerNames, result);
+          collectMutableCaptureNames(arm.body, lambdaBodySpan, lambdaParams, outerNames, result);
         }
       }
       break;
     case "while-statement":
-      collectMutableCaptureNames(stmt.condition, lambdaParams, outerNames, result);
-      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.condition, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "for-statement":
-      if (stmt.init) collectMutableCaptureNamesFromStmt(stmt.init, lambdaParams, outerNames, result);
-      if (stmt.condition) collectMutableCaptureNames(stmt.condition, lambdaParams, outerNames, result);
+      if (stmt.init) collectMutableCaptureNamesFromStmt(stmt.init, lambdaBodySpan, lambdaParams, outerNames, result);
+      if (stmt.condition) collectMutableCaptureNames(stmt.condition, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const update of stmt.update) {
-        collectMutableCaptureNames(update, lambdaParams, outerNames, result);
+        collectMutableCaptureNames(update, lambdaBodySpan, lambdaParams, outerNames, result);
       }
-      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "for-of-statement":
-      collectMutableCaptureNames(stmt.iterable, lambdaParams, outerNames, result);
-      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      collectMutableCaptureNames(stmt.iterable, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       if (stmt.then_) {
-        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+        for (const s of stmt.then_.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       }
       break;
     case "with-statement":
-      for (const b of stmt.bindings) collectMutableCaptureNames(b.value, lambdaParams, outerNames, result);
-      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      for (const b of stmt.bindings) collectMutableCaptureNames(b.value, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "block":
-      for (const s of stmt.statements) collectMutableCaptureNamesFromStmt(s, lambdaParams, outerNames, result);
+      for (const s of stmt.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     default:
       break;
