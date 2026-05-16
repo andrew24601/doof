@@ -1,10 +1,5 @@
 import type { Block, Expression, SourceSpan, Statement } from "./ast.js";
 import {
-  finalizeDeclaredCollectionType,
-  getCollectionTypeAnnotationInfo,
-  validateCollectionTypeAnnotation,
-} from "./checker-collection-annotations.js";
-import {
   applyDeepReadonly,
   findDeepReadonlyViolation,
 } from "./checker-readonly.js";
@@ -24,6 +19,11 @@ import type { CheckerHost } from "./checker-internal.js";
 import { resolveExpectedEnumType } from "./checker-expr-ops.js";
 import { buildCaseArmScope } from "./checker-result.js";
 import { inferMemberType } from "./checker-member.js";
+import {
+  getCollectionAwareAssignabilityTypes,
+  resolveDeclaredType,
+  resolveDeclaredValue,
+} from "./checker-declared-values.js";
 
 type ValueBindingStatement = Extract<Statement,
   | { kind: "const-declaration" }
@@ -62,151 +62,10 @@ export function checkStatement(
       break;
 
     case "const-declaration":
-    case "readonly-declaration": {
-      if (stmt.value.kind === "yield-block-expression" && scope.kind === "module") {
-        info.diagnostics.push({
-          severity: "error",
-          message: "'<-' yield blocks are only allowed in local declarations",
-          span: stmt.span,
-          module: table.path,
-        });
-      }
-      if (stmt.type) {
-        validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
-      }
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
-      const resolvedDeclaredType = stmt.type
-        ? host.resolveTypeAnnotation(stmt.type, table)
-        : null;
-      const declaredType = stmt.kind === "readonly-declaration" && resolvedDeclaredType
-        ? applyDeepReadonly(resolvedDeclaredType)
-        : resolvedDeclaredType;
-      if (declaredType) {
-        reportUnsupportedHashCollectionConstraint(declaredType, stmt.type?.span ?? stmt.span, table, info);
-      }
-      const inferredType = host.inferExprType(stmt.value, scope, table, info, declaredType ?? undefined);
-      const finalizedType = finalizeDeclaredCollectionType(
-        stmt.type,
-        declaredType,
-        inferredType,
-        stmt.value,
-        table,
-        info,
-      );
-      const type = stmt.kind === "readonly-declaration"
-        ? applyDeepReadonly(finalizedType)
-        : finalizedType;
-      stmt.resolvedType = type;
-
-      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
-      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
-      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
-          span: stmt.span,
-          module: table.path,
-        });
-      }
-
-      if (stmt.kind === "readonly-declaration") {
-        const violation = findDeepReadonlyViolation(host, type, table);
-        if (violation) {
-          info.diagnostics.push({
-            severity: "error",
-            message: `Readonly declaration requires a deeply immutable type, but "${typeToString(type)}" is not deeply immutable: ${violation.reason}`,
-            span: stmt.span,
-            module: table.path,
-          });
-        }
-      }
-
-      reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);
-      registerValueBinding(stmt, scope, table, info, type);
-      break;
-    }
-
-    case "let-declaration": {
-      if (stmt.value.kind === "yield-block-expression" && scope.kind === "module") {
-        info.diagnostics.push({
-          severity: "error",
-          message: "'<-' yield blocks are only allowed in local declarations",
-          span: stmt.span,
-          module: table.path,
-        });
-      }
-      if (stmt.type) {
-        validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
-      }
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
-      const declaredType = stmt.type
-        ? host.resolveTypeAnnotation(stmt.type, table)
-        : null;
-      if (declaredType) {
-        reportUnsupportedHashCollectionConstraint(declaredType, stmt.type?.span ?? stmt.span, table, info);
-      }
-      const inferredType = host.inferExprType(stmt.value, scope, table, info, declaredType ?? undefined);
-      const type = finalizeDeclaredCollectionType(
-        stmt.type,
-        declaredType,
-        inferredType,
-        stmt.value,
-        table,
-        info,
-      );
-      stmt.resolvedType = type;
-
-      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
-      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
-      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
-          span: stmt.span,
-          module: table.path,
-        });
-      }
-
-      reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);
-      registerValueBinding(stmt, scope, table, info, type);
-      break;
-    }
-
+    case "readonly-declaration":
+    case "let-declaration":
     case "immutable-binding": {
-      if (stmt.type) {
-        validateCollectionTypeAnnotation(stmt.type, stmt.type.span, table, info, { allowOmittedTypeArgs: true });
-      }
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(stmt.type);
-      const declaredType = stmt.type
-        ? host.resolveTypeAnnotation(stmt.type, table)
-        : null;
-      if (declaredType) {
-        reportUnsupportedHashCollectionConstraint(declaredType, stmt.type?.span ?? stmt.span, table, info);
-      }
-      const inferredType = host.inferExprType(stmt.value, scope, table, info, declaredType ?? undefined);
-      const type = finalizeDeclaredCollectionType(
-        stmt.type,
-        declaredType,
-        inferredType,
-        stmt.value,
-        table,
-        info,
-      );
-      stmt.resolvedType = type;
-
-      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? type : declaredType;
-      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? type : inferredType;
-      if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
-          span: stmt.span,
-          module: table.path,
-        });
-      }
-
-      reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);
-      registerValueBinding(stmt, scope, table, info, type);
+      checkValueBindingStatement(host, stmt, scope, table, info);
       break;
     }
 
@@ -817,6 +676,81 @@ function registerValueBinding(
     span: stmt.span,
     module: table.path,
   });
+}
+
+function checkValueBindingStatement(
+  host: CheckerHost,
+  stmt: ValueBindingStatement,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  if (stmt.kind !== "immutable-binding"
+    && stmt.value.kind === "yield-block-expression"
+    && scope.kind === "module") {
+    info.diagnostics.push({
+      severity: "error",
+      message: "'<-' yield blocks are only allowed in local declarations",
+      span: stmt.span,
+      module: table.path,
+    });
+  }
+
+  const readonly_ = stmt.kind === "readonly-declaration";
+  const { collectionAnnotation, declaredType } = resolveDeclaredType(
+    host,
+    stmt.type,
+    stmt.span,
+    table,
+    info,
+    {
+      allowOmittedTypeArgs: true,
+      transformDeclaredType: readonly_ ? applyDeepReadonly : undefined,
+    },
+  );
+  const { inferredType, finalizedType } = resolveDeclaredValue(
+    host,
+    stmt.type,
+    declaredType,
+    stmt.value,
+    scope,
+    table,
+    info,
+  );
+  const type = readonly_
+    ? applyDeepReadonly(finalizedType)
+    : finalizedType;
+  stmt.resolvedType = type;
+
+  const { effectiveDeclaredType, assignabilityType } = getCollectionAwareAssignabilityTypes(
+    collectionAnnotation,
+    declaredType,
+    inferredType,
+    type,
+  );
+  if (effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Type "${typeToString(assignabilityType)}" is not assignable to type "${typeToString(effectiveDeclaredType)}"`,
+      span: stmt.span,
+      module: table.path,
+    });
+  }
+
+  if (readonly_) {
+    const violation = findDeepReadonlyViolation(host, type, table);
+    if (violation) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Readonly declaration requires a deeply immutable type, but "${typeToString(type)}" is not deeply immutable: ${violation.reason}`,
+        span: stmt.span,
+        module: table.path,
+      });
+    }
+  }
+
+  reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);
+  registerValueBinding(stmt, scope, table, info, type);
 }
 
 function statementToBindingKind(

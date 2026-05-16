@@ -50,8 +50,9 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [analyzer.ts](src/analyzer.ts) (523 lines) — Module-level symbol and type analysis
 - [checker.ts](src/checker.ts) (~891 lines) — Type-checker orchestrator, type annotation resolution, generic inference, and expression inference core
 - [checker-internal.ts](src/checker-internal.ts) (~130 lines) — Shared checker host contract and built-in checker constants
-- [checker-stmt.ts](src/checker-stmt.ts) (~440 lines) — Statement dispatch, block checking, bindings, loops, else-narrow, and try statement entry
-- [checker-decl.ts](src/checker-decl.ts) (~280 lines) — Function, class, and method checking
+- [checker-stmt.ts](src/checker-stmt.ts) — Statement dispatch, block checking, bindings, loops, else-narrow, and try statement entry
+- [checker-decl.ts](src/checker-decl.ts) — Function, class, and method checking
+- [checker-declared-values.ts](src/checker-declared-values.ts) — Shared declared-value/default resolution for bindings, parameters, and fields
 - [checker-member.ts](src/checker-member.ts) (~480 lines) — Member lookup, built-in members, JSON/metadata access, and positional field extraction
 - [checker-result.ts](src/checker-result.ts) (~200 lines) — Result arm scopes, catch expressions, try propagation, and binding retyping
 - [checker-expr-ops.ts](src/checker-expr-ops.ts) (~180 lines) — Binary/unary operator typing and enum expectation helpers
@@ -177,6 +178,7 @@ src/
   checker-internal.ts           # Shared checker host contract and built-ins
   checker-stmt.ts               # Statement-level checking
   checker-decl.ts               # Function/class/method checking
+  checker-declared-values.ts    # Shared binding/default-value resolution helpers
   checker-member.ts             # Member lookup and built-in member typing
   checker-result.ts             # Result/catch/try propagation helpers
   checker-expr-ops.ts           # Binary and unary operator typing helpers

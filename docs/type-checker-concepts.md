@@ -48,6 +48,7 @@ Validation anchors:
 Primary modules:
 
 - `src/checker-collection-annotations.ts`
+- `src/checker-declared-values.ts`
 - `src/checker-diagnostics.ts`
 - `src/checker-stmt.ts`
 - `src/checker-decl.ts`
@@ -58,6 +59,33 @@ Keep aligned:
 - collection annotation arity rules and omitted-type-argument rules belong in `checker-collection-annotations.ts`
 - unsupported hash-collection diagnostics should flow through the shared `reportUnsupportedHashCollectionConstraint()` helper so declared and inferred paths produce the same message
 - if supported map-key or set-element types change, update the shared checker-type predicate, this document, and all affected checker tests together
+
+Validation anchors:
+
+- `src/checker-compat.test.ts`
+- `src/checker-validation.test.ts`
+- `spec/02-type-system.md`
+
+## Declared Value and Default Resolution
+
+Variable declarations, parameters, and class fields all resolve the same core pipeline when an annotation meets an initializer/default value:
+
+1. validate the annotation and resolve the declared semantic type
+2. infer the initializer/default under contextual typing
+3. finalize omitted `Map`/`Set` type arguments from same-site literals
+4. perform caller-specific assignability checks and AST decoration
+
+Primary modules:
+
+- `src/checker-declared-values.ts`
+- `src/checker-stmt.ts`
+- `src/checker-decl.ts`
+
+Keep aligned:
+
+- shared annotation resolution and initializer/default finalization belong in `checker-declared-values.ts`
+- statement bindings, parameters, and fields should keep only their caller-specific policy locally: binding registration, default-value diagnostics, readonly checks, and diagnostic wording
+- omitted collection type arguments must continue to use the same-site initializer/default as the semantic source across all three surfaces
 
 Validation anchors:
 

@@ -1,9 +1,5 @@
-import type { ClassDeclaration, FunctionDeclaration } from "./ast.js";
-import {
-  finalizeDeclaredCollectionType,
-  getCollectionTypeAnnotationInfo,
-  validateCollectionTypeAnnotation,
-} from "./checker-collection-annotations.js";
+import type { ClassDeclaration, FunctionDeclaration, Parameter } from "./ast.js";
+import { validateCollectionTypeAnnotation } from "./checker-collection-annotations.js";
 import {
   applyDeepReadonly,
   findDeepReadonlyViolation,
@@ -22,6 +18,11 @@ import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics
 import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
+import {
+  getCollectionAwareAssignabilityTypes,
+  resolveDeclaredType,
+  resolveDeclaredValue,
+} from "./checker-declared-values.js";
 
 function resolveTypeParamConstraintTypes(
   host: CheckerHost,
@@ -59,6 +60,88 @@ function addUnsupportedDefaultDiagnostic(
     span: expr.span,
     module: table.path,
   });
+}
+
+function checkParameters(
+  host: CheckerHost,
+  params: Parameter[],
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  for (const param of params) {
+    const { collectionAnnotation, declaredType } = resolveDeclaredType(
+      host,
+      param.type,
+      param.span,
+      table,
+      info,
+      { allowOmittedTypeArgs: param.defaultValue !== null },
+    );
+    const paramType = declaredType ?? UNKNOWN_TYPE;
+    param.resolvedType = paramType;
+    scope.bindings.set(param.name, {
+      name: param.name,
+      kind: "parameter",
+      type: paramType,
+      mutable: false,
+      span: param.span,
+      module: table.path,
+    });
+
+    if (!param.defaultValue) continue;
+
+    const {
+      inferredType: inferredDefaultType,
+      finalizedType: finalizedDefaultType,
+    } = resolveDeclaredValue(
+      host,
+      param.type,
+      declaredType,
+      param.defaultValue,
+      scope,
+      table,
+      info,
+      {
+        expectedType: paramType,
+        inferAsDefaultValue: true,
+      },
+    );
+    const resolvedParamType = collectionAnnotation?.omitsTypeArgs
+      ? finalizedDefaultType
+      : paramType;
+
+    if (param.type) {
+      param.resolvedType = resolvedParamType;
+      scope.bindings.set(param.name, {
+        name: param.name,
+        kind: "parameter",
+        type: resolvedParamType,
+        mutable: false,
+        span: param.span,
+        module: table.path,
+      });
+    }
+
+    const {
+      effectiveDeclaredType,
+      assignabilityType,
+    } = getCollectionAwareAssignabilityTypes(
+      collectionAnnotation,
+      param.type ? paramType : null,
+      inferredDefaultType,
+      resolvedParamType,
+    );
+    if (param.type && effectiveDeclaredType && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(effectiveDeclaredType)}"`,
+        span: param.defaultValue.span,
+        module: table.path,
+      });
+    }
+    addUnsupportedDefaultDiagnostic(info, table, "parameter", param.defaultValue, param.resolvedType ?? undefined);
+  }
 }
 
 function buildMethodBindingType(
@@ -146,63 +229,7 @@ export function checkFunction(
     : declaredReturnType;
   const fnScope = host.pushScope(parentScope, "function", effectiveBlockReturnType);
 
-  for (const param of decl.params) {
-    if (param.type) {
-      validateCollectionTypeAnnotation(param.type, param.type.span, table, info, {
-        allowOmittedTypeArgs: param.defaultValue !== null,
-      });
-    }
-    const paramType = param.type
-      ? host.resolveTypeAnnotation(param.type, table)
-      : UNKNOWN_TYPE;
-    if (param.type) {
-      reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
-    }
-    param.resolvedType = paramType;
-    fnScope.bindings.set(param.name, {
-      name: param.name,
-      kind: "parameter",
-      type: paramType,
-      mutable: false,
-      span: param.span,
-      module: table.path,
-    });
-    if (param.defaultValue) {
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(param.type);
-      const inferredDefaultType = host.inferExprType(param.defaultValue, fnScope, table, info, paramType, true);
-      const finalizedDefaultType = finalizeDeclaredCollectionType(
-        param.type,
-        param.type ? paramType : null,
-        inferredDefaultType,
-        param.defaultValue,
-        table,
-        info,
-      );
-      const resolvedParamType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : paramType;
-      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
-      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? resolvedParamType : paramType;
-      if (param.type) {
-        param.resolvedType = resolvedParamType;
-        fnScope.bindings.set(param.name, {
-          name: param.name,
-          kind: "parameter",
-          type: resolvedParamType,
-          mutable: false,
-          span: param.span,
-          module: table.path,
-        });
-      }
-      if (param.type && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(effectiveDeclaredType)}"`,
-          span: param.defaultValue.span,
-          module: table.path,
-        });
-      }
-      addUnsupportedDefaultDiagnostic(info, table, "parameter", param.defaultValue, param.resolvedType ?? undefined);
-    }
-  }
+  checkParameters(host, decl.params, fnScope, table, info);
 
   let inferredReturnType: ResolvedType;
   if (decl.body.kind === "block") {
@@ -297,39 +324,43 @@ export function checkClass(
       continue;
     }
 
-    if (field.type) {
-      validateCollectionTypeAnnotation(field.type, field.type.span, table, info, {
+    const readonly_ = field.readonly_ || field.const_;
+    const { collectionAnnotation, declaredType: declaredFieldType } = resolveDeclaredType(
+      host,
+      field.type,
+      field.span,
+      table,
+      info,
+      {
         allowOmittedTypeArgs: field.defaultValue !== null,
-      });
-      const resolvedFieldType = host.resolveTypeAnnotation(field.type, table);
-      field.resolvedType = field.readonly_ || field.const_
-        ? applyDeepReadonly(resolvedFieldType)
-        : resolvedFieldType;
-      reportUnsupportedHashCollectionConstraint(field.resolvedType, field.type.span, table, info);
-    }
+        transformDeclaredType: readonly_ ? applyDeepReadonly : undefined,
+      },
+    );
+    field.resolvedType = declaredFieldType ?? undefined;
+
     if (field.defaultValue) {
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(field.type);
-      const declaredFieldType = field.resolvedType ?? null;
-      const inferredDefaultType = host.inferExprType(
+      const { inferredType: inferredDefaultType, finalizedType: finalizedDefaultType } = resolveDeclaredValue(
+        host,
+        field.type,
+        declaredFieldType,
         field.defaultValue,
         parentScope,
         table,
         info,
-        declaredFieldType ?? undefined,
-        true,
-      );
-      const finalizedDefaultType = finalizeDeclaredCollectionType(
-        field.type,
-        declaredFieldType,
-        inferredDefaultType,
-        field.defaultValue,
-        table,
-        info,
+        { inferAsDefaultValue: true },
       );
       if (field.type) {
         const fieldType = declaredFieldType!;
-        const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
-        const effectiveFieldType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : fieldType;
+        const {
+          effectiveDeclaredType,
+          assignabilityType,
+        } = getCollectionAwareAssignabilityTypes(
+          collectionAnnotation,
+          fieldType,
+          inferredDefaultType,
+          finalizedDefaultType,
+        );
+        const effectiveFieldType = effectiveDeclaredType!;
         if (!isAssignableTo(assignabilityType, effectiveFieldType)) {
           info.diagnostics.push({
             severity: "error",
@@ -339,17 +370,17 @@ export function checkClass(
           });
         }
         field.resolvedType = collectionAnnotation?.omitsTypeArgs
-          ? ((field.readonly_ || field.const_) ? applyDeepReadonly(finalizedDefaultType) : finalizedDefaultType)
+          ? (readonly_ ? applyDeepReadonly(finalizedDefaultType) : finalizedDefaultType)
           : fieldType;
       } else if (!field.resolvedType && finalizedDefaultType.kind !== "unknown") {
-        field.resolvedType = field.readonly_ || field.const_
+        field.resolvedType = readonly_
           ? applyDeepReadonly(finalizedDefaultType)
           : finalizedDefaultType;
       }
       addUnsupportedDefaultDiagnostic(info, table, "field", field.defaultValue, field.resolvedType ?? undefined);
     }
 
-    if ((field.readonly_ || field.const_) && field.resolvedType) {
+    if (readonly_ && field.resolvedType) {
       const violation = findDeepReadonlyViolation(host, field.resolvedType, table);
       if (violation) {
         const fieldName = field.names[0] ?? "<field>";
@@ -496,63 +527,7 @@ export function checkMethod(
     }
   }
 
-  for (const param of method.params) {
-    if (param.type) {
-      validateCollectionTypeAnnotation(param.type, param.type.span, table, info, {
-        allowOmittedTypeArgs: param.defaultValue !== null,
-      });
-    }
-    const paramType = param.type
-      ? host.resolveTypeAnnotation(param.type, table)
-      : UNKNOWN_TYPE;
-    if (param.type) {
-      reportUnsupportedHashCollectionConstraint(paramType, param.type.span, table, info);
-    }
-    param.resolvedType = paramType;
-    methodScope.bindings.set(param.name, {
-      name: param.name,
-      kind: "parameter",
-      type: paramType,
-      mutable: false,
-      span: param.span,
-      module: table.path,
-    });
-    if (param.defaultValue) {
-      const collectionAnnotation = getCollectionTypeAnnotationInfo(param.type);
-      const inferredDefaultType = host.inferExprType(param.defaultValue, methodScope, table, info, paramType, true);
-      const finalizedDefaultType = finalizeDeclaredCollectionType(
-        param.type,
-        param.type ? paramType : null,
-        inferredDefaultType,
-        param.defaultValue,
-        table,
-        info,
-      );
-      const resolvedParamType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : paramType;
-      const assignabilityType = collectionAnnotation?.omitsTypeArgs ? finalizedDefaultType : inferredDefaultType;
-      const effectiveDeclaredType = collectionAnnotation?.omitsTypeArgs ? resolvedParamType : paramType;
-      if (param.type) {
-        param.resolvedType = resolvedParamType;
-        methodScope.bindings.set(param.name, {
-          name: param.name,
-          kind: "parameter",
-          type: resolvedParamType,
-          mutable: false,
-          span: param.span,
-          module: table.path,
-        });
-      }
-      if (param.type && !isAssignableTo(assignabilityType, effectiveDeclaredType)) {
-        info.diagnostics.push({
-          severity: "error",
-          message: `Default value of type "${typeToString(assignabilityType)}" is not assignable to parameter type "${typeToString(effectiveDeclaredType)}"`,
-          span: param.defaultValue.span,
-          module: table.path,
-        });
-      }
-      addUnsupportedDefaultDiagnostic(info, table, "parameter", param.defaultValue, param.resolvedType ?? undefined);
-    }
-  }
+  checkParameters(host, method.params, methodScope, table, info);
 
   if (method.body.kind === "block") {
     host.checkStatements(method.body.statements, methodScope, table, info);

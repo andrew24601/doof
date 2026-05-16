@@ -50,6 +50,7 @@ Tests:
 - `checker-expr.ts` — expression-focused inference helpers
 - `checker-stmt.ts` — statement checking and block-level scope updates
 - `checker-decl.ts` — functions, classes, and method checking
+- `checker-declared-values.ts` — shared declared-value/default resolution for bindings, parameters, and fields
 - `checker-member.ts` — member access typing, built-ins, metadata, and field lookup
 - `checker-result.ts` — `Result`, `catch`, and try-propagation helpers
 - `checker-expr-ops.ts` — unary and binary operator typing helpers
