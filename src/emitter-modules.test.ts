@@ -1502,8 +1502,25 @@ describe("emitter — import function imports", () => {
       function test(x: int): int => abs(x)
     `);
     expect(cpp).toContain("#include <cmath>");
-    expect(cpp).toContain("std::abs(x)");
+    expect(cpp).toContain("std::abs<int32_t>(x)");
     expect(cpp).not.toContain("template<typename T>\nint abs");
+  });
+
+  it("does not capture imported module functions in lambdas", () => {
+    const cpp = emitMulti(
+      {
+        "/app.do": `export function handleRequest(n: int): int => n + 1`,
+        "/main.do": `
+          import { handleRequest } from "./app"
+          function main(): void {
+            f := (it: int): int => handleRequest(it)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cpp).not.toContain("[handleRequest]");
+    expect(cpp).toContain("handleRequest(it)");
   });
 });
 

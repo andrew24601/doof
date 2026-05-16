@@ -2,14 +2,12 @@ import { handleRequest } from "./app"
 import { AsyncEventChannel, createMainAsyncEventChannel, runMainEventLoop } from "std/event"
 import { Request, Server, ServerOptions } from "std/http-server"
 
-function dispatchRequest(request: Request): void {
-  response := handleRequest(request)
-  try! request.respond(response)
-}
-
 function main(): int {
   requests: AsyncEventChannel<Request> := createMainAsyncEventChannel<Request>{
-    handler: => dispatchRequest(event),
+    handler: => {
+      response := handleRequest(it)
+      try! it.respond(response)
+    },
     capacity: 256,
     keepsAlive: true,
   }

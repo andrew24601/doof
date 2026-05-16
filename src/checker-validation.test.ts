@@ -1715,6 +1715,26 @@ describe("AST decoration — identifier resolvedBinding", () => {
       expect(callee.resolvedBinding!.type.kind).toBe("class");
     }
   });
+
+  it("decorates local function call identifiers with function bindings", () => {
+    const { program } = check(
+      {
+        "/main.do": `
+          function double(n: int): int => n * 2
+          const result = double(21)
+        `,
+      },
+      "/main.do",
+    );
+    const constDecl = program.statements[1] as ConstDeclaration;
+    if (constDecl.value.kind === "call-expression") {
+      const callee = constDecl.value.callee as Identifier;
+      expect(callee.resolvedBinding).toBeDefined();
+      expect(callee.resolvedBinding!.kind).toBe("function");
+      expect(callee.resolvedBinding!.module).toBe("/main.do");
+      expect(callee.resolvedBinding!.type.kind).toBe("function");
+    }
+  });
 });
 
 describe("AST decoration — variable declaration resolvedType", () => {

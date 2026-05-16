@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { ClassDeclaration } from "./ast.js";
 import { typeToString } from "./checker-types.js";
 import { check, collectExprs, findId, findTypes } from "./checker-test-helpers.js";
 
@@ -302,6 +303,69 @@ describe("Class field and method types", () => {
       expect(ref.type.kind).toBe("function");
     }
     expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("resolves builtin calls and fields inside destructors", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Resource {
+            name: string
+
+            touch(): void {
+              println(name)
+            }
+
+            destructor {
+              touch()
+              println("destroyed " + name)
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+
+    const classDecl = info.program.statements[0] as ClassDeclaration;
+    const destructorStmt = classDecl.destructor?.statements[0];
+    expect(destructorStmt?.kind).toBe("expression-statement");
+    const touchCall = destructorStmt?.kind === "expression-statement"
+      ? destructorStmt.expression
+      : null;
+    expect(touchCall?.kind).toBe("call-expression");
+    if (touchCall?.kind === "call-expression" && touchCall.callee.kind === "identifier") {
+      expect(touchCall.callee.resolvedBinding).toMatchObject({
+        name: "touch",
+        kind: "function",
+        module: "/main.do",
+      });
+    }
+
+    const printlnStmt = classDecl.destructor?.statements[1];
+    expect(printlnStmt?.kind).toBe("expression-statement");
+    const printlnCall = printlnStmt?.kind === "expression-statement"
+      ? printlnStmt.expression
+      : null;
+    expect(printlnCall?.kind).toBe("call-expression");
+    if (printlnCall?.kind === "call-expression" && printlnCall.callee.kind === "identifier") {
+      expect(printlnCall.callee.resolvedBinding).toMatchObject({
+        name: "println",
+        kind: "function",
+        module: "<builtin>",
+      });
+
+      const messageExpr = printlnCall.args[0]?.value;
+      expect(messageExpr?.kind).toBe("binary-expression");
+      if (messageExpr?.kind === "binary-expression" && messageExpr.right.kind === "identifier") {
+        expect(messageExpr.right.resolvedBinding).toMatchObject({
+          name: "name",
+          kind: "field",
+          module: "/main.do",
+        });
+      }
+    }
   });
 
   it("resolves parameter shadowing field in method", () => {

@@ -12,7 +12,7 @@ import type {
   QualifiedMemberExpression,
   FunctionDeclaration,
 } from "./ast.js";
-import { substituteTypeParams, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
+import { substituteTypeParams, type Binding, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
 import { emitClassCppName, emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -83,6 +83,14 @@ function emitQualifiedInterfaceStaticCall(
 const DOOF_RUNTIME_BUILTINS = new Set([
   "println", "print", "panic", "to_string", "concat",
 ]);
+
+function isBuiltinPrimitiveBinding(binding: Binding | undefined): boolean {
+  return binding?.kind === "builtin" && binding.module === "<builtin>";
+}
+
+function isBuiltinRuntimeFunctionBinding(binding: Binding | undefined): boolean {
+  return binding?.kind === "function" && binding.module === "<builtin>";
+}
 
 function isUnshadowedResultCtorCall(
   expr: CallExpression,
@@ -216,10 +224,11 @@ function emitIdentifierCallByName(
   ctx: EmitContext,
   panicSpan?: CallExpression["span"],
   genericTypeArgs?: ResolvedType[] | null,
+  binding?: Binding,
 ): string {
   const joinedArgs = args.join(", ");
 
-  if (name === "string") {
+  if (name === "string" && isBuiltinPrimitiveBinding(binding)) {
     const arg = args.length === 1 ? args[0] : "";
     return `doof::to_string(${arg})`;
   }
@@ -231,22 +240,22 @@ function emitIdentifierCallByName(
     float: "float",
     double: "double",
   };
-  if (name in NUMERIC_CAST_MAP) {
+  if (name in NUMERIC_CAST_MAP && isBuiltinPrimitiveBinding(binding)) {
     const cppType = NUMERIC_CAST_MAP[name];
     const arg = args.length === 1 ? args[0] : "";
     return `static_cast<${cppType}>(${arg})`;
   }
 
-  if (name === "assert") {
+  if (name === "assert" && isBuiltinRuntimeFunctionBinding(binding)) {
     if (panicSpan) {
       return `doof::assert_at(${emitPanicLocationArgs(panicSpan, ctx)}, ${joinedArgs})`;
     }
     return `doof::assert_(${joinedArgs})`;
   }
-  if (name === "panic" && panicSpan) {
+  if (name === "panic" && panicSpan && isBuiltinRuntimeFunctionBinding(binding)) {
     return `doof::panic_at(${emitPanicLocationArgs(panicSpan, ctx)}, ${joinedArgs})`;
   }
-  if (DOOF_RUNTIME_BUILTINS.has(name)) {
+  if (DOOF_RUNTIME_BUILTINS.has(name) && isBuiltinRuntimeFunctionBinding(binding)) {
     return `doof::${name}(${joinedArgs})`;
   }
 
@@ -379,6 +388,7 @@ function emitResultHelperCall(
 
 export function emitCallExpression(expr: CallExpression, ctx: EmitContext): string {
   const calleeType = substituteEmitType(expr.callee.resolvedType, ctx);
+  const calleeBinding = expr.callee.kind === "identifier" ? expr.callee.resolvedBinding : undefined;
   const hasNamedArgs = expr.args.some((arg) => arg.name);
   const monomorphizedName = resolveMonomorphizedFunctionName(expr, ctx);
 
@@ -395,7 +405,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (expr.callee.kind === "identifier") {
-      return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx));
+      return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx), calleeBinding);
     }
 
     const callee = emitExpression(expr.callee, ctx);
@@ -428,7 +438,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   if (expr.callee.kind === "identifier"
       && expr.callee.name === "string"
-      && (!expr.callee.resolvedBinding || expr.callee.resolvedBinding.kind === "builtin")) {
+      && isBuiltinPrimitiveBinding(calleeBinding)) {
     const arg = expr.args.length === 1 ? emitExpression(expr.args[0].value, ctx) : "";
     return `doof::to_string(${arg})`;
   }
@@ -442,7 +452,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     double: "double",
   };
   if (expr.callee.kind === "identifier"
-      && (!expr.callee.resolvedBinding || expr.callee.resolvedBinding.kind === "builtin")
+      && isBuiltinPrimitiveBinding(calleeBinding)
       && expr.callee.name in NUMERIC_CAST_MAP) {
     const cppType = NUMERIC_CAST_MAP[expr.callee.name];
     const arg = expr.args.length === 1 ? emitExpression(expr.args[0].value, ctx) : "";
@@ -678,6 +688,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       ctx,
       expr.span,
       resolveCallGenericTypeArgs(expr, ctx),
+      calleeBinding,
     );
   }
 

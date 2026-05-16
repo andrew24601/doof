@@ -195,6 +195,55 @@ function buildMethodBindingType(
   return methodType;
 }
 
+function buildClassCallableScope(
+  host: CheckerHost,
+  classDecl: ClassDeclaration,
+  thisType: ResolvedType,
+  parentScope: Scope,
+  table: ModuleSymbolTable,
+  returnType: ResolvedType,
+  static_: boolean,
+): Scope {
+  const callableScope: Scope = {
+    parent: parentScope,
+    bindings: new Map(),
+    kind: static_ ? "function" : "method",
+    thisType: static_ ? null : thisType,
+    returnType,
+  };
+
+  for (const candidate of classDecl.methods) {
+    if (candidate.static_ !== static_) continue;
+    callableScope.bindings.set(candidate.name, {
+      name: candidate.name,
+      kind: "function",
+      type: buildMethodBindingType(host, candidate, classDecl, table),
+      mutable: false,
+      span: candidate.span,
+      module: table.path,
+    });
+  }
+
+  if (!static_) {
+    for (const field of classDecl.fields) {
+      const fieldType = field.resolvedType
+        ?? (field.type ? host.resolveTypeAnnotation(field.type, table) : UNKNOWN_TYPE);
+      for (const fieldName of field.names) {
+        callableScope.bindings.set(fieldName, {
+          name: fieldName,
+          kind: "field",
+          type: fieldType,
+          mutable: !field.readonly_ && !field.const_,
+          span: field.span,
+          module: table.path,
+        });
+      }
+    }
+  }
+
+  return callableScope;
+}
+
 export function checkFunction(
   host: CheckerHost,
   decl: FunctionDeclaration,
@@ -409,6 +458,19 @@ export function checkClass(
     host.checkMethod(method, decl, thisType, parentScope, table, info);
   }
 
+  if (decl.destructor) {
+    const destructorScope = buildClassCallableScope(
+      host,
+      decl,
+      thisType,
+      parentScope,
+      table,
+      VOID_TYPE,
+      false,
+    );
+    host.checkStatements(decl.destructor.statements, destructorScope, table, info);
+  }
+
   if (classSymbol?.symbolKind === "class") {
     for (const ifaceRef of decl.implements_) {
       const ifaceType = host.resolveTypeAnnotation(ifaceRef, table);
@@ -490,42 +552,15 @@ export function checkMethod(
   const effectiveMethodReturnType = method.body.kind === "block"
     ? (returnType ?? VOID_TYPE)
     : returnType;
-  const methodScope: Scope = {
-    parent: parentScope,
-    bindings: new Map(),
-    kind: method.static_ ? "function" : "method",
-    thisType: method.static_ ? null : thisType,
-    returnType: effectiveMethodReturnType,
-  };
-
-  for (const candidate of classDecl.methods) {
-    if (candidate.static_ !== method.static_) continue;
-    methodScope.bindings.set(candidate.name, {
-      name: candidate.name,
-      kind: "function",
-      type: buildMethodBindingType(host, candidate, classDecl, table),
-      mutable: false,
-      span: candidate.span,
-      module: table.path,
-    });
-  }
-
-  if (!method.static_) {
-    for (const field of classDecl.fields) {
-      const fieldType = field.resolvedType
-        ?? (field.type ? host.resolveTypeAnnotation(field.type, table) : UNKNOWN_TYPE);
-      for (const fieldName of field.names) {
-        methodScope.bindings.set(fieldName, {
-          name: fieldName,
-          kind: "field",
-          type: fieldType,
-          mutable: !field.readonly_ && !field.const_,
-          span: field.span,
-          module: table.path,
-        });
-      }
-    }
-  }
+  const methodScope = buildClassCallableScope(
+    host,
+    classDecl,
+    thisType,
+    parentScope,
+    table,
+    effectiveMethodReturnType ?? VOID_TYPE,
+    method.static_,
+  );
 
   checkParameters(host, method.params, methodScope, table, info);
 

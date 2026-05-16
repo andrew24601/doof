@@ -84,7 +84,7 @@ describe("e2e — std/event", () => {
       `function dispatchRequest(request: Request): void {}`,
       ``,
       `function main(): int {`,
-      `  requests := createMainAsyncEventChannel<Request>{ handler: => dispatchRequest(event), capacity: 256, keepsAlive: true }`,
+      `  requests := createMainAsyncEventChannel<Request>{ handler: => dispatchRequest(it), capacity: 256, keepsAlive: true }`,
       `  return 0`,
       `}`,
     ].join("\n"));

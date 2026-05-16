@@ -339,7 +339,7 @@ describe("e2e — feature combinations", () => {
   });
 
   // ---- Class with destructor e2e ----
-  // BUG: destructor block was not being emitted as C++ destructor (~ClassName)
+  // Regression: destructor bodies need checked method-like scope so builtin calls emit correctly.
   it("class with destructor runs deterministically", () => {
     const result = ctx.compileAndRun(`
       class Resource {

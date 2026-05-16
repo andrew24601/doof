@@ -1199,6 +1199,10 @@ function inferExprTypeInner(
       const calleeBinding = expr.callee.kind === "identifier"
         ? host.lookupBinding(expr.callee.name, scope)
         : null;
+      if (expr.callee.kind === "identifier" && calleeBinding) {
+        expr.callee.resolvedBinding = calleeBinding;
+        expr.callee.resolvedType = calleeBinding.type;
+      }
       if (expr.callee.kind === "identifier"
           && (!calleeBinding || calleeBinding.kind === "builtin")
           && NUMERIC_PRIMITIVE_NAMES.has(expr.callee.name)) {

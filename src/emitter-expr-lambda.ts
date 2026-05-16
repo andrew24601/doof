@@ -146,6 +146,19 @@ function analyzeLambdaCaptures(expr: LambdaExpression, ctx: EmitContext): string
   return Array.from(captures.values());
 }
 
+function bindingNeedsLambdaCapture(binding: Binding): boolean {
+  return ![
+    "class",
+    "function",
+    "interface",
+    "enum",
+    "type-alias",
+    "import",
+    "builtin",
+    "namespace-import",
+  ].includes(binding.kind);
+}
+
 /** Recursively collect captured identifiers from an expression or block. */
 function collectCaptures(
   node: Expression | Block,
@@ -172,7 +185,7 @@ function collectCaptures(
         && !isBindingDeclaredWithin(expr.resolvedBinding, lambdaBodySpan)
       ) {
         const binding = expr.resolvedBinding;
-        if (["class", "function", "interface", "enum", "type-alias"].includes(binding.kind)) break;
+        if (!bindingNeedsLambdaCapture(binding)) break;
         if (binding.kind === "field") {
           captures.set("this", "this");
           break;
