@@ -30,6 +30,25 @@ describe("e2e — C++ compilation", () => {
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
+  it("compiles a private top-level const referenced from a helper function", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      class RequestCounter {
+        count: int = 0
+      }
+
+      const REQUEST_COUNTER = RequestCounter {}
+
+      function dispatchRequest(): int {
+        return REQUEST_COUNTER.count
+      }
+
+      function main(): int {
+        return dispatchRequest()
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
+
   it("compiles a simple function", () => {
     const { success, error, code } = ctx.compileOnly(`
       function add(a: int, b: int): int => a + b

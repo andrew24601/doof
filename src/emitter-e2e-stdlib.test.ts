@@ -73,3 +73,28 @@ describe("e2e — std/log", () => {
     expect(result.stderr.trim()).toBe("");
   });
 });
+
+describe("e2e — std/event", () => {
+  it("compiles and runs shorthand handler lambda for generic channel creation", () => {
+    const entryPath = writeManifestProject("std-event-lambda-handler", [
+      `import { createMainAsyncEventChannel } from "std/event"`,
+      ``,
+      `class Request {}`,
+      ``,
+      `function dispatchRequest(request: Request): void {}`,
+      ``,
+      `function main(): int {`,
+      `  requests := createMainAsyncEventChannel<Request>{ handler: => dispatchRequest(event), capacity: 256, keepsAlive: true }`,
+      `  return 0`,
+      `}`,
+    ].join("\n"));
+    const result = ctx.compileAndRunManifestProject(entryPath);
+
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.trim()).toBe("");
+  });
+});

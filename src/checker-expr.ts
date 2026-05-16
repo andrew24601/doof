@@ -1677,14 +1677,32 @@ function inferExprTypeInner(
         }
 
         let effectiveCalleeType = targetBinding.type;
+        let explicitTypeParamMap: Map<string, ResolvedType> | null = null;
+        if (targetBinding.type.typeParams && targetBinding.type.typeParams.length > 0 && expr.typeArgs.length > 0) {
+          const resolvedTypeArgs = validateResolvedTypeArgsAgainstConstraints(
+            targetBinding.type.typeParams,
+            targetBinding.type.typeParamConstraints,
+            host.resolveGenericTypeArgs(targetBinding.type.typeParams, expr.typeArgs, table),
+            table,
+            info,
+            expr.span,
+          );
+          explicitTypeParamMap = new Map<string, ResolvedType>();
+          for (let i = 0; i < targetBinding.type.typeParams.length && i < (resolvedTypeArgs?.length ?? 0); i++) {
+            explicitTypeParamMap.set(targetBinding.type.typeParams[i], resolvedTypeArgs![i]);
+          }
+          expr.resolvedGenericTypeArgs = resolvedTypeArgs;
+          expr.resolvedGenericBinding = targetBinding;
+          effectiveCalleeType = substituteTypeParams(targetBinding.type, explicitTypeParamMap) as typeof targetBinding.type;
+        }
         const orderedArgs = resolveNamedFunctionArgs(
-          targetBinding.type.params,
+          effectiveCalleeType.params,
           buildNamedCallInputsFromProperties(expr.args as ObjectProperty[], host, scope, table, info),
           table,
           info,
           expr.span,
         );
-        if (targetBinding.type.typeParams && targetBinding.type.typeParams.length > 0) {
+        if (!explicitTypeParamMap && targetBinding.type.typeParams && targetBinding.type.typeParams.length > 0) {
           const providedParams: FunctionResolvedParam[] = [];
           const providedArgTypes: ResolvedType[] = [];
           for (let i = 0; i < orderedArgs.length; i++) {

@@ -172,6 +172,14 @@ function specializeFunctionParamsForGenericCall(
   }));
 }
 
+function resolveCallGenericTypeArgs(
+  expr: CallExpression,
+  ctx: EmitContext,
+): ResolvedType[] | null {
+  if (!expr.resolvedGenericTypeArgs) return null;
+  return resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx) ?? null;
+}
+
 function resolveConstructGenericTypeArgs(
   expr: ConstructExpression,
   ctx: EmitContext,
@@ -387,7 +395,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (expr.callee.kind === "identifier") {
-      return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span);
+      return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx));
     }
 
     const callee = emitExpression(expr.callee, ctx);
@@ -664,22 +672,13 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (monomorphizedName) {
       return `${emitIdentifierSafe(monomorphizedName)}(${args})`;
     }
-    const name = expr.callee.name;
-    if (name === "assert") {
-      return `doof::assert_at(${emitPanicLocationArgs(expr.span, ctx)}, ${args})`;
-    }
-    if (name === "panic") {
-      return `doof::panic_at(${emitPanicLocationArgs(expr.span, ctx)}, ${args})`;
-    }
-    if (DOOF_RUNTIME_BUILTINS.has(name)) {
-      return `doof::${name}(${args})`;
-    }
-
-    // Imported function → use the mapped C++ qualified name
-    const externCppName = resolveExternFunctionCppName(name, ctx);
-    if (externCppName) {
-      return `${externCppName}(${args})`;
-    }
+    return emitIdentifierCallByName(
+      expr.callee.name,
+      positionalCallValues,
+      ctx,
+      expr.span,
+      resolveCallGenericTypeArgs(expr, ctx),
+    );
   }
 
   const callee = emitExpression(expr.callee, ctx);

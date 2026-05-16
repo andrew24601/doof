@@ -424,6 +424,31 @@ describe("emitter-module — non-exported symbols", () => {
     expect(cppCode).toContain("static const auto x = 42");
   });
 
+  it("emits private top-level consts before private helper functions that reference them", () => {
+    const { cppCode } = emitSplit(`
+      class RequestCounter {
+        count: int = 0
+      }
+
+      const REQUEST_COUNTER = RequestCounter {}
+
+      function dispatchRequest(): int {
+        return REQUEST_COUNTER.count
+      }
+
+      function main(): int {
+        return dispatchRequest()
+      }
+    `);
+
+    const constPos = cppCode.indexOf("static const auto REQUEST_COUNTER =");
+    const helperPos = cppCode.indexOf("static int32_t dispatchRequest() {");
+
+    expect(constPos).toBeGreaterThan(-1);
+    expect(helperPos).toBeGreaterThan(-1);
+    expect(constPos).toBeLessThan(helperPos);
+  });
+
   it("keeps private implementation classes out of module headers", () => {
     const project = emitProjectHelper(
       {

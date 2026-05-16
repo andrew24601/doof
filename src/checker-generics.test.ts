@@ -608,6 +608,43 @@ describe("Checker — method-level type params", () => {
 
     expect(mapCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["string"]);
   });
+
+  it("contextually types shorthand lambdas in generic named construct calls with explicit type args", () => {
+    const cr = check({
+      "/main.do": `
+        class Request {}
+
+        function dispatchRequest(request: Request): void {}
+
+        function createMainAsyncEventChannel<T>(
+          handler: (event: T): void,
+          capacity: int,
+          keepsAlive: bool,
+        ): int => 0
+
+        const requests = createMainAsyncEventChannel<Request>{
+          handler: => dispatchRequest(event),
+          capacity: 256,
+          keepsAlive: true,
+        }
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const lambda = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").LambdaExpression => expr.kind === "lambda-expression");
+
+    expect(lambda).toBeDefined();
+    expect(lambda?.params).toHaveLength(1);
+    expect(lambda?.params[0].name).toBe("event");
+    expect(lambda?.params[0].resolvedType ? typeToString(lambda.params[0].resolvedType) : null).toBe("Request");
+    expect(lambda?.resolvedType?.kind).toBe("function");
+    if (lambda?.resolvedType?.kind === "function") {
+      expect(lambda.resolvedType.params).toHaveLength(1);
+      expect(typeToString(lambda.resolvedType.params[0].type)).toBe("Request");
+    }
+  });
 });
 
 describe("checker-types — stream sensitivity", () => {

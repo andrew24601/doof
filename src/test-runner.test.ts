@@ -97,9 +97,10 @@ describe("test runner harness", () => {
       },
     ]);
 
-    expect(source).toContain('import { testAlpha as __doof_test_0 } from "./alpha.test"');
-    expect(source).toContain('import { testBeta as __doof_test_1 } from "./nested/beta.test"');
+    expect(source).toContain('import { testAlpha } from "./alpha.test"');
+    expect(source).toContain('import { testBeta } from "./nested/beta.test"');
     expect(source).toContain('testId := args[1]');
+    expect(source).toContain('testAlpha()');
     expect(source).toContain('println("PASS alpha.test.do::testAlpha")');
     expect(source).toContain('else if testId == "nested/beta.test.do::testBeta"');
   });

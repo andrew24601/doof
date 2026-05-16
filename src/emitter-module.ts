@@ -1093,6 +1093,23 @@ function emitCppFile(
     lines.push("");
   }
 
+  // Emit private top-level variables before private method/function bodies so
+  // helpers can reference them without requiring a separate declaration form.
+  const nonExportedVars = classified.variables.filter((v) => !v.exported);
+  if (nonExportedVars.length > 0) {
+    for (const v of nonExportedVars) {
+      const ctx = {
+        ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+        ...covCtx,
+        internalLinkage: true,
+      };
+      emitStatement(v.stmt, ctx);
+      lines.push(...ctx.sourceLines);
+      lines.push("");
+    }
+    lines.push("");
+  }
+
   emitCppOnlyClassMethodDefinitions(
     cppOnlyNativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl)),
     table,
@@ -1141,22 +1158,6 @@ function emitCppFile(
     lines.push(`std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
   }
   if (exportedMockFunctions.length > 0) {
-    lines.push("");
-  }
-
-  // Non-exported variable definitions with static internal linkage.
-  const nonExportedVars = classified.variables.filter((v) => !v.exported);
-  if (nonExportedVars.length > 0) {
-    for (const v of nonExportedVars) {
-      const ctx = {
-        ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-        ...covCtx,
-        internalLinkage: true,
-      };
-      emitStatement(v.stmt, ctx);
-      lines.push(...ctx.sourceLines);
-      lines.push("");
-    }
     lines.push("");
   }
 

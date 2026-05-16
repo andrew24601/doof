@@ -154,9 +154,9 @@ export function generateTestHarnessSource(
   harnessPath: string,
   tests: readonly DiscoveredTest[],
 ): string {
-  const imports = tests.map((test, index) => {
+  const imports = tests.map((test) => {
     const specifier = toImportSpecifier(harnessPath, test.modulePath);
-    return `import { ${test.name} as __doof_test_${index} } from "${specifier}"`;
+    return `import { ${test.name} } from "${specifier}"`;
   });
 
   const branches: string[] = [];
@@ -164,7 +164,7 @@ export function generateTestHarnessSource(
     const keyword = index === 0 ? "if" : "} else if";
     const id = escapeDoofString(test.id);
     branches.push(`    ${keyword} testId == "${id}" {`);
-    branches.push(`        __doof_test_${index}()`);
+    branches.push(`        ${test.name}()`);
     branches.push(`        println("PASS ${id}")`);
     branches.push("        return 0");
   });
