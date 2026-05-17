@@ -1128,6 +1128,20 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.cppCode).toContain('#include "shared/math.hpp"');
   });
 
+  it("emits project diagnostic paths relative to the project root", () => {
+    const result = emitProjectHelper(
+      {
+        "/Users/andrew/develop/hex/game/renderer.do": `
+          function first(values: int[]): int => values[0]
+        `,
+      },
+      "/Users/andrew/develop/hex/game/renderer.do",
+    );
+
+    expect(result.modules[0]?.cppCode).toContain('doof::array_at(values, 0, "renderer.do",');
+    expect(result.modules[0]?.cppCode).not.toContain("Users/andrew/develop/hex/game/renderer.do");
+  });
+
   it("emits remote package modules under .packages output roots", () => {
     const result = emitProjectHelper(
       {
@@ -1169,6 +1183,37 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.hppCode).not.toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
     expect(mainModule?.cppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
     expect(mainModule?.cppCode).toContain("::lib::doof_fs::runtime::readText");
+  });
+
+  it("emits dependency diagnostic paths through normalized package output roots", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": [
+          'import { first } from "../.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/runtime"',
+          `function main(): int => first([1])`,
+        ].join("\n"),
+        "/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/runtime.do": [
+          "export function first(values: int[]): int => values[0]",
+        ].join("\n"),
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", ".packages/andrew24601/doof-fs"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", null],
+            ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", "doof-fs"],
+          ]),
+        },
+      },
+    );
+
+    const runtimeModule = result.modules.find((mod) => mod.modulePath.endsWith("/runtime.do"));
+    expect(runtimeModule?.cppCode).toContain('doof::array_at(values, 0, ".packages/andrew24601/doof-fs/runtime.do",');
+    expect(runtimeModule?.cppCode).not.toContain(".cache/packages");
   });
 
   it("uses dependency package names from doof.json for library namespaces", () => {

@@ -186,6 +186,8 @@ export interface ModuleSymbolTable {
   path: string;
   /** Logical generated C++ namespace assigned during emission planning. */
   emittedCppNamespace?: string;
+  /** Stable generated diagnostic path assigned during emission planning. */
+  emittedDiagnosticPath?: string;
   /** The parsed AST. */
   program: Program;
   /** Mock import directives declared in this module. */

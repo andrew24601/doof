@@ -34,13 +34,13 @@ function formatCallableName(ctx: EmitContext): string {
 }
 
 export function emitCallerSourceLocation(span: SourceSpan, ctx: EmitContext): string {
-  const fileName = formatSourceModulePath(ctx.module.path, true);
+  const fileName = formatSourceModulePath(ctx.module.emittedDiagnosticPath ?? ctx.module.path, true);
   const functionName = formatCallableName(ctx);
   return `std::make_shared<doof::SourceLocation>(std::string("${escapeCppString(fileName)}"), ${span.start.line}, std::string("${escapeCppString(functionName)}"))`;
 }
 
 export function emitPanicLocationArgs(span: SourceSpan, ctx: EmitContext): string {
-  const fileName = formatSourceModulePath(ctx.module.path, false);
+  const fileName = formatSourceModulePath(ctx.module.emittedDiagnosticPath ?? ctx.module.path, false);
   return `"${escapeCppString(fileName)}", ${span.start.line}`;
 }
 

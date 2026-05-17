@@ -229,6 +229,7 @@ export function emitModuleSplit(
   if (!table.emittedCppNamespace) {
     assignModuleNamespaces(modulePath, analysisResult.modules, packageOutputPaths);
   }
+  table.emittedDiagnosticPath = relativeModulePathWithPackages(modulePath, baseDir, packageOutputPaths);
 
   propagateJsonDemand(analysisResult);
   propagateMetadataDemand(analysisResult);
