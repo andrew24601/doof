@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { emit, emitMulti, emitSplit } from "./emitter-test-helpers.js";
 import { emitType } from "./emitter-types.js";
+import { emitModuleNamespace } from "./emitter-names.js";
 import type { ResolvedType } from "./checker-types.js";
 
 // ============================================================================
@@ -30,7 +31,7 @@ describe("emitter — generic type mapping", () => {
       },
       typeArgs: [{ kind: "primitive", name: "int" }],
     };
-    expect(emitType(t)).toBe("std::shared_ptr<Box<int32_t>>");
+    expect(emitType(t)).toBe(`std::shared_ptr<::${emitModuleNamespace("/main.do")}::Box<int32_t>>`);
   });
 });
 
@@ -125,7 +126,7 @@ function makeBox<T>(value: T): Box<T> => Box<T> { value }
 const box = makeBox<int>{ value: 42 }
 `);
     expect(cpp).toContain("makeBox<int32_t>(42)");
-    expect(cpp).not.toContain("std::make_shared<__doof_private_main_Box<int32_t>>(42)");
+    expect(cpp).not.toContain(`std::make_shared<::${emitModuleNamespace("/main.do")}::__doof_private_main_Box<int32_t>>(42)`);
   });
 
   it("emits inferred type args for generic class call syntax", () => {
@@ -156,7 +157,7 @@ class Chain<T> implements Stream<T> {
 
 const chain = Chain(Counter(1, 4))
 `);
-    expect(cpp).toContain("make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})");
+    expect(cpp).toContain(`make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})`);
     expect(cpp).not.toContain("__doof_stream_T");
   });
 
@@ -189,7 +190,7 @@ class Chain<T> implements Stream<T> {
 const base = Counter(1, 4)
 const chain: Chain<int> = { source: base }
 `);
-    expect(cpp).toContain("make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, base})");
+    expect(cpp).toContain(`make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, base})`);
     expect(cpp).not.toContain("__doof_stream_T");
   });
 
@@ -227,7 +228,7 @@ const chain: Chain<int> = { source: base }
       `,
     }, "/main.do");
 
-    expect(cpp).toContain("make_shared<Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})");
+    expect(cpp).toContain(`make_shared<::${emitModuleNamespace("/stream.do")}::Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})`);
     expect(cpp).not.toContain("__doof_stream_T");
   });
 });
@@ -335,8 +336,8 @@ describe("emitter — generic module splitting", () => {
 
     expect(result.hppCode).toContain("collect__int");
     expect(result.hppCode).toContain("collectViaHelper__int");
-    expect(result.cppCode).toContain("return collect__int(items);");
-    expect(result.cppCode).toContain("collectViaHelper__int(stream)");
+    expect(result.cppCode).toContain(`return ::${emitModuleNamespace("/main.do")}::collect__int(items);`);
+    expect(result.cppCode).toContain(`::${emitModuleNamespace("/main.do")}::collectViaHelper__int(stream)`);
     expect(result.hppCode).not.toContain("collect__T");
     expect(result.cppCode).not.toContain("collect__T");
   });

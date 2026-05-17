@@ -195,6 +195,8 @@ export interface MemberExpression extends Typed {
   property: string;
   optional: boolean;  // ?.
   force: boolean;     // !.
+  /** Set by the checker when this is a namespace-import member access. */
+  resolvedNamespaceMemberSymbol?: ModuleSymbol;
   span: SourceSpan;
 }
 
@@ -202,6 +204,8 @@ export interface QualifiedMemberExpression extends Typed {
   kind: "qualified-member-expression";
   object: Expression;
   property: string;
+  /** Set by the checker when this is a namespace-import member access. */
+  resolvedNamespaceMemberSymbol?: ModuleSymbol;
   span: SourceSpan;
 }
 

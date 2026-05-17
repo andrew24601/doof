@@ -55,7 +55,7 @@ export function emitYieldBlockIIFE(
   ctx: EmitContext,
   resultType?: ResolvedType,
 ): string {
-  const retType = resultType ? emitType(resultType) : "auto";
+  const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
   const ind = indent(ctx);
   const bodyCtx = yieldCtx(ctx, ctx.indent + 1, resultType);
   const body = emitBlockBody(block, bodyCtx);
@@ -150,7 +150,7 @@ function emitCaseAsVisit(expr: CaseExpression, subject: string, ctx: EmitContext
     for (const pattern of arm.patterns) {
       if (pattern.kind === "type-pattern") {
         const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
-        const cppType = emitType(resolvedType);
+        const cppType = emitType(resolvedType, ctx.module.path);
         result += `${innerInd}if constexpr (std::is_same_v<_T, ${cppType}>) {\n`;
         if (pattern.name !== "_") {
           result += `${innerInd}    auto& ${emitIdentifierSafe(pattern.name)} = _val;\n`;
@@ -244,7 +244,7 @@ function emitCaseAsIIFE(expr: CaseExpression, subject: string, ctx: EmitContext)
  */
 export function emitCatchExpressionIIFE(expr: CatchExpression, ctx: EmitContext): string {
   const resolvedType = expr.resolvedType;
-  const cppType = resolvedType ? emitType(resolvedType) : "auto";
+  const cppType = resolvedType ? emitType(resolvedType, ctx.module.path) : "auto";
   const catchVar = `_catch_${ctx.tempCounter++}`;
 
   let nullInit: string;

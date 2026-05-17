@@ -142,6 +142,11 @@ export interface ResolvedRemotePackage {
 
 export interface PackageOutputPaths {
   byRootDir: ReadonlyMap<string, string>;
+  /**
+   * Raw dependency package names keyed by package root. The root package maps
+   * to null because its generated C++ namespaces are project-relative.
+   */
+  namespaceNameByRootDir?: ReadonlyMap<string, string | null>;
 }
 
 export interface RemoteDependencyContext {
@@ -472,8 +477,18 @@ export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
 export function createPackageOutputPaths(graph: PackageGraph, entryPath: string): PackageOutputPaths {
   const baseDir = dirnameFsPath(resolveFsPath(entryPath));
   const byRootDir = new Map<string, string>();
+  const namespaceNameByRootDir = new Map<string, string | null>();
 
   for (const pkg of graph.packages) {
+    if (pkg.rootDir === graph.rootPackage.rootDir) {
+      namespaceNameByRootDir.set(pkg.rootDir, null);
+    } else {
+      if (!pkg.manifest.name) {
+        throw new Error(`Dependency package at ${pkg.rootDir} must declare a name in doof.json`);
+      }
+      namespaceNameByRootDir.set(pkg.rootDir, pkg.manifest.name);
+    }
+
     if (pkg.remotePackage) {
       byRootDir.set(pkg.rootDir, [".packages", ...pkg.remotePackage.pathSegments].join("/"));
       continue;
@@ -482,7 +497,7 @@ export function createPackageOutputPaths(graph: PackageGraph, entryPath: string)
     byRootDir.set(pkg.rootDir, anchorOutputRelativePath(toPortablePath(relativeFsPath(baseDir, pkg.rootDir))));
   }
 
-  return { byRootDir };
+  return { byRootDir, namespaceNameByRootDir };
 }
 
 export function mergePackageNativeBuild(graph: PackageGraph): ResolvedPackageNativeBuild {

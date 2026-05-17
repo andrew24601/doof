@@ -179,8 +179,8 @@ export function emitMetadataDefinition(
       const safeParamName = emitIdentifierSafe(param.name);
       const iterName = `_it_${safeParamName}`;
       if (param.defaultValue) {
-        const defaultValue = emitDefaultExpression(param.defaultValue, paramType);
-        ctx.sourceLines.push(`${ind}                ${emitTypeForMetadata(paramType)} ${safeParamName};`);
+        const defaultValue = emitDefaultExpression(param.defaultValue, paramType, ctx.module.path);
+        ctx.sourceLines.push(`${ind}                ${emitTypeForMetadata(paramType, ctx)} ${safeParamName};`);
         ctx.sourceLines.push(`${ind}                if (auto ${iterName} = _p->find("${param.name}"); ${iterName} != _p->end()) {`);
         ctx.sourceLines.push(`${ind}                    if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
         ctx.sourceLines.push(`${ind}                        return ${emitMetadataFailure(400, `std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second)`) };`);
@@ -291,6 +291,6 @@ function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function emitTypeForMetadata(type: ResolvedType): string {
-  return type.kind === "void" ? "void" : emitType(type);
+function emitTypeForMetadata(type: ResolvedType, ctx: EmitContext): string {
+  return type.kind === "void" ? "void" : emitType(type, ctx.module.path);
 }

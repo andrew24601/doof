@@ -8,6 +8,7 @@ import { describe as vitestDescribe, it, expect, beforeAll, afterAll } from "vit
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { E2EContext, hasNativeToolchain } from "./e2e-test-helpers.js";
+import { emitModuleNamespace } from "./emitter-names.js";
 
 const ctx = new E2EContext();
 const describe = hasNativeToolchain() ? vitestDescribe : vitestDescribe.skip;
@@ -102,6 +103,33 @@ describe("e2e — module splitting", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.exitCode).toBe(42);
+  });
+
+  it("runs same-named exported functions, classes, and constants from different modules", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": [
+          `import { value as leftValue, Box as LeftBox, OFFSET as LEFT_OFFSET } from "./left"`,
+          `import { value as rightValue, Box as RightBox, OFFSET as RIGHT_OFFSET } from "./right"`,
+          `function main(): int => leftValue() + rightValue() + LeftBox(LEFT_OFFSET).value + RightBox(RIGHT_OFFSET).value`,
+        ].join("\n"),
+        "/left.do": [
+          `export const OFFSET = 20`,
+          `export class Box { value: int }`,
+          `export function value(): int => OFFSET`,
+        ].join("\n"),
+        "/right.do": [
+          `export const OFFSET = 22`,
+          `export class Box { value: int }`,
+          `export function value(): int => OFFSET`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(84);
   });
 
   it("runs multi-module with imported class", () => {
@@ -714,13 +742,14 @@ public:
   });
 
   it("compiles extern class method returning imported enum type", () => {
+    const typesNamespace = emitModuleNamespace("/types.do");
     const nativeHeader = `
 #pragma once
 #include "types.hpp"
 struct NativeSwitch {
-    Mode mode;
-    NativeSwitch(Mode mode) : mode(mode) {}
-    Mode get() const { return mode; }
+    ::${typesNamespace}::Mode mode;
+    NativeSwitch(::${typesNamespace}::Mode mode) : mode(mode) {}
+    ::${typesNamespace}::Mode get() const { return mode; }
 };
 `;
     fs.writeFileSync(path.join(ctx.tmpDir, "native_switch.hpp"), nativeHeader);
@@ -743,6 +772,79 @@ struct NativeSwitch {
         `,
       },
       "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("compiles native source files that include standalone headers using generated Doof types", () => {
+    const nativeHeader = `
+#pragma once
+#include "types.hpp"
+#include "render.hpp"
+namespace native_host {
+struct NativeHost {
+    EventKind kind() const;
+    int32_t renderValue(std::shared_ptr<RenderPlan> plan) const;
+};
+}
+`;
+    const nativeSource = `
+#include "native_host.hpp"
+namespace native_host {
+EventKind NativeHost::kind() const {
+    return EventKind::Ready;
+}
+int32_t NativeHost::renderValue(std::shared_ptr<RenderPlan> plan) const {
+    return plan->vertex->value;
+}
+}
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_host.hpp"), nativeHeader);
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_host.cpp"), nativeSource);
+
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": `
+          import { NativeHost } from "./host"
+          import { RenderPlan } from "./render"
+          import { Vertex } from "./vertex"
+
+          function main(): int {
+            host := NativeHost()
+            plan := RenderPlan { vertex: Vertex { value: host.kind().value } }
+            return host.renderValue(plan)
+          }
+        `,
+        "/host.do": `
+          import { EventKind } from "./types"
+          import { RenderPlan } from "./render"
+
+          export import class NativeHost from "native_host.hpp" as native_host::NativeHost {
+            kind(): EventKind
+            renderValue(plan: RenderPlan): int
+          }
+        `,
+        "/types.do": `
+          export enum EventKind { Unknown = 0, Ready = 1 }
+        `,
+        "/render.do": `
+          import { Vertex } from "./vertex"
+
+          export class RenderPlan {
+            vertex: Vertex
+          }
+        `,
+        "/vertex.do": `
+          export class Vertex {
+            value: int
+          }
+        `,
+      },
+      "/main.do",
+      { sourceFiles: [path.join(ctx.tmpDir, "native_host.cpp")] },
     );
     if (result.exitCode === -1) {
       expect.unreachable(`Compile error: ${result.stderr}`);

@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import { emit, emitMulti, emitSplit, emitSplitMulti, emitProjectHelper } from "./emitter-test-helpers.js";
+import { emitModuleNamespace } from "./emitter-names.js";
 
 // ============================================================================
 // Phase 7: Module Splitting (.hpp/.cpp)
@@ -259,7 +260,7 @@ describe("emitter-module — hpp/cpp split", () => {
     `);
 
     expect(cppCode).toContain("Result<__doof_stream_int, std::string>::success(__doof_stream_int{");
-    expect(cppCode).toContain("std::in_place_type<std::shared_ptr<__doof_private_main_Counter>>");
+    expect(cppCode).toContain(`std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>`);
   });
 
   it("emits stream helper definitions in the concrete implementation module", () => {
@@ -324,8 +325,8 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(mainModule).toBeDefined();
     expect(streamModule).toBeDefined();
 
-    expect(mainModule!.cppCode).toContain("bool __doof_stream_next___doof_stream_int(const __doof_stream_int& stream)");
-    expect(mainModule!.cppCode).toContain("int32_t __doof_stream_value___doof_stream_int(const __doof_stream_int& stream)");
+    expect(streamModule!.cppCode).toContain("bool __doof_stream_next___doof_stream_int(const __doof_stream_int& stream)");
+    expect(streamModule!.cppCode).toContain("int32_t __doof_stream_value___doof_stream_int(const __doof_stream_int& stream)");
     expect(streamModule!.hppCode).toContain("bool __doof_stream_next___doof_stream_int(const __doof_stream_int& stream);");
   });
 
@@ -404,6 +405,23 @@ describe("emitter-module — non-exported symbols", () => {
     expect(cppCode).toContain("static int32_t second();");
     expect(cppCode).toContain("static int32_t first() {");
     expect(cppCode).toContain("static int32_t second() {");
+  });
+
+  it("keeps cpp-only private classes local in private helper forward declarations", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      class HiddenState {
+        value: int
+      }
+
+      function readHidden(state: HiddenState): int => state.value
+
+      export function read(): int => readHidden(HiddenState { value: 42 })
+    `);
+
+    expect(hppCode).not.toContain("struct HiddenState;");
+    expect(cppCode).toContain("struct HiddenState :");
+    expect(cppCode).toContain("static int32_t readHidden(std::shared_ptr<HiddenState> state);");
+    expect(cppCode).not.toContain(`std::shared_ptr<::${emitModuleNamespace("/main.do")}::HiddenState> state`);
   });
 
   it("exported functions are not emitted as static helpers", () => {
@@ -663,7 +681,7 @@ describe("emitter-module — main wrapper", () => {
         return 42
       }
     `);
-    expect(cppCode).toContain("return static_cast<int>(doof_main())");
+    expect(cppCode).toContain(`return static_cast<int>(::${emitModuleNamespace("/main.do")}::doof_main())`);
   });
 
   it("main is not in hpp forward declarations", () => {
@@ -702,7 +720,7 @@ describe("emitter-module — main wrapper", () => {
     const cppCode = project.modules[0]?.cppCode ?? "";
     expect(cppCode).toContain("doof_main()");
     expect(cppCode).toContain("extern \"C\" int doof_entry_main(int argc, char** argv)");
-    expect(cppCode).toContain("return static_cast<int>(doof_main())");
+    expect(cppCode).toContain(`return static_cast<int>(::${emitModuleNamespace("/main.do")}::doof_main())`);
     expect(cppCode).not.toContain("int main(int argc, char** argv)");
   });
 });
@@ -794,7 +812,103 @@ describe("emitter-module — multi-module hpp includes", () => {
     );
 
     expect(hppCode).toContain('#include "time.hpp"');
-    expect(hppCode).toContain("std::shared_ptr<Timestamp> timestamp;");
+    expect(hppCode).toContain(`std::shared_ptr<::${emitModuleNamespace("/time.do")}::Timestamp> timestamp;`);
+  });
+
+  it("cpp includes transitive imported class modules needed by nested member access", () => {
+    const project = emitProjectHelper(
+      {
+        "/main.do": `
+          import { Holder } from "./holder"
+
+          export function read(holder: Holder): int {
+            return holder.data.value
+          }
+        `,
+        "/holder.do": `
+          import { Data } from "./data"
+
+          export class Holder {
+            data: Data
+          }
+        `,
+        "/data.do": `
+          export class Data {
+            value: int
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const mainModule = project.modules.find((module) => module.modulePath === "/main.do");
+    expect(mainModule?.cppCode).toContain('#include "holder.hpp"');
+    expect(mainModule?.cppCode).toContain('#include "data.hpp"');
+  });
+
+  it("emits native-namespace bridge aliases from referenced type modules for standalone native headers", () => {
+    const project = emitProjectHelper(
+      {
+        "/main.do": `
+          import { NativeHost } from "./host"
+
+          function main(): int {
+            return 0
+          }
+        `,
+        "/host.do": `
+          import { EventKind } from "./types"
+          import { RenderPlan } from "./render"
+
+          export import class NativeHost from "native_host.hpp" as native_host::NativeHost {
+            kind(): EventKind
+            render(plan: RenderPlan): void
+          }
+        `,
+        "/types.do": `
+          export enum EventKind { Unknown }
+        `,
+        "/render.do": `
+          import { Vertex } from "./vertex"
+
+          export enum RenderMode { Flat }
+
+          export class RenderPlan {
+            vertex: Vertex
+          }
+        `,
+        "/vertex.do": `
+          export class Vertex {
+            value: int
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const typesModule = project.modules.find((module) => module.modulePath === "/types.do");
+    const renderModule = project.modules.find((module) => module.modulePath === "/render.do");
+    expect(typesModule?.hppCode).toContain(
+      `namespace native_host {\nusing EventKind = ::${emitModuleNamespace("/types.do")}::EventKind;\n} // namespace native_host`,
+    );
+    expect(renderModule?.hppCode).toContain(`using RenderPlan = ::${emitModuleNamespace("/render.do")}::RenderPlan;`);
+    expect(renderModule?.hppCode).toContain(
+      `using RenderMode = ::${emitModuleNamespace("/render.do")}::RenderMode;`,
+    );
+    expect(renderModule?.hppCode).toContain('#include "vertex.hpp"');
+  });
+
+  it("does not bridge unrelated local types into a native namespace", () => {
+    const { hppCode } = emitSplit(`
+      class HiddenState {
+        value: int
+      }
+
+      export import function ping(): void from "native_host.hpp" as native_host::ping
+    `);
+
+    expect(hppCode).not.toContain("using HiddenState =");
+    expect(hppCode).not.toContain("struct HiddenState;");
   });
 
   it("hpp includes re-exported module headers for barrel surfaces", () => {
@@ -843,7 +957,7 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(holderModule).toBeDefined();
     expect(holderModule!.hppCode).toContain("struct Data;");
     expect(holderModule!.hppCode).not.toContain('#include "data.hpp"');
-    expect(holderModule!.hppCode).toContain("std::shared_ptr<Data> data;");
+    expect(holderModule!.hppCode).toContain(`std::shared_ptr<::${emitModuleNamespace("/data.do")}::Data> data;`);
     expect(holderModule!.cppCode).toContain('#include "data.hpp"');
   });
 
@@ -885,6 +999,32 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(bModule).toBeDefined();
     expect(aModule!.hppCode).toContain("struct B;");
     expect(bModule!.hppCode).toContain("struct A;");
+  });
+
+  it("groups cross-module forward declarations that share a logical namespace", () => {
+    const project = emitProjectHelper(
+      {
+        "/cards.do": `
+          export class Card {}
+          export class PlayingCard {}
+        `,
+        "/main.do": `
+          import { Card, PlayingCard } from "./cards"
+
+          export class Hand {
+            card: Card
+            playingCard: PlayingCard
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const mainModule = project.modules.find((module) => module.modulePath === "/main.do");
+    expect(mainModule?.hppCode).toContain(
+      `namespace ${emitModuleNamespace("/cards.do")} {\nstruct Card;\nstruct PlayingCard;\n}`,
+    );
+    expect(mainModule?.hppCode.match(new RegExp(`namespace ${emitModuleNamespace("/cards.do").replace(/:/g, "\\\\:")}`, "g"))).toHaveLength(1);
   });
 
   it("renders header sections in the planned dependency order", () => {
@@ -937,13 +1077,13 @@ describe("emitter-module — multi-module hpp includes", () => {
     };
 
     expectBefore("#pragma once", "#include <cstdint>");
-    expectBefore('#include "doof_runtime.hpp"', '#include "native_thing.hpp"');
-    expectBefore('#include "native_thing.hpp"', "struct Dep;");
-    expectBefore("struct Dep;", '#include "status.hpp"');
+    expectBefore('#include "doof_runtime.hpp"', `namespace ${emitModuleNamespace("/dep.do")} {`);
+    expectBefore(`namespace ${emitModuleNamespace("/dep.do")} {`, '#include "status.hpp"');
+    expectBefore('#include "status.hpp"', '#include "native_thing.hpp"');
     expectBefore('#include "status.hpp"', "struct __doof_private_main_Impl;");
     expectBefore("struct __doof_private_main_Impl;", "using Readable = std::variant");
     expectBefore("using Readable = std::variant", "struct __doof_private_main_Impl :");
-    expectBefore("struct __doof_private_main_Impl :", "int32_t read(Readable input);");
+    expectBefore("struct __doof_private_main_Impl :", `int32_t read(::${emitModuleNamespace("/main.do")}::Readable input);`);
   });
 });
 
@@ -993,7 +1133,10 @@ describe("emitter-module — emitProject", () => {
       {
         "/workspace/app/main.do": [
           'import { readText } from "../.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/index"',
-          "function main(): int => 0",
+          `function main(): int {
+            println(readText("demo"))
+            return 0
+          }`,
         ].join("\n"),
         "/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f/index.do": [
           'export { readText } from "./runtime"',
@@ -1009,6 +1152,10 @@ describe("emitter-module — emitProject", () => {
             ["/workspace/app", ""],
             ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", ".packages/andrew24601/doof-fs"],
           ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", null],
+            ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", "doof-fs"],
+          ]),
         },
       },
     );
@@ -1021,6 +1168,88 @@ describe("emitter-module — emitProject", () => {
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
     expect(mainModule?.hppCode).not.toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
     expect(mainModule?.cppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
+    expect(mainModule?.cppCode).toContain("::lib::doof_fs::runtime::readText");
+  });
+
+  it("uses dependency package names from doof.json for library namespaces", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": `
+          import { PlayingCard } from "../deps/cardgame/cards"
+
+          export function make(card: PlayingCard): PlayingCard => card
+        `,
+        "/workspace/deps/cardgame/cards.do": `
+          export class PlayingCard {}
+        `,
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/deps/cardgame", "deps/cardgame"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", null],
+            ["/workspace/deps/cardgame", "boardgame"],
+          ]),
+        },
+      },
+    );
+
+    const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
+    expect(mainModule?.hppCode).toContain("std::shared_ptr<::lib::boardgame::cards::PlayingCard>");
+    expect(mainModule?.hppCode).not.toContain("cardgame::cards");
+  });
+
+  it("escapes dependency package namespace components that would shadow global C++ namespaces", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": `
+          import { Value } from "../deps/std-fs/value"
+
+          export function keep(value: Value): Value => value
+        `,
+        "/workspace/deps/std-fs/value.do": `
+          export class Value {}
+        `,
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/deps/std-fs", "deps/std-fs"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", null],
+            ["/workspace/deps/std-fs", "std/fs"],
+          ]),
+        },
+      },
+    );
+
+    const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
+    expect(mainModule?.hppCode).toContain("std::shared_ptr<::lib::std_::fs::value::Value>");
+  });
+
+  it("rejects project-local namespace component collisions after sanitisation", () => {
+    expect(() =>
+      emitProjectHelper(
+        {
+          "/main.do": `
+            import { left } from "./foo-bar"
+            import { right } from "./foo_bar"
+
+            function main(): int => left() + right()
+          `,
+          "/foo-bar.do": `export function left(): int => 1`,
+          "/foo_bar.do": `export function right(): int => 2`,
+        },
+        "/main.do",
+      ),
+    ).toThrow('Namespace component collision in project package: "foo-bar" and "foo_bar" both lower to "foo_bar"');
   });
 
   it("emits package extern headers as direct sibling includes", () => {
@@ -1195,11 +1424,11 @@ describe("emitter — namespace imports", () => {
       },
       "/main.do",
     );
-    expect(cpp).toContain("add(1, 2)");
+    expect(cpp).toContain(`::${emitModuleNamespace("/math.do")}::add(1, 2)`);
     expect(cpp).not.toContain("sum(1, 2)");
   });
 
-  it("emits namespace function call as direct call", () => {
+  it("emits namespace function call through the defining module namespace", () => {
     const cpp = emitMulti(
       {
         "/main.do": `
@@ -1214,13 +1443,12 @@ describe("emitter — namespace imports", () => {
       },
       "/main.do",
     );
-    // Since symbols are at global scope, namespace prefix is stripped
-    expect(cpp).toContain("add(1, 2)");
+    expect(cpp).toContain(`::${emitModuleNamespace("/math.do")}::add(1, 2)`);
     expect(cpp).not.toContain("math.add");
     expect(cpp).not.toContain("math->add");
   });
 
-  it("emits namespace constant access as direct identifier", () => {
+  it("emits namespace constant access through the defining module namespace", () => {
     const cpp = emitMulti(
       {
         "/main.do": `
@@ -1235,10 +1463,44 @@ describe("emitter — namespace imports", () => {
       },
       "/main.do",
     );
-    // PI is accessed directly (no namespace prefix)
-    expect(cpp).toContain("PI");
+    expect(cpp).toContain(`::${emitModuleNamespace("/constants.do")}::PI`);
     expect(cpp).not.toContain("constants.PI");
     expect(cpp).not.toContain("constants->PI");
+  });
+
+  it("lowers re-exported imports directly to the defining module namespace", () => {
+    const cpp = emitMulti(
+      {
+        "/main.do": `
+          import { sum } from "./index"
+          function main(): int => sum(20, 22)
+        `,
+        "/index.do": `export { add as sum } from "./math"`,
+        "/math.do": `export function add(a: int, b: int): int => a + b`,
+      },
+      "/main.do",
+    );
+
+    expect(cpp).toContain(`::${emitModuleNamespace("/math.do")}::add(20, 22)`);
+    expect(cpp).not.toContain(`::${emitModuleNamespace("/index.do")}::sum(20, 22)`);
+  });
+
+  it("keeps same-named exports from different modules distinct", () => {
+    const cpp = emitMulti(
+      {
+        "/main.do": `
+          import { value as leftValue } from "./left"
+          import { value as rightValue } from "./right"
+          function main(): int => leftValue() + rightValue()
+        `,
+        "/left.do": `export function value(): int => 20`,
+        "/right.do": `export function value(): int => 22`,
+      },
+      "/main.do",
+    );
+
+    expect(cpp).toContain(`::${emitModuleNamespace("/left.do")}::value()`);
+    expect(cpp).toContain(`::${emitModuleNamespace("/right.do")}::value()`);
   });
 
   it("includes namespace-imported module header in module split", () => {
@@ -1265,7 +1527,7 @@ describe("emitter — namespace imports", () => {
       }
     `);
     expect(cppCode).toContain("auto args = std::make_shared<std::vector<std::string>>(argv, argv + argc);");
-    expect(cppCode).toContain("return static_cast<int>(doof_main(args));");
+    expect(cppCode).toContain(`return static_cast<int>(::${emitModuleNamespace("/main.do")}::doof_main(args));`);
   });
 });
 
@@ -1321,6 +1583,17 @@ describe("emitter — extern class imports", () => {
     `);
     expect(hppCode).toContain('#include "Logger.hpp"');
     expect(hppCode).not.toContain("struct Logger");
+  });
+
+  it("does not emit empty native namespace wrappers for extern-only modules", () => {
+    const { hppCode } = emitSplit(`
+      export import class Mat4 from "matrix_bridge.hpp" as doof_boardgame::Mat4 {
+        static multiply(a: Mat4, b: Mat4): Mat4
+      }
+    `);
+
+    expect(hppCode).not.toContain("namespace doof_boardgame {\n} // namespace doof_boardgame");
+    expect(hppCode).not.toContain(`namespace ${emitModuleNamespace("/main.do")} {\n\n} // namespace ${emitModuleNamespace("/main.do")}`);
   });
 
   it("emits extern include in module split hpp", () => {
@@ -1520,7 +1793,7 @@ describe("emitter — import function imports", () => {
       "/main.do",
     );
     expect(cpp).not.toContain("[handleRequest]");
-    expect(cpp).toContain("handleRequest(it)");
+    expect(cpp).toContain(`::${emitModuleNamespace("/app.do")}::handleRequest(it)`);
   });
 });
 

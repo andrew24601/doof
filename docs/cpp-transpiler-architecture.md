@@ -107,9 +107,28 @@ Current placement rules that matter for declaration-order bugs:
 - header emission first builds a small `HeaderPlan` so include lists,
   cross-module forward declarations, stream aliases, declarations, prototypes,
   extern variables, and init declarations are chosen before rendering
+- every generated Doof module owns a deterministic logical C++ namespace:
+  project-local modules use their path relative to the root `doof.json`, while
+  dependency modules live under `lib::<dependency-package-name>::...`; names
+  are validated during emission planning so cross-module references can stay
+  readable without absolute paths or trailing collision hashes, while native
+  extern symbols keep their declared C++ names
+- code emitted *inside* a module namespace keeps local spellings for module-owned
+  symbols, reserving canonical qualification for cross-module references
+- when handwritten native headers need Doof-defined types, the header planner
+  emits narrow compatibility aliases inside the native C++ namespace (or the
+  global native surface when the extern declaration is global) instead of
+  reintroducing global aliases for generated Doof modules
+- generated headers whose exported types participate in native interop include
+  the concrete field-type dependencies that native code may inspect, while
+  ordinary Doof-only headers keep pointer-shaped dependencies forward-declared
 - module headers include only re-exported module surfaces and imported
   non-class definitions that the emitted header needs complete; ordinary
   implementation dependencies are included from the generated `.cpp`
+- generated `.cpp` files add concrete class-definition includes only for
+  member-access object types that their implementation actually dereferences,
+  keeping nested imported field access valid without pulling in every transitive
+  dependency
 - ordinary class declarations are emitted in `.hpp` with method prototypes, while their out-of-line definitions live in the module `.cpp`
 - imported classes referenced through pointer-shaped header surfaces are
   forward-declared before module includes so circular `.hpp` dependencies can
@@ -120,10 +139,10 @@ Current placement rules that matter for declaration-order bugs:
   definitions come after those prototypes
 - classes that participate in interface aliases, `Stream<T>` aliases, union
   type aliases, exported APIs, or generic/template surfaces remain header-visible
-  so aliases and generated dispatch code refer to the same global C++ type
+  so aliases and generated dispatch code refer to the same canonical namespaced C++ type
 - private Doof classes that remain header-visible use deterministic
-  module-qualified C++ names such as `__doof_private_pkg_mod_Helper`; extern
-  classes always keep their native C++ name from the included header
+  local names such as `__doof_private_pkg_mod_Helper` within their module
+  namespace; extern classes always keep their native C++ name from the included header
 - private top-level functions and variables in `.cpp` use `static` internal linkage rather than anonymous-namespace wrapping so out-of-line class methods can call them
 - the `.cpp` emits forward declarations for private helper functions before their definitions so private helper chains can reference later helpers in the same module
 - stream aliases and stream dispatch helpers stay header-visible because call sites need the alias plus the generated `next()`/`value()` dispatch surfaces during normal expression emission

@@ -222,10 +222,10 @@ export function emitDeserializeExpr(
       throw new Error("Unsupported primitive JSON deserialization type");
 
     case "class":
-      return `${emitClassCppName(type.symbol)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
+      return `${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
 
     case "array": {
-      const elementType = emitType(type.elementType);
+      const elementType = emitType(type.elementType, ctx.module.path);
       return `[&]() { const auto* _arr = doof::json_as_array(${jsonExpr}); if (_arr == nullptr) { doof::panic("Expected JSON array"); } auto _vec = std::make_shared<std::vector<${elementType}>>(); _vec->reserve(_arr->size()); for (const auto& _el : *_arr) { _vec->push_back(${emitDeserializeExpr("_el", type.elementType, ctx, lenientExpr)}); } return _vec; }()`;
     }
 
@@ -248,9 +248,9 @@ export function emitDeserializeExpr(
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "class") {
-          return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)})`;
+          return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type, ctx.module.path)}{nullptr} : ${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)})`;
         }
-        return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type)}{std::nullopt} : ${emitType(type)}{${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)}})`;
+        return `(doof::json_is_null(${jsonExpr}) ? ${emitType(type, ctx.module.path)}{std::nullopt} : ${emitType(type, ctx.module.path)}{${emitDeserializeExpr(jsonExpr, inner, ctx, lenientExpr)}})`;
       }
       throw new Error("General union JSON deserialization is not supported");
     }
@@ -408,8 +408,8 @@ export function emitFromJSON(
     const safeName = emitIdentifierSafe(constructorField.name);
     const iterName = `_it_${safeName}`;
     if (constructorField.field.defaultValue) {
-      const defaultValue = emitDefaultExpression(constructorField.field.defaultValue, fieldType);
-      ctx.sourceLines.push(`${bodyInd}${emitType(fieldType)} _f_${safeName};`);
+      const defaultValue = emitDefaultExpression(constructorField.field.defaultValue, fieldType, ctx.module.path);
+      ctx.sourceLines.push(`${bodyInd}${emitType(fieldType, ctx.module.path)} _f_${safeName};`);
       ctx.sourceLines.push(`${bodyInd}if (auto ${iterName} = _obj->find("${constructorField.name}"); ${iterName} != _obj->end()) {`);
       ctx.sourceLines.push(`${bodyInd}    if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType, "_lenient")}) {`);
       ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure("Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second)));`);
@@ -497,7 +497,7 @@ export function emitInterfaceFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls)}::fromJsonValue(_j, _lenient);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls, ctx.module.path)}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${ifaceName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);
@@ -537,7 +537,7 @@ export function emitTypeAliasFromJSON(
     const keyword = first ? "if" : "} else if";
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
-    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls)}::fromJsonValue(_j, _lenient);`);
+    ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls, ctx.module.path)}::fromJsonValue(_j, _lenient);`);
     ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
     ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${aliasName}(_r.value()));`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);

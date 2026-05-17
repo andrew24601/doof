@@ -20,7 +20,7 @@ import {
   tryFindCompilerToolchain,
 } from "./cli-core.js";
 import { emitProject, type NativeBuildOptions } from "./emitter-module.js";
-import { findDoofManifestPath, loadPackageGraph } from "./package-manifest.js";
+import { createPackageOutputPaths, findDoofManifestPath, loadPackageGraph } from "./package-manifest.js";
 import { collectSemanticDiagnostics, throwIfErrorDiagnostics } from "./pipeline-diagnostics.js";
 import { createBundledModuleResolver, withBundledStdlib } from "./stdlib.js";
 import { VirtualFS } from "./test-helpers.js";
@@ -264,7 +264,7 @@ export class E2EContext {
     try {
       const diagnostics = collectSemanticDiagnostics(result);
       throwIfErrorDiagnostics(diagnostics);
-      project = emitProject(entry, result);
+      project = emitProject(entry, result, createBuildMetadataForEntry(vfs, entry));
     } catch (e: any) {
       return {
         exitCode: -1,
@@ -343,7 +343,7 @@ export class E2EContext {
     try {
       const diagnostics = collectSemanticDiagnostics(result);
       throwIfErrorDiagnostics(diagnostics);
-      project = emitProject(entry, result);
+      project = emitProject(entry, result, createBuildMetadataForEntry(vfs, entry));
     } catch (e: any) {
       return {
         success: false,
@@ -478,6 +478,20 @@ function createResolverForEntry(vfs: VirtualFS, entry: string) {
       dependencies: pkg.dependencyRoots,
     })),
   });
+}
+
+function createBuildMetadataForEntry(vfs: VirtualFS, entry: string) {
+  const manifestPath = findDoofManifestPath(vfs, entry);
+  if (!manifestPath) {
+    return {};
+  }
+
+  const graph = loadPackageGraph(vfs, entry, {
+    implicitStdDependencies: false,
+  });
+  return {
+    packageOutputPaths: createPackageOutputPaths(graph, entry),
+  };
 }
 
 function writeProjectArtifacts(tmpDir: string, project: ReturnType<typeof emitProject>): void {

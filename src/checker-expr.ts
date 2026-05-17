@@ -1160,6 +1160,13 @@ function inferExprTypeInner(
       )
         ? "named-static"
         : "instance";
+      if (objectType.kind === "namespace") {
+        const sourceTable = host.analysisResult.modules.get(objectType.sourceModule);
+        const namespaceMember = sourceTable?.symbols.get(expr.property);
+        if (namespaceMember?.exported) {
+          expr.resolvedNamespaceMemberSymbol = namespaceMember;
+        }
+      }
       return inferMemberType(host, objectType, expr.property, table, lookupMode, info, expr.span, binding ?? undefined);
     }
 
@@ -1183,6 +1190,13 @@ function inferExprTypeInner(
         }
       } else {
         objectType = inferExprType(host, expr.object, scope, table, info);
+      }
+      if (objectType.kind === "namespace") {
+        const sourceTable = host.analysisResult.modules.get(objectType.sourceModule);
+        const namespaceMember = sourceTable?.symbols.get(expr.property);
+        if (namespaceMember?.exported) {
+          expr.resolvedNamespaceMemberSymbol = namespaceMember;
+        }
       }
       return inferMemberType(host, objectType, expr.property, table, "qualified-static", info, expr.span, binding ?? undefined);
     }

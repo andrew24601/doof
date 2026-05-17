@@ -295,8 +295,8 @@ export function hasExternConstructorFactory(classSym: ClassSymbol | undefined): 
   return findExternConstructorFactoryMethod(classSym) !== null;
 }
 
-export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>): string {
-  return emitClassInnerType(type);
+export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>, currentModulePath?: string): string {
+  return emitClassInnerType(type, currentModulePath);
 }
 
 export function emitStreamNextHelperName(aliasName: string): string {

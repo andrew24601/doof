@@ -30,7 +30,7 @@ import { emitIdentifierSafe } from "./emitter-expr-literals.js";
 
 export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): string {
   const params = expr.params.map((p) => {
-    const pType = p.resolvedType ? emitType(p.resolvedType) : "auto";
+    const pType = p.resolvedType ? emitType(p.resolvedType, ctx.module.path) : "auto";
     return `${pType} ${emitIdentifierSafe(p.name)}`;
   }).join(", ");
 
@@ -38,7 +38,7 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
     ? expr.resolvedType.returnType
     : undefined;
   const retType = lambdaReturnType
-    ? emitType(lambdaReturnType)
+    ? emitType(lambdaReturnType, ctx.module.path)
     : "auto";
 
   const captures = analyzeLambdaCaptures(expr, ctx);
@@ -99,12 +99,12 @@ function emitActorAsyncCall(
 ): string {
   const obj = emitExpression(memberExpr.object, ctx);
   const method = emitIdentifierSafe(memberExpr.property);
-  const className = emitClassCppName(objType.innerClass.symbol);
+  const className = emitClassCppName(objType.innerClass.symbol, ctx.module.path);
   const args = callExpr.args.map((a) => emitExpression(a.value, ctx)).join(", ");
 
   const promiseType = asyncExpr.resolvedType;
   const valueType = promiseType?.kind === "promise" ? promiseType.valueType : null;
-  const cppRetType = valueType ? emitType(valueType) : "void";
+  const cppRetType = valueType ? emitType(valueType, ctx.module.path) : "void";
 
   if (cppRetType === "void") {
     if (args) {
@@ -120,7 +120,7 @@ function emitActorAsyncCall(
 
 export function emitActorCreationExpression(expr: ActorCreationExpression, ctx: EmitContext): string {
   const className = expr.resolvedType?.kind === "actor"
-    ? emitClassCppName(expr.resolvedType.innerClass.symbol)
+    ? emitClassCppName(expr.resolvedType.innerClass.symbol, ctx.module.path)
     : emitIdentifierSafe(expr.className);
   const args = expr.args.map((a) => emitExpression(a, ctx)).join(", ");
   return `std::make_shared<doof::Actor<${className}>>(${args})`;

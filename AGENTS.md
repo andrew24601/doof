@@ -61,6 +61,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - See [docs/source-file-structure.md](docs/source-file-structure.md) for the live workspace map and the full emitter module inventory.
 - [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Project and module emission entry points, `.hpp` / `.cpp` splitting, and generated support files
 - [emitter-context.ts](src/emitter-context.ts) (~80 lines) — Shared EmitContext threaded through emission helpers
+- [emitter-names.ts](src/emitter-names.ts) — Canonical generated module namespaces and cross-module symbol naming
 - [emitter-types.ts](src/emitter-types.ts) (~250 lines) — ResolvedType → C++ type string mapping
 - [emitter-defaults.ts](src/emitter-defaults.ts) (~120 lines) — Default value emission helpers
 - [emitter-expr.ts](src/emitter-expr.ts) (~240 lines) — Expression emission dispatcher (delegates to sub-modules)
@@ -189,6 +190,7 @@ src/
   checker-features.test.ts      # Checker tests: Result, concurrency, JSON, with
   emitter-module.ts             # Project and module emission entry points, output splitting
   emitter-context.ts            # Shared EmitContext type
+  emitter-names.ts              # Canonical generated module namespaces and cross-module symbol naming
   emitter-types.ts              # ResolvedType → C++ type mapping
   emitter-defaults.ts           # Default value emission helpers
   macos-app-support.ts          # Browser-safe macOS app support file generation helpers
@@ -519,6 +521,7 @@ fn.params[0].resolvedType;  // parameter's resolved type
 **Key decorated AST nodes:**
 - `Expression` (all subtypes) → `resolvedType?: ResolvedType`
 - `Identifier` → `resolvedBinding?: Binding`
+- namespace `MemberExpression` / `QualifiedMemberExpression` nodes → `resolvedNamespaceMemberSymbol?: ModuleSymbol`
 - `NamedType` → `resolvedSymbol?: ModuleSymbol`
 - `Parameter`, `ClassField`, `InterfaceField`, `InterfaceMethod` → `resolvedType?: ResolvedType`
 - `FunctionDeclaration`, `ConstDeclaration`, `ReadonlyDeclaration`, `ImmutableBinding`, `LetDeclaration` → `resolvedType?: ResolvedType`

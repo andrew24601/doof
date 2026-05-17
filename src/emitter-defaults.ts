@@ -19,7 +19,7 @@ function unsupportedDefault(expr: Expression, contextType?: ResolvedType): never
   throw new Error(`Cannot emit parameter default: ${reason}`);
 }
 
-export function emitDefaultExpression(expr: Expression, contextType?: ResolvedType): string {
+export function emitDefaultExpression(expr: Expression, contextType?: ResolvedType, currentModulePath?: string): string {
   const issue = getUnsupportedDefaultExpressionReason(expr, contextType);
   if (issue) {
     unsupportedDefault(expr, contextType);
@@ -58,19 +58,19 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
 
     case "enum-access":
       if (expr.enumName && expr.resolvedType?.kind === "enum") {
-        return emitEnumVariantAccess(expr.resolvedType, expr.variant);
+        return emitEnumVariantAccess(expr.resolvedType, expr.variant, currentModulePath);
       }
       return expr.enumName ? `${expr.enumName}::${expr.variant}` : expr.variant;
 
     case "dot-shorthand":
       if (expr.resolvedType?.kind === "enum") {
-        return emitEnumVariantAccess(expr.resolvedType, expr.name);
+        return emitEnumVariantAccess(expr.resolvedType, expr.name, currentModulePath);
       }
       return unsupportedDefault(expr, contextType);
 
     case "member-expression":
       if (expr.resolvedType?.kind === "enum" && expr.object.resolvedType?.kind === "enum") {
-        return emitEnumVariantAccess(expr.object.resolvedType, expr.property);
+        return emitEnumVariantAccess(expr.object.resolvedType, expr.property, currentModulePath);
       }
       return unsupportedDefault(expr, contextType);
 
@@ -79,7 +79,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (!collectionType || (collectionType.kind !== "array" && collectionType.kind !== "set")) {
         return unsupportedDefault(expr, contextType);
       }
-      const elementType = emitType(collectionType.elementType);
+      const elementType = emitType(collectionType.elementType, currentModulePath);
       if (expr.elements.length === 0) {
         if (collectionType.kind === "array") {
           return `std::make_shared<std::vector<${elementType}>>()`;
@@ -87,7 +87,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         return `std::make_shared<doof::ordered_set<${elementType}>>()`;
       }
       const elements = expr.elements
-        .map((element) => emitDefaultExpression(element, collectionType.elementType))
+        .map((element) => emitDefaultExpression(element, collectionType.elementType, currentModulePath))
         .join(", ");
       if (collectionType.kind === "array") {
         return `std::make_shared<std::vector<${elementType}>>(std::vector<${elementType}>{${elements}})`;
@@ -103,16 +103,16 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
 
       if (tupleType.kind === "tuple") {
         const elements = expr.elements
-          .map((element, index) => emitDefaultExpression(element, tupleType.elements[index]))
+          .map((element, index) => emitDefaultExpression(element, tupleType.elements[index], currentModulePath))
           .join(", ");
         return `std::make_tuple(${elements})`;
       }
 
       if (tupleType.kind === "class") {
-        const className = emitResolvedClassName(tupleType);
+        const className = emitResolvedClassName(tupleType, currentModulePath);
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
         const providedArgs = expr.elements
-          .map((element, index) => emitDefaultExpression(element, fieldTypes[index]));
+          .map((element, index) => emitDefaultExpression(element, fieldTypes[index], currentModulePath));
         const args = buildPositionalConstructorArgList(tupleType.symbol, providedArgs, emitDefaultExpression);
         return emitClassConstruction(className, tupleType.symbol, args);
       }
@@ -125,10 +125,10 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
         return unsupportedDefault(expr, contextType);
       }
-      const className = emitResolvedClassName(callType);
+      const className = emitResolvedClassName(callType, currentModulePath);
       const fieldTypes = buildFieldTypeList(callType.symbol);
       const providedArgs = expr.args
-        .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index]));
+        .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index], currentModulePath));
       const args = buildPositionalConstructorArgList(callType.symbol, providedArgs, emitDefaultExpression);
       return emitClassConstruction(className, callType.symbol, args);
     }
@@ -139,16 +139,16 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         return unsupportedDefault(expr, contextType);
       }
 
-      const className = emitClassCppName(ctorType.symbol);
+      const className = emitClassCppName(ctorType.symbol, currentModulePath);
       if (expr.named) {
         const propMap = new Map((expr.args as ObjectProperty[]).map((prop) => [prop.name, prop]));
         const args = buildConstructorFieldInfoList(ctorType.symbol).map((field) => {
           const prop = propMap.get(field.name);
           if (prop) {
-            return prop.value ? emitDefaultExpression(prop.value, field.type) : emitIdentifierSafe(prop.name);
+            return prop.value ? emitDefaultExpression(prop.value, field.type, currentModulePath) : emitIdentifierSafe(prop.name);
           }
           if (field.defaultValue) {
-            return emitDefaultExpression(field.defaultValue, field.type);
+            return emitDefaultExpression(field.defaultValue, field.type, currentModulePath);
           }
           throw new Error(`Missing constructor field \"${field.name}\" during default construct emission`);
         });
@@ -157,30 +157,30 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
 
       const fieldTypes = buildFieldTypeList(ctorType.symbol);
       const providedArgs = expr.args
-        .map((arg, index) => emitDefaultExpression(arg as Expression, fieldTypes[index]));
+        .map((arg, index) => emitDefaultExpression(arg as Expression, fieldTypes[index], currentModulePath));
       const args = buildPositionalConstructorArgList(ctorType.symbol, providedArgs, emitDefaultExpression);
       return emitClassConstruction(className, ctorType.symbol, args);
     }
 
     case "unary-expression":
       if (expr.operator === "-" || expr.operator === "+") {
-        return `${expr.operator}${emitDefaultExpression(expr.operand, contextType)}`;
+        return `${expr.operator}${emitDefaultExpression(expr.operand, contextType, currentModulePath)}`;
       }
       return unsupportedDefault(expr, contextType);
 
     case "object-literal": {
       const objectType = contextType ?? expr.resolvedType;
       if (objectType?.kind === "class") {
-        const className = emitResolvedClassName(objectType);
+        const className = emitResolvedClassName(objectType, currentModulePath);
         const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
         const args = buildConstructorFieldInfoList(objectType.symbol)
           .map((field) => {
             const prop = propMap.get(field.name);
             if (prop) {
-              return prop.value ? emitDefaultExpression(prop.value, field.type) : emitIdentifierSafe(prop.name);
+              return prop.value ? emitDefaultExpression(prop.value, field.type, currentModulePath) : emitIdentifierSafe(prop.name);
             }
             if (field.defaultValue) {
-              return emitDefaultExpression(field.defaultValue, field.type);
+              return emitDefaultExpression(field.defaultValue, field.type, currentModulePath);
             }
             throw new Error(`Missing constructor field \"${field.name}\" during object default emission`);
           })
@@ -189,8 +189,8 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       }
 
       if (objectType?.kind === "map" && expr.properties.length === 0) {
-        const keyType = emitType(objectType.keyType);
-        const valueType = emitType(objectType.valueType);
+        const keyType = emitType(objectType.keyType, currentModulePath);
+        const valueType = emitType(objectType.valueType, currentModulePath);
         return `std::make_shared<doof::ordered_map<${keyType}, ${valueType}>>()`;
       }
 
@@ -202,11 +202,11 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (!mapType || mapType.kind !== "map") {
         return unsupportedDefault(expr, contextType);
       }
-      const keyType = emitType(mapType.keyType);
-      const valueType = emitType(mapType.valueType);
+      const keyType = emitType(mapType.keyType, currentModulePath);
+      const valueType = emitType(mapType.valueType, currentModulePath);
       const entries = expr.entries
         .map((entry) => `{
-${emitDefaultExpression(entry.key, mapType.keyType)}, ${emitDefaultExpression(entry.value, mapType.valueType)}}`)
+${emitDefaultExpression(entry.key, mapType.keyType, currentModulePath)}, ${emitDefaultExpression(entry.value, mapType.valueType, currentModulePath)}}`)
         .join(", ");
       return `std::make_shared<doof::ordered_map<${keyType}, ${valueType}>>(doof::ordered_map<${keyType}, ${valueType}>{${entries}})`;
     }

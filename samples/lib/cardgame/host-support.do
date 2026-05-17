@@ -81,13 +81,13 @@ export function captureCameraState(input: HostInput, camera: Camera): void {
 
 export function setDebugKeyState(input: HostInput, key: NativeBoardgameKey, pressed: bool): bool {
   case key {
-    .W => { input.keyW = pressed }
-    .A => { input.keyA = pressed }
-    .S => { input.keyS = pressed }
-    .D => { input.keyD = pressed }
-    .Q => { input.keyQ = pressed }
-    .E => { input.keyE = pressed }
-    _ => { return false }
+    .W -> { input.keyW = pressed }
+    .A -> { input.keyA = pressed }
+    .S -> { input.keyS = pressed }
+    .D -> { input.keyD = pressed }
+    .Q -> { input.keyQ = pressed }
+    .E -> { input.keyE = pressed }
+    _ -> { return false }
   }
 
   return true

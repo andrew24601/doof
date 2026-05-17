@@ -675,6 +675,26 @@ export class ModuleAnalyzer {
         this.resolveTypeAnnotation(stmt.type, table, aliasScope);
         break;
       }
+      case "extern-function-declaration": {
+        const fnScope = this.extendScope(typeParamScope, stmt.typeParams);
+        for (const p of stmt.params) {
+          if (p.type) this.resolveTypeAnnotation(p.type, table, fnScope);
+        }
+        this.resolveTypeAnnotation(stmt.returnType, table, fnScope);
+        break;
+      }
+      case "extern-class-declaration": {
+        for (const field of stmt.fields) {
+          this.resolveTypeAnnotation(field.type, table, typeParamScope);
+        }
+        for (const method of stmt.methods) {
+          for (const p of method.params) {
+            if (p.type) this.resolveTypeAnnotation(p.type, table, typeParamScope);
+          }
+          this.resolveTypeAnnotation(method.returnType, table, typeParamScope);
+        }
+        break;
+      }
       case "export-declaration":
         this.resolveNamedTypesInStatement(stmt.declaration, table, typeParamScope);
         break;

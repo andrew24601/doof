@@ -48,6 +48,29 @@ The compiler materializes remote packages into `~/.doof/packages/` by default. G
 
 See [`samples/hello-package/`](../samples/hello-package/) for a working remote package example.
 
+## Generated C++ namespaces
+
+Generated C++ uses package-aware logical namespaces rather than filesystem-path
+names. Modules in the root package use their path relative to the package root:
+
+```text
+game/state.do  →  namespace game::state
+```
+
+Modules from dependencies live under `lib::`, using the dependency package's
+`name` from its own `doof.json`:
+
+```text
+dependency package name "boardgame"
+cards.do  →  namespace lib::boardgame::cards
+```
+
+Namespace components are sanitised to legal C++ identifiers. If two sibling
+paths would collapse to the same component after sanitisation, such as
+`foo-bar.do` and `foo_bar.do`, compilation fails instead of generating ambiguous
+C++ names. Components such as `main`, `std`, and `doof` that would collide with
+or shadow generated/runtime C++ surfaces receive a trailing underscore.
+
 ## Local stdlib Override
 
 When working on the standard library itself, set `DOOF_STDLIB_ROOT` to a checkout that contains package directories such as `assert/`, `fs/`, `path/`, `regex/`, and `stream/`.

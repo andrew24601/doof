@@ -31,12 +31,13 @@ import type {
   Parameter,
   CallExpression,
 } from "./ast.js";
-import type { ModuleSymbolTable, ClassSymbol } from "./types.js";
+import type { ModuleSymbolTable, ClassSymbol, ModuleSymbol } from "./types.js";
 import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
-import { emitClassCppName, emitClassForwardDeclName, emitClassSharedPtrType, emitPrivateClassCppName, emitType, emitInnerType, mangleTypeForCppName } from "./emitter-types.js";
+import { emitClassCppName, emitClassForwardDeclName, emitClassSharedPtrType, emitLocalClassCppName, emitPrivateClassCppName, emitType, emitInnerType, mangleTypeForCppName } from "./emitter-types.js";
+import { assignModuleNamespaces, emitModuleNamespace, emitQualifiedHelperName, emitQualifiedSymbolName } from "./emitter-names.js";
 import { buildGenericFunctionKey, buildMonomorphizedFunctionName, functionDeclIsStreamSensitive } from "./emitter-monomorphize.js";
 import { emitClassMethodDefinitions } from "./emitter-decl.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
@@ -170,6 +171,9 @@ interface StreamAliasInfo {
 interface HeaderPlan {
   standardIncludes: Set<string>;
   externIncludes: string[];
+  externInteropPredecls: string[];
+  externInteropPreAliases: string[];
+  externInteropPostAliases: string[];
   crossModuleForwardDecls: string[];
   moduleIncludes: string[];
   classified: ClassifiedStatements;
@@ -221,6 +225,9 @@ export function emitModuleSplit(
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
     throw new Error(`Module not found: ${modulePath}`);
+  }
+  if (!table.emittedCppNamespace) {
+    assignModuleNamespaces(modulePath, analysisResult.modules, packageOutputPaths);
   }
 
   propagateJsonDemand(analysisResult);
@@ -276,6 +283,7 @@ export function emitProject(
   propagateMetadataDemand(analysisResult);
 
   const baseDir = nodePath.dirname(entryPath);
+  assignModuleNamespaces(entryPath, analysisResult.modules, buildMetadata.packageOutputPaths);
   const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
 
   // Build coverage module ID map: assign a stable integer to each non-test, non-stdlib module.
@@ -386,12 +394,15 @@ function buildHeaderPlan(
   const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
   markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
   const exportedFunctions = classified.functions.filter((fn) => fn.exported && fn.decl.name !== "main");
+  const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
+  const streamTypesForModule = collectUsedStreamTypesForModule(table, monomorphizedClasses);
 
   return {
     standardIncludes,
     externIncludes: [...externIncludeSet].filter((inc) => !standardIncludes.has(inc)),
-    crossModuleForwardDecls: collectCrossModuleClassForwardDecls(table, analysisResult),
-    moduleIncludes: collectHeaderReferencedModulePaths(table, classified, headerNativeClasses, monomorphizedClasses, monomorphizedMethods, monomorphizedFunctions)
+    ...collectExternInteropAliases(table, analysisResult),
+    crossModuleForwardDecls: collectCrossModuleClassForwardDecls(table, analysisResult, interfaceImpls, streamAliases, streamTypesForModule),
+    moduleIncludes: collectHeaderReferencedModulePaths(table, analysisResult, classified, headerNativeClasses, monomorphizedClasses, monomorphizedMethods, monomorphizedFunctions)
       .map((dependencyModule) => modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)),
     classified,
     nativeClasses: headerNativeClasses,
@@ -401,8 +412,8 @@ function buildHeaderPlan(
     ),
     monomorphizedMethodsForModule: [...monomorphizedMethods.values()].filter((inst) => inst.ownerModulePath === table.path),
     mockCaptureTypes: collectMockCaptureTypes(classified),
-    streamAliases: buildStreamImplMap(analysisResult, monomorphizedClasses),
-    streamTypesForModule: collectUsedStreamTypesForModule(table, monomorphizedClasses),
+    streamAliases,
+    streamTypesForModule,
     nonGenericExportedFunctions: exportedFunctions.filter((fn) => fn.decl.typeParams.length === 0),
     genericExportedFunctions: exportedFunctions.filter((fn) => fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl)),
     monomorphizedFunctionsForModule: [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path),
@@ -466,6 +477,7 @@ function markAllHeaderVisiblePrivateClassNames(
 
 function collectHeaderReferencedModulePaths(
   table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
   classified: ClassifiedStatements,
   headerNativeClasses: ClassifiedDecl<ClassDeclaration>[],
   monomorphizedClasses: Map<string, GenericClassInstantiation>,
@@ -473,7 +485,8 @@ function collectHeaderReferencedModulePaths(
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
 ): string[] {
   const dependencies = new Set<string>();
-  const hasExternInterop = moduleDeclaresExternInterop(table);
+  const hasExternInterop = moduleDeclaresExternInterop(table)
+    || moduleProvidesExternInteropTypes(table.path, analysisResult);
   const addModule = (modulePath: string | null | undefined): void => {
     if (!modulePath || modulePath === table.path || modulePath.startsWith("<")) return;
     dependencies.add(modulePath);
@@ -650,6 +663,22 @@ function collectHeaderReferencedModulePaths(
     addResolvedTypeDeps((variable.stmt as ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration).resolvedType);
   }
 
+  if (hasExternInterop) {
+    for (const stmt of table.program.statements) {
+      const inner = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
+      if (inner.kind === "extern-function-declaration") {
+        for (const param of inner.params) addTypeAnnotationDeps(param.type);
+        addTypeAnnotationDeps(inner.returnType);
+      } else if (inner.kind === "extern-class-declaration") {
+        for (const field of inner.fields) addTypeAnnotationDeps(field.type);
+        for (const method of inner.methods) {
+          for (const param of method.params) addTypeAnnotationDeps(param.type);
+          addTypeAnnotationDeps(method.returnType);
+        }
+      }
+    }
+  }
+
   const emitsHeaderInlineBodies = classified.functions.some(
     (fn) => fn.decl.name !== "main" && fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl),
   )
@@ -680,6 +709,280 @@ function moduleDeclaresExternInterop(table: ModuleSymbolTable): boolean {
   return false;
 }
 
+function moduleProvidesExternInteropTypes(
+  modulePath: string,
+  analysisResult: AnalysisResult,
+): boolean {
+  for (const table of analysisResult.modules.values()) {
+    if (collectExternReferencedTypeSymbols(table, analysisResult).some((symbol) => symbol.module === modulePath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function collectExternInteropAliases(
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+): Pick<HeaderPlan, "externInteropPredecls" | "externInteropPreAliases" | "externInteropPostAliases"> {
+  const nativeNamespaces = collectExternCppNamespaces(table);
+  const referencedTypeSymbols = collectExternReferencedTypeSymbols(table, analysisResult);
+  const localInteropSymbols = uniqueSymbols(referencedTypeSymbols);
+  const preAliasSymbols = localInteropSymbols.filter(canAliasBeforeModuleBody);
+  const postAliasMap = createExternInteropAliasMap(
+    nativeNamespaces,
+    localInteropSymbols.filter((symbol) => isInteropAliasableSymbol(symbol) && !canAliasBeforeModuleBody(symbol)),
+  );
+  mergeExternInteropAliasMaps(
+    postAliasMap,
+    collectProjectExternInteropPostAliasMapForModule(table.path, analysisResult),
+  );
+
+  return {
+    externInteropPredecls: nativeNamespaces.length > 0
+      ? emitExternInteropPredecls(table.path, referencedTypeSymbols, analysisResult)
+      : [],
+    externInteropPreAliases: emitExternInteropAliasBlocks(nativeNamespaces, preAliasSymbols),
+    externInteropPostAliases: emitExternInteropAliasMap(postAliasMap),
+  };
+}
+
+function collectExternReferencedTypeSymbols(
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+): ModuleSymbol[] {
+  const referencedTypeSymbols = new Map<string, ModuleSymbol>();
+
+  const addReferencedTypeSymbol = (sym: ModuleSymbol): void => {
+    if (sym.module === "<builtin>" || !isTypeLevelSymbol(sym) || isExternClassSymbol(sym)) return;
+    referencedTypeSymbols.set(`${sym.module}:${sym.name}`, sym);
+  };
+
+  const addTypeAnnotation = (typeAnn: TypeAnnotation | null | undefined): void => {
+    if (!typeAnn) return;
+    switch (typeAnn.kind) {
+      case "named-type": {
+        const sym = typeAnn.resolvedSymbol;
+        if (sym) {
+          addReferencedTypeSymbol(sym);
+          const sourceTable = analysisResult.modules.get(sym.module);
+          for (const exported of sourceTable?.exports.values() ?? []) {
+            addReferencedTypeSymbol(exported);
+          }
+        }
+        for (const arg of typeAnn.typeArgs) {
+          addTypeAnnotation(arg);
+        }
+        break;
+      }
+      case "array-type":
+        addTypeAnnotation(typeAnn.elementType);
+        break;
+      case "union-type":
+        for (const inner of typeAnn.types) addTypeAnnotation(inner);
+        break;
+      case "function-type":
+        for (const param of typeAnn.params) addTypeAnnotation(param.type);
+        addTypeAnnotation(typeAnn.returnType);
+        break;
+      case "tuple-type":
+        for (const element of typeAnn.elements) addTypeAnnotation(element);
+        break;
+      case "weak-type":
+        addTypeAnnotation(typeAnn.type);
+        break;
+    }
+  };
+
+  const visitExtern = (stmt: Statement): void => {
+    if (stmt.kind === "extern-function-declaration") {
+      for (const param of stmt.params) addTypeAnnotation(param.type);
+      addTypeAnnotation(stmt.returnType);
+      return;
+    }
+    if (stmt.kind === "extern-class-declaration") {
+      for (const field of stmt.fields) addTypeAnnotation(field.type);
+      for (const method of stmt.methods) {
+        for (const param of method.params) addTypeAnnotation(param.type);
+        addTypeAnnotation(method.returnType);
+      }
+    }
+  };
+
+  for (const stmt of table.program.statements) {
+    const inner = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
+    visitExtern(inner);
+  }
+
+  return [...referencedTypeSymbols.values()];
+}
+
+function collectExternCppNamespaces(table: ModuleSymbolTable): string[] {
+  const namespaces = new Set<string>();
+
+  const visitExtern = (stmt: Statement): void => {
+    if (stmt.kind !== "extern-class-declaration" && stmt.kind !== "extern-function-declaration") return;
+    namespaces.add(extractCppNamespace(stmt.cppName));
+  };
+
+  for (const stmt of table.program.statements) {
+    visitExtern(stmt.kind === "export-declaration" ? stmt.declaration : stmt);
+  }
+
+  return [...namespaces].sort();
+}
+
+function extractCppNamespace(cppName: string | null): string {
+  if (!cppName) return "";
+  const lastSeparator = cppName.lastIndexOf("::");
+  return lastSeparator === -1 ? "" : cppName.slice(0, lastSeparator);
+}
+
+function isTypeLevelSymbol(symbol: ModuleSymbol): boolean {
+  return symbol.symbolKind === "class"
+    || symbol.symbolKind === "interface"
+    || symbol.symbolKind === "enum"
+    || symbol.symbolKind === "type-alias";
+}
+
+function isExternClassSymbol(symbol: ModuleSymbol): boolean {
+  return symbol.symbolKind === "class" && !!symbol.extern_;
+}
+
+function canAliasBeforeModuleBody(symbol: ModuleSymbol): boolean {
+  return (symbol.symbolKind === "class" && symbol.declaration.typeParams.length === 0)
+    || symbol.symbolKind === "enum";
+}
+
+function isInteropAliasableSymbol(symbol: ModuleSymbol): boolean {
+  if (symbol.symbolKind === "class") {
+    return symbol.declaration.typeParams.length === 0;
+  }
+  if (symbol.symbolKind === "interface") {
+    return false;
+  }
+  if (symbol.symbolKind === "type-alias") {
+    return symbol.declaration.typeParams.length === 0;
+  }
+  return true;
+}
+
+function uniqueSymbols(symbols: ModuleSymbol[]): ModuleSymbol[] {
+  const byIdentity = new Map<string, ModuleSymbol>();
+  for (const symbol of symbols) {
+    byIdentity.set(`${symbol.module}:${symbol.name}`, symbol);
+  }
+  return [...byIdentity.values()].sort((left, right) =>
+    `${left.module}:${left.name}`.localeCompare(`${right.module}:${right.name}`),
+  );
+}
+
+function emitExternInteropPredecls(
+  modulePath: string,
+  symbols: ModuleSymbol[],
+  analysisResult: AnalysisResult,
+): string[] {
+  const localPredecls = uniqueSymbols(symbols.filter((symbol) =>
+    symbol.module === modulePath && canAliasBeforeModuleBody(symbol),
+  ));
+  if (localPredecls.length === 0) return [];
+
+  const lines: string[] = [`namespace ${emitModuleNamespace(modulePath, analysisResult.modules)} {`];
+  for (const symbol of localPredecls) {
+    if (symbol.symbolKind === "class") {
+      const typeParams = symbol.declaration.typeParams;
+      if (typeParams.length > 0) {
+        lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
+      }
+      lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
+    } else if (symbol.symbolKind === "enum") {
+      lines.push(`enum class ${emitIdentifierSafe(symbol.name)};`);
+    }
+  }
+  lines.push("}");
+  return lines;
+}
+
+function emitExternInteropAliasBlocks(
+  nativeNamespaces: string[],
+  symbols: ModuleSymbol[],
+): string[] {
+  if (symbols.length === 0) return [];
+  return emitExternInteropAliasMap(createExternInteropAliasMap(nativeNamespaces, symbols));
+}
+
+function createExternInteropAliasMap(
+  nativeNamespaces: string[],
+  symbols: ModuleSymbol[],
+): Map<string, Map<string, ModuleSymbol>> {
+  const aliases = new Map<string, Map<string, ModuleSymbol>>();
+  if (symbols.length === 0) return aliases;
+  for (const nativeNamespace of nativeNamespaces) {
+    const namespaceAliases = aliases.get(nativeNamespace) ?? new Map<string, ModuleSymbol>();
+    for (const symbol of symbols) {
+      namespaceAliases.set(`${symbol.module}:${symbol.name}`, symbol);
+    }
+    aliases.set(nativeNamespace, namespaceAliases);
+  }
+  return aliases;
+}
+
+function mergeExternInteropAliasMaps(
+  target: Map<string, Map<string, ModuleSymbol>>,
+  source: Map<string, Map<string, ModuleSymbol>>,
+): void {
+  for (const [nativeNamespace, sourceAliases] of source) {
+    const targetAliases = target.get(nativeNamespace) ?? new Map<string, ModuleSymbol>();
+    for (const [key, symbol] of sourceAliases) {
+      targetAliases.set(key, symbol);
+    }
+    target.set(nativeNamespace, targetAliases);
+  }
+}
+
+function collectProjectExternInteropPostAliasMapForModule(
+  modulePath: string,
+  analysisResult: AnalysisResult,
+): Map<string, Map<string, ModuleSymbol>> {
+  const aliases = new Map<string, Map<string, ModuleSymbol>>();
+
+  for (const externTable of analysisResult.modules.values()) {
+    if (externTable.path === modulePath) continue;
+    const nativeNamespaces = collectExternCppNamespaces(externTable);
+    if (nativeNamespaces.length === 0) continue;
+
+    const symbols = collectExternReferencedTypeSymbols(externTable, analysisResult)
+      .filter((symbol) => symbol.module === modulePath && isInteropAliasableSymbol(symbol));
+    mergeExternInteropAliasMaps(aliases, createExternInteropAliasMap(nativeNamespaces, symbols));
+  }
+
+  return aliases;
+}
+
+function emitExternInteropAliasMap(
+  aliases: Map<string, Map<string, ModuleSymbol>>,
+): string[] {
+  if (aliases.size === 0) return [];
+
+  const lines: string[] = [];
+  for (const nativeNamespace of [...aliases.keys()].sort()) {
+    if (nativeNamespace) {
+      lines.push(`namespace ${nativeNamespace} {`);
+    }
+    const symbols = uniqueSymbols([...(aliases.get(nativeNamespace)?.values() ?? [])]);
+    for (const symbol of symbols) {
+      const targetName = symbol.symbolKind === "class"
+        ? emitClassForwardDeclName(symbol)
+        : emitIdentifierSafe(symbol.name);
+      lines.push(`using ${emitIdentifierSafe(symbol.name)} = ${emitQualifiedSymbolName(symbol, targetName)};`);
+    }
+    if (nativeNamespace) {
+      lines.push(`} // namespace ${nativeNamespace}`);
+    }
+  }
+  return lines;
+}
+
 function buildHeaderSurfaceClassKeySet(
   interfaceImpls: Map<string, ClassSymbol[]>,
   classified: ClassifiedStatements,
@@ -703,6 +1006,9 @@ function buildHeaderSurfaceClassKeySet(
 function collectCrossModuleClassForwardDecls(
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  streamAliases: Map<string, StreamAliasInfo>,
+  streamTypesForModule: Extract<ResolvedType, { kind: "stream" }>[],
 ): string[] {
   const symbols = new Map<string, ClassSymbol>();
 
@@ -727,16 +1033,50 @@ function collectCrossModuleClassForwardDecls(
     }
   }
 
+  // Interface aliases may reference implementors from modules that were not
+  // directly imported by this module, so include the concrete implementors of
+  // interfaces declared by this module as incomplete types.
+  for (const sym of table.symbols.values()) {
+    if (sym.symbolKind !== "interface" || sym.module !== table.path) continue;
+    for (const impl of interfaceImpls.get(`${sym.module}:${sym.name}`) ?? []) {
+      addSymbol(impl);
+    }
+  }
+
+  for (const streamType of streamTypesForModule) {
+    const aliasName = emitType(streamType);
+    const aliasInfo = streamAliases.get(aliasName);
+    for (const impl of aliasInfo?.impls ?? []) {
+      if (impl.isExtern || impl.modulePath === table.path) continue;
+      const sourceTable = analysisResult.modules.get(impl.modulePath);
+      const symbol = sourceTable?.symbols.get(impl.baseName);
+      if (symbol?.symbolKind === "class") {
+        addSymbol(symbol);
+      }
+    }
+  }
+
   const lines: string[] = [];
   const ordered = [...symbols.values()].sort((left, right) =>
     `${left.module}:${emitClassForwardDeclName(left)}`.localeCompare(`${right.module}:${emitClassForwardDeclName(right)}`),
   );
+  const symbolsByNamespace = new Map<string, ClassSymbol[]>();
   for (const symbol of ordered) {
-    const typeParams = symbol.declaration.typeParams;
-    if (typeParams.length > 0) {
-      lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
+    const namespace = emitModuleNamespace(symbol.module, analysisResult.modules);
+    const namespaceSymbols = symbolsByNamespace.get(namespace) ?? [];
+    namespaceSymbols.push(symbol);
+    symbolsByNamespace.set(namespace, namespaceSymbols);
+  }
+  for (const [namespace, namespaceSymbols] of symbolsByNamespace) {
+    lines.push(`namespace ${namespace} {`);
+    for (const symbol of namespaceSymbols) {
+      const typeParams = symbol.declaration.typeParams;
+      if (typeParams.length > 0) {
+        lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
+      }
+      lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
     }
-    lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
+    lines.push("}");
   }
   return lines;
 }
@@ -777,13 +1117,6 @@ function emitHpp(
   lines.push(`#include "doof_runtime.hpp"`);
   lines.push("");
 
-  if (plan.externIncludes.length > 0) {
-    for (const inc of plan.externIncludes) {
-      lines.push(inc);
-    }
-    lines.push("");
-  }
-
   if (plan.crossModuleForwardDecls.length > 0) {
     lines.push(...plan.crossModuleForwardDecls);
     lines.push("");
@@ -795,6 +1128,28 @@ function emitHpp(
     }
     lines.push("");
   }
+
+  if (plan.externInteropPredecls.length > 0) {
+    lines.push(...plan.externInteropPredecls);
+    lines.push("");
+  }
+
+  if (plan.externInteropPreAliases.length > 0) {
+    lines.push(...plan.externInteropPreAliases);
+    lines.push("");
+  }
+
+  if (plan.externIncludes.length > 0) {
+    for (const inc of plan.externIncludes) {
+      lines.push(inc);
+    }
+    lines.push("");
+  }
+
+  const moduleNamespace = emitModuleNamespace(table.path, analysisResult.modules);
+  const moduleNamespaceStart = lines.length;
+  lines.push(`namespace ${moduleNamespace} {`);
+  lines.push("");
 
   // Forward declarations for classes (needed before interface aliases)
   // Skip extern classes — their struct is defined in the external header.
@@ -854,7 +1209,7 @@ function emitHpp(
     const sym = getClassSymbolForDecl(table, cls.decl);
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-      classNameOverride: emitClassCppName(sym),
+      classNameOverride: emitLocalClassCppName(sym),
       emitMethodBodiesInline: cls.decl.typeParams.length > 0 ? true : false,
     };
     emitStatement(cls.decl as Statement, ctx);
@@ -865,11 +1220,11 @@ function emitHpp(
   for (const inst of plan.monomorphizedClassesForModule) {
     const sym = getClassSymbolForDecl(table, inst.decl);
     const typeSubstitution = buildClassTypeSubstitutionMap(inst.decl, inst.typeArgs);
-    const typeArgs = inst.typeArgs.map(emitType).join(", ");
+    const typeArgs = inst.typeArgs.map((typeArg) => emitType(typeArg, table.path)).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       typeSubstitution,
-      classNameOverride: `${emitClassCppName(sym)}<${typeArgs}>`,
+      classNameOverride: `${emitLocalClassCppName(sym)}<${typeArgs}>`,
       emitExplicitClassSpecialization: true,
       emitMethodBodiesInline: false,
     };
@@ -881,11 +1236,11 @@ function emitHpp(
   for (const inst of plan.monomorphizedClassesForModule) {
     const sym = getClassSymbolForDecl(table, inst.decl);
     const typeSubstitution = buildClassTypeSubstitutionMap(inst.decl, inst.typeArgs);
-    const typeArgs = inst.typeArgs.map(emitType).join(", ");
+    const typeArgs = inst.typeArgs.map((typeArg) => emitType(typeArg, table.path)).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       typeSubstitution,
-      classNameOverride: `${emitClassCppName(sym)}<${typeArgs}>`,
+      classNameOverride: `${emitLocalClassCppName(sym)}<${typeArgs}>`,
       emitExplicitClassSpecialization: true,
       forceInline: true,
     };
@@ -897,14 +1252,14 @@ function emitHpp(
     const ownerTypeSubstitution = buildClassTypeSubstitutionMap(inst.ownerDecl, inst.ownerTypeArgs);
     const methodTypeSubstitution = buildFunctionTypeSubstitutionMap(inst.methodDecl, inst.methodTypeArgs);
     const typeSubstitution = combineTypeSubstitutions(ownerTypeSubstitution, methodTypeSubstitution);
-    const ownerTypeArgs = inst.ownerTypeArgs.map(emitType).join(", ");
-    const methodTypeArgs = inst.methodTypeArgs.map(emitType).join(", ");
+    const ownerTypeArgs = inst.ownerTypeArgs.map((typeArg) => emitType(typeArg, table.path)).join(", ");
+    const methodTypeArgs = inst.methodTypeArgs.map((typeArg) => emitType(typeArg, table.path)).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       typeSubstitution,
       forceInline: true,
       suppressTemplatePrefix: true,
-      qualifiedFunctionName: `${emitClassCppName(ownerSym)}<${ownerTypeArgs}>::${emitIdentifierSafe(inst.methodDecl.name)}<${methodTypeArgs}>`,
+      qualifiedFunctionName: `${emitLocalClassCppName(ownerSym)}<${ownerTypeArgs}>::${emitIdentifierSafe(inst.methodDecl.name)}<${methodTypeArgs}>`,
     };
     lines.push("template<>");
     emitStatement(inst.methodDecl as Statement, ctx);
@@ -915,7 +1270,7 @@ function emitHpp(
   }
 
   for (const iface of plan.classified.interfaces) {
-    const impls = interfaceImpls.get(iface.decl.name);
+    const impls = interfaceImpls.get(`${table.path}:${iface.decl.name}`);
     if (!impls || !iface.decl.needsJson) continue;
     const allSerializable = impls.every((cls) =>
       cls.declaration.fields.every((field) => !field.resolvedType || isJSONSerializable(field.resolvedType)),
@@ -1000,6 +1355,26 @@ function emitHpp(
     lines.push("");
   }
 
+  lines.push(`} // namespace ${moduleNamespace}`);
+  if (lines.slice(moduleNamespaceStart + 1, lines.length - 1).every((line) => line.trim() === "")) {
+    lines.splice(moduleNamespaceStart, lines.length - moduleNamespaceStart);
+  }
+  lines.push("");
+
+  if (plan.externInteropPostAliases.length > 0) {
+    lines.push(...plan.externInteropPostAliases);
+    lines.push("");
+  }
+
+  for (const en of plan.classified.enums) {
+    const name = emitIdentifierSafe(en.decl.name);
+    const qualifiedName = `::${moduleNamespace}::${name}`;
+    lines.push(`template<> struct std::hash<${qualifiedName}> { size_t operator()(${qualifiedName} v) const noexcept { return hash<int>{}(static_cast<int>(v)); } };`);
+  }
+  if (plan.classified.enums.length > 0) {
+    lines.push("");
+  }
+
   // Trim trailing blank lines
   while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
     lines.pop();
@@ -1035,16 +1410,25 @@ function emitCppFile(
   // Include own header and runtime
   lines.push(`#include "${hppName}"`);
   lines.push(`#include "doof_runtime.hpp"`);
-  for (const dependencyModule of collectReferencedModulePaths(table)) {
+  for (const dependencyModule of collectCppReferencedModulePaths(table, analysisResult, monomorphizedClasses)) {
     lines.push(`#include "${modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)}"`);
   }
   lines.push("");
 
-  for (const [aliasName, info] of streamAliases) {
-    emitStreamNextHelperDefinition(aliasName, info, table, analysisResult, monomorphizedClasses, lines);
-    emitStreamValueHelperDefinition(aliasName, info, table, analysisResult, monomorphizedClasses, lines);
+  const moduleNamespace = emitModuleNamespace(table.path, analysisResult.modules);
+  const moduleNamespaceStart = lines.length;
+  lines.push(`namespace ${moduleNamespace} {`);
+  lines.push("");
+
+  const streamTypesForModule = collectUsedStreamTypesForModule(table, monomorphizedClasses);
+  for (const streamType of streamTypesForModule) {
+    const aliasName = emitType(streamType);
+    const info = streamAliases.get(aliasName);
+    if (!info) continue;
+    emitStreamNextHelperDefinition(aliasName, info, lines);
+    emitStreamValueHelperDefinition(aliasName, info, lines);
   }
-  if ([...streamAliases.values()].some((info) => findStreamHelperOwnerModule(info, analysisResult, monomorphizedClasses) === table.path)) {
+  if (streamTypesForModule.length > 0) {
     lines.push("");
   }
 
@@ -1087,7 +1471,7 @@ function emitCppFile(
   );
 
   for (const fn of nonExportedFns) {
-    lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls)};`);
+    lines.push(`static ${emitFunctionSignature(fn.decl, interfaceImpls, undefined, undefined, true, table.path)};`);
   }
   if (nonExportedFns.length > 0) {
     lines.push("");
@@ -1166,7 +1550,7 @@ function emitCppFile(
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       ...covCtx,
-      classNameOverride: emitClassCppName(sym),
+      classNameOverride: emitLocalClassCppName(sym),
     };
     emitClassMethodDefinitions(cls.decl, ctx);
     lines.push(...ctx.sourceLines);
@@ -1204,6 +1588,15 @@ function emitCppFile(
   const mainFn = classified.functions.find((fn) => fn.decl.name === "main");
   if (mainFn) {
     emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
+  }
+
+  lines.push(`} // namespace ${moduleNamespace}`);
+  if (lines.slice(moduleNamespaceStart + 1, lines.length - 1).every((line) => line.trim() === "")) {
+    lines.splice(moduleNamespaceStart, lines.length - moduleNamespaceStart);
+  }
+  lines.push("");
+
+  if (mainFn) {
     emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
     if (buildTarget?.kind !== "ios-app") {
       emitNativeMainWrapper(lines);
@@ -1236,7 +1629,7 @@ function emitCppOnlyClassDeclarations(
     const declCtx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       ...covCtx,
-      classNameOverride: emitClassCppName(sym),
+      classNameOverride: emitLocalClassCppName(sym),
       emitMethodBodiesInline: false,
     };
     emitStatement(cls.decl as Statement, declCtx);
@@ -1266,7 +1659,7 @@ function emitCppOnlyClassMethodDefinitions(
     const methodCtx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
       ...covCtx,
-      classNameOverride: emitClassCppName(sym),
+      classNameOverride: emitLocalClassCppName(sym),
     };
     emitClassMethodDefinitions(cls.decl, methodCtx);
     lines.push(...methodCtx.sourceLines);
@@ -1348,22 +1741,22 @@ function emitExternCMainEntryWrapper(
   const initCalls = buildInitOrder(table, analysisResult);
   for (const modPath of initCalls) {
     const initName = modulePathToInitName(modPath, baseDir);
-    lines.push(`    ${initName}();`);
+    lines.push(`    ${emitQualifiedHelperName(modPath, initName, analysisResult.modules)}();`);
   }
 
   if (hasArgs) {
     lines.push("    auto args = std::make_shared<std::vector<std::string>>(argv, argv + argc);");
     if (returnsInt) {
-      lines.push("    return static_cast<int>(doof_main(args));");
+      lines.push(`    return static_cast<int>(${emitQualifiedHelperName(table.path, "doof_main", analysisResult.modules)}(args));`);
     } else {
-      lines.push("    doof_main(args);");
+      lines.push(`    ${emitQualifiedHelperName(table.path, "doof_main", analysisResult.modules)}(args);`);
       lines.push("    return 0;");
     }
   } else {
     if (returnsInt) {
-      lines.push("    return static_cast<int>(doof_main());");
+      lines.push(`    return static_cast<int>(${emitQualifiedHelperName(table.path, "doof_main", analysisResult.modules)}());`);
     } else {
-      lines.push("    doof_main();");
+      lines.push(`    ${emitQualifiedHelperName(table.path, "doof_main", analysisResult.modules)}();`);
       lines.push("    return 0;");
     }
   }
@@ -1502,26 +1895,32 @@ function emitFunctionSignature(
   nameOverride?: string,
   typeSubstitution?: Map<string, ResolvedType>,
   includeDefaults = true,
+  currentModulePath?: string,
 ): string {
   const name = emitIdentifierSafe(nameOverride ?? decl.name);
   const resolvedType = decl.resolvedType && typeSubstitution
     ? substituteTypeParams(decl.resolvedType, typeSubstitution)
     : decl.resolvedType;
   const retType = resolvedType && resolvedType.kind === "function"
-    ? emitType(resolvedType.returnType)
+    ? emitType(resolvedType.returnType, currentModulePath)
     : "auto";
-  const params = decl.params.map((p) => emitParamSignature(p, typeSubstitution, includeDefaults)).join(", ");
+  const params = decl.params.map((p) => emitParamSignature(p, typeSubstitution, includeDefaults, currentModulePath)).join(", ");
   return `${retType} ${name}(${params})`;
 }
 
-function emitParamSignature(param: Parameter, typeSubstitution?: Map<string, ResolvedType>, includeDefault = true): string {
+function emitParamSignature(
+  param: Parameter,
+  typeSubstitution?: Map<string, ResolvedType>,
+  includeDefault = true,
+  currentModulePath?: string,
+): string {
   const resolvedType = param.resolvedType && typeSubstitution
     ? substituteTypeParams(param.resolvedType, typeSubstitution)
     : param.resolvedType;
-  const pType = resolvedType ? emitType(resolvedType) : "auto";
+  const pType = resolvedType ? emitType(resolvedType, currentModulePath) : "auto";
   const name = emitIdentifierSafe(param.name);
   if (includeDefault && param.defaultValue) {
-    const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined);
+    const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined, currentModulePath);
     return `${pType} ${name} = ${defaultVal}`;
   }
   return `${pType} ${name}`;
@@ -1611,32 +2010,19 @@ function emitInterfaceAliasHpp(
   ctx: EmitContext,
 ): void {
   const name = emitIdentifierSafe(decl.name);
-  const impls = ctx.interfaceImpls.get(decl.name);
+  const impls = ctx.interfaceImpls.get(`${ctx.module.path}:${decl.name}`);
   if (impls && impls.length > 0) {
     // Deduplicate implementors by C++ identity (same class may be collected from multiple modules).
     const seen = new Set<string>();
     const uniqueImpls = impls.filter((cls) => {
-      const cppName = emitClassCppName(cls);
+      const cppName = emitClassCppName(cls, ctx.module.path);
       if (seen.has(cppName)) return false;
       seen.add(cppName);
       return true;
     });
 
-    // Forward-declare cross-module implementors that aren't locally declared.
-    // std::shared_ptr<T> only needs a forward declaration of T, not a full definition.
-    const localClassNames = new Set<string>();
-    for (const [symName, sym] of ctx.module.symbols) {
-      if (sym.symbolKind === "class") localClassNames.add(symName);
-    }
-    for (const cls of uniqueImpls) {
-      if (cls.extern_) continue;
-      if (!localClassNames.has(cls.name)) {
-        ctx.sourceLines.push(`struct ${emitClassForwardDeclName(cls)};`);
-      }
-    }
-
     const variants = uniqueImpls
-      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }))
+      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }, ctx.module.path))
       .join(", ");
     ctx.sourceLines.push(`using ${name} = std::variant<${variants}>;`);
   } else {
@@ -1651,23 +2037,14 @@ function emitStreamAliasHpp(
   lines: string[],
 ): void {
   const { impls, streamType } = aliasInfo;
-  const localClassNames = new Set<string>();
-  for (const [symName, sym] of table.symbols) {
-    if (sym.symbolKind === "class") localClassNames.add(symName);
-  }
 
-  const seen = new Set<string>();
-  for (const cls of impls) {
-    if (localClassNames.has(cls.baseName)) continue;
-    if (cls.isExtern) continue;
-    if (cls.cppTypeName.includes("<")) continue;
-    if (seen.has(cls.cppTypeName)) continue;
-    seen.add(cls.cppTypeName);
-    lines.push(`struct ${cls.cppTypeName};`);
-  }
-
-  const guardName = `DOOF_STREAM_ALIAS_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
-  const variants = impls.map((cls) => `std::shared_ptr<${cls.cppTypeName}>`).join(", ");
+  const moduleNamespace = table.emittedCppNamespace ?? emitModuleNamespace(table.path);
+  const guardName = `DOOF_STREAM_ALIAS_${moduleNamespace.toUpperCase().replace(/::/g, "_")}_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
+  const localPrefix = `::${moduleNamespace}::`;
+  const variants = impls
+    .map((cls) => cls.modulePath === table.path ? cls.cppTypeName.replace(localPrefix, "") : cls.cppTypeName)
+    .map((cppTypeName) => `std::shared_ptr<${cppTypeName}>`)
+    .join(", ");
   const nextHelperName = emitStreamNextHelperName(aliasName);
   const valueHelperName = emitStreamValueHelperName(aliasName);
   const valueType = emitType(streamType.elementType);
@@ -1691,15 +2068,8 @@ function emitStreamAliasHpp(
 function emitStreamNextHelperDefinition(
   aliasName: string,
   aliasInfo: StreamAliasInfo,
-  table: ModuleSymbolTable,
-  analysisResult: AnalysisResult,
-  monomorphizedClasses: Map<string, GenericClassInstantiation>,
   lines: string[],
 ): void {
-  if (findStreamHelperOwnerModule(aliasInfo, analysisResult, monomorphizedClasses) !== table.path) {
-    return;
-  }
-
   const helperName = emitStreamNextHelperName(aliasName);
   lines.push(`bool ${helperName}(const ${aliasName}& stream) {`);
   lines.push(`    return std::visit([](auto&& _obj) { return _obj->next(); }, stream);`);
@@ -1710,15 +2080,8 @@ function emitStreamNextHelperDefinition(
 function emitStreamValueHelperDefinition(
   aliasName: string,
   aliasInfo: StreamAliasInfo,
-  table: ModuleSymbolTable,
-  analysisResult: AnalysisResult,
-  monomorphizedClasses: Map<string, GenericClassInstantiation>,
   lines: string[],
 ): void {
-  if (findStreamHelperOwnerModule(aliasInfo, analysisResult, monomorphizedClasses) !== table.path) {
-    return;
-  }
-
   const helperName = emitStreamValueHelperName(aliasName);
   const valueType = emitType(aliasInfo.streamType.elementType);
   lines.push(`${valueType} ${helperName}(const ${aliasName}& stream) {`);
@@ -1791,7 +2154,7 @@ function emitInitFunction(
     // Don't call our own init recursively
     if (depPath === table.path) continue;
     const depInitName = modulePathToInitName(depPath, baseDir);
-    lines.push(`    ${depInitName}();`);
+    lines.push(`    ${emitQualifiedHelperName(depPath, depInitName, analysisResult.modules)}();`);
   }
 
   // Initialize readonly globals
@@ -1875,6 +2238,289 @@ function collectReferencedModulePaths(table: ModuleSymbolTable): string[] {
   }
 
   return [...dependencies];
+}
+
+function collectCppReferencedModulePaths(
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  monomorphizedClasses: Map<string, GenericClassInstantiation>,
+): string[] {
+  const dependencies = new Set(collectReferencedModulePaths(table));
+  for (const dependencyModule of collectMemberAccessModulePaths(table)) {
+    dependencies.add(dependencyModule);
+  }
+
+  const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
+  for (const streamType of collectUsedStreamTypesForModule(table, monomorphizedClasses)) {
+    const aliasName = emitType(streamType);
+    for (const impl of streamAliases.get(aliasName)?.impls ?? []) {
+      if (!impl.isExtern && impl.modulePath !== table.path) {
+        dependencies.add(impl.modulePath);
+      }
+    }
+  }
+  return [...dependencies];
+}
+
+function collectMemberAccessModulePaths(table: ModuleSymbolTable): string[] {
+  const dependencies = new Set<string>();
+  for (const stmt of table.program.statements) {
+    collectMemberAccessModulePathsFromStatement(stmt, table.path, dependencies);
+  }
+  return [...dependencies];
+}
+
+function collectMemberAccessModulePathsFromStatement(
+  stmt: Statement,
+  currentModulePath: string,
+  dependencies: Set<string>,
+): void {
+  switch (stmt.kind) {
+    case "const-declaration":
+    case "readonly-declaration":
+    case "immutable-binding":
+    case "let-declaration":
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      break;
+    case "function-declaration":
+      for (const param of stmt.params) {
+        if (param.defaultValue) {
+          collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies);
+        }
+      }
+      if (stmt.body.kind === "block") {
+        for (const inner of stmt.body.statements) {
+          collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        }
+      } else {
+        collectMemberAccessModulePathsFromExpression(stmt.body, currentModulePath, dependencies);
+      }
+      break;
+    case "class-declaration":
+      for (const field of stmt.fields) {
+        if (field.defaultValue) {
+          collectMemberAccessModulePathsFromExpression(field.defaultValue, currentModulePath, dependencies);
+        }
+      }
+      for (const method of stmt.methods) {
+        collectMemberAccessModulePathsFromStatement(method, currentModulePath, dependencies);
+      }
+      break;
+    case "if-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      for (const elseIf of stmt.elseIfs) {
+        collectMemberAccessModulePathsFromExpression(elseIf.condition, currentModulePath, dependencies);
+        for (const inner of elseIf.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      }
+      if (stmt.else_) {
+        for (const inner of stmt.else_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      }
+      break;
+    case "while-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      if (stmt.then_) {
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      }
+      break;
+    case "for-statement":
+      if (stmt.init) collectMemberAccessModulePathsFromStatement(stmt.init, currentModulePath, dependencies);
+      if (stmt.condition) collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
+      for (const update of stmt.update) collectMemberAccessModulePathsFromExpression(update, currentModulePath, dependencies);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      if (stmt.then_) {
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      }
+      break;
+    case "for-of-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.iterable, currentModulePath, dependencies);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      if (stmt.then_) {
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      }
+      break;
+    case "with-statement":
+      for (const binding of stmt.bindings) {
+        collectMemberAccessModulePathsFromExpression(binding.value, currentModulePath, dependencies);
+      }
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      break;
+    case "return-statement":
+      if (stmt.value) collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      break;
+    case "yield-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      break;
+    case "expression-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.expression, currentModulePath, dependencies);
+      break;
+    case "export-declaration":
+      collectMemberAccessModulePathsFromStatement(stmt.declaration, currentModulePath, dependencies);
+      break;
+    case "block":
+      for (const inner of stmt.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      break;
+    case "case-statement":
+      collectMemberAccessModulePathsFromExpression(stmt.subject, currentModulePath, dependencies);
+      for (const arm of stmt.arms) {
+        if (arm.body.kind === "block") {
+          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        } else {
+          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies);
+        }
+      }
+      break;
+    case "array-destructuring":
+    case "positional-destructuring":
+    case "named-destructuring":
+    case "array-destructuring-assignment":
+    case "positional-destructuring-assignment":
+    case "named-destructuring-assignment":
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      break;
+    case "try-statement":
+      collectMemberAccessModulePathsFromStatement(stmt.binding, currentModulePath, dependencies);
+      break;
+    default:
+      break;
+  }
+}
+
+function collectMemberAccessModulePathsFromExpression(
+  expr: Expression,
+  currentModulePath: string,
+  dependencies: Set<string>,
+): void {
+  switch (expr.kind) {
+    case "binary-expression":
+      collectMemberAccessModulePathsFromExpression(expr.left, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.right, currentModulePath, dependencies);
+      break;
+    case "unary-expression":
+      collectMemberAccessModulePathsFromExpression(expr.operand, currentModulePath, dependencies);
+      break;
+    case "assignment-expression":
+      collectMemberAccessModulePathsFromExpression(expr.target, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.value, currentModulePath, dependencies);
+      break;
+    case "member-expression":
+    case "qualified-member-expression":
+      collectConcreteMemberObjectModulePaths(expr.object.resolvedType, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies);
+      break;
+    case "index-expression":
+      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.index, currentModulePath, dependencies);
+      break;
+    case "call-expression":
+      collectMemberAccessModulePathsFromExpression(expr.callee, currentModulePath, dependencies);
+      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg.value, currentModulePath, dependencies);
+      break;
+    case "array-literal":
+    case "tuple-literal":
+      for (const element of expr.elements) collectMemberAccessModulePathsFromExpression(element, currentModulePath, dependencies);
+      break;
+    case "object-literal":
+      for (const property of expr.properties) {
+        if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies);
+      }
+      if (expr.spread) collectMemberAccessModulePathsFromExpression(expr.spread, currentModulePath, dependencies);
+      break;
+    case "map-literal":
+      for (const entry of expr.entries) {
+        collectMemberAccessModulePathsFromExpression(entry.key, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(entry.value, currentModulePath, dependencies);
+      }
+      break;
+    case "lambda-expression":
+      for (const param of expr.params) {
+        if (param.defaultValue) collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies);
+      }
+      if (expr.body.kind === "block") {
+        for (const inner of expr.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      } else {
+        collectMemberAccessModulePathsFromExpression(expr.body, currentModulePath, dependencies);
+      }
+      break;
+    case "if-expression":
+      collectMemberAccessModulePathsFromExpression(expr.condition, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.then, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.else_, currentModulePath, dependencies);
+      break;
+    case "case-expression":
+      collectMemberAccessModulePathsFromExpression(expr.subject, currentModulePath, dependencies);
+      for (const arm of expr.arms) {
+        if (arm.body.kind === "block") {
+          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        } else {
+          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies);
+        }
+      }
+      break;
+    case "construct-expression":
+      if (expr.named) {
+        for (const property of expr.args as import("./ast.js").ObjectProperty[]) {
+          if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies);
+        }
+      } else {
+        for (const arg of expr.args as Expression[]) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies);
+      }
+      break;
+    case "string-literal":
+      for (const part of expr.parts) {
+        if (typeof part !== "string") collectMemberAccessModulePathsFromExpression(part, currentModulePath, dependencies);
+      }
+      break;
+    case "async-expression":
+      if (expr.expression.kind === "block") {
+        for (const inner of expr.expression.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      } else {
+        collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies);
+      }
+      break;
+    case "actor-creation-expression":
+      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies);
+      break;
+    case "catch-expression":
+      for (const inner of expr.body) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      break;
+    case "non-null-assertion":
+    case "as-expression":
+      collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies);
+      break;
+    default:
+      break;
+  }
+}
+
+function collectConcreteMemberObjectModulePaths(
+  type: ResolvedType | undefined,
+  currentModulePath: string,
+  dependencies: Set<string>,
+): void {
+  if (!type || isJsonValueType(type)) return;
+  switch (type.kind) {
+    case "class":
+    case "interface":
+      if (type.symbol.module !== "<builtin>" && type.symbol.module !== currentModulePath) {
+        dependencies.add(type.symbol.module);
+      }
+      break;
+    case "union":
+      for (const inner of type.types) {
+        collectConcreteMemberObjectModulePaths(inner, currentModulePath, dependencies);
+      }
+      break;
+    case "weak":
+      collectConcreteMemberObjectModulePaths(type.inner, currentModulePath, dependencies);
+      break;
+    case "actor":
+      collectConcreteMemberObjectModulePaths(type.innerClass, currentModulePath, dependencies);
+      break;
+    default:
+      break;
+  }
 }
 
 // ============================================================================
@@ -2015,7 +2661,7 @@ function buildInterfaceImplMap(
       }
     }
 
-    impls.set(iface.name, implementing);
+    impls.set(`${iface.module}:${iface.name}`, implementing);
   }
 
   return impls;
@@ -2064,7 +2710,7 @@ function buildStreamImplMap(
       if (!isAssignableTo(classType, streamType)) continue;
       impls.push({
         baseName: inst.decl.name,
-        cppTypeName: `${emitClassCppName(instSymbol)}<${inst.typeArgs.map(emitType).join(", ")}>`,
+        cppTypeName: `${emitClassCppName(instSymbol)}<${inst.typeArgs.map((typeArg) => emitType(typeArg, inst.modulePath)).join(", ")}>`,
         modulePath: inst.modulePath,
         isExtern: false,
       });

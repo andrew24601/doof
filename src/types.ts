@@ -73,6 +73,8 @@ export interface ClassSymbol {
   };
   /** Optional generated C++ identity for private classes that must be header-visible. */
   emittedCppName?: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 export interface InterfaceSymbol {
@@ -81,6 +83,8 @@ export interface InterfaceSymbol {
   declaration: InterfaceDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 export interface EnumSymbol {
@@ -89,6 +93,8 @@ export interface EnumSymbol {
   declaration: EnumDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 export interface TypeAliasSymbol {
@@ -97,6 +103,8 @@ export interface TypeAliasSymbol {
   declaration: TypeAliasDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 export interface FunctionSymbol {
@@ -105,6 +113,8 @@ export interface FunctionSymbol {
   declaration: FunctionDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
   /** If set, this is an extern C/C++ function import. */
   extern_?: {
     /** Explicit header path (null = infer from function name). */
@@ -120,6 +130,8 @@ export interface ConstSymbol {
   declaration: ConstDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 export interface ReadonlySymbol {
@@ -128,6 +140,8 @@ export interface ReadonlySymbol {
   declaration: ReadonlyDeclaration;
   exported: boolean;
   module: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
 }
 
 // ============================================================================
@@ -170,6 +184,8 @@ export interface ResolvedNamespaceImport {
 export interface ModuleSymbolTable {
   /** Resolved absolute path of the module file. */
   path: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
   /** The parsed AST. */
   program: Program;
   /** Mock import directives declared in this module. */

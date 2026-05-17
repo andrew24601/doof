@@ -20,6 +20,7 @@ import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitTypeAnnotation } from "./emitter-decl.js";
+import { emitQualifiedHelperName, emitQualifiedSymbolName, emitSymbolReferenceName } from "./emitter-names.js";
 import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
@@ -38,7 +39,7 @@ function isVoidResultType(type: ResolvedType): type is Extract<ResolvedType, { k
   return type.kind === "result" && type.successType.kind === "void";
 }
 
-function getStaticClassMethodCall(memberExpr: MemberExpression): string | null {
+function getStaticClassMethodCall(memberExpr: MemberExpression, ctx: EmitContext): string | null {
   if (memberExpr.object.kind !== "identifier") return null;
 
   const binding = memberExpr.object.resolvedBinding;
@@ -51,14 +52,14 @@ function getStaticClassMethodCall(memberExpr: MemberExpression): string | null {
   );
   if (!method) return null;
 
-  const className = emitClassCppName(objectType.symbol);
+  const className = emitClassCppName(objectType.symbol, ctx.module.path);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
-function getQualifiedClassMethodCall(memberExpr: QualifiedMemberExpression): string | null {
+function getQualifiedClassMethodCall(memberExpr: QualifiedMemberExpression, ctx: EmitContext): string | null {
   const objectType = memberExpr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
-  const className = emitClassCppName(objectType.symbol);
+  const className = emitClassCppName(objectType.symbol, ctx.module.path);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
@@ -218,6 +219,17 @@ function specializeFunctionParamsForGenericConstructCall(
   }));
 }
 
+function emitMonomorphizedCallName(
+  name: string,
+  expr: CallExpression,
+): string {
+  const symbol = expr.resolvedGenericBinding?.symbol;
+  if (symbol?.symbolKind === "function") {
+    return emitQualifiedSymbolName(symbol, name);
+  }
+  return emitIdentifierSafe(name);
+}
+
 function emitIdentifierCallByName(
   name: string,
   args: string[],
@@ -260,11 +272,18 @@ function emitIdentifierCallByName(
   }
 
   const genericSuffix = genericTypeArgs && genericTypeArgs.length > 0
-    ? `<${genericTypeArgs.map(emitType).join(", ")}>`
+    ? `<${genericTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ")}>`
     : "";
   const externCppName = resolveExternFunctionCppName(name, ctx);
   if (externCppName) {
     return `${externCppName}${genericSuffix}(${joinedArgs})`;
+  }
+
+  const importedSymbol = binding?.kind === "import" && binding.symbol
+    ? binding.symbol
+    : ctx.module.imports.find((imp) => imp.localName === name)?.symbol;
+  if (importedSymbol) {
+    return `${emitSymbolReferenceName(importedSymbol)}${genericSuffix}(${joinedArgs})`;
   }
 
   return `${emitIdentifierSafe(name)}${genericSuffix}(${joinedArgs})`;
@@ -281,8 +300,8 @@ function emitExplicitGenericMethodCall(
   if (expr.callee.kind === "member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
     if (!objectType || objectType.kind !== "class") return null;
-    const staticMethod = getStaticClassMethodCall(expr.callee);
-    const typeArgs = methodTypeArgs.map(emitType).join(", ");
+    const staticMethod = getStaticClassMethodCall(expr.callee, ctx);
+    const typeArgs = methodTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ");
     if (staticMethod) {
       return `${staticMethod}<${typeArgs}>(${args})`;
     }
@@ -294,8 +313,8 @@ function emitExplicitGenericMethodCall(
   if (expr.callee.kind === "qualified-member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
     if (!objectType || objectType.kind !== "class") return null;
-    const className = emitClassCppName(objectType.symbol);
-    const typeArgs = methodTypeArgs.map(emitType).join(", ");
+    const className = emitClassCppName(objectType.symbol, ctx.module.path);
+    const typeArgs = methodTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ");
     return `${className}::${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
   }
 
@@ -304,8 +323,9 @@ function emitExplicitGenericMethodCall(
 
 function emitConcreteClassName(
   type: Extract<ResolvedType, { kind: "class" }>,
+  ctx: EmitContext,
 ): string {
-  return emitResolvedClassName(type);
+  return emitResolvedClassName(type, ctx.module.path);
 }
 
 function emitResultHelperCall(
@@ -322,14 +342,14 @@ function emitResultHelperCall(
   if (memberExpr.property === "map") {
     const resultType = expr.resolvedType;
     if (!resultType || resultType.kind !== "result") return null;
-    const resultCppType = emitType(resultType);
+    const resultCppType = emitType(resultType, ctx.module.path);
     return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); return ${resultCppType}::success(${arg0}(std::move(${tmp}.value()))); }()`;
   }
 
   if (memberExpr.property === "mapError") {
     const resultType = expr.resolvedType;
     if (!resultType || resultType.kind !== "result") return null;
-    const resultCppType = emitType(resultType);
+    const resultCppType = emitType(resultType, ctx.module.path);
     if (objectType.successType.kind === "void") {
       return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${arg0}(std::move(${tmp}.error()))); ${tmp}.value(); return ${resultCppType}::success(); }()`;
     }
@@ -339,7 +359,7 @@ function emitResultHelperCall(
   if (memberExpr.property === "andThen") {
     const resultType = expr.resolvedType;
     if (!resultType || resultType.kind !== "result") return null;
-    const resultCppType = emitType(resultType);
+    const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
     if (objectType.successType.kind === "void") {
       return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); ${tmp}.value(); auto ${nextTmp} = ${arg0}(); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
@@ -350,27 +370,27 @@ function emitResultHelperCall(
   if (memberExpr.property === "orElse") {
     const resultType = expr.resolvedType;
     if (!resultType || resultType.kind !== "result") return null;
-    const resultCppType = emitType(resultType);
+    const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
     return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) { auto ${nextTmp} = ${arg0}(std::move(${tmp}.error())); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); } return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
   }
 
   if (memberExpr.property === "unwrapOr") {
     const returnType = expr.resolvedType ?? objectType.successType;
-    const returnCppType = emitType(returnType);
+    const returnCppType = emitType(returnType, ctx.module.path);
     return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}; return std::move(${tmp}.value()); }()`;
   }
 
   if (memberExpr.property === "unwrapOrElse") {
     const returnType = expr.resolvedType ?? objectType.successType;
-    const returnCppType = emitType(returnType);
+    const returnCppType = emitType(returnType, ctx.module.path);
     return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}(std::move(${tmp}.error())); return std::move(${tmp}.value()); }()`;
   }
 
   if (memberExpr.property === "ok") {
     const returnType = expr.resolvedType;
     if (!returnType) return null;
-    const returnCppType = emitType(returnType);
+    const returnCppType = emitType(returnType, ctx.module.path);
     const nullValue = emitNullForType(returnType);
     return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${nullValue}; return std::move(${tmp}.value()); }()`;
   }
@@ -378,7 +398,7 @@ function emitResultHelperCall(
   if (memberExpr.property === "err") {
     const returnType = expr.resolvedType;
     if (!returnType) return null;
-    const returnCppType = emitType(returnType);
+    const returnCppType = emitType(returnType, ctx.module.path);
     const nullValue = emitNullForType(returnType);
     return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return std::move(${tmp}.error()); return ${nullValue}; }()`;
   }
@@ -401,7 +421,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     );
 
     if (monomorphizedName) {
-      return `${emitIdentifierSafe(monomorphizedName)}(${args.join(", ")})`;
+      return `${emitMonomorphizedCallName(monomorphizedName, expr)}(${args.join(", ")})`;
     }
 
     if (expr.callee.kind === "identifier") {
@@ -421,7 +441,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }));
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
-    const cppName = emitConcreteClassName(classType);
+    const cppName = emitConcreteClassName(classType, ctx);
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const args = buildConstructorFieldInfoListForClassType(classType).map((field) => {
       const prop = propMap.get(field.name);
@@ -472,16 +492,16 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
       if (isVoidResultType(resultType)) {
-        return `${emitType(resultType)}::success()`;
+        return `${emitType(resultType, ctx.module.path)}::success()`;
       }
-      return `${emitType(resultType)}::success(${args})`;
+      return `${emitType(resultType, ctx.module.path)}::success(${args})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
       if (isVoidResultType(fnRet)) {
-        return `${emitType(fnRet)}::success()`;
+        return `${emitType(fnRet, ctx.module.path)}::success()`;
       }
-      return `${emitType(fnRet)}::success(${args})`;
+      return `${emitType(fnRet, ctx.module.path)}::success(${args})`;
     }
     throw new Error("Success() call is missing Result type context during emission");
   }
@@ -490,11 +510,11 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   if (expr.callee.kind === "identifier" && expr.callee.name === "Failure" && isUnshadowedResultCtorCall(expr, "Failure")) {
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
-      return `${emitType(resultType)}::failure(${args})`;
+      return `${emitType(resultType, ctx.module.path)}::failure(${args})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
-      return `${emitType(fnRet)}::failure(${args})`;
+      return `${emitType(fnRet, ctx.module.path)}::failure(${args})`;
     }
     throw new Error("Failure() call is missing Result type context during emission");
   }
@@ -502,7 +522,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   if (calleeType && calleeType.kind === "class") {
     // Constructor call → std::make_shared<ClassName>(args...) or extern create(...)
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
-    const cppName = emitConcreteClassName(classType);
+    const cppName = emitConcreteClassName(classType, ctx);
     const fieldTypes = buildFieldTypeListForClassType(classType);
     const classPositionalValues = expr.args.map((arg, index) => {
       const targetType = index < fieldTypes.length ? fieldTypes[index] : undefined;
@@ -530,7 +550,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const staticMethod = getStaticClassMethodCall(memberExpr);
+    const staticMethod = getStaticClassMethodCall(memberExpr, ctx);
     if (staticMethod) {
       return `${staticMethod}(${args})`;
     }
@@ -609,13 +629,13 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
     // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)
     if (objType && objType.kind === "class" && memberExpr.property === "fromJsonValue") {
-      const className = emitClassCppName(objType.symbol);
+      const className = emitClassCppName(objType.symbol, ctx.module.path);
       return `${className}::fromJsonValue(${args})`;
     }
 
     // JSON serialization: Interface.fromJsonValue(value) → Interface_fromJsonValue(value) (free function)
     if (objType && objType.kind === "interface" && memberExpr.property === "fromJsonValue") {
-      return `${objType.symbol.name}_fromJsonValue(${args})`;
+      return `${emitQualifiedSymbolName(objType.symbol, `${objType.symbol.name}_fromJsonValue`)}(${args})`;
     }
 
     // Enum static methods: .fromName() → EnumName_fromName(), .fromValue() → EnumName_fromValue()
@@ -642,10 +662,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       const obj = emitExpression(memberExpr.object, ctx);
       const method = emitIdentifierSafe(memberExpr.property);
       if (memberExpr.property === "next" && !args) {
-        return `${emitStreamNextHelperName(emitType(objType))}(${obj})`;
+        return `${emitQualifiedHelperName(ctx.module.path, emitStreamNextHelperName(emitType(objType, ctx.module.path)), ctx.allModules)}(${obj})`;
       }
       if (memberExpr.property === "value" && !args) {
-        return `${emitStreamValueHelperName(emitType(objType))}(${obj})`;
+        return `${emitQualifiedHelperName(ctx.module.path, emitStreamValueHelperName(emitType(objType, ctx.module.path)), ctx.allModules)}(${obj})`;
       }
       if (args) {
         return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;
@@ -667,7 +687,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const staticMethod = getQualifiedClassMethodCall(memberExpr);
+    const staticMethod = getQualifiedClassMethodCall(memberExpr, ctx);
     if (staticMethod) {
       return `${staticMethod}(${args})`;
     }
@@ -680,7 +700,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   // Map known Doof runtime builtins to doof:: namespace
   if (expr.callee.kind === "identifier") {
     if (monomorphizedName) {
-      return `${emitIdentifierSafe(monomorphizedName)}(${args})`;
+      return `${emitMonomorphizedCallName(monomorphizedName, expr)}(${args})`;
     }
     return emitIdentifierCallByName(
       expr.callee.name,
@@ -724,7 +744,7 @@ function emitActorSyncCall(
 ): string {
   const obj = emitExpression(memberExpr.object, ctx);
   const method = emitIdentifierSafe(memberExpr.property);
-  const className = emitClassCppName(objType.innerClass.symbol);
+  const className = emitClassCppName(objType.innerClass.symbol, ctx.module.path);
 
   if (method === "stop") {
     return `${obj}->stop()`;
@@ -760,26 +780,26 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
       if (isVoidResultType(resultType)) {
-        return `${emitType(resultType)}::success()`;
+        return `${emitType(resultType, ctx.module.path)}::success()`;
       }
       const valueProp = props.find((p) => p.name === "value");
       if (!valueProp?.value) {
         throw new Error("Success { ... } is missing a value property during emission");
       }
       const val = emitExpression(valueProp.value, ctx);
-      return `${emitType(resultType)}::success(${val})`;
+      return `${emitType(resultType, ctx.module.path)}::success(${val})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
       if (isVoidResultType(fnRet)) {
-        return `${emitType(fnRet)}::success()`;
+        return `${emitType(fnRet, ctx.module.path)}::success()`;
       }
       const valueProp = props.find((p) => p.name === "value");
       if (!valueProp?.value) {
         throw new Error("Success { ... } is missing a value property during emission");
       }
       const val = emitExpression(valueProp.value, ctx);
-      return `${emitType(fnRet)}::success(${val})`;
+      return `${emitType(fnRet, ctx.module.path)}::success(${val})`;
     }
     throw new Error("Success { ... } is missing Result type context during emission");
   }
@@ -794,11 +814,11 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     const err = emitExpression(errorProp.value, ctx);
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
-      return `${emitType(resultType)}::failure(${err})`;
+      return `${emitType(resultType, ctx.module.path)}::failure(${err})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
-      return `${emitType(fnRet)}::failure(${err})`;
+      return `${emitType(fnRet, ctx.module.path)}::failure(${err})`;
     }
     throw new Error("Failure { ... } is missing Result type context during emission");
   }
@@ -814,12 +834,12 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   // Resolve the C++ class name and class symbol
   let typeName = emitIdentifierSafe(expr.type);
   if (sym) {
-    typeName = emitClassCppName(sym);
+    typeName = emitClassCppName(sym, ctx.module.path);
   }
 
   // Append generic type arguments: Box<int> → Box<int32_t>
   if (resolvedExprType?.kind === "class" && resolvedExprType.typeArgs && resolvedExprType.typeArgs.length > 0) {
-    const typeArgStrs = resolvedExprType.typeArgs.map(emitType);
+    const typeArgStrs = resolvedExprType.typeArgs.map((typeArg) => emitType(typeArg, ctx.module.path));
     typeName = `${typeName}<${typeArgStrs.join(", ")}>`;
   } else if (expr.typeArgs && expr.typeArgs.length > 0) {
     const typeArgStrs = expr.typeArgs.map((ta) => emitTypeAnnotation(ta, ctx));

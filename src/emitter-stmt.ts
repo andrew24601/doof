@@ -24,6 +24,7 @@ import type { EmitContext } from "./emitter-context.js";
 import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitStreamNextHelperName, emitStreamValueHelperName, resolveTypeAnnotation } from "./emitter-expr-utils.js";
+import { emitQualifiedHelperName } from "./emitter-names.js";
 import { emitYieldBlockIIFE } from "./emitter-expr-control.js";
 import {
   emitFunctionDecl,
@@ -123,7 +124,7 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
         // wrap in Result::success()
         const valType = substituteEmitType(stmt.value.resolvedType, ctx);
         if (fnRet && fnRet.kind === "result" && valType && valType.kind !== "result") {
-          const resultCppType = emitType(fnRet);
+          const resultCppType = emitType(fnRet, ctx.module.path);
           ctx.sourceLines.push(`${ind}return ${resultCppType}::success(${val});`);
         } else {
           ctx.sourceLines.push(`${ind}return ${val};`);
@@ -325,7 +326,7 @@ function emitCatchBinding(
   const ind = indent(ctx);
   const catchVar = `_catch_${ctx.tempCounter++}`;
   const resolvedType = catchExpr.resolvedType;
-  const cppType = resolvedType ? emitType(resolvedType) : "auto";
+  const cppType = resolvedType ? emitType(resolvedType, ctx.module.path) : "auto";
 
   // Determine the null initializer based on the emitted C++ type
   // std::optional<T> → std::nullopt
@@ -371,7 +372,7 @@ function emitConstDecl(
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
-  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const explicitCppType = stmt.type && declType ? emitType(declType, ctx.module.path) : null;
   const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
 
   // Emit description comment
@@ -386,7 +387,7 @@ function emitConstDecl(
   if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
   } else if (declType && isVariantUnionType(declType)) {
-    const cppType = emitType(declType);
+    const cppType = emitType(declType, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${cppType} ${name} = ${val};`);
   } else if (isConstexprValue(stmt.value)) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}constexpr auto ${name} = ${val};`);
@@ -408,7 +409,7 @@ function emitReadonlyDecl(
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
-  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const explicitCppType = stmt.type && declType ? emitType(declType, ctx.module.path) : null;
   const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
 
   // Emit description comment
@@ -421,7 +422,7 @@ function emitReadonlyDecl(
 
   // readonly on class types → shared_ptr<const T>
   if (declType && declType.kind === "class") {
-    const innerType = emitClassCppName(declType.symbol);
+    const innerType = emitClassCppName(declType.symbol, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
@@ -443,14 +444,14 @@ function emitImmutableBinding(
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
-  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const explicitCppType = stmt.type && declType ? emitType(declType, ctx.module.path) : null;
   const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
 
   // := → const auto (shallow immutable: binding can't change, pointee mutable)
   if (declType && declType.kind === "class") {
-    const cppType = emitType(declType);
+    const cppType = emitType(declType, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${cppType} ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
@@ -472,14 +473,14 @@ function emitLetDecl(
   const ind = indent(ctx);
   const name = emitIdentifierSafe(stmt.name);
   const declType = substituteEmitType(stmt.resolvedType, ctx);
-  const explicitCppType = stmt.type && declType ? emitType(declType) : null;
+  const explicitCppType = stmt.type && declType ? emitType(declType, ctx.module.path) : null;
   const linkagePrefix = ctx.internalLinkage && ctx.indent === 0 ? "static " : "";
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
 
   // Heap-box captured mutable variables so escaping lambdas don't dangle.
   if (ctx.capturedMutables?.has(stmt.name) && declType) {
-    const cppType = emitType(declType);
+    const cppType = emitType(declType, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}auto ${name} = std::make_shared<${cppType}>(${val});`);
     return;
   }
@@ -490,7 +491,7 @@ function emitLetDecl(
   if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}${explicitCppType} ${name} = ${val};`);
   } else if (declType && isVariantUnionType(declType)) {
-    const cppType = emitType(declType);
+    const cppType = emitType(declType, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}${cppType} ${name} = ${val};`);
   } else {
     ctx.sourceLines.push(`${ind}${linkagePrefix}auto ${name} = ${val};`);
@@ -560,7 +561,7 @@ function emitTryStatement(stmt: TryStatement, ctx: EmitContext): void {
     // Use the enclosing function's return type for the Result wrapping
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
-      const retType = emitType(fnRet);
+      const retType = emitType(fnRet, ctx.module.path);
       ctx.sourceLines.push(`${ind}if (${tmp}.isFailure()) return ${retType}::failure(std::move(${tmp}.error()));`);
     } else {
       // Fallback: use the RHS result type
@@ -619,21 +620,21 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
     case "const-declaration":
     case "readonly-declaration": {
       const name = emitIdentifierSafe(binding.name);
-      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType) : null;
+      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
       const qualifier = cppType ? `const ${cppType}` : "const auto";
       ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
       break;
     }
     case "immutable-binding": {
       const name = emitIdentifierSafe(binding.name);
-      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType) : null;
+      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
       const qualifier = cppType ? `const ${cppType}` : "const auto";
       ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
       break;
     }
     case "let-declaration": {
       const name = emitIdentifierSafe(binding.name);
-      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType) : null;
+      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
       const qualifier = cppType ?? "auto";
       ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
       break;
@@ -1015,7 +1016,7 @@ function emitVariantCaseStatementBranches(
 
       if (pattern.kind === "type-pattern") {
         const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
-        const cppType = emitType(resolvedType);
+        const cppType = emitType(resolvedType, ctx.module.path);
         condition = `std::holds_alternative<${cppType}>(${tmp})`;
         if (pattern.name !== "_") {
           bindingPrelude = `auto& ${emitIdentifierSafe(pattern.name)} = ${emitExtractNarrowedValue(tmp, subjectType, resolvedType, ctx)};`;
@@ -1182,9 +1183,9 @@ function emitForOfStatement(
     };
     const innerInd = indent(innerCtx);
 
-    ctx.sourceLines.push(`${innerInd}auto ${nextVar} = ${emitStreamNextHelperName(emitType(iterableType))}(${streamVar});`);
+    ctx.sourceLines.push(`${innerInd}auto ${nextVar} = ${emitQualifiedHelperName(ctx.module.path, emitStreamNextHelperName(emitType(iterableType, ctx.module.path)), ctx.allModules)}(${streamVar});`);
     ctx.sourceLines.push(`${innerInd}if (!${nextVar}) break;`);
-    ctx.sourceLines.push(`${innerInd}auto ${valueVar} = ${emitStreamValueHelperName(emitType(iterableType))}(${streamVar});`);
+    ctx.sourceLines.push(`${innerInd}auto ${valueVar} = ${emitQualifiedHelperName(ctx.module.path, emitStreamValueHelperName(emitType(iterableType, ctx.module.path)), ctx.allModules)}(${streamVar});`);
 
     if (stmt.bindings.length === 1) {
       const binding = emitIdentifierSafe(stmt.bindings[0]);
@@ -1252,10 +1253,10 @@ function emitWithStatement(stmt: WithStatement, ctx: EmitContext): void {
     const val = emitExpression(binding.value, innerCtx, declType);
 
     if (declType && declType.kind === "class") {
-      const cppType = emitType(declType);
+      const cppType = emitType(declType, ctx.module.path);
       innerCtx.sourceLines.push(`${innerInd}const ${cppType} ${name} = ${val};`);
     } else if (declType && isVariantUnionType(declType)) {
-      const cppType = emitType(declType);
+      const cppType = emitType(declType, ctx.module.path);
       innerCtx.sourceLines.push(`${innerInd}const ${cppType} ${name} = ${val};`);
     } else {
       innerCtx.sourceLines.push(`${innerInd}const auto ${name} = ${val};`);
@@ -1307,7 +1308,7 @@ function emitElseNarrowStatement(stmt: ElseNarrowStatement, ctx: EmitContext): v
 
   // Emit narrowed binding after else block
   if (narrowedType && subjectType) {
-    ctx.sourceLines.push(`${ind}${emitElseNarrowExtraction(safeName, tmp, subjectType)}`);
+    ctx.sourceLines.push(`${ind}${emitElseNarrowExtraction(safeName, tmp, subjectType, ctx.module.path)}`);
   } else {
     ctx.sourceLines.push(`${ind}auto& ${safeName} = ${tmp};`);
   }
@@ -1335,7 +1336,7 @@ function emitElseNarrowCondition(
       return `!${tmp}.has_value() || ${tmp}.value().isFailure()`;
     }
     // variant with monostate: Result | null → std::variant<std::monostate, Result<S,E>>
-    return `std::holds_alternative<std::monostate>(${tmp}) || std::get<${emitType(resultType)}>(${tmp}).isFailure()`;
+    return `std::holds_alternative<std::monostate>(${tmp}) || std::get<${emitType(resultType, _ctx.module.path)}>(${tmp}).isFailure()`;
   }
 
   if (resultType) {
@@ -1364,6 +1365,7 @@ function emitElseNarrowExtraction(
   name: string,
   tmp: string,
   subjectType: import("./checker-types.js").ResolvedType,
+  currentModulePath: string,
 ): string {
   const hasNull = typeHasNull(subjectType);
   const resultType = findResultType(subjectType);
@@ -1372,9 +1374,9 @@ function emitElseNarrowExtraction(
     // Result | null → extract from variant then unwrap Result value
     if (resultType.successType.kind === "class") {
       // Success type is a class (shared_ptr) — move it out
-      return `auto ${name} = std::move(std::get<${emitType(resultType)}>(${tmp}).value());`;
+      return `auto ${name} = std::move(std::get<${emitType(resultType, currentModulePath)}>(${tmp}).value());`;
     }
-    return `auto ${name} = std::get<${emitType(resultType)}>(${tmp}).value();`;
+    return `auto ${name} = std::get<${emitType(resultType, currentModulePath)}>(${tmp}).value();`;
   }
 
   if (resultType) {

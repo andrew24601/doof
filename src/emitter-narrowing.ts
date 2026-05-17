@@ -26,14 +26,14 @@ export function emitExtractNarrowedValue(
   }
 
   if (isMonostateNullable(sourceType)) {
-    return `std::get<${emitType(targetType)}>(${sourceExpr})`;
+    return `std::get<${emitType(targetType, _ctx.module.path)}>(${sourceExpr})`;
   }
 
   if (sourceType.kind === "interface" || sourceType.kind === "union") {
     if (targetType.kind === "interface") {
       return sourceExpr;
     }
-    return `std::get<${emitType(targetType)}>(${sourceExpr})`;
+    return `std::get<${emitType(targetType, _ctx.module.path)}>(${sourceExpr})`;
   }
 
   return sourceExpr;
@@ -51,7 +51,7 @@ export function emitAsNarrowExpression(
 
   const targetType = resultType.successType;
   const targetCpp = emitType(targetType);
-  const resultCpp = emitType(resultType);
+  const resultCpp = emitType(resultType, ctx.module.path);
 
   if (sourceType.kind === "result") {
     const sourceTmp = `_as_${ctx.tempCounter++}`;
@@ -91,7 +91,7 @@ export function emitAsNarrowExpression(
   }
 
   if (sourceType.kind === "interface" && targetType.kind === "class") {
-    const classCpp = emitType(targetType);
+    const classCpp = emitType(targetType, ctx.module.path);
     return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${classCpp}>(${tmp})) return ${resultCpp}::success(std::get<${classCpp}>(${tmp})); return ${resultCpp}::failure("Narrowing from ${escapeStringForCpp(sourceType.symbol.name)} to ${escapeStringForCpp(targetType.symbol.name)} failed"); }()`;
   }
 

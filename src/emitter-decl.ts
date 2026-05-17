@@ -19,6 +19,7 @@ import type {
 import type { ResolvedType } from "./checker-types.js";
 import { isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
 import { emitClassCppName, emitClassSharedPtrType, emitInnerType, emitType } from "./emitter-types.js";
+import { emitQualifiedSymbolName } from "./emitter-names.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import type { EmitContext } from "./emitter-context.js";
@@ -94,7 +95,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
 
   // Determine return type
   const retType = resolvedDeclType && resolvedDeclType.kind === "function"
-    ? emitType(resolvedDeclType.returnType)
+    ? emitType(resolvedDeclType.returnType, ctx.module.path)
     : "auto";
 
   // Build parameter list
@@ -167,7 +168,7 @@ export function emitFunctionPrototype(decl: FunctionDeclaration, ctx: EmitContex
   if (tpl) ctx.sourceLines.push(tpl);
 
   const retType = resolvedDeclType && resolvedDeclType.kind === "function"
-    ? emitType(resolvedDeclType.returnType)
+    ? emitType(resolvedDeclType.returnType, ctx.module.path)
     : "auto";
   const includeDefaults = ctx.emitParameterDefaults ?? true;
   const params = decl.params.map((p) => emitParam(p, ctx, includeDefaults)).join(", ");
@@ -177,10 +178,10 @@ export function emitFunctionPrototype(decl: FunctionDeclaration, ctx: EmitContex
 
 export function emitParam(param: Parameter, _ctx: EmitContext, includeDefault = true): string {
   const resolvedType = substituteEmitType(param.resolvedType, _ctx);
-  const pType = resolvedType ? emitType(resolvedType) : "auto";
+  const pType = resolvedType ? emitType(resolvedType, _ctx.module.path) : "auto";
   const name = emitIdentifierSafe(param.name);
   if (includeDefault && param.defaultValue) {
-    const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined);
+    const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined, _ctx.module.path);
     return `${pType} ${name} = ${defaultVal}`;
   }
   return `${pType} ${name}`;
@@ -222,7 +223,7 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
       ? method.resolvedType.mockCall
       : undefined;
     if (!mockCall) continue;
-    ctx.sourceLines.push(`${memberInd}std::shared_ptr<std::vector<${emitType(mockCall.captureType)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType)}>>();`);
+    ctx.sourceLines.push(`${memberInd}std::shared_ptr<std::vector<${emitType(mockCall.captureType, ctx.module.path)}>> ${mockCall.storageName} = std::make_shared<std::vector<${emitType(mockCall.captureType, ctx.module.path)}>>();`);
   }
 
   // Constructor from fields (non-const, non-static fields)
@@ -246,13 +247,13 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
         if (cf.field.weak_) {
           // weak fields get weak_ptr parameter type
           const innerName = resolvedFieldType?.kind === "class"
-            ? emitInnerType(resolvedFieldType)
+            ? emitInnerType(resolvedFieldType, ctx.module.path)
             : resolvedFieldType?.kind === "weak" && resolvedFieldType.inner.kind === "class"
-              ? emitInnerType(resolvedFieldType.inner)
+              ? emitInnerType(resolvedFieldType.inner, ctx.module.path)
               : "auto";
           fType = `std::weak_ptr<${innerName}>`;
         } else {
-          fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
+          fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
         }
         // Only emit a default if this field is in the trailing all-defaulted suffix
         if (idx > lastRequiredIdx && cf.field.defaultValue) {
@@ -353,7 +354,7 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
     }
 
     if (field.const_) {
-      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
       if (field.defaultValue) {
         const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}const ${fType} ${safeName} = ${val};`);
@@ -361,7 +362,7 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
         ctx.sourceLines.push(`${ind}const ${fType} ${safeName};`);
       }
     } else if (field.static_) {
-      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
       if (field.defaultValue) {
         const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}static inline ${fType} ${safeName} = ${val};`);
@@ -375,16 +376,16 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
       let innerType = "auto";
       if (resolvedFieldType) {
         if (resolvedFieldType.kind === "weak") {
-          innerType = emitInnerType(resolvedFieldType.inner);
+          innerType = emitInnerType(resolvedFieldType.inner, ctx.module.path);
         } else if (resolvedFieldType.kind === "class") {
-          innerType = emitInnerType(resolvedFieldType);
+          innerType = emitInnerType(resolvedFieldType, ctx.module.path);
         } else {
-          innerType = emitType(resolvedFieldType);
+          innerType = emitType(resolvedFieldType, ctx.module.path);
         }
       }
       ctx.sourceLines.push(`${ind}std::weak_ptr<${innerType}> ${safeName};`);
     } else {
-      const fType = resolvedFieldType ? emitType(resolvedFieldType) : "auto";
+      const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
       if (field.defaultValue) {
         const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}${fType} ${safeName} = ${val};`);
@@ -407,7 +408,7 @@ function emitMockRecordingPrelude(
     ? `this->${mockCall.storageName}`
     : mockCall.storageName;
   const args = decl.params.map((param) => emitIdentifierSafe(param.name)).join(", ");
-  const captureType = emitType(mockCall.captureType);
+  const captureType = emitType(mockCall.captureType, ctx.module.path);
   if (args.length > 0) {
     ctx.sourceLines.push(`${ind}${storageRef}->push_back(${captureType}{${args}});`);
     return;
@@ -429,10 +430,10 @@ export function emitInterfaceDecl(decl: InterfaceDeclaration, ctx: EmitContext):
   }
 
   // Look up implementing classes from the pre-computed map
-  const impls = ctx.interfaceImpls.get(decl.name);
+  const impls = ctx.interfaceImpls.get(`${ctx.module.path}:${decl.name}`);
   if (impls && impls.length > 0) {
     const variants = impls
-      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }))
+      .map((cls) => emitClassSharedPtrType({ kind: "class", symbol: cls }, ctx.module.path))
       .join(", ");
     ctx.sourceLines.push(`${ind}using ${name} = std::variant<${variants}>;`);
 
@@ -520,9 +521,6 @@ export function emitEnumDecl(decl: EnumDeclaration, ctx: EmitContext): void {
   ctx.sourceLines.push(`${ind}    return _os << ${name}_name(_v);`);
   ctx.sourceLines.push(`${ind}}`);
 
-  // Emit std::hash specialization so enums can be used as Map keys
-  ctx.sourceLines.push("");
-  ctx.sourceLines.push(`namespace std { template<> struct hash<${name}> { size_t operator()(${name} v) const noexcept { return hash<int>{}(static_cast<int>(v)); } }; }`);
 }
 
 // ============================================================================
@@ -596,10 +594,10 @@ export function emitTypeAnnotation(
       if (typeAnn.resolvedSymbol) {
         const sym = typeAnn.resolvedSymbol;
         if (sym.symbolKind === "class") {
-          return `std::shared_ptr<${emitClassCppName(sym)}>`;
+          return `std::shared_ptr<${emitClassCppName(sym, ctx.module.path)}>`;
         }
-        // Interface/enum — use name directly (alias was already emitted)
-        return sym.name;
+        // Interface/enum/type alias — refer to the defining module namespace.
+        return emitQualifiedSymbolName(sym);
       }
 
       // Fallback: use name directly
@@ -624,7 +622,7 @@ export function emitTypeAnnotation(
       if (hasNull && nonNull.length === 1) {
         const inner = nonNull[0];
         if (inner.kind === "named-type" && inner.resolvedSymbol?.symbolKind === "class") {
-          return `std::shared_ptr<${emitClassCppName(inner.resolvedSymbol)}>`;
+          return `std::shared_ptr<${emitClassCppName(inner.resolvedSymbol, ctx.module.path)}>`;
         }
         return `std::optional<${emitTypeAnnotation(inner, ctx)}>`;
       }

@@ -71,6 +71,39 @@ Validation anchors:
 
 ## Functions, Lambdas, and Generic Calls
 
+### Module Identity and Cross-Module References
+
+Strategy:
+
+- every generated Doof module lowers into a deterministic logical C++ namespace:
+  project-local modules use their root-package-relative path, while dependency
+  modules use `lib::<dependency-package-name>::...` from the dependency's
+  `doof.json`
+- cross-module calls, values, and type references use the canonical defining-module namespace rather than import aliases
+- module-local declarations and references keep local C++ spellings within their owning namespace, so qualification marks a real module boundary rather than merely adding noise
+- lossy namespace-component sanitisation is validated up front, so sibling
+  source names such as `foo-bar` and `foo_bar` are rejected instead of being
+  silently disambiguated with generated suffixes
+- namespace-member lowering consumes checker decoration for the resolved exported symbol instead of re-resolving raw syntax during emission
+- re-exported names lower directly to the original defining symbol; extern C++ symbols keep their native `cppName`
+- native interop receives only scoped bridge aliases for the Doof types required by native headers; those aliases are an ABI aid, not a second generated module surface
+- when an exported generated type is part of a native interop surface, its own
+  header also exposes the concrete field dependencies native code may dereference
+  directly; ordinary Doof-only headers still prefer forward declarations
+
+Primary modules:
+
+- `src/emitter-names.ts`
+- `src/emitter-module.ts`
+- `src/emitter-expr.ts`
+- `src/checker-expr.ts`
+
+Validation anchors:
+
+- `src/emitter-modules.test.ts`
+- `src/emitter-e2e-modules.test.ts`
+- `spec/11-modules.md`
+
 ### Functions and Methods
 
 Strategy:

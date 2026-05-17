@@ -18,8 +18,9 @@ import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitPanicAt, emitPanicLocationArgs } from "./emitter-panic.js";
+import { emitQualifiedSymbolName, emitSymbolReferenceName } from "./emitter-names.js";
 
-function getNamedClassStaticAccess(expr: MemberExpression): string | null {
+function getNamedClassStaticAccess(expr: MemberExpression, ctx: EmitContext): string | null {
   if (expr.object.kind !== "identifier") return null;
 
   const binding = expr.object.resolvedBinding;
@@ -27,7 +28,7 @@ function getNamedClassStaticAccess(expr: MemberExpression): string | null {
   if (!objectType || objectType.kind !== "class") return null;
   if (binding?.kind !== "class" && binding?.kind !== "import") return null;
 
-  const className = emitClassCppName(objectType.symbol);
+  const className = emitClassCppName(objectType.symbol, ctx.module.path);
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }
@@ -57,7 +58,7 @@ function getNamedInterfaceStaticAccess(expr: MemberExpression): string | null {
   if (!objectType || objectType.kind !== "interface") return null;
   if (binding?.kind !== "interface") return null;
   if (expr.property !== "fromJsonValue") return null;
-  return `${objectType.symbol.name}_fromJsonValue`;
+  return emitQualifiedSymbolName(objectType.symbol, `${objectType.symbol.name}_fromJsonValue`);
 }
 
 function getNamedTypeAliasStaticAccess(expr: MemberExpression): string | null {
@@ -66,13 +67,13 @@ function getNamedTypeAliasStaticAccess(expr: MemberExpression): string | null {
   const binding = expr.object.resolvedBinding;
   if (expr.property !== "fromJsonValue") return null;
   if (binding?.symbol?.symbolKind !== "type-alias") return null;
-  return `${binding.symbol.name}_fromJsonValue`;
+  return emitQualifiedSymbolName(binding.symbol, `${binding.symbol.name}_fromJsonValue`);
 }
 
-function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression): string | null {
+function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression, ctx: EmitContext): string | null {
   const objectType = expr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
-  const className = emitClassCppName(objectType.symbol);
+  const className = emitClassCppName(objectType.symbol, ctx.module.path);
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
   }
@@ -102,7 +103,7 @@ function getQualifiedTypeAliasStaticAccess(expr: QualifiedMemberExpression): str
   const binding = expr.object.resolvedBinding;
   if (expr.property !== "fromJsonValue") return null;
   if (binding?.symbol?.symbolKind !== "type-alias") return null;
-  return `${binding.symbol.name}_fromJsonValue`;
+  return emitQualifiedSymbolName(binding.symbol, `${binding.symbol.name}_fromJsonValue`);
 }
 
 function isClassMetadataUnion(type: ResolvedType | undefined): type is Extract<ResolvedType, { kind: "union" }> {
@@ -269,7 +270,7 @@ export function emitUnaryExpression(expr: UnaryExpression, ctx: EmitContext): st
         if (operandType.successType.kind === "void") {
           return `[&]() -> void { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
         }
-        const valType = emitType(operandType.successType);
+        const valType = emitType(operandType.successType, ctx.module.path);
         return `[&]() -> ${valType} { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
       }
       return `[&]() { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed"`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
@@ -281,7 +282,7 @@ export function emitUnaryExpression(expr: UnaryExpression, ctx: EmitContext): st
         if (operandType.successType.kind === "void") {
           throw new Error("try? on Result<void, E> should be rejected by the checker");
         }
-        const valType = emitType(operandType.successType);
+        const valType = emitType(operandType.successType, ctx.module.path);
         return `[&]() -> std::optional<${valType}> { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) return std::nullopt; return std::move(${tmp}.value()); }()`;
       }
       return `[&]() -> std::optional<decltype(${operand}.value())> { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) return std::nullopt; return std::move(${tmp}.value()); }()`;
@@ -405,9 +406,11 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     }
   }
 
-  // Namespace import: emit just the property name
+  // Namespace import: emit the canonical defining-module symbol.
   if (objType && objType.kind === "namespace") {
-    return prop;
+    return expr.resolvedNamespaceMemberSymbol
+      ? emitSymbolReferenceName(expr.resolvedNamespaceMemberSymbol)
+      : prop;
   }
 
   // Enum instance properties
@@ -424,7 +427,7 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     return emitEnumVariantAccess(objType, prop);
   }
 
-  const staticClassAccess = getNamedClassStaticAccess(expr);
+  const staticClassAccess = getNamedClassStaticAccess(expr, ctx);
   if (staticClassAccess) {
     return staticClassAccess;
   }
@@ -452,7 +455,7 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
   if (isClassMetadataUnion(objType)) {
     const object = emitExpression(expr.object, ctx);
     if (expr.resolvedType && expr.resolvedType.kind === "union") {
-      const resultType = emitType(expr.resolvedType);
+      const resultType = emitType(expr.resolvedType, ctx.module.path);
       return `std::visit([](auto&& _meta) -> ${resultType} { return ${resultType}{_meta.${prop}}; }, ${object})`;
     }
     return `std::visit([](auto&& _meta) { return _meta.${prop}; }, ${object})`;
@@ -548,7 +551,7 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
 }
 
 export function emitQualifiedMemberExpression(expr: QualifiedMemberExpression, ctx: EmitContext): string {
-  const classStaticAccess = getQualifiedClassStaticAccess(expr);
+  const classStaticAccess = getQualifiedClassStaticAccess(expr, ctx);
   if (classStaticAccess) {
     return classStaticAccess;
   }
@@ -562,7 +565,7 @@ export function emitQualifiedMemberExpression(expr: QualifiedMemberExpression, c
   if (objType && objType.kind === "interface") {
     if (expr.property === "metadata" && expr.resolvedType) {
       const object = emitExpression(expr.object, ctx);
-      const resultType = emitType(expr.resolvedType);
+      const resultType = emitType(expr.resolvedType, ctx.module.path);
       return `std::visit([](auto&& _obj) -> ${resultType} { using _doof_cls = std::remove_reference_t<decltype(*_obj)>; return ${resultType}{_doof_cls::_metadata}; }, ${object})`;
     }
     throw new Error(`Qualified interface static member "${expr.property}" must be emitted in call position`);
@@ -585,13 +588,13 @@ export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): st
 
   if (expr.optional) {
     if (arrayType) {
-      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::array_at(${object}, ${index}, ${locationArgs}))`;
+      const resultType = expr.resolvedType ? emitType(expr.resolvedType, ctx.module.path) : `decltype(doof::array_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const arrayObject = objType && isOptionalNullable(objType) ? `*${object}` : object;
       return `[&]() -> ${resultType} { if (${object}) return doof::array_at(${arrayObject}, ${index}, ${locationArgs}); return ${nullValue}; }()`;
     }
     if (mapType) {
-      const resultType = expr.resolvedType ? emitType(expr.resolvedType) : `decltype(doof::map_at(${object}, ${index}, ${locationArgs}))`;
+      const resultType = expr.resolvedType ? emitType(expr.resolvedType, ctx.module.path) : `decltype(doof::map_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const mapObject = objType && isOptionalNullable(objType) ? `*${object}` : object;
       return `[&]() -> ${resultType} { if (${object}) return doof::map_at(${mapObject}, ${index}, ${locationArgs}); return ${nullValue}; }()`;

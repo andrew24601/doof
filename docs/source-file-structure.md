@@ -76,6 +76,7 @@ The emitter consumes the decorated AST produced by the analyzer and checker. The
 
 - `emitter-module.ts` — project and module emission entry points, `.hpp` / `.cpp` splitting, generated support files, and build metadata wiring
 - `emitter-context.ts` — `EmitContext`, the shared state threaded through emission helpers
+- `emitter-names.ts` — canonical generated module namespaces and cross-module symbol reference names
 - `emitter-types.ts` — `ResolvedType` to C++ type mapping
 - `emitter-defaults.ts` — default-value emission helpers
 - `emitter-monomorphize.ts` — generic specialization keys, naming, and substitution helpers

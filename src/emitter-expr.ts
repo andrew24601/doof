@@ -19,11 +19,12 @@ import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitPanicAt } from "./emitter-panic.js";
 import { emitCallerSourceLocation } from "./emitter-panic.js";
 import { emitRuntimeCoercion } from "./emitter-json-value.js";
-import { emitEnumVariantAccess, emitType } from "./emitter-types.js";
+import { emitClassCppName, emitEnumVariantAccess, emitType } from "./emitter-types.js";
 import { emitNullForType } from "./emitter-types.js";
 import { isOptionalNullable } from "./emitter-types.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
+import { emitSymbolReferenceName } from "./emitter-names.js";
 
 // Re-export the public API consumed by other emitter modules.
 export { emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -103,7 +104,9 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
         const baseExpr = ctx.capturedMutables?.has(expr.name)
           ? `(*${emitIdentifierSafe(expr.name)})`
           : expr.resolvedBinding?.kind === "import"
-            ? emitIdentifierSafe(expr.resolvedBinding.name)
+            ? expr.resolvedBinding.symbol
+              ? emitSymbolReferenceName(expr.resolvedBinding.symbol)
+              : emitIdentifierSafe(expr.resolvedBinding.name)
             : emitIdentifierSafe(expr.name);
         const bindingType = expr.resolvedBinding?.type ? substituteEmitType(expr.resolvedBinding.type, ctx) : undefined;
         const resolvedExprType = substituteEmitType(expr.resolvedType, ctx);
@@ -163,7 +166,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "enum-access":
       if (expr.enumName && expr.resolvedType?.kind === "enum") {
-        return emitEnumVariantAccess(expr.resolvedType, expr.variant);
+        return emitEnumVariantAccess(expr.resolvedType, expr.variant, ctx.module.path);
       }
       if (expr.enumName) {
         return `${expr.enumName}::${expr.variant}`;
@@ -172,7 +175,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "dot-shorthand":
       if (expr.resolvedType?.kind === "enum") {
-        return emitEnumVariantAccess(expr.resolvedType, expr.name);
+        return emitEnumVariantAccess(expr.resolvedType, expr.name, ctx.module.path);
       }
       throw new Error(`Cannot emit unresolved dot shorthand ".${expr.name}"`);
 
@@ -199,7 +202,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
         if (innerType.successType.kind === "void") {
           return `[&]() -> void { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
         }
-        const valueType = emitType(innerType.successType);
+        const valueType = emitType(innerType.successType, ctx.module.path);
         return `[&]() -> ${valueType} { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
       }
       // For std::optional<T>, unwrap with .value()
@@ -237,11 +240,11 @@ function emitArrayLiteral(expr: ArrayLiteral, ctx: EmitContext, targetType?: Res
   const elementTargetType = collectionType?.elementType;
   const elements = expr.elements.map((e) => emitExpression(e, ctx, elementTargetType)).join(", ");
   if (collectionType?.kind === "array") {
-    const elType = emitType(collectionType.elementType);
+    const elType = emitType(collectionType.elementType, ctx.module.path);
     return `std::make_shared<std::vector<${elType}>>(std::vector<${elType}>{${elements}})`;
   }
   if (collectionType?.kind === "set") {
-    const elType = emitType(collectionType.elementType);
+    const elType = emitType(collectionType.elementType, ctx.module.path);
     if (expr.elements.length === 0) {
       return `std::make_shared<doof::ordered_set<${elType}>>()`;
     }
@@ -267,8 +270,8 @@ function emitMapLiteral(expr: MapLiteral, ctx: EmitContext, targetType?: Resolve
     })
     .join(", ");
   if (mapType?.kind === "map") {
-    const k = emitType(mapType.keyType);
-    const v = emitType(mapType.valueType);
+    const k = emitType(mapType.keyType, ctx.module.path);
+    const v = emitType(mapType.valueType, ctx.module.path);
     return `std::make_shared<doof::ordered_map<${k}, ${v}>>(doof::ordered_map<${k}, ${v}>{${entries}})`;
   }
   if (expr.entries.length === 0) {
@@ -280,7 +283,7 @@ function emitMapLiteral(expr: MapLiteral, ctx: EmitContext, targetType?: Resolve
 function emitTupleLiteral(expr: TupleLiteral, ctx: EmitContext): string {
   if (expr.resolvedType?.kind === "class") {
     const sym = expr.resolvedType.symbol;
-    const cppName = sym.extern_?.cppName ?? sym.name;
+    const cppName = emitClassCppName(sym, ctx.module.path);
     const fieldTypes = buildFieldTypeListForClassType(expr.resolvedType);
     const elements = expr.elements.map((e, i) => {
       const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
@@ -311,7 +314,7 @@ function emitObjectLiteral(
   if (expr.resolvedType.kind === "result") {
     const resultType = expr.resolvedType;
     if (resultType.successType.kind === "void" && expr.properties.length === 0) {
-      return `${emitType(resultType)}::success()`;
+      return `${emitType(resultType, ctx.module.path)}::success()`;
     }
 
     const valueProp = expr.properties.find((prop) => prop.name === "value");
@@ -319,7 +322,7 @@ function emitObjectLiteral(
       const value = valueProp.value
         ? emitExpression(valueProp.value, ctx, resultType.successType)
         : emitIdentifierSafe(valueProp.name);
-      return `${emitType(resultType)}::success(${value})`;
+      return `${emitType(resultType, ctx.module.path)}::success(${value})`;
     }
 
     const errorProp = expr.properties.find((prop) => prop.name === "error");
@@ -327,20 +330,20 @@ function emitObjectLiteral(
       const error = errorProp.value
         ? emitExpression(errorProp.value, ctx, resultType.errorType)
         : emitIdentifierSafe(errorProp.name);
-      return `${emitType(resultType)}::failure(${error})`;
+      return `${emitType(resultType, ctx.module.path)}::failure(${error})`;
     }
 
     throw new Error("Result object literal is missing a value or error property during emission");
   }
   // Empty object literal with Map expected type → empty map
   if (expr.resolvedType?.kind === "map" && expr.properties.length === 0) {
-    const k = emitType(expr.resolvedType.keyType);
-    const v = emitType(expr.resolvedType.valueType);
+    const k = emitType(expr.resolvedType.keyType, ctx.module.path);
+    const v = emitType(expr.resolvedType.valueType, ctx.module.path);
     return `std::make_shared<doof::ordered_map<${k}, ${v}>>()`;
   }
   if (expr.resolvedType?.kind === "class") {
     const sym = expr.resolvedType.symbol;
-    const cppName = emitResolvedClassName(expr.resolvedType);
+    const cppName = emitResolvedClassName(expr.resolvedType, ctx.module.path);
     const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
     const args = buildConstructorFieldInfoListForClassType(expr.resolvedType).map((field) => {
       const prop = propMap.get(field.name);
@@ -356,8 +359,8 @@ function emitObjectLiteral(
   }
   if (expr.resolvedType?.kind === "map") {
     const mapType = expr.resolvedType;
-    const k = emitType(mapType.keyType);
-    const v = emitType(mapType.valueType);
+    const k = emitType(mapType.keyType, ctx.module.path);
+    const v = emitType(mapType.valueType, ctx.module.path);
     const entries = expr.properties
       .map((p) => {
         const key = JSON.stringify(p.name);
