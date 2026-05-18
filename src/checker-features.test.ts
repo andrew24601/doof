@@ -4624,10 +4624,26 @@ describe("checker — string methods", () => {
     }
   });
 
-  it("string.charAt returns string", () => {
+  it("string.charAt returns char", () => {
     const cr = check({ "/main.do": `
       function test(): void {
         c := "hello".charAt(0)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const exprs = collectExprs(cr.program!);
+    const call = exprs.find(e => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "charAt");
+    expect(call?.resolvedType).toEqual({ kind: "primitive", name: "char" });
+  });
+
+  it("supports common char operations", () => {
+    const cr = check({ "/main.do": `
+      function test(value: string): string {
+        c := value.charAt(0)
+        if c == 'x' {
+          return "prefix-" + c
+        }
+        return string(c)
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);

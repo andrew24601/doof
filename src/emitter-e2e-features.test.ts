@@ -1218,6 +1218,24 @@ describe("e2e — string methods", () => {
     }
   });
 
+  it("string.charAt returns a char that works with comparison and string conversion", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        c := "hello".charAt(1)
+        rendered := "prefix-" + c
+        if c == 'e' && string(c) == "e" && rendered == "prefix-e" {
+          return 1
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(1);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
   it("string.split produces correct parts", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

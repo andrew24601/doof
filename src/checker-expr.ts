@@ -1230,10 +1230,15 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const argType = inferExprType(host, expr.args[0].value, scope, table, info);
-        if (argType.kind !== "unknown" && !(argType.kind === "primitive" && NUMERIC_PRIMITIVE_NAMES.has(argType.name))) {
+        const allowsCharToInt = expr.callee.name === "int"
+          && argType.kind === "primitive"
+          && argType.name === "char";
+        if (argType.kind !== "unknown"
+            && !(argType.kind === "primitive" && NUMERIC_PRIMITIVE_NAMES.has(argType.name))
+            && !allowsCharToInt) {
           info.diagnostics.push({
             severity: "error",
-            message: `Cannot cast "${typeToString(argType)}" to ${expr.callee.name}; numeric casts require a numeric operand`,
+            message: `Cannot cast "${typeToString(argType)}" to ${expr.callee.name}; numeric casts require a numeric operand${expr.callee.name === "int" ? " or char" : ""}`,
             span: expr.span,
             module: table.path,
           });

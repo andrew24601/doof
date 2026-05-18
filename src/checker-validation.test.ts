@@ -1312,6 +1312,14 @@ describe("Numeric cast validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("casts char to int", () => {
+    const info = check(
+      { "/main.do": `function test(x: char): int => int(x)` },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("errors on non-numeric cast argument", () => {
     const info = check(
       { "/main.do": `function test(x: string): int => int(x)` },

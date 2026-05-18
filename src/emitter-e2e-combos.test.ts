@@ -574,6 +574,7 @@ describe("e2e — feature combinations", () => {
         println(float(a) / float(b))
         println(int(3.9))
         println(double(42))
+        println(int('A'))
         return 0
       }
     `);
@@ -583,6 +584,7 @@ describe("e2e — feature combinations", () => {
     const lines = result.stdout.trim().split("\n");
     expect(parseFloat(lines[0])).toBeCloseTo(3.5, 5);
     expect(lines[1]).toBe("3");
+    expect(lines[3]).toBe("65");
     expect(lines[2]).toBe("42");
   });
 

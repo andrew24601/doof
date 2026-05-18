@@ -112,6 +112,7 @@ let f: float = float(x)      // int → float (explicit cast)
 let d: double = double(x)    // int → double
 let n: int = int(3.14)       // double → int (truncates)
 let l: long = long(x)        // int → long
+let code: int = int('A')      // char → int Unicode code point
 
 // Useful for division: avoid "/" on two integers
 a := 7
@@ -119,7 +120,7 @@ b := 2
 result := float(a) / float(b)  // 3.5
 ```
 
-Numeric casts accept exactly one numeric argument and return the target type. Casting to `byte` lowers to `uint8_t` in generated C++. Casting from a wider type to a narrower type (e.g., `double` → `int`) truncates the value.
+Numeric casts accept exactly one numeric argument and return the target type, with one explicit character conversion: `int(char)` returns the character's Unicode code point. Casting to `byte` lowers to `uint8_t` in generated C++. Casting from a wider type to a narrower type (e.g., `double` → `int`) truncates the value.
 
 ### Safe String Conversion
 
@@ -173,7 +174,7 @@ Strings support a `.length` property and the following built-in methods:
 | `.replace(search, repl)` | `(string, string): string` | Replace first occurrence |
 | `.replaceAll(search, repl)` | `(string, string): string` | Replace all occurrences |
 | `.split(delim)` | `(string): string[]` | Split into array of strings |
-| `.charAt(index)` | `(int): string` | Character at index (as string) |
+| `.charAt(index)` | `(int): char` | Character at index |
 | `.repeat(count)` | `(int): string` | Repeat string N times |
 
 ```javascript

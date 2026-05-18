@@ -274,6 +274,11 @@ describe("emitter — expressions", () => {
     expect(cpp).toContain("return static_cast<int32_t>(x);");
   });
 
+  it("emits char to int cast as static_cast<int32_t>", () => {
+    const cpp = emit(`function f(x: char): int => int(x)`);
+    expect(cpp).toContain("return static_cast<int32_t>(x);");
+  });
+
   it("emits long cast to static_cast<int64_t>", () => {
     const cpp = emit(`function f(x: int): long => long(x)`);
     expect(cpp).toContain("return static_cast<int64_t>(x);");
@@ -1155,7 +1160,7 @@ describe("emitter — string methods", () => {
 
   it("emits charAt and repeat", () => {
     const cpp = emit(`
-      function test(s: string): string {
+      function test(s: string): char {
         return s.charAt(0)
       }
       function test2(s: string): string {

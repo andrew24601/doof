@@ -14,6 +14,8 @@
 | `bool` | boolean |
 | `void` | unit type |
 
+`string.charAt(index)` returns a `char`. Convert it with `string(c)` when a one-character string is needed; `char` values also work with equality checks and string concatenation.
+
 ### Numeric Literals and Conversions
 
 ```doof
@@ -39,9 +41,10 @@ Explicit numeric casts use function-call syntax:
 ```doof
 small := int(large)
 ratio := double(count)
+codePoint := int('A')
 ```
 
-Checked numeric narrowing uses `as` rather than cast syntax.
+`int(char)` returns the character's Unicode code point. Checked numeric narrowing uses `as` rather than cast syntax.
 
 ### String Conversion and Parse Helpers
 

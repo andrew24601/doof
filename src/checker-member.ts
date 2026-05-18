@@ -949,7 +949,7 @@ export function inferMemberType(
     if (property === "replace") return { kind: "function", params: [{ name: "search", type: STRING_TYPE }, { name: "replacement", type: STRING_TYPE }], returnType: STRING_TYPE };
     if (property === "replaceAll") return { kind: "function", params: [{ name: "search", type: STRING_TYPE }, { name: "replacement", type: STRING_TYPE }], returnType: STRING_TYPE };
     if (property === "split") return { kind: "function", params: [{ name: "delimiter", type: STRING_TYPE }], returnType: { kind: "array", elementType: STRING_TYPE, readonly_: false } };
-    if (property === "charAt") return { kind: "function", params: [{ name: "index", type: INT_TYPE }], returnType: STRING_TYPE };
+    if (property === "charAt") return { kind: "function", params: [{ name: "index", type: INT_TYPE }], returnType: CHAR_TYPE };
     if (property === "repeat") return { kind: "function", params: [{ name: "count", type: INT_TYPE }], returnType: STRING_TYPE };
     // Unknown member on string
     reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
