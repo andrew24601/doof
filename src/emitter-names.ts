@@ -1,12 +1,12 @@
 /**
  * Canonical C++ naming helpers for generated Doof modules.
  *
- * Project-local modules lower to logical namespaces derived from their path
- * within the owning package (`game/state.do` → `game::state`). Dependency
- * modules live under `lib::<package-name>::...`, where `<package-name>` comes
- * from the dependency package's `doof.json`. Namespace planning validates the
- * lossy identifier sanitisation up front so emitted names can stay readable
- * without trailing disambiguation hashes.
+ * Project-local modules lower under the compiler-owned `app::` namespace using
+ * their path within the owning package (`game/state.do` → `app::game::state`).
+ * Dependency modules live under `lib::<package-name>::...`, where
+ * `<package-name>` comes from the dependency package's `doof.json`. Namespace
+ * planning validates the lossy identifier sanitisation up front so emitted
+ * names can stay readable without trailing disambiguation hashes.
  */
 
 import type { PackageOutputPaths } from "./package-manifest.js";
@@ -15,6 +15,7 @@ import { dirnameFsPath, relativeFsPath, resolveFsPath, toPortablePath } from "./
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import type { ModuleSymbol, ModuleSymbolTable } from "./types.js";
 
+const APP_NAMESPACE_ROOT = "app";
 const LIB_NAMESPACE_ROOT = "lib";
 const RESERVED_NAMESPACE_COMPONENTS = new Set(["main", "std", "doof"]);
 
@@ -30,12 +31,14 @@ export function sanitizeCppNamespaceComponent(value: string): string {
 }
 
 function namespaceFromPath(modulePath: string): string {
-  return modulePath
+  return [
+    APP_NAMESPACE_ROOT,
+    ...modulePath
     .replace(/\.[^/.]+$/, "")
     .split(/[\\/]+/)
     .filter((part) => part.length > 0)
-    .map(sanitizeCppNamespaceComponent)
-    .join("::");
+    .map(sanitizeCppNamespaceComponent),
+  ].join("::");
 }
 
 function packageNameToNamespaceSegments(packageName: string): string[] {
@@ -98,7 +101,10 @@ function logicalNamespaceSegments(
   const rawSegments = moduleRelativeSegments(modulePath, packageRoot);
   const dependencyPackageName = packageOutputPaths?.namespaceNameByRootDir?.get(packageRoot) ?? null;
   const namespaceSegments = dependencyPackageName === null
-    ? rawSegments.map(sanitizeCppNamespaceComponent)
+    ? [
+      APP_NAMESPACE_ROOT,
+      ...rawSegments.map(sanitizeCppNamespaceComponent),
+    ]
     : [
       LIB_NAMESPACE_ROOT,
       ...packageNameToNamespaceSegments(dependencyPackageName),
@@ -133,7 +139,7 @@ function validateNamespaceComponentCollisions(
   seenChildrenByScope: Map<string, Map<string, string>>,
 ): void {
   const rootPrefix = dependencyPackageName === null
-    ? ""
+    ? APP_NAMESPACE_ROOT
     : [LIB_NAMESPACE_ROOT, ...packageNameToNamespaceSegments(dependencyPackageName)].join("::");
   const sanitizedParents: string[] = rootPrefix ? rootPrefix.split("::") : [];
 
@@ -170,12 +176,6 @@ export function assignModuleNamespaces(
   for (const modulePath of modules.keys()) {
     const { packageRoot, rawSegments, namespaceSegments, dependencyPackageName } =
       logicalNamespaceSegments(modulePath, fallbackRootDir, packageOutputPaths);
-
-    if (dependencyPackageName === null && namespaceSegments[0] === LIB_NAMESPACE_ROOT) {
-      throw new Error(
-        `Project-local module ${modulePath} lowers to reserved root namespace "${LIB_NAMESPACE_ROOT}"`,
-      );
-    }
 
     validateNamespaceComponentCollisions(
       modulePath,

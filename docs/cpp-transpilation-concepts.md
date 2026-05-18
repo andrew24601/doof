@@ -76,9 +76,9 @@ Validation anchors:
 Strategy:
 
 - every generated Doof module lowers into a deterministic logical C++ namespace:
-  project-local modules use their root-package-relative path, while dependency
-  modules use `lib::<dependency-package-name>::...` from the dependency's
-  `doof.json`
+  project-local modules use `app::<root-package-relative-path>`, while
+  dependency modules use `lib::<dependency-package-name>::...` from the
+  dependency's `doof.json`
 - cross-module calls, values, and type references use the canonical defining-module namespace rather than import aliases
 - module-local declarations and references keep local C++ spellings within their owning namespace, so qualification marks a real module boundary rather than merely adding noise
 - lossy namespace-component sanitisation is validated up front, so sibling

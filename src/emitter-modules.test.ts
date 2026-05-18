@@ -1024,7 +1024,7 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(mainModule?.hppCode).toContain(
       `namespace ${emitModuleNamespace("/cards.do")} {\nstruct Card;\nstruct PlayingCard;\n}`,
     );
-    expect(mainModule?.hppCode.match(new RegExp(`namespace ${emitModuleNamespace("/cards.do").replace(/:/g, "\\\\:")}`, "g"))).toHaveLength(1);
+    expect(mainModule?.hppCode.split(`namespace ${emitModuleNamespace("/cards.do")} {`).length - 1).toBe(1);
   });
 
   it("renders header sections in the planned dependency order", () => {
@@ -1246,6 +1246,42 @@ describe("emitter-module — emitProject", () => {
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
     expect(mainModule?.hppCode).toContain("std::shared_ptr<::lib::boardgame::cards::PlayingCard>");
     expect(mainModule?.hppCode).not.toContain("cardgame::cards");
+  });
+
+  it("emits root-package modules under the compiler-owned app namespace", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": `
+          import { sum } from "./index"
+          import { port } from "./http/server"
+
+          export function run(): int => sum(20, 22) + port()
+        `,
+        "/workspace/app/index.do": `
+          export { add as sum } from "./math"
+          export function barrelValue(): int => 1
+        `,
+        "/workspace/app/math.do": `export function add(a: int, b: int): int => a + b`,
+        "/workspace/app/http/server.do": `export function port(): int => 8080`,
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([["/workspace/app", ""]]),
+          namespaceNameByRootDir: new Map([["/workspace/app", null]]),
+        },
+      },
+    );
+
+    const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
+    const indexModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/index.do");
+    const serverModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/http/server.do");
+
+    expect(mainModule?.hppCode).toContain(`namespace ${emitModuleNamespace("/main.do")}`);
+    expect(indexModule?.hppCode).toContain("namespace app::index");
+    expect(serverModule?.hppCode).toContain("namespace app::http::server");
+    expect(mainModule?.cppCode).toContain("::app::math::add(20, 22)");
+    expect(indexModule?.hppCode).not.toContain("namespace index");
   });
 
   it("escapes dependency package namespace components that would shadow global C++ namespaces", () => {

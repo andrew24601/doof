@@ -70,6 +70,23 @@ describe("e2e — module splitting", () => {
     expect(result.stdout.trim()).toBe("hello from split");
   });
 
+  it("compiles a root index barrel under app::index instead of global index", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/main.do": `
+          import { answer } from "./index"
+
+          function main(): int => answer()
+        `,
+        "/index.do": `export { answer } from "./answer"`,
+        "/answer.do": `export function answer(): int => 42`,
+      },
+      "/main.do",
+    );
+
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
   it("compiles multi-module with imported function", () => {
     const { success, error, codes } = ctx.compileOnlyProject(
       {
