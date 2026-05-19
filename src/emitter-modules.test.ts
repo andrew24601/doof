@@ -1856,7 +1856,8 @@ describe("emitter — import function imports", () => {
       function test(x: int): int => abs(x)
     `);
     expect(cpp).toContain("#include <cmath>");
-    expect(cpp).toContain("std::abs<int32_t>(x)");
+    expect(cpp).toContain("std::abs(x)");
+    expect(cpp).not.toContain("std::abs<int32_t>(x)");
     expect(cpp).not.toContain("template<typename T>\nint abs");
   });
 

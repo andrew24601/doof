@@ -276,7 +276,7 @@ function emitIdentifierCallByName(
     : "";
   const externCppName = resolveExternFunctionCppName(name, ctx);
   if (externCppName) {
-    return `${externCppName}${genericSuffix}(${joinedArgs})`;
+    return `${externCppName}(${joinedArgs})`;
   }
 
   const importedSymbol = binding?.kind === "import" && binding.symbol

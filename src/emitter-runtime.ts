@@ -1136,7 +1136,7 @@ inline std::shared_ptr<std::vector<std::string>> string_split(const std::string&
 }
 
 inline char32_t string_charAt(const std::string& s, int32_t index) {
-    if (index < 0 || index >= static_cast<int32_t>(s.size())) return U'\0';
+    if (index < 0 || index >= static_cast<int32_t>(s.size())) return U'\\0';
     return static_cast<char32_t>(static_cast<unsigned char>(s[static_cast<size_t>(index)]));
 }
 
