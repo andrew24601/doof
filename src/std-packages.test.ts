@@ -71,6 +71,7 @@ describe("std package metadata", () => {
       "std/fs",
       "std/http",
       "std/http-server",
+      "std/js",
       "std/json",
       "std/log",
       "std/math",
@@ -78,9 +79,10 @@ describe("std package metadata", () => {
       "std/path",
       "std/postgres",
       "std/regex",
-      "std/stream",
       "std/sqlite",
+      "std/stream",
       "std/time",
+      "std/url",
     ]);
   });
 
