@@ -207,7 +207,7 @@ Arrays support a `.length` property and the following built-in methods:
 | `.filter(predicate)` | both | `((it: T): bool): T[]` or `readonly T[]` | Keep elements matching predicate (preserves mutability) |
 | `.map(mapper)` | both | `<U>((it: T): U): U[]` or `readonly U[]` | Transform elements (preserves mutability) |
 | `.slice(start, end)` | both | `(int, int): T[]` or `readonly T[]` | Sub-array (preserves mutability) |
-| `.buildReadonly()` | mutable only | `(): readonly T[]` | Drain the array into a new readonly array (leaves original empty) |
+| `.buildReadonly()` | mutable only | `(): readonly T[]` | Move-drain the array into a new readonly array (source is left empty) |
 | `.cloneMutable()` | both | `(): T[]` | Shallow-copy into a new mutable array |
 
 `push` and `pop` are rejected on `readonly T[]` arrays at compile time. `buildReadonly` is also rejected on readonly arrays — use `cloneMutable` then `buildReadonly` if needed.
@@ -848,6 +848,16 @@ let unique: Set<int> = [1, 2, 3, 2, 1]  // Contains {1, 2, 3}
 
 When a declaration or default value uses `Map`, `ReadonlyMap`, `Set`, or `ReadonlySet` **without type arguments**, the checker may infer the missing type arguments only from a **same-site non-empty homogeneous literal**.
 
+Generic type parameters can use constraints such as `T: int | long` to restrict
+valid type arguments. `JsonSerializable` is a compiler-known, constraint-only
+intrinsic used by generic JSON helpers; it is not a normal type annotation:
+
+```javascript
+function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+  return T.fromJsonValue(json)
+}
+```
+
 ```javascript
 scores: Map := { "Alice": 100, "Bob": 95 }        // Map<string, int>
 readonlyScores: ReadonlyMap := { "Alice": 100 }    // ReadonlyMap<string, int>
@@ -968,13 +978,15 @@ Adding a value that is already present does not move it. Deleting a value and th
 
 #### Set Methods
 
-| Method | Return Type | Description |
-|--------|-------------|-------------|
-| `.size` | `int` | Number of entries |
-| `.has(value)` | `bool` | Check if value exists |
-| `.add(value)` | `void` | Insert value |
-| `.delete(value)` | `void` | Remove value |
-| `.values()` | `T[]` | Array of all values |
+| Method | Available on | Return Type | Description |
+|--------|--------------|-------------|-------------|
+| `.size` | both | `int` | Number of entries |
+| `.has(value)` | both | `bool` | Check if value exists |
+| `.add(value)` | mutable only | `void` | Insert value |
+| `.delete(value)` | mutable only | `void` | Remove value |
+| `.values()` | both | `T[]` | Array of all values |
+| `.buildReadonly()` | mutable only | `ReadonlySet<T>` | Move-drain the set into a new readonly set (source is left empty) |
+| `.cloneMutable()` | both | `Set<T>` | Shallow-copy into a new mutable set |
 
 ```javascript
 let unique: Set<int> = [1, 2, 3]
@@ -982,19 +994,24 @@ unique.add(4)
 print(unique.has(2))
 unique.delete(1)
 print(unique.size)
+
+frozen := unique.buildReadonly() // ReadonlySet<int>, unique is now empty
+copy := frozen.cloneMutable()    // Set<int>
 ```
 
 #### Map Methods
 
-| Method | Return Type | Description |
-|--------|-------------|-------------|
-| `.size` | `int` | Number of entries |
-| `.get(key)` | `Result<V, string>` | Retrieve value or a missing-key failure |
-| `.set(key, value)` | `void` | Insert or update entry |
-| `.has(key)` | `bool` | Check if key exists |
-| `.delete(key)` | `void` | Remove entry by key |
-| `.keys()` | `K[]` | Array of all keys |
-| `.values()` | `V[]` | Array of all values |
+| Method | Available on | Return Type | Description |
+|--------|--------------|-------------|-------------|
+| `.size` | both | `int` | Number of entries |
+| `.get(key)` | both | `Result<V, string>` | Retrieve value or a missing-key failure |
+| `.set(key, value)` | mutable only | `void` | Insert or update entry |
+| `.has(key)` | both | `bool` | Check if key exists |
+| `.delete(key)` | mutable only | `void` | Remove entry by key |
+| `.keys()` | both | `K[]` | Array of all keys |
+| `.values()` | both | `V[]` | Array of all values |
+| `.buildReadonly()` | mutable only | `ReadonlyMap<K, V>` | Move-drain the map into a new readonly map (source is left empty) |
+| `.cloneMutable()` | both | `Map<K, V>` | Shallow-copy into a new mutable map |
 
 ```javascript
 let m: Map<string, int> = { "a": 1, "b": 2 }
@@ -1010,6 +1027,9 @@ m.delete("b")
 for key, value of m {
   print("${key} = ${value}")
 }
+
+frozen := m.buildReadonly()  // ReadonlyMap<string, int>, m is now empty
+copy := frozen.cloneMutable() // Map<string, int>
 ```
 
 #### Map Index Access

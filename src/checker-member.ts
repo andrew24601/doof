@@ -674,6 +674,54 @@ function inferTypeAliasStaticMemberType(
   };
 }
 
+function findTypeParamConstraint(host: CheckerHost, typeParamName: string): ResolvedType | null {
+  for (let index = host.typeParamConstraintStack.length - 1; index >= 0; index--) {
+    const constraint = host.typeParamConstraintStack[index].get(typeParamName);
+    if (constraint !== undefined) return constraint;
+  }
+  return null;
+}
+
+function inferTypeVariableStaticMemberType(
+  host: CheckerHost,
+  objectType: Extract<ResolvedType, { kind: "typevar" }>,
+  property: string,
+  table: ModuleSymbolTable,
+  mode: MemberLookupMode,
+  info?: ModuleTypeInfo,
+  span?: SourceSpan,
+): ResolvedType {
+  if (mode === "instance" || property !== "fromJsonValue") {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Property "${property}" does not exist on type "${objectType.name}"`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  const constraint = findTypeParamConstraint(host, objectType.name);
+  if (constraint?.kind !== "json-serializable-constraint") {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Static member "fromJsonValue" requires type parameter "${objectType.name}" to be constrained by JsonSerializable`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
+  return {
+    kind: "function",
+    params: [
+      { name: "json", type: JSON_VALUE_TYPE },
+      { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
+    ],
+    returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+  };
+}
+
 function inferStreamInstanceMemberType(
   objectType: Extract<ResolvedType, { kind: "stream" }>,
   property: string,
@@ -767,6 +815,10 @@ export function inferMemberType(
 
   if (mode !== "instance" && binding?.symbol?.symbolKind === "type-alias") {
     return inferTypeAliasStaticMemberType(binding.symbol, objectType, property, table, info, span);
+  }
+
+  if (objectType.kind === "typevar") {
+    return inferTypeVariableStaticMemberType(host, objectType, property, table, mode, info, span);
   }
 
   if (objectType.kind === "class") {
@@ -909,6 +961,16 @@ export function inferMemberType(
     if (property === "delete") return { kind: "function", params: [{ name: "key", type: k }], returnType: VOID_TYPE };
     if (property === "keys") return { kind: "function", params: [], returnType: { kind: "array", elementType: k, readonly_: false } };
     if (property === "values") return { kind: "function", params: [], returnType: { kind: "array", elementType: v, readonly_: false } };
+    if (objectType.readonly_ && property === "buildReadonly") {
+      reportMemberDiagnostic(info, table, span, 'Method "buildReadonly" is not available on readonly map');
+      return UNKNOWN_TYPE;
+    }
+    if (property === "buildReadonly") {
+      return { kind: "function", params: [], returnType: { kind: "map", keyType: k, valueType: v, readonly_: true } };
+    }
+    if (property === "cloneMutable") {
+      return { kind: "function", params: [], returnType: { kind: "map", keyType: k, valueType: v, readonly_: false } };
+    }
     // Unknown member on map
     reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
     return UNKNOWN_TYPE;
@@ -928,6 +990,16 @@ export function inferMemberType(
     }
     if (property === "delete") return { kind: "function", params: [{ name: "value", type: elem }], returnType: VOID_TYPE };
     if (property === "values") return { kind: "function", params: [], returnType: { kind: "array", elementType: elem, readonly_: false } };
+    if (objectType.readonly_ && property === "buildReadonly") {
+      reportMemberDiagnostic(info, table, span, 'Method "buildReadonly" is not available on readonly set');
+      return UNKNOWN_TYPE;
+    }
+    if (property === "buildReadonly") {
+      return { kind: "function", params: [], returnType: { kind: "set", elementType: elem, readonly_: true } };
+    }
+    if (property === "cloneMutable") {
+      return { kind: "function", params: [], returnType: { kind: "set", elementType: elem, readonly_: false } };
+    }
     // Unknown member on set
     reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
     return UNKNOWN_TYPE;

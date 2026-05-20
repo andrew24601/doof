@@ -116,6 +116,7 @@ export function typeToJsonSchema(
     case "success-wrapper":
     case "failure-wrapper":
     case "typevar":
+    case "json-serializable-constraint":
     case "class-metadata":
     case "method-reflection":
       return {};

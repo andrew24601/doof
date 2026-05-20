@@ -145,6 +145,7 @@ export interface CheckerHost {
   readonly analysisResult: AnalysisResult;
   readonly catchErrorTypes: ResolvedType[][];
   readonly typeParamStack: Set<string>[];
+  readonly typeParamConstraintStack: Map<string, ResolvedType | null>[];
   checkBlock(block: Block, parentScope: Scope, table: ModuleSymbolTable, info: ModuleTypeInfo): void;
   checkCatchExpression(expr: CatchExpression, scope: Scope, table: ModuleSymbolTable, info: ModuleTypeInfo): ResolvedType;
   checkClass(decl: ClassDeclaration, parentScope: Scope, table: ModuleSymbolTable, info: ModuleTypeInfo): void;

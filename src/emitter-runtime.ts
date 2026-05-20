@@ -184,6 +184,12 @@ public:
     [[nodiscard]] bool empty() const { return entries_.empty(); }
     [[nodiscard]] size_type size() const { return entries_.size(); }
 
+    void clear() {
+        entries_.clear();
+        index_.clear();
+        validate_invariants("ordered_map::clear");
+    }
+
     iterator find(const K& key) {
         validate_invariants("ordered_map::find");
         const auto pos = index_.find(key);
@@ -356,6 +362,12 @@ public:
 
     [[nodiscard]] bool empty() const { return values_.empty(); }
     [[nodiscard]] size_type size() const { return values_.size(); }
+
+    void clear() {
+        values_.clear();
+        index_.clear();
+        validate_invariants("ordered_set::clear");
+    }
 
     iterator find(const T& value) {
         validate_invariants("ordered_set::find");
@@ -1300,6 +1312,7 @@ std::shared_ptr<std::vector<T>> array_buildReadonly(const std::shared_ptr<std::v
     }
     // Move-drain: transfer contents to a new allocation; original vector is left empty.
     auto result = std::make_shared<std::vector<T>>(std::move(*arr));
+    arr->clear();
     return result;
 }
 
@@ -1369,6 +1382,27 @@ std::shared_ptr<std::vector<V>> map_values(const std::shared_ptr<ordered_map<K, 
     return result;
 }
 
+template <typename K, typename V>
+std::shared_ptr<ordered_map<K, V>> map_buildReadonly(const std::shared_ptr<ordered_map<K, V>>& m, const char* file, int32_t line) {
+    if (!m) {
+        panic_at(file, line, "Attempted to buildReadonly from null map");
+    }
+    m->validate_invariants("map_buildReadonly source");
+    auto result = std::make_shared<ordered_map<K, V>>(std::move(*m));
+    m->clear();
+    result->validate_invariants("map_buildReadonly result");
+    return result;
+}
+
+template <typename K, typename V>
+std::shared_ptr<ordered_map<K, V>> map_cloneMutable(const std::shared_ptr<ordered_map<K, V>>& m, const char* file, int32_t line) {
+    if (!m) {
+        panic_at(file, line, "Attempted to cloneMutable from null map");
+    }
+    m->validate_invariants("map_cloneMutable");
+    return std::make_shared<ordered_map<K, V>>(*m);
+}
+
 template <typename T>
 std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>& s, const char* file, int32_t line) {
     if (!s) {
@@ -1379,6 +1413,27 @@ std::shared_ptr<std::vector<T>> set_values(const std::shared_ptr<ordered_set<T>>
     result->reserve(s->size());
     for (const auto& value : *s) result->push_back(value);
     return result;
+}
+
+template <typename T>
+std::shared_ptr<ordered_set<T>> set_buildReadonly(const std::shared_ptr<ordered_set<T>>& s, const char* file, int32_t line) {
+    if (!s) {
+        panic_at(file, line, "Attempted to buildReadonly from null set");
+    }
+    s->validate_invariants("set_buildReadonly source");
+    auto result = std::make_shared<ordered_set<T>>(std::move(*s));
+    s->clear();
+    result->validate_invariants("set_buildReadonly result");
+    return result;
+}
+
+template <typename T>
+std::shared_ptr<ordered_set<T>> set_cloneMutable(const std::shared_ptr<ordered_set<T>>& s, const char* file, int32_t line) {
+    if (!s) {
+        panic_at(file, line, "Attempted to cloneMutable from null set");
+    }
+    s->validate_invariants("set_cloneMutable");
+    return std::make_shared<ordered_set<T>>(*s);
 }
 
 // ============================================================================

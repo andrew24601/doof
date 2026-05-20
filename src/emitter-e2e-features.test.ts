@@ -387,6 +387,50 @@ describe("e2e — array safety", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("map buildReadonly drains source and cloneMutable returns independent copy", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let builder: Map<string, int> = { "a": 1, "b": 2 }
+        frozen := builder.buildReadonly()
+        if builder.size != 0 { return 1 }
+        if frozen.size != 2 { return 2 }
+        if frozen["a"] != 1 { return 3 }
+
+        copy := frozen.cloneMutable()
+        copy.set("c", 3)
+        if copy.size != 3 { return 4 }
+        if frozen.size != 2 { return 5 }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("set buildReadonly drains source and cloneMutable returns independent copy", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let builder: Set<int> = [1, 2, 3]
+        frozen := builder.buildReadonly()
+        if builder.size != 0 { return 1 }
+        if frozen.size != 3 { return 2 }
+        if !frozen.has(2) { return 3 }
+
+        copy := frozen.cloneMutable()
+        copy.add(4)
+        if copy.size != 4 { return 4 }
+        if frozen.size != 3 { return 5 }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
   it("runs array indexOf/some/every/filter/map", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

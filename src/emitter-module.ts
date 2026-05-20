@@ -609,6 +609,7 @@ function collectHeaderReferencedModulePaths(
       case "success-wrapper":
       case "failure-wrapper":
       case "typevar":
+      case "json-serializable-constraint":
         break;
     }
   };

@@ -1258,6 +1258,34 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain('doof::array_cloneMutable(values, "main.do",');
   });
 
+  it("emits map buildReadonly and cloneMutable via runtime helpers", () => {
+    const cpp = emit(`
+      function freeze(values: Map<string, int>): ReadonlyMap<string, int> {
+        return values.buildReadonly()
+      }
+
+      function copyMut(values: ReadonlyMap<string, int>): Map<string, int> {
+        return values.cloneMutable()
+      }
+    `);
+    expect(cpp).toContain('doof::map_buildReadonly(values, "main.do",');
+    expect(cpp).toContain('doof::map_cloneMutable(values, "main.do",');
+  });
+
+  it("emits set buildReadonly and cloneMutable via runtime helpers", () => {
+    const cpp = emit(`
+      function freeze(values: Set<int>): ReadonlySet<int> {
+        return values.buildReadonly()
+      }
+
+      function copyMut(values: ReadonlySet<int>): Set<int> {
+        return values.cloneMutable()
+      }
+    `);
+    expect(cpp).toContain('doof::set_buildReadonly(values, "main.do",');
+    expect(cpp).toContain('doof::set_cloneMutable(values, "main.do",');
+  });
+
   it("emits contextual Set literals as ordered_set", () => {
     const cpp = emit(`
       function makeSet(): Set<int> {

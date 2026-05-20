@@ -191,6 +191,11 @@ export interface TypeVariableType {
   name: string;
 }
 
+/** Constraint-only marker for type parameters that can use generated JSON helpers. */
+export interface JsonSerializableConstraintType {
+  kind: "json-serializable-constraint";
+}
+
 /** Structured metadata for a class — returned by ClassName.metadata. */
 export interface ClassMetaType {
   kind: "class-metadata";
@@ -232,6 +237,7 @@ export type ResolvedType =
   | SuccessWrapperType
   | FailureWrapperType
   | TypeVariableType
+  | JsonSerializableConstraintType
   | ClassMetaType
   | MethodReflectionType;
 
@@ -250,6 +256,7 @@ export const BOOL_TYPE: PrimitiveType = { kind: "primitive", name: "bool" };
 export const VOID_TYPE: VoidType = { kind: "void" };
 export const NULL_TYPE: NullType = { kind: "null" };
 export const UNKNOWN_TYPE: UnknownType = { kind: "unknown" };
+export const JSON_SERIALIZABLE_CONSTRAINT_TYPE: JsonSerializableConstraintType = { kind: "json-serializable-constraint" };
 
 export const JSON_VALUE_TYPE = {
   kind: "union",
@@ -298,6 +305,7 @@ export type BindingKind =
   | "interface"
   | "enum"
   | "type-alias"
+  | "type-parameter"
   | "import"
   | "builtin"
   | "namespace-import";
@@ -449,6 +457,8 @@ export function typeToString(t: ResolvedType): string {
       return `Failure<${typeToString(t.errorType)}>`;
     case "typevar":
       return t.name;
+    case "json-serializable-constraint":
+      return "JsonSerializable";
     case "class-metadata":
       return `ClassMetadata<${typeToString(t.classType)}>`;
     case "method-reflection":
@@ -689,6 +699,9 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
   if (source.kind === "unknown" || target.kind === "unknown") return true;
 
   if (isJsonValueType(target)) return isAssignableToJsonValue(source);
+
+  if (target.kind === "json-serializable-constraint") return isJSONSerializable(source);
+  if (source.kind === "json-serializable-constraint") return false;
 
   // Type variables are wildcards (unresolved generic params).
   if (source.kind === "typevar" || target.kind === "typevar") return true;
@@ -981,6 +994,8 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       return typesEqual(a.errorType, (b as FailureWrapperType).errorType);
     case "typevar":
       return a.name === (b as TypeVariableType).name;
+    case "json-serializable-constraint":
+      return b.kind === "json-serializable-constraint";
     case "class-metadata":
       return b.kind === "class-metadata" && typesEqual(a.classType, b.classType);
     case "method-reflection":
@@ -1060,6 +1075,8 @@ export function substituteTypeParams(
   switch (type.kind) {
     case "typevar":
       return paramMap.get(type.name) ?? type;
+    case "json-serializable-constraint":
+      return type;
     case "array":
       return {
         kind: "array",
@@ -1349,6 +1366,7 @@ export function isJSONSerializable(
     case "success-wrapper":
     case "failure-wrapper":
     case "typevar":
+    case "json-serializable-constraint":
     case "class-metadata":
     case "method-reflection":
       return false;
@@ -1428,10 +1446,20 @@ export function collectNonSerializableFields(
   classType: ClassType,
 ): { fieldName: string; typeStr: string }[] {
   const result: { fieldName: string; typeStr: string }[] = [];
+  const paramMap = new Map<string, ResolvedType>();
+  const classTypeParams = classType.symbol.declaration.typeParams;
+  if (classType.typeArgs) {
+    for (let index = 0; index < classTypeParams.length && index < classType.typeArgs.length; index++) {
+      paramMap.set(classTypeParams[index], classType.typeArgs[index]);
+    }
+  }
   for (const field of classType.symbol.declaration.fields) {
-    if (field.resolvedType && !isJSONSerializable(field.resolvedType)) {
+    const fieldType = paramMap.size > 0 && field.resolvedType
+      ? substituteTypeParams(field.resolvedType, paramMap)
+      : field.resolvedType;
+    if (fieldType && !isJSONSerializable(fieldType)) {
       for (const name of field.names) {
-        result.push({ fieldName: name, typeStr: typeToString(field.resolvedType) });
+        result.push({ fieldName: name, typeStr: typeToString(fieldType) });
       }
     }
   }

@@ -66,6 +66,34 @@ Validation anchors:
 - `src/checker-validation.test.ts`
 - `spec/02-type-system.md`
 
+## Generic JSON Constraints
+
+`JsonSerializable` is a constraint-only intrinsic used to allow static JSON
+intrinsics on type parameters. `T.fromJsonValue(...)` is accepted only while the
+active type-parameter constraint stack records `T: JsonSerializable`; concrete
+generic instantiation then validates the class argument and marks it for JSON
+generation.
+
+Primary modules:
+
+- `src/checker-expr.ts`
+- `src/checker-member.ts`
+- `src/checker-decl.ts`
+- `src/checker-types.ts`
+
+Keep aligned:
+
+- constraint resolution must preserve `JsonSerializable` as a marker rather than resolving it as a normal named type
+- member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` is rejected and constrained instantiations mark concrete classes `needsJson`
+- diagnostics and serializability checks should reuse the same field-level JSON helpers used by concrete class `.fromJsonValue()`
+
+Validation anchors:
+
+- `src/checker-generics.test.ts`
+- `src/emitter-generics.test.ts`
+- `src/emitter-e2e-advanced.test.ts`
+- `spec/12-json-serialization.md`
+
 ## Declared Value and Default Resolution
 
 Variable declarations, parameters, and class fields all resolve the same core pipeline when an annotation meets an initializer/default value:
@@ -111,6 +139,7 @@ Keep aligned:
 - declarations and fields that opt into readonly semantics must apply the same deep transform before validation
 - new composite `ResolvedType` variants need both transformation and violation-walk handling
 - assignability and member-mutation checks elsewhere in the checker should continue to respect the readonly shape produced here
+- collection `buildReadonly()` is mutable-only and returns the readonly collection type by move-draining the source, leaving it empty; `cloneMutable()` works on mutable and readonly arrays, maps, and sets and returns a shallow mutable copy
 
 Validation anchors:
 

@@ -46,6 +46,19 @@ describe("emitter — generic function declarations", () => {
     expect(cpp).toContain("T identity(T x)");
   });
 
+  it("emits generic fromJsonValue through the shared_ptr element type", () => {
+    const cpp = emit(`
+class User { name: string }
+function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+  return T.fromJsonValue(json)
+}
+const payload: JsonValue = { name: "Ada" }
+const user = decode<User>{ json: payload }
+`);
+    expect(cpp).toContain("template<typename T>");
+    expect(cpp).toContain("T::element_type::fromJsonValue(json)");
+  });
+
   it("emits template prefix with multiple type params", () => {
     const cpp = emit(`function pair<A, B>(a: A, b: B): Tuple<A, B> => (a, b)`);
     expect(cpp).toContain("template<typename A, typename B>");

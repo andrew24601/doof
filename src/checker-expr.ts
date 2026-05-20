@@ -15,6 +15,7 @@ import type {
 import {
   BOOL_TYPE,
   CHAR_TYPE,
+  collectNonSerializableFields,
   DOUBLE_TYPE,
   FLOAT_TYPE,
   findSharedDiscriminator,
@@ -25,6 +26,7 @@ import {
   isSupportedHashCollectionElementType,
   isSupportedMapKeyType,
   JSON_VALUE_TYPE,
+  JSON_SERIALIZABLE_CONSTRAINT_TYPE,
   LONG_TYPE,
   normalizeTypeForRuntime,
   NULL_TYPE,
@@ -273,6 +275,9 @@ function resolveDeclarationTypeParamConstraints(
   host.typeParamStack.push(new Set(typeParams));
   const resolved = typeParams.map((_, index) => {
     const constraint = typeParamConstraints[index] ?? null;
+    if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
+      return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+    }
     return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
   });
   host.typeParamStack.pop();
@@ -296,6 +301,37 @@ function reportTypeArgumentConstraintViolation(
   });
 }
 
+function validateJsonSerializableTypeArg(
+  typeParam: string,
+  argType: ResolvedType,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+): ResolvedType {
+  if (argType.kind === "unknown") return argType;
+
+  if (argType.kind !== "class") {
+    reportTypeArgumentConstraintViolation(info, table, span, typeParam, argType, JSON_SERIALIZABLE_CONSTRAINT_TYPE);
+    return UNKNOWN_TYPE;
+  }
+
+  argType.symbol.declaration.needsJson = true;
+  const nonSerializable = collectNonSerializableFields(argType);
+  if (nonSerializable.length > 0) {
+    for (const { fieldName, typeStr } of nonSerializable) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Field "${fieldName}" of type "${typeStr}" is not JSON-serializable`,
+        span,
+        module: table.path,
+      });
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  return argType;
+}
+
 function validateResolvedTypeArgsAgainstConstraints(
   typeParams: string[],
   typeParamConstraints: (ResolvedType | null)[] | undefined,
@@ -308,6 +344,9 @@ function validateResolvedTypeArgsAgainstConstraints(
 
   return resolvedTypeArgs.map((argType, index) => {
     const constraint = typeParamConstraints[index] ?? null;
+    if (constraint?.kind === "json-serializable-constraint") {
+      return validateJsonSerializableTypeArg(typeParams[index] ?? "T", argType, table, info, span);
+    }
     if (!constraint || argType.kind === "unknown" || isAssignableTo(argType, constraint)) {
       return argType;
     }
@@ -331,6 +370,10 @@ function validateInferredTypeArgsAgainstConstraints(
     if (!constraint) continue;
     const typeParam = typeParams[index];
     const argType = paramMap.get(typeParam);
+    if (constraint.kind === "json-serializable-constraint" && argType) {
+      paramMap.set(typeParam, validateJsonSerializableTypeArg(typeParam, argType, table, info, span));
+      continue;
+    }
     if (!argType || argType.kind === "unknown" || isAssignableTo(argType, constraint)) continue;
     reportTypeArgumentConstraintViolation(info, table, span, typeParam, argType, constraint);
     paramMap.set(typeParam, UNKNOWN_TYPE);
@@ -388,6 +431,26 @@ function isResolvedTypeParamBinding(
   typeParamName: string,
 ): boolean {
   return !!binding && !(binding.kind === "typevar" && binding.name === typeParamName);
+}
+
+function typeParamBindingForName(
+  host: CheckerHost,
+  name: string,
+  span: SourceSpan,
+  table: ModuleSymbolTable,
+): Binding | null {
+  for (let index = host.typeParamStack.length - 1; index >= 0; index--) {
+    if (!host.typeParamStack[index].has(name)) continue;
+    return {
+      name,
+      kind: "type-parameter",
+      type: { kind: "typevar", name },
+      mutable: false,
+      span,
+      module: table.path,
+    };
+  }
+  return null;
 }
 
 function applyResultMethodGenericDefaults(
@@ -949,7 +1012,7 @@ function inferExprTypeInner(
     }
 
     case "identifier": {
-      const binding = host.lookupBinding(expr.name, scope);
+      const binding = host.lookupBinding(expr.name, scope) ?? typeParamBindingForName(host, expr.name, expr.span, table);
       if (binding) {
         expr.resolvedBinding = binding;
         if (binding.type.kind === "namespace" || binding.type.kind === "builtin-namespace") {
@@ -1125,7 +1188,7 @@ function inferExprTypeInner(
       let objectType: ResolvedType;
       let binding: Binding | null = null;
       if (expr.object.kind === "identifier") {
-        binding = host.lookupBinding(expr.object.name, scope);
+        binding = host.lookupBinding(expr.object.name, scope) ?? typeParamBindingForName(host, expr.object.name, expr.object.span, table);
         if (binding) {
           expr.object.resolvedBinding = binding;
           expr.object.resolvedType = binding.type;
@@ -1157,6 +1220,7 @@ function inferExprTypeInner(
         (binding.kind === "class" || binding.kind === "import") && objectType.kind === "class"
         || binding.kind === "interface" && objectType.kind === "interface"
         || isTypeAliasStatic
+        || binding.kind === "type-parameter" && objectType.kind === "typevar"
       )
         ? "named-static"
         : "instance";
@@ -1174,7 +1238,7 @@ function inferExprTypeInner(
       let objectType: ResolvedType;
       let binding: Binding | null = null;
       if (expr.object.kind === "identifier") {
-        binding = host.lookupBinding(expr.object.name, scope);
+        binding = host.lookupBinding(expr.object.name, scope) ?? typeParamBindingForName(host, expr.object.name, expr.object.span, table);
         if (binding) {
           expr.object.resolvedBinding = binding;
           expr.object.resolvedType = binding.type;

@@ -599,7 +599,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "repeat") return `doof::string_repeat(${obj}, ${args})`;
     }
 
-    // Map methods: .get(), .set(), .has(), .delete(), .keys(), .values()
+    // Map methods: .get(), .set(), .has(), .delete(), .keys(), .values(), .buildReadonly(), .cloneMutable()
     if (objType && objType.kind === "map") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
@@ -610,6 +610,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "delete") return `${obj}->erase(${args})`;
       if (method === "keys") return `doof::map_keys(${obj}, ${locationArgs})`;
       if (method === "values") return `doof::map_values(${obj}, ${locationArgs})`;
+      if (method === "buildReadonly") return `doof::map_buildReadonly(${obj}, ${locationArgs})`;
+      if (method === "cloneMutable") return `doof::map_cloneMutable(${obj}, ${locationArgs})`;
     }
 
     if (objType && objType.kind === "set") {
@@ -620,11 +622,19 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "add") return `${obj}->insert(${args})`;
       if (method === "delete") return `${obj}->erase(${args})`;
       if (method === "values") return `doof::set_values(${obj}, ${locationArgs})`;
+      if (method === "buildReadonly") return `doof::set_buildReadonly(${obj}, ${locationArgs})`;
+      if (method === "cloneMutable") return `doof::set_cloneMutable(${obj}, ${locationArgs})`;
     }
 
     if (objType && objType.kind === "result") {
       const resultHelperCall = emitResultHelperCall(expr, memberExpr, objType, positionalCallValues, ctx);
       if (resultHelperCall) return resultHelperCall;
+    }
+
+    // Generic JSON deserialization: T.fromJsonValue(value) where T is emitted
+    // as the concrete value type (classes are shared_ptr<Class>).
+    if (objType && objType.kind === "typevar" && memberExpr.property === "fromJsonValue") {
+      return `${objType.name}::element_type::fromJsonValue(${args})`;
     }
 
     // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)

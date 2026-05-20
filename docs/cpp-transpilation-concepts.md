@@ -153,6 +153,7 @@ Strategy:
 
 - generic calls are lowered to concrete emitted helpers using monomorphized names keyed by the concrete type arguments
 - emitted code threads substitutions through the shared emission context so downstream helpers see concrete types
+- `T.fromJsonValue(...)` on a `JsonSerializable` type parameter lowers through the emitted class value type's `element_type`, so class instantiations represented as `std::shared_ptr<C>` call `T::element_type::fromJsonValue(...)`
 
 Primary modules:
 

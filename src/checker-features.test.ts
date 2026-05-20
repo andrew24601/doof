@@ -5052,6 +5052,60 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[1].message).toContain('Method "delete" is not available on readonly set');
   });
 
+  it("resolves buildReadonly() and cloneMutable() types on maps", () => {
+    const cr = check({ "/main.do": `
+      function freeze(m: Map<string, int>): ReadonlyMap<string, int> {
+        return m.buildReadonly()
+      }
+
+      function copyMutable(m: Map<string, int>): Map<string, int> {
+        return m.cloneMutable()
+      }
+
+      function copyReadonly(m: ReadonlyMap<string, int>): Map<string, int> {
+        return m.cloneMutable()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects buildReadonly() on readonly map", () => {
+    const cr = check({ "/main.do": `
+      function test(m: ReadonlyMap<string, int>): void {
+        m.buildReadonly()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "buildReadonly" is not available on readonly map');
+  });
+
+  it("resolves buildReadonly() and cloneMutable() types on sets", () => {
+    const cr = check({ "/main.do": `
+      function freeze(s: Set<int>): ReadonlySet<int> {
+        return s.buildReadonly()
+      }
+
+      function copyMutable(s: Set<int>): Set<int> {
+        return s.cloneMutable()
+      }
+
+      function copyReadonly(s: ReadonlySet<int>): Set<int> {
+        return s.cloneMutable()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects buildReadonly() on readonly set", () => {
+    const cr = check({ "/main.do": `
+      function test(s: ReadonlySet<int>): void {
+        s.buildReadonly()
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "buildReadonly" is not available on readonly set');
+  });
+
   it("rejects mutating methods on readonly arrays", () => {
     const cr = check({ "/main.do": `
       function test(a: readonly int[]): void {

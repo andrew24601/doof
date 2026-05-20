@@ -223,6 +223,9 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
     case "typevar":
       return type.name;
 
+    case "json-serializable-constraint":
+      throw new Error("JsonSerializable constraint should not reach C++ type emission");
+
     case "class-metadata": {
       return `doof::ClassMetadata<${emitClassInnerType(type.classType, currentModulePath)}>`;
     }
@@ -285,6 +288,8 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return `failure_${mangleTypeForCppName(type.errorType)}`;
     case "typevar":
       return type.name;
+    case "json-serializable-constraint":
+      return "json_serializable";
     case "builtin-namespace":
       return type.name;
     case "mock-capture":

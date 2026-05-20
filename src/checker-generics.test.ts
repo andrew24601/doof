@@ -284,6 +284,44 @@ describe("Checker — generic functions", () => {
     expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint'))).toBe(true);
   });
 
+  it("accepts fromJsonValue on JsonSerializable type parameters", () => {
+    const cr = check({
+      "/main.do": `
+        class User { name: string }
+        function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+          return T.fromJsonValue(json)
+        }
+        const payload: JsonValue = { name: "Ada" }
+        const user = decode<User>{ json: payload }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects fromJsonValue on unconstrained type parameters", () => {
+    const cr = check({
+      "/main.do": `
+        function decode<T>(json: JsonValue): Result<T, string> {
+          return T.fromJsonValue(json)
+        }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes("requires type parameter"))).toBe(true);
+  });
+
+  it("rejects non-class JsonSerializable type arguments", () => {
+    const cr = check({
+      "/main.do": `
+        function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+          return T.fromJsonValue(json)
+        }
+        const payload: JsonValue = 1
+        const value = decode<int>{ json: payload }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint "JsonSerializable"'))).toBe(true);
+  });
+
   it("allows imported inferred constants to participate in constrained imported calls", () => {
     const cr = check({
       "/math.do": `

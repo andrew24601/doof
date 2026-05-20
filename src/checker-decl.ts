@@ -11,6 +11,7 @@ import {
   type ResolvedType,
   type Scope,
   typeToString,
+  JSON_SERIALIZABLE_CONSTRAINT_TYPE,
   UNKNOWN_TYPE,
   VOID_TYPE,
 } from "./checker-types.js";
@@ -37,11 +38,27 @@ function resolveTypeParamConstraintTypes(
   host.typeParamStack.push(new Set(typeParams));
   const resolved = typeParams.map((_, index) => {
     const constraint = typeParamConstraints[index] ?? null;
+    if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
+      return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+    }
     return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
   });
   host.typeParamStack.pop();
 
   return resolved.some((constraint) => constraint !== null) ? resolved : undefined;
+}
+
+function pushTypeParamConstraints(
+  host: CheckerHost,
+  typeParams: string[],
+  constraints: (ResolvedType | null)[] | undefined,
+): void {
+  if (typeParams.length === 0) return;
+  const map = new Map<string, ResolvedType | null>();
+  for (let index = 0; index < typeParams.length; index++) {
+    map.set(typeParams[index], constraints?.[index] ?? null);
+  }
+  host.typeParamConstraintStack.push(map);
 }
 
 function addUnsupportedDefaultDiagnostic(
@@ -263,6 +280,8 @@ export function checkFunction(
   if (decl.typeParams.length > 0) {
     host.typeParamStack.push(new Set(decl.typeParams));
   }
+  const typeParamConstraints = resolveTypeParamConstraintTypes(host, decl.typeParams, decl.typeParamConstraints, table);
+  pushTypeParamConstraints(host, decl.typeParams, typeParamConstraints);
 
   if (decl.returnType) {
     validateCollectionTypeAnnotation(decl.returnType, decl.returnType.span, table, info, { allowOmittedTypeArgs: false });
@@ -314,7 +333,7 @@ export function checkFunction(
     })),
     returnType: inferredReturnType,
     typeParams: decl.typeParams.length > 0 ? decl.typeParams : undefined,
-    typeParamConstraints: resolveTypeParamConstraintTypes(host, decl.typeParams, decl.typeParamConstraints, table),
+    typeParamConstraints,
     mockCall: decl.mock_
       ? buildMockCallMetadata(
           table.path,
@@ -330,6 +349,7 @@ export function checkFunction(
   };
 
   if (decl.typeParams.length > 0) {
+    host.typeParamConstraintStack.pop();
     host.typeParamStack.pop();
   }
 }
@@ -539,6 +559,8 @@ export function checkMethod(
   if (method.typeParams.length > 0) {
     host.typeParamStack.push(new Set(method.typeParams));
   }
+  const typeParamConstraints = resolveTypeParamConstraintTypes(host, method.typeParams, method.typeParamConstraints, table);
+  pushTypeParamConstraints(host, method.typeParams, typeParamConstraints);
 
   if (method.returnType) {
     validateCollectionTypeAnnotation(method.returnType, method.returnType.span, table, info, { allowOmittedTypeArgs: false });
@@ -588,7 +610,7 @@ export function checkMethod(
     })),
     returnType: returnType ?? VOID_TYPE,
     typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
-    typeParamConstraints: resolveTypeParamConstraintTypes(host, method.typeParams, method.typeParamConstraints, table),
+    typeParamConstraints,
     mockCall: method.mock_
       ? buildMockCallMetadata(
           table.path,
@@ -605,6 +627,7 @@ export function checkMethod(
   };
 
   if (method.typeParams.length > 0) {
+    host.typeParamConstraintStack.pop();
     host.typeParamStack.pop();
   }
 }

@@ -112,6 +112,23 @@ case result {
 }
 ```
 
+Generic functions can call `.fromJsonValue()` on a type parameter only when that
+parameter has the compiler-known `JsonSerializable` constraint:
+
+```doof
+function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+  return T.fromJsonValue(json)
+}
+
+const payload: JsonValue = { name: "Ada" }
+const user = decode<User>{ json: payload }
+```
+
+`JsonSerializable` is a constraint-only intrinsic. It is not a normal value type,
+and each concrete type argument must be a class whose fields are JSON-serializable.
+The concrete class JSON methods are still generated on demand when the generic is
+instantiated.
+
 ### Required vs Optional Fields
 
 Deserialization follows the same rules as object construction:

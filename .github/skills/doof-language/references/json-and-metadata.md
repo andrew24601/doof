@@ -52,6 +52,21 @@ const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })  // Result<Point, string>
 const lenient = Point.fromJsonValue({ x: 1, y: null }, true)
 ```
 
+Generic helpers can deserialize through a type parameter when it is explicitly
+constrained with the intrinsic `JsonSerializable` constraint:
+
+```doof
+function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+    return T.fromJsonValue(json)
+}
+
+const payload: JsonValue = { name: "Ada" }
+const user = decode<User>{ json: payload }
+```
+
+`JsonSerializable` is constraint-only, not a normal value type. Concrete
+instantiations must use JSON-serializable classes.
+
 Rules:
 - Fields without defaults are **required**
 - Fields with defaults are **optional** (use default if absent)

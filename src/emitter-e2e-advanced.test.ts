@@ -1325,6 +1325,29 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe("10\n20");
   });
 
+  it("round-trips a class through generic fromJsonValue", () => {
+    const result = ctx.compileAndRun(`
+      class User { name: string }
+      function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+        return T.fromJsonValue(json)
+      }
+      function main(): int {
+        const payload: JsonValue = { name: "Ada" }
+        const decoded = decode<User>{ json: payload }
+        case decoded {
+          s: Success -> println(s.value.name)
+          f: Failure -> println(f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("Ada");
+  });
+
   it("serializes string and bool fields", () => {
     const result = ctx.compileAndRun(`
       import { formatJsonValue } from "std/json"

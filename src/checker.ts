@@ -50,6 +50,7 @@ import {
   BOOL_TYPE,
   JSON_VALUE_TYPE,
   JSON_OBJECT_TYPE,
+  JSON_SERIALIZABLE_CONSTRAINT_TYPE,
   VOID_TYPE,
   NULL_TYPE,
   UNKNOWN_TYPE,
@@ -497,6 +498,7 @@ export class TypeChecker {
    * Pushed when entering a generic class/function/method, popped when leaving.
    */
   private typeParamStack: Set<string>[] = [];
+  private typeParamConstraintStack: Map<string, ResolvedType | null>[] = [];
   private host: CheckerHost;
 
   constructor(analysisResult: AnalysisResult) {
@@ -510,6 +512,7 @@ export class TypeChecker {
       get analysisResult() { return self.analysisResult; },
       get catchErrorTypes() { return self.catchErrorTypes; },
       get typeParamStack() { return self.typeParamStack; },
+      get typeParamConstraintStack() { return self.typeParamConstraintStack; },
       checkBlock: (...args) => self.checkBlock(...args),
       checkCatchExpression: (...args) => self.checkCatchExpression(...args),
       checkClass: (...args) => self.checkClass(...args),
@@ -1130,6 +1133,9 @@ export class TypeChecker {
 
     const resolved = typeParams.map((_, index) => {
       const constraint = typeParamConstraints[index] ?? null;
+      if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
+        return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+      }
       return constraint ? this.resolveTypeAnnotation(constraint, table) : null;
     });
 
