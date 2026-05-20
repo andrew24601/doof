@@ -70,6 +70,7 @@ describe("std package metadata", () => {
       "std/event",
       "std/fs",
       "std/http",
+      "std/http-router",
       "std/http-server",
       "std/js",
       "std/json",

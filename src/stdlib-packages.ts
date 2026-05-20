@@ -5,6 +5,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   event: "0.1",
   fs: "0.1",
   http: "0.1",
+  "http-router": "0.1",
   "http-server": "0.1",
   js: "0.1",
   json: "0.1",
