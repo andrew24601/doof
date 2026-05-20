@@ -48,6 +48,48 @@ function mergeUnionTypes(...types: ResolvedType[]): ResolvedType {
   return { kind: "union", types: deduped };
 }
 
+function inferUnionInstanceMemberType(
+  host: CheckerHost,
+  objectType: Extract<ResolvedType, { kind: "union" }>,
+  property: string,
+  table: ModuleSymbolTable,
+  info?: ModuleTypeInfo,
+  span?: SourceSpan,
+): ResolvedType {
+  const memberTypes: ResolvedType[] = [];
+  const nonNullMembers = objectType.types.filter((member) => member.kind !== "null");
+
+  if (nonNullMembers.length === 1) {
+    return inferMemberType(host, nonNullMembers[0], property, table, "instance", info, span);
+  }
+
+  for (const member of objectType.types) {
+    if (member.kind === "null") {
+      reportMemberDiagnostic(
+        info,
+        table,
+        span,
+        `Property "${property}" cannot be accessed on nullable type "${typeToString(objectType)}" without narrowing`,
+      );
+      return UNKNOWN_TYPE;
+    }
+
+    const memberType = inferMemberType(host, member, property, table, "instance");
+    if (memberType.kind === "unknown") {
+      reportMemberDiagnostic(
+        info,
+        table,
+        span,
+        `Property "${property}" does not exist on every member of union type "${typeToString(objectType)}"`,
+      );
+      return UNKNOWN_TYPE;
+    }
+    memberTypes.push(memberType);
+  }
+
+  return mergeUnionTypes(...memberTypes);
+}
+
 function buildClassTypeSubstitution(
   objectType: Extract<ResolvedType, { kind: "class" }>,
 ): Map<string, ResolvedType> | undefined {
@@ -831,6 +873,10 @@ export function inferMemberType(
     return mode === "instance"
       ? inferInterfaceInstanceMemberType(host, objectType, property, table, info, span)
       : inferInterfaceStaticMemberType(host, objectType, property, table, mode, info, span);
+  }
+
+  if (objectType.kind === "union" && mode === "instance") {
+    return inferUnionInstanceMemberType(host, objectType, property, table, info, span);
   }
 
   if (objectType.kind === "stream") {

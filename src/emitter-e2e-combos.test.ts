@@ -18,6 +18,35 @@ afterAll(() => ctx.cleanup());
 // ============================================================================
 
 describe("e2e — feature combinations", () => {
+  it("runs shared field access on union-typed request wrappers", () => {
+    const result = ctx.compileAndRun(`
+      class Request {
+        method: string
+        path: string
+      }
+
+      class RouterRequest {
+        method: string
+        path: string
+      }
+
+      type HttpRequest = Request | RouterRequest
+
+      function describe(request: HttpRequest): string {
+        return request.method + " " + request.path
+      }
+
+      function main(): int {
+        println(describe(Request { method: "GET", path: "/raw" }))
+        println(describe(RouterRequest { method: "POST", path: "/wrapped" }))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("GET /raw\nPOST /wrapped");
+  });
 
   it("builds nested render-style batches from local vertex arrays", () => {
     const result = ctx.compileAndRun(`

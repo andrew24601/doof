@@ -767,6 +767,22 @@ describe("emitter — member access", () => {
     expect(cpp).toContain("_obj->name");
   });
 
+  it("emits std::visit for shared field access on union-typed objects", () => {
+    const cpp = emitMulti(
+      {
+        "/main.do": [
+          `class Request { method: string path: string }`,
+          `class RouterRequest { method: string path: string }`,
+          `type HttpRequest = Request | RouterRequest`,
+          `function getPath(request: HttpRequest): string => request.path`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    expect(cpp).toContain("std::visit(");
+    expect(cpp).toContain("_obj->path");
+  });
+
   it("emits class-qualified access for instance qualified static field", () => {
     const cpp = emit(`
       class Rectangle {

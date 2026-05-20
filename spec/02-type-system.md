@@ -476,6 +476,24 @@ x = "hello"  // ✅ Valid reassignment within union
 x = true     // ❌ Error: bool not in union
 ```
 
+### Shared Member Access
+
+Members may be accessed directly on a multi-member union only when every non-null
+member type exposes that member. The resulting type is the union of the member
+result types. A single class nullable such as `Box | null` uses ordinary pointer
+member access and may still require explicit null handling for safety.
+
+```javascript
+class Request { method: string, path: string }
+class RouterRequest { method: string, path: string }
+
+type HttpRequest = Request | RouterRequest
+
+function routeKey(request: HttpRequest): string {
+    return request.method + " " + request.path  // ✅ shared fields
+}
+```
+
 ### Discriminated Unions
 
 Use `const` fields to create discriminated unions:

@@ -13,7 +13,7 @@ import type {
   FunctionDeclaration,
 } from "./ast.js";
 import { substituteTypeParams, type Binding, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
-import { emitClassCppName, emitEnumHelperName, emitNullForType, emitType, isPointerType } from "./emitter-types.js";
+import { emitClassCppName, emitEnumHelperName, emitNullForType, emitType, isPointerType, isVariantUnionType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -648,6 +648,14 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return `${emitQualifiedSymbolName(objType.symbol, `${objType.symbol.name}_fromJsonValue`)}(${args})`;
     }
 
+    // JSON serialization: UnionAlias.fromJsonValue(value) → UnionAlias_fromJsonValue(value)
+    if (memberExpr.object.kind === "identifier"
+        && memberExpr.object.resolvedBinding?.symbol?.symbolKind === "type-alias"
+        && memberExpr.property === "fromJsonValue") {
+      const symbol = memberExpr.object.resolvedBinding.symbol;
+      return `${emitQualifiedSymbolName(symbol, `${symbol.name}_fromJsonValue`)}(${args})`;
+    }
+
     // Enum static methods: .fromName() → EnumName_fromName(), .fromValue() → EnumName_fromValue()
     if (objType && objType.kind === "enum") {
       if (memberExpr.property === "fromName") return `${emitEnumHelperName(objType, "_fromName")}(${args})`;
@@ -662,6 +670,22 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "interface") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = emitIdentifierSafe(memberExpr.property);
+      if (args) {
+        return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;
+      }
+      return `std::visit([](auto&& _obj) { return _obj->${method}(); }, ${obj})`;
+    }
+
+    if (objType && isVariantUnionType(objType)) {
+      const obj = emitExpression(memberExpr.object, ctx);
+      const method = emitIdentifierSafe(memberExpr.property);
+      if (expr.resolvedType?.kind === "union") {
+        const resultType = emitType(expr.resolvedType, ctx.module.path);
+        if (args) {
+          return `std::visit([&](auto&& _obj) -> ${resultType} { return ${resultType}{_obj->${method}(${args})}; }, ${obj})`;
+        }
+        return `std::visit([](auto&& _obj) -> ${resultType} { return ${resultType}{_obj->${method}()}; }, ${obj})`;
+      }
       if (args) {
         return `std::visit([&](auto&& _obj) { return _obj->${method}(${args}); }, ${obj})`;
       }

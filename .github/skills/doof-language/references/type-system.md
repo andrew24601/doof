@@ -132,6 +132,9 @@ class Failure { const kind = "Failure"; error: string }
 type ParseResult = Success | Failure
 ```
 
+Direct member access on a multi-member union is allowed only when every non-null
+member has that field or method.
+
 ## `JsonValue`
 
 `JsonValue` is an exact recursive JSON carrier.

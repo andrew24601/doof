@@ -499,6 +499,39 @@ describe("emitter-module — non-exported symbols", () => {
     expect(helpersModule!.cppCode).toContain("int32_t Helper::read()");
   });
 
+  it("keeps private class dependencies visible when exported class fields reference them", () => {
+    const project = emitProjectHelper(
+      {
+        "/router.do": `
+          class RegisteredRoute {
+            method: string
+            path: string
+          }
+
+          export class Router {
+            private routes: RegisteredRoute[] = []
+          }
+        `,
+        "/main.do": `
+          import { Router } from "./router"
+
+          function main(): int {
+            router := Router()
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const routerModule = project.modules.find((module) => module.modulePath === "/router.do");
+    expect(routerModule).toBeDefined();
+    expect(routerModule!.hppCode).toContain("struct __doof_private_router_RegisteredRoute;");
+    expect(routerModule!.hppCode).toContain("struct __doof_private_router_RegisteredRoute");
+    expect(routerModule!.hppCode).toContain("std::shared_ptr<std::vector<std::shared_ptr<__doof_private_router_RegisteredRoute>>> routes");
+    expect(routerModule!.cppCode).not.toContain("struct RegisteredRoute");
+  });
+
   it("allows duplicate private Helper classes across imported modules", () => {
     const project = emitProjectHelper(
       {
@@ -844,6 +877,44 @@ describe("emitter-module — multi-module hpp includes", () => {
     const mainModule = project.modules.find((module) => module.modulePath === "/main.do");
     expect(mainModule?.cppCode).toContain('#include "holder.hpp"');
     expect(mainModule?.cppCode).toContain('#include "data.hpp"');
+  });
+
+  it("cpp includes structural interface implementor modules needed by visited member access", () => {
+    const project = emitProjectHelper(
+      {
+        "/router.do": `
+          export interface HttpRequest {
+            method: string
+            path: string
+          }
+
+          export class Router {
+            handle(request: HttpRequest): string {
+              return request.method + " " + request.path
+            }
+          }
+        `,
+        "/main.do": `
+          import { Router } from "./router"
+
+          class TestRequest {
+            method: string
+            path: string
+          }
+
+          function main(): int {
+            router := Router {}
+            println(router.handle(TestRequest { method: "GET", path: "/ok" }))
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const routerModule = project.modules.find((module) => module.modulePath === "/router.do");
+    expect(routerModule?.cppCode).toContain('#include "main.hpp"');
+    expect(routerModule?.cppCode).toContain("std::visit(");
   });
 
   it("emits native-namespace bridge aliases from referenced type modules for standalone native headers", () => {

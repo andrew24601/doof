@@ -13,7 +13,7 @@ import type {
   IndexExpression,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { emitClassCppName, emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable } from "./emitter-types.js";
+import { emitClassCppName, emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable, isVariantUnionType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -526,6 +526,16 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
 
   // Interface-typed field access → std::visit
   if (objType && objType.kind === "interface") {
+    return `std::visit([](auto&& _obj) { return _obj->${prop}; }, ${object})`;
+  }
+
+  // Union field access is only accepted by the checker when every union member
+  // exposes the property, so dispatch through the concrete variant arm.
+  if (objType && isVariantUnionType(objType)) {
+    if (expr.resolvedType && expr.resolvedType.kind === "union") {
+      const resultType = emitType(expr.resolvedType, ctx.module.path);
+      return `std::visit([](auto&& _obj) -> ${resultType} { return ${resultType}{_obj->${prop}}; }, ${object})`;
+    }
     return `std::visit([](auto&& _obj) { return _obj->${prop}; }, ${object})`;
   }
 

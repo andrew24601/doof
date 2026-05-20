@@ -51,6 +51,45 @@ describe("e2e — module splitting", () => {
     expect(result.exitCode).toBe(42);
   });
 
+  it("compiles structural interface member access with test-local implementors", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/router.do": `
+          export interface HttpRequest {
+            method: string
+            path: string
+          }
+
+          export class Router {
+            handle(request: HttpRequest): string {
+              return request.method + " " + request.path
+            }
+          }
+        `,
+        "/main.do": `
+          import { Router } from "./router"
+
+          class TestRequest {
+            method: string
+            path: string
+          }
+
+          function main(): int {
+            router := Router {}
+            println(router.handle(TestRequest { method: "GET", path: "/unit" }))
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("GET /unit");
+  });
+
   it("runs a single module split with println output", () => {
     const result = ctx.compileAndRunProject(
       {
@@ -214,6 +253,31 @@ describe("e2e — module splitting", () => {
           `import { Data } from "./data"`,
           `export class Holder {`,
           `  data: Data`,
+          `}`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
+  it("compiles exported class with private field using non-exported class array", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/main.do": [
+          `import { Router } from "./router"`,
+          `function main(): int {`,
+          `  router := Router()`,
+          `  return 0`,
+          `}`,
+        ].join("\n"),
+        "/router.do": [
+          `class RegisteredRoute {`,
+          `  method: string`,
+          `  path: string`,
+          `}`,
+          `export class Router {`,
+          `  private routes: RegisteredRoute[] = []`,
           `}`,
         ].join("\n"),
       },

@@ -391,7 +391,7 @@ function buildHeaderPlan(
     const sym = table.symbols.get(cls.decl.name);
     return !(sym?.symbolKind === "class" && sym.extern_);
   });
-  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(table.path, interfaceImpls, classified);
   const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
   markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
   const exportedFunctions = classified.functions.filter((fn) => fn.exported && fn.decl.name !== "main");
@@ -468,7 +468,7 @@ function markAllHeaderVisiblePrivateClassNames(
       const sym = table.symbols.get(cls.decl.name);
       return !(sym?.symbolKind === "class" && sym.extern_);
     });
-    const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+    const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(table.path, interfaceImpls, classified);
     markHeaderVisiblePrivateClassNames(
       table,
       nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys)),
@@ -986,10 +986,19 @@ function emitExternInteropAliasMap(
 }
 
 function buildHeaderSurfaceClassKeySet(
+  modulePath: string,
   interfaceImpls: Map<string, ClassSymbol[]>,
   classified: ClassifiedStatements,
 ): Set<string> {
   const result = new Set<string>();
+  const classesByKey = new Map<string, ClassifiedDecl<ClassDeclaration>>();
+  for (const cls of classified.classes) {
+    const key = `${modulePath}:${cls.decl.name}`;
+    classesByKey.set(key, cls);
+    if (cls.exported || cls.decl.typeParams.length > 0 || cls.decl.implements_.length > 0 || classDeclIsStreamSensitive(cls.decl)) {
+      result.add(key);
+    }
+  }
   for (const impls of interfaceImpls.values()) {
     for (const impl of impls) {
       result.add(`${impl.module}:${impl.name}`);
@@ -1002,7 +1011,95 @@ function buildHeaderSurfaceClassKeySet(
       result.add(`${member.module}:${member.name}`);
     }
   }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const key of [...result]) {
+      const cls = classesByKey.get(key);
+      if (!cls) continue;
+      const referenced = collectHeaderClassSurfaceSymbols(cls.decl);
+      for (const symbol of referenced) {
+        const symbolKey = `${symbol.module}:${symbol.name}`;
+        if (classesByKey.has(symbolKey) && !result.has(symbolKey)) {
+          result.add(symbolKey);
+          changed = true;
+        }
+      }
+    }
+  }
   return result;
+}
+
+function collectHeaderClassSurfaceSymbols(decl: ClassDeclaration): ClassSymbol[] {
+  const symbols = new Map<string, ClassSymbol>();
+  const addType = (type: ResolvedType | null | undefined): void => {
+    if (!type || isJsonValueType(type)) return;
+    switch (type.kind) {
+      case "class":
+        symbols.set(`${type.symbol.module}:${type.symbol.name}`, type.symbol);
+        for (const arg of type.typeArgs ?? []) addType(arg);
+        break;
+      case "interface":
+        for (const arg of type.typeArgs ?? []) addType(arg);
+        break;
+      case "array":
+      case "set":
+      case "stream":
+        addType(type.elementType);
+        break;
+      case "map":
+        addType(type.keyType);
+        addType(type.valueType);
+        break;
+      case "union":
+        for (const inner of type.types) addType(inner);
+        break;
+      case "tuple":
+        for (const element of type.elements) addType(element);
+        break;
+      case "function":
+        for (const param of type.params) addType(param.type);
+        addType(type.returnType);
+        break;
+      case "weak":
+        addType(type.inner);
+        break;
+      case "actor":
+        addType(type.innerClass);
+        break;
+      case "promise":
+        addType(type.valueType);
+        break;
+      case "result":
+        addType(type.successType);
+        addType(type.errorType);
+        break;
+      case "success-wrapper":
+        addType(type.valueType);
+        break;
+      case "failure-wrapper":
+        addType(type.errorType);
+        break;
+      case "mock-capture":
+        for (const field of type.fields) addType(field.type);
+        break;
+      case "class-metadata":
+      case "method-reflection":
+        addType(type.classType);
+        break;
+      default:
+        break;
+    }
+  };
+
+  for (const field of decl.fields) {
+    addType(field.resolvedType);
+  }
+  for (const method of decl.methods) {
+    addType(method.resolvedType);
+    for (const param of method.params) addType(param.resolvedType);
+  }
+  return [...symbols.values()];
 }
 
 function collectCrossModuleClassForwardDecls(
@@ -1412,7 +1509,7 @@ function emitCppFile(
   // Include own header and runtime
   lines.push(`#include "${hppName}"`);
   lines.push(`#include "doof_runtime.hpp"`);
-  for (const dependencyModule of collectCppReferencedModulePaths(table, analysisResult, monomorphizedClasses)) {
+  for (const dependencyModule of collectCppReferencedModulePaths(table, analysisResult, monomorphizedClasses, interfaceImpls)) {
     lines.push(`#include "${modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)}"`);
   }
   lines.push("");
@@ -1442,7 +1539,7 @@ function emitCppFile(
     const sym = table.symbols.get(cls.decl.name);
     return !(sym?.symbolKind === "class" && sym.extern_);
   });
-  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(interfaceImpls, classified);
+  const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(table.path, interfaceImpls, classified);
   const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
   markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
   const cppOnlyNativeClasses = nativeClasses.filter((cls) => !headerNativeClasses.includes(cls));
@@ -2246,9 +2343,10 @@ function collectCppReferencedModulePaths(
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
   monomorphizedClasses: Map<string, GenericClassInstantiation>,
+  interfaceImpls: Map<string, ClassSymbol[]>,
 ): string[] {
   const dependencies = new Set(collectReferencedModulePaths(table));
-  for (const dependencyModule of collectMemberAccessModulePaths(table)) {
+  for (const dependencyModule of collectMemberAccessModulePaths(table, interfaceImpls)) {
     dependencies.add(dependencyModule);
   }
 
@@ -2264,10 +2362,13 @@ function collectCppReferencedModulePaths(
   return [...dependencies];
 }
 
-function collectMemberAccessModulePaths(table: ModuleSymbolTable): string[] {
+function collectMemberAccessModulePaths(
+  table: ModuleSymbolTable,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+): string[] {
   const dependencies = new Set<string>();
   for (const stmt of table.program.statements) {
-    collectMemberAccessModulePathsFromStatement(stmt, table.path, dependencies);
+    collectMemberAccessModulePathsFromStatement(stmt, table.path, dependencies, interfaceImpls);
   }
   return [...dependencies];
 }
@@ -2276,100 +2377,101 @@ function collectMemberAccessModulePathsFromStatement(
   stmt: Statement,
   currentModulePath: string,
   dependencies: Set<string>,
+  interfaceImpls: Map<string, ClassSymbol[]>,
 ): void {
   switch (stmt.kind) {
     case "const-declaration":
     case "readonly-declaration":
     case "immutable-binding":
     case "let-declaration":
-      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "function-declaration":
       for (const param of stmt.params) {
         if (param.defaultValue) {
-          collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies);
+          collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies, interfaceImpls);
         }
       }
       if (stmt.body.kind === "block") {
         for (const inner of stmt.body.statements) {
-          collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+          collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
         }
       } else {
-        collectMemberAccessModulePathsFromExpression(stmt.body, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(stmt.body, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "class-declaration":
       for (const field of stmt.fields) {
         if (field.defaultValue) {
-          collectMemberAccessModulePathsFromExpression(field.defaultValue, currentModulePath, dependencies);
+          collectMemberAccessModulePathsFromExpression(field.defaultValue, currentModulePath, dependencies, interfaceImpls);
         }
       }
       for (const method of stmt.methods) {
-        collectMemberAccessModulePathsFromStatement(method, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromStatement(method, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "if-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
-      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies, interfaceImpls);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       for (const elseIf of stmt.elseIfs) {
-        collectMemberAccessModulePathsFromExpression(elseIf.condition, currentModulePath, dependencies);
-        for (const inner of elseIf.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(elseIf.condition, currentModulePath, dependencies, interfaceImpls);
+        for (const inner of elseIf.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       }
       if (stmt.else_) {
-        for (const inner of stmt.else_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of stmt.else_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "while-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
-      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies, interfaceImpls);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       if (stmt.then_) {
-        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "for-statement":
-      if (stmt.init) collectMemberAccessModulePathsFromStatement(stmt.init, currentModulePath, dependencies);
-      if (stmt.condition) collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies);
-      for (const update of stmt.update) collectMemberAccessModulePathsFromExpression(update, currentModulePath, dependencies);
-      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      if (stmt.init) collectMemberAccessModulePathsFromStatement(stmt.init, currentModulePath, dependencies, interfaceImpls);
+      if (stmt.condition) collectMemberAccessModulePathsFromExpression(stmt.condition, currentModulePath, dependencies, interfaceImpls);
+      for (const update of stmt.update) collectMemberAccessModulePathsFromExpression(update, currentModulePath, dependencies, interfaceImpls);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       if (stmt.then_) {
-        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "for-of-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.iterable, currentModulePath, dependencies);
-      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.iterable, currentModulePath, dependencies, interfaceImpls);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       if (stmt.then_) {
-        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of stmt.then_.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "with-statement":
       for (const binding of stmt.bindings) {
-        collectMemberAccessModulePathsFromExpression(binding.value, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(binding.value, currentModulePath, dependencies, interfaceImpls);
       }
-      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      for (const inner of stmt.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       break;
     case "return-statement":
-      if (stmt.value) collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      if (stmt.value) collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "yield-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "expression-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.expression, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.expression, currentModulePath, dependencies, interfaceImpls);
       break;
     case "export-declaration":
-      collectMemberAccessModulePathsFromStatement(stmt.declaration, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromStatement(stmt.declaration, currentModulePath, dependencies, interfaceImpls);
       break;
     case "block":
-      for (const inner of stmt.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      for (const inner of stmt.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       break;
     case "case-statement":
-      collectMemberAccessModulePathsFromExpression(stmt.subject, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.subject, currentModulePath, dependencies, interfaceImpls);
       for (const arm of stmt.arms) {
         if (arm.body.kind === "block") {
-          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
         } else {
-          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies);
+          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies, interfaceImpls);
         }
       }
       break;
@@ -2379,10 +2481,10 @@ function collectMemberAccessModulePathsFromStatement(
     case "array-destructuring-assignment":
     case "positional-destructuring-assignment":
     case "named-destructuring-assignment":
-      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(stmt.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "try-statement":
-      collectMemberAccessModulePathsFromStatement(stmt.binding, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromStatement(stmt.binding, currentModulePath, dependencies, interfaceImpls);
       break;
     default:
       break;
@@ -2393,103 +2495,104 @@ function collectMemberAccessModulePathsFromExpression(
   expr: Expression,
   currentModulePath: string,
   dependencies: Set<string>,
+  interfaceImpls: Map<string, ClassSymbol[]>,
 ): void {
   switch (expr.kind) {
     case "binary-expression":
-      collectMemberAccessModulePathsFromExpression(expr.left, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.right, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.left, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.right, currentModulePath, dependencies, interfaceImpls);
       break;
     case "unary-expression":
-      collectMemberAccessModulePathsFromExpression(expr.operand, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.operand, currentModulePath, dependencies, interfaceImpls);
       break;
     case "assignment-expression":
-      collectMemberAccessModulePathsFromExpression(expr.target, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.value, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.target, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "member-expression":
     case "qualified-member-expression":
-      collectConcreteMemberObjectModulePaths(expr.object.resolvedType, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies);
+      collectConcreteMemberObjectModulePaths(expr.object.resolvedType, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies, interfaceImpls);
       break;
     case "index-expression":
-      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.index, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.object, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.index, currentModulePath, dependencies, interfaceImpls);
       break;
     case "call-expression":
-      collectMemberAccessModulePathsFromExpression(expr.callee, currentModulePath, dependencies);
-      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg.value, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.callee, currentModulePath, dependencies, interfaceImpls);
+      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg.value, currentModulePath, dependencies, interfaceImpls);
       break;
     case "array-literal":
     case "tuple-literal":
-      for (const element of expr.elements) collectMemberAccessModulePathsFromExpression(element, currentModulePath, dependencies);
+      for (const element of expr.elements) collectMemberAccessModulePathsFromExpression(element, currentModulePath, dependencies, interfaceImpls);
       break;
     case "object-literal":
       for (const property of expr.properties) {
-        if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies);
+        if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies, interfaceImpls);
       }
-      if (expr.spread) collectMemberAccessModulePathsFromExpression(expr.spread, currentModulePath, dependencies);
+      if (expr.spread) collectMemberAccessModulePathsFromExpression(expr.spread, currentModulePath, dependencies, interfaceImpls);
       break;
     case "map-literal":
       for (const entry of expr.entries) {
-        collectMemberAccessModulePathsFromExpression(entry.key, currentModulePath, dependencies);
-        collectMemberAccessModulePathsFromExpression(entry.value, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(entry.key, currentModulePath, dependencies, interfaceImpls);
+        collectMemberAccessModulePathsFromExpression(entry.value, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "lambda-expression":
       for (const param of expr.params) {
-        if (param.defaultValue) collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies);
+        if (param.defaultValue) collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies, interfaceImpls);
       }
       if (expr.body.kind === "block") {
-        for (const inner of expr.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of expr.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       } else {
-        collectMemberAccessModulePathsFromExpression(expr.body, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(expr.body, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "if-expression":
-      collectMemberAccessModulePathsFromExpression(expr.condition, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.then, currentModulePath, dependencies);
-      collectMemberAccessModulePathsFromExpression(expr.else_, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.condition, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.then, currentModulePath, dependencies, interfaceImpls);
+      collectMemberAccessModulePathsFromExpression(expr.else_, currentModulePath, dependencies, interfaceImpls);
       break;
     case "case-expression":
-      collectMemberAccessModulePathsFromExpression(expr.subject, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.subject, currentModulePath, dependencies, interfaceImpls);
       for (const arm of expr.arms) {
         if (arm.body.kind === "block") {
-          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+          for (const inner of arm.body.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
         } else {
-          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies);
+          collectMemberAccessModulePathsFromExpression(arm.body, currentModulePath, dependencies, interfaceImpls);
         }
       }
       break;
     case "construct-expression":
       if (expr.named) {
         for (const property of expr.args as import("./ast.js").ObjectProperty[]) {
-          if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies);
+          if (property.value) collectMemberAccessModulePathsFromExpression(property.value, currentModulePath, dependencies, interfaceImpls);
         }
       } else {
-        for (const arg of expr.args as Expression[]) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies);
+        for (const arg of expr.args as Expression[]) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "string-literal":
       for (const part of expr.parts) {
-        if (typeof part !== "string") collectMemberAccessModulePathsFromExpression(part, currentModulePath, dependencies);
+        if (typeof part !== "string") collectMemberAccessModulePathsFromExpression(part, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "async-expression":
       if (expr.expression.kind === "block") {
-        for (const inner of expr.expression.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+        for (const inner of expr.expression.statements) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       } else {
-        collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies);
+        collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "actor-creation-expression":
-      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies);
+      for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies, interfaceImpls);
       break;
     case "catch-expression":
-      for (const inner of expr.body) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies);
+      for (const inner of expr.body) collectMemberAccessModulePathsFromStatement(inner, currentModulePath, dependencies, interfaceImpls);
       break;
     case "non-null-assertion":
     case "as-expression":
-      collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies);
+      collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies, interfaceImpls);
       break;
     default:
       break;
@@ -2500,25 +2603,35 @@ function collectConcreteMemberObjectModulePaths(
   type: ResolvedType | undefined,
   currentModulePath: string,
   dependencies: Set<string>,
+  interfaceImpls: Map<string, ClassSymbol[]>,
 ): void {
   if (!type || isJsonValueType(type)) return;
   switch (type.kind) {
     case "class":
-    case "interface":
       if (type.symbol.module !== "<builtin>" && type.symbol.module !== currentModulePath) {
         dependencies.add(type.symbol.module);
       }
       break;
+    case "interface":
+      if (type.symbol.module !== "<builtin>" && type.symbol.module !== currentModulePath) {
+        dependencies.add(type.symbol.module);
+      }
+      for (const impl of interfaceImpls.get(`${type.symbol.module}:${type.symbol.name}`) ?? []) {
+        if (impl.module !== currentModulePath) {
+          dependencies.add(impl.module);
+        }
+      }
+      break;
     case "union":
       for (const inner of type.types) {
-        collectConcreteMemberObjectModulePaths(inner, currentModulePath, dependencies);
+        collectConcreteMemberObjectModulePaths(inner, currentModulePath, dependencies, interfaceImpls);
       }
       break;
     case "weak":
-      collectConcreteMemberObjectModulePaths(type.inner, currentModulePath, dependencies);
+      collectConcreteMemberObjectModulePaths(type.inner, currentModulePath, dependencies, interfaceImpls);
       break;
     case "actor":
-      collectConcreteMemberObjectModulePaths(type.innerClass, currentModulePath, dependencies);
+      collectConcreteMemberObjectModulePaths(type.innerClass, currentModulePath, dependencies, interfaceImpls);
       break;
     default:
       break;
