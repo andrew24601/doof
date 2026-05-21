@@ -32,22 +32,23 @@ export function emitIfExpression(expr: IfExpression, ctx: EmitContext): string {
 // Case expression → switch or std::visit
 // ============================================================================
 
-export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext): string {
+export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext, targetType?: ResolvedType): string {
   const subject = emitExpression(expr.subject, ctx);
   const subjectType = expr.subject.resolvedType;
+  const resultType = targetType ?? expr.resolvedType;
 
   // For Result types → use isSuccess()/isFailure() checks
   if (subjectType && subjectType.kind === "result") {
-    return emitCaseAsResultMatch(expr, subject, ctx);
+    return emitCaseAsResultMatch(expr, subject, ctx, resultType);
   }
 
   // For union/variant types → use std::visit
   if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
-    return emitCaseAsVisit(expr, subject, ctx);
+    return emitCaseAsVisit(expr, subject, ctx, resultType);
   }
 
   // For value types → IIFE with if-chain or switch
-  return emitCaseAsIIFE(expr, subject, ctx);
+  return emitCaseAsIIFE(expr, subject, ctx, resultType);
 }
 
 export function emitYieldBlockIIFE(
@@ -74,9 +75,13 @@ function yieldCtx(ctx: EmitContext, indentLevel: number, resultType: ResolvedTyp
 /**
  * Emit a case expression matching on a Result<T, E> value.
  */
-function emitCaseAsResultMatch(expr: CaseExpression, subject: string, ctx: EmitContext): string {
-  const retType = expr.resolvedType ? emitType(expr.resolvedType) : "auto";
-  const resultType = expr.resolvedType;
+function emitCaseAsResultMatch(
+  expr: CaseExpression,
+  subject: string,
+  ctx: EmitContext,
+  resultType?: ResolvedType,
+): string {
+  const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
   const ind = indent(ctx);
   const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
 
@@ -100,7 +105,7 @@ function emitCaseAsResultMatch(expr: CaseExpression, subject: string, ctx: EmitC
           result += emitBlockBody(arm.body, yieldCtx(ctx, ctx.indent + 1, resultType));
           result += `\n`;
         } else {
-          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx)};\n`;
+          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
         }
       }
     }
@@ -132,14 +137,18 @@ function emitResultMatchArm(
   if (bindingName !== "_") {
     s += `${innerInd}    auto& ${emitIdentifierSafe(bindingName)} = ${tmpVar};\n`;
   }
-  s += `${innerInd}    return ${emitExpression(body as Expression, ctx)};\n`;
+  s += `${innerInd}    return ${emitExpression(body as Expression, ctx, resultType)};\n`;
   s += `${innerInd}}\n`;
   return s;
 }
 
-function emitCaseAsVisit(expr: CaseExpression, subject: string, ctx: EmitContext): string {
-  const retType = expr.resolvedType ? emitType(expr.resolvedType) : "auto";
-  const resultType = expr.resolvedType;
+function emitCaseAsVisit(
+  expr: CaseExpression,
+  subject: string,
+  ctx: EmitContext,
+  resultType?: ResolvedType,
+): string {
+  const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
   const ind = indent(ctx);
   const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
 
@@ -158,7 +167,7 @@ function emitCaseAsVisit(expr: CaseExpression, subject: string, ctx: EmitContext
         if (arm.body.kind === "block") {
           result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 2, resultType));
         } else {
-          result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx)};\n`;
+          result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
         }
         result += `${innerInd}}\n`;
       } else if (pattern.kind === "wildcard-pattern") {
@@ -166,7 +175,7 @@ function emitCaseAsVisit(expr: CaseExpression, subject: string, ctx: EmitContext
           result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 1, resultType));
           result += `\n`;
         } else {
-          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx)};\n`;
+          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
         }
       }
     }
@@ -176,9 +185,13 @@ function emitCaseAsVisit(expr: CaseExpression, subject: string, ctx: EmitContext
   return result;
 }
 
-function emitCaseAsIIFE(expr: CaseExpression, subject: string, ctx: EmitContext): string {
-  const retType = expr.resolvedType ? emitType(expr.resolvedType) : "auto";
-  const resultType = expr.resolvedType;
+function emitCaseAsIIFE(
+  expr: CaseExpression,
+  subject: string,
+  ctx: EmitContext,
+  resultType?: ResolvedType,
+): string {
+  const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
   const ind = indent(ctx);
   const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
   const tmpVar = "_case_subject";
@@ -209,7 +222,7 @@ function emitCaseAsIIFE(expr: CaseExpression, subject: string, ctx: EmitContext)
         if (arm.body.kind === "block") {
           result += emitBlockBody(arm.body as Block, yieldCtx(ctx, ctx.indent + 1, resultType));
         } else {
-          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx)};\n`;
+          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
         }
         continue;
       }
@@ -225,7 +238,7 @@ function emitCaseAsIIFE(expr: CaseExpression, subject: string, ctx: EmitContext)
         if (bindingName && bindingName !== "_") {
           result += `${innerInd}    auto& ${emitIdentifierSafe(bindingName)} = ${tmpVar};\n`;
         }
-        result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx)};\n`;
+        result += `${innerInd}    return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
         result += `${innerInd}}\n`;
       }
     }

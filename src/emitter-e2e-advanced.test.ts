@@ -1134,6 +1134,27 @@ describe("e2e — union type casting (shared_ptr ↔ variant)", () => {
     expect(result.stdout.trim()).toBe("text hi\nbool true\nint 42");
   });
 
+  it("runs value case expression returning nullable string from a null arm", () => {
+    const result = ctx.compileAndRun(`
+      function mime(ext: string): string | null {
+        return case ext {
+          "html" -> "text/html",
+          _ -> null,
+        }
+      }
+
+      function main(): int {
+        println(mime("html")!)
+        println(if mime("unknown") == null then "none" else "some")
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("text/html\nnone");
+  });
+
   it("runs primitive capture fallback on non-union case subjects", () => {
     const result = ctx.compileAndRun(`
       function describe(status: int): string {

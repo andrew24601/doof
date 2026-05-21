@@ -60,13 +60,26 @@ import {
  *   (shared_ptr), the call site passes the expected target type.
  */
 export function emitExpression(expr: Expression, ctx: EmitContext, targetType?: ResolvedType): string {
-  const raw = emitExpressionInner(expr, ctx, targetType);
+  const expressionTargetType = expressionCodegenTargetType(expr, targetType);
+  const raw = emitExpressionInner(expr, ctx, expressionTargetType);
+  if (expr.kind === "case-expression" && expressionTargetType) {
+    return raw;
+  }
   const sourceType = substituteEmitType(expr.resolvedType, ctx);
   const resolvedTargetType = substituteEmitType(targetType, ctx);
   if (resolvedTargetType && sourceType) {
     return emitRuntimeCoercion(raw, sourceType, resolvedTargetType);
   }
   return raw;
+}
+
+function expressionCodegenTargetType(expr: Expression, targetType?: ResolvedType): ResolvedType | undefined {
+  if (expr.kind !== "case-expression") return targetType;
+  if (!targetType) return undefined;
+  if (targetType.kind === "result" && expr.resolvedType?.kind !== "result") {
+    return undefined;
+  }
+  return targetType;
 }
 
 function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: ResolvedType): string {
@@ -156,7 +169,7 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       return emitIfExpression(expr, ctx);
 
     case "case-expression":
-      return emitCaseExpression(expr, ctx);
+      return emitCaseExpression(expr, ctx, targetType);
 
     case "catch-expression":
       return emitCatchExpressionIIFE(expr, ctx);
