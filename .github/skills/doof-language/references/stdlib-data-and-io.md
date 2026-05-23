@@ -7,8 +7,8 @@ import { BlobBuilder, BlobReader, Endian } from "std/blob"
 ```
 
 - `Endian`: `.BigEndian`, `.LittleEndian`
-- `BlobBuilder.create(size: long = 0L, endianness: Endian = .LittleEndian)`
-- `BlobReader.create(data: readonly byte[], endianness: Endian = .LittleEndian)`
+- `BlobBuilder.constructor(size: long = 0L, endianness: Endian = .LittleEndian)`
+- `BlobReader.constructor(data: readonly byte[], endianness: Endian = .LittleEndian)`
 - Writer methods: `writeByte`, `writeBool`, `writeInt`, `writeLong`, `writeFloat`, `writeDouble`, `writeBytes`, `writeString`
 - Reader methods: `readByte`, `readBool`, `readInt`, `readLong`, `readFloat`, `readDouble`, `readBytes`, `readString`
 

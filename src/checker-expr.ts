@@ -16,6 +16,7 @@ import {
   BOOL_TYPE,
   CHAR_TYPE,
   collectNonSerializableFields,
+  hasDedicatedConstructor,
   DOUBLE_TYPE,
   FLOAT_TYPE,
   findSharedDiscriminator,
@@ -316,6 +317,15 @@ function validateJsonSerializableTypeArg(
   }
 
   argType.symbol.declaration.needsJson = true;
+  if (hasDedicatedConstructor(argType.symbol.declaration)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Class "${argType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
+      span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
   const nonSerializable = collectNonSerializableFields(argType);
   if (nonSerializable.length > 0) {
     for (const { fieldName, typeStr } of nonSerializable) {
@@ -1476,7 +1486,7 @@ function inferExprTypeInner(
 
       if (calleeType.kind === "class") {
         let effectiveClassType = calleeType;
-        let constructorParams = getConstructorParams(host, calleeType.symbol, table, true);
+        let constructorParams = getConstructorParams(host, calleeType.symbol, table, true, scope);
 
         if ((!calleeType.typeArgs || calleeType.typeArgs.length === 0) && calleeType.symbol.declaration.typeParams.length > 0) {
           const argTypes: ResolvedType[] = [];
@@ -1664,7 +1674,7 @@ function inferExprTypeInner(
           }
         }
 
-        let constructParams = getConstructorParams(host, sym, table, true);
+        let constructParams = getConstructorParams(host, sym, table, true, scope);
         if (paramSubMap) {
           constructParams = constructParams.map((p) => ({
             ...p,
@@ -2271,10 +2281,11 @@ function getConstructorParams(
   sym: ClassSymbol,
   table: ModuleSymbolTable,
   nominal: boolean,
+  scope?: Scope,
 ): ConstructorParam[] {
-  const externFactoryParams = getExternConstructorFactoryParams(host, sym, table);
-  if (externFactoryParams) {
-    return externFactoryParams;
+  const factoryParams = getConstructorFactoryParams(host, sym, table, scope);
+  if (factoryParams) {
+    return factoryParams;
   }
 
   const params: ConstructorParam[] = [];
@@ -2301,12 +2312,13 @@ function getConstructorParams(
   return params;
 }
 
-function getExternConstructorFactoryParams(
+function getConstructorFactoryParams(
   host: CheckerHost,
   sym: ClassSymbol,
   table: ModuleSymbolTable,
+  scope?: Scope,
 ): ConstructorParam[] | null {
-  const factoryMethod = findExternConstructorFactoryMethod(host, sym, table);
+  const factoryMethod = findConstructorFactoryMethod(host, sym, table, scope);
   if (!factoryMethod) return null;
 
   const classTable = host.analysisResult.modules.get(sym.module) ?? table;
@@ -2319,16 +2331,19 @@ function getExternConstructorFactoryParams(
   }));
 }
 
-function findExternConstructorFactoryMethod(
+function findConstructorFactoryMethod(
   host: CheckerHost,
   sym: ClassSymbol,
   table: ModuleSymbolTable,
+  scope?: Scope,
 ): FunctionDeclaration | null {
-  if (!sym.extern_) return null;
+  if (scope?.currentClassName === sym.name && scope.currentMethodName === "constructor") {
+    return null;
+  }
 
   const classTable = host.analysisResult.modules.get(sym.module) ?? table;
   for (const method of sym.declaration.methods) {
-    if (!method.static_ || method.name !== "create") continue;
+    if (!method.static_ || method.name !== "constructor") continue;
 
     const resolvedReturnType = method.returnType
       ? host.resolveTypeAnnotation(method.returnType, classTable)

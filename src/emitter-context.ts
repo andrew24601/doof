@@ -37,6 +37,10 @@ export interface EmitContext {
   emitBlock: (block: Block, ctx: EmitContext) => string;
   /** Encoded Doof callable name for the current emission scope. */
   currentCallableName?: string;
+  /** Class currently being emitted, when inside a class method. */
+  currentClassName?: string;
+  /** Method currently being emitted, when inside a class method. */
+  currentMethodName?: string;
   /** Override used when emitting call-site-sensitive defaults such as @caller. */
   sourceLocationSpanOverride?: SourceSpan;
   /** The return type of the current enclosing function (for Result wrapping). */

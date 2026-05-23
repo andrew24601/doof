@@ -631,6 +631,25 @@ describe("emitter — classes", () => {
     expect(cpp).toContain("std::make_shared<Point>");
   });
 
+  it("emits regular class construction through static constructor", () => {
+    const cpp = emit(`
+      class Counter {
+        count: int
+        static constructor(initial: int, step: int = 1): Counter {
+          return Counter { count: initial + step }
+        }
+      }
+
+      function main(): void {
+        a := Counter(10)
+        b := Counter { initial: 10, step: 5 }
+      }
+    `);
+    expect(cpp).toContain("return std::make_shared<Counter>(initial + step);");
+    expect(cpp).toContain("Counter::constructor(10, 1)");
+    expect(cpp).toContain("Counter::constructor(10, 5)");
+  });
+
   it("emits named constructor args in declaration order", () => {
     const cpp = emit(`
       class Rect { x, y, w, h: float }

@@ -226,6 +226,8 @@ function buildClassCallableScope(
     bindings: new Map(),
     kind: static_ ? "function" : "method",
     thisType: static_ ? null : thisType,
+    currentClassName: classDecl.name,
+    currentMethodName: "",
     returnType,
   };
 
@@ -583,6 +585,7 @@ export function checkMethod(
     effectiveMethodReturnType ?? VOID_TYPE,
     method.static_,
   );
+  methodScope.currentMethodName = method.name;
 
   checkParameters(host, method.params, methodScope, table, info);
 

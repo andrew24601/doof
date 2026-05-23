@@ -98,3 +98,38 @@ describe("e2e — std/event", () => {
     expect(result.stderr.trim()).toBe("");
   });
 });
+
+describe("e2e — std/gzip", () => {
+  it("coerces GzipStream into Stream byte chunks", () => {
+    const entryPath = writeManifestProject("std-gzip-stream", [
+      `import { BlobBuilder } from "std/blob"`,
+      `import { GzipStream, gzip } from "std/gzip"`,
+      ``,
+      `function collect(stream: Stream<readonly byte[]>): readonly byte[] {`,
+      `  builder := BlobBuilder()`,
+      `  for chunk of stream {`,
+      `    builder.writeBytes(chunk)`,
+      `  }`,
+      `  return builder.build()`,
+      `}`,
+      ``,
+      `function main(): void {`,
+      `  builder := BlobBuilder()`,
+      `  builder.writeString("hello gzip\\n")`,
+      `  builder.writeString("hello gzip\\n")`,
+      `  input := builder.build()`,
+      `  streamed := collect(GzipStream(input, 5))`,
+      `  oneShot := gzip(input)`,
+      `  assert(streamed.length == oneShot.length, "streamed gzip size should match one-shot gzip size")`,
+      `}`,
+    ].join("\n"));
+    const result = ctx.compileAndRunManifestProject(entryPath);
+
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.trim()).toBe("");
+  });
+});

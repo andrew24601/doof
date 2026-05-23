@@ -86,6 +86,9 @@ Keep aligned:
 - constraint resolution must preserve `JsonSerializable` as a marker rather than resolving it as a normal named type
 - member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` is rejected and constrained instantiations mark concrete classes `needsJson`
 - diagnostics and serializability checks should reuse the same field-level JSON helpers used by concrete class `.fromJsonValue()`
+- classes with a dedicated static `constructor(...): Self` must fail
+  `JsonSerializable` validation and direct `.toJsonObject()` / `.fromJsonValue()`
+  access
 
 Validation anchors:
 

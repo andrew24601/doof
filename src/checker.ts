@@ -1236,6 +1236,8 @@ export class TypeChecker {
       bindings: new Map(),
       kind,
       thisType: kind === "method" ? parent.thisType : null,
+      currentClassName: isNewFunction ? undefined : parent.currentClassName,
+      currentMethodName: isNewFunction ? undefined : parent.currentMethodName,
       returnType: returnType !== undefined ? returnType : this.findReturnType(parent),
       inCaseExpressionArm: isNewFunction ? false : parent.inCaseExpressionArm,
       inValueYieldBlock: isNewFunction ? false : parent.inValueYieldBlock,

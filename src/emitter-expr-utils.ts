@@ -213,9 +213,9 @@ function resolveModuleSymbolType(
 /**
  * Build a map from field name to resolved type for a class's instance construction fields.
  */
-export function buildFieldTypeMap(classSym: ClassSymbol | undefined): Map<string, ResolvedType> {
+export function buildFieldTypeMap(classSym: ClassSymbol | undefined, allowFactory = true): Map<string, ResolvedType> {
   const map = new Map<string, ResolvedType>();
-  for (const field of buildConstructorFieldInfoList(classSym)) {
+  for (const field of buildConstructorFieldInfoList(classSym, allowFactory)) {
     if (field.type) {
       map.set(field.name, field.type);
     }
@@ -227,20 +227,21 @@ export function buildFieldTypeMap(classSym: ClassSymbol | undefined): Map<string
 /**
  * Build an ordered list of resolved types for a class's instance construction fields.
  */
-export function buildFieldTypeList(classSym: ClassSymbol | undefined): ResolvedType[] {
-  return buildConstructorFieldInfoList(classSym)
+export function buildFieldTypeList(classSym: ClassSymbol | undefined, allowFactory = true): ResolvedType[] {
+  return buildConstructorFieldInfoList(classSym, allowFactory)
     .flatMap((field) => field.type ? [field.type] : []);
 }
 
 export function buildConstructorFieldInfoListForClassType(
   classType: Extract<ResolvedType, { kind: "class" }>,
+  allowFactory = true,
 ): ConstructorFieldInfo[] {
   const typeSubstitution = buildClassTypeSubstitution(classType);
   if (!typeSubstitution) {
-    return buildConstructorFieldInfoList(classType.symbol);
+    return buildConstructorFieldInfoList(classType.symbol, allowFactory);
   }
 
-  return buildConstructorFieldInfoList(classType.symbol).map((field) => ({
+  return buildConstructorFieldInfoList(classType.symbol, allowFactory).map((field) => ({
     ...field,
     type: field.type ? substituteTypeParams(field.type, typeSubstitution) : undefined,
   }));
@@ -248,8 +249,9 @@ export function buildConstructorFieldInfoListForClassType(
 
 export function buildFieldTypeListForClassType(
   classType: Extract<ResolvedType, { kind: "class" }>,
+  allowFactory = true,
 ): ResolvedType[] {
-  return buildConstructorFieldInfoListForClassType(classType)
+  return buildConstructorFieldInfoListForClassType(classType, allowFactory)
     .flatMap((field) => field.type ? [field.type] : []);
 }
 
@@ -274,13 +276,14 @@ function buildClassTypeSubstitution(
   return map;
 }
 
-function findExternConstructorFactoryMethod(
+function findConstructorFactoryMethod(
   classSym: ClassSymbol | undefined,
+  allowFactory = true,
 ): FunctionDeclaration | null {
-  if (!classSym?.extern_) return null;
+  if (!allowFactory || !classSym) return null;
 
   for (const method of classSym.declaration.methods) {
-    if (!method.static_ || method.name !== "create") continue;
+    if (!method.static_ || method.name !== "constructor") continue;
     const returnType = method.returnType;
     if (!returnType || returnType.kind !== "named-type") continue;
     if (returnType.resolvedSymbol === classSym || returnType.name === classSym.name) {
@@ -289,10 +292,6 @@ function findExternConstructorFactoryMethod(
   }
 
   return null;
-}
-
-export function hasExternConstructorFactory(classSym: ClassSymbol | undefined): boolean {
-  return findExternConstructorFactoryMethod(classSym) !== null;
 }
 
 export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>, currentModulePath?: string): string {
@@ -309,8 +308,9 @@ export function emitStreamValueHelperName(aliasName: string): string {
 
 export function buildConstructorFieldInfoList(
   classSym: ClassSymbol | undefined,
+  allowFactory = true,
 ): ConstructorFieldInfo[] {
-  const factoryMethod = findExternConstructorFactoryMethod(classSym);
+  const factoryMethod = findConstructorFactoryMethod(classSym, allowFactory);
   if (factoryMethod) {
     return factoryMethod.params.map((param) => ({
       name: param.name,
@@ -373,12 +373,13 @@ export function buildPositionalConstructorArgList(
   classSym: ClassSymbol | undefined,
   providedArgs: string[],
   emitDefaultValue: (expr: Expression, targetType?: ResolvedType) => string,
+  allowFactory = true,
 ): string[] {
-  if (!hasExternConstructorFactory(classSym)) {
+  if (!findConstructorFactoryMethod(classSym, allowFactory)) {
     return providedArgs;
   }
 
-  const params = buildConstructorFieldInfoList(classSym);
+  const params = buildConstructorFieldInfoList(classSym, allowFactory);
   const args: string[] = [];
   for (let index = 0; index < params.length; index++) {
     if (index < providedArgs.length) {
@@ -399,9 +400,10 @@ export function emitClassConstruction(
   className: string,
   classSym: ClassSymbol | undefined,
   args: string[],
+  allowFactory = true,
 ): string {
-  if (hasExternConstructorFactory(classSym)) {
-    return `${className}::create(${args.join(", ")})`;
+  if (findConstructorFactoryMethod(classSym, allowFactory)) {
+    return `${className}::constructor(${args.join(", ")})`;
   }
 
   return `std::make_shared<${className}>(${args.join(", ")})`;

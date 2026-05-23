@@ -2,7 +2,7 @@
 
 ## JSON Serialization
 
-Classes with all-serializable fields automatically get `.toJsonObject()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
+Classes with all-serializable fields and no dedicated `constructor` method automatically get `.toJsonObject()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
 
 ### `.toJsonObject()` — Instance Method
 
@@ -43,7 +43,7 @@ Rules:
 | Enums (int) | number (value) |
 | `T | null` | value or null |
 
-**Not serializable:** function types, `weak` references, `Actor<T>`, `Promise<T>`, `Result<T,E>`, `void`.
+**Not serializable:** function types, `weak` references, `Actor<T>`, `Promise<T>`, `Result<T,E>`, `void`, classes with a dedicated static `constructor(...): Self`.
 
 ### `.fromJsonValue()` — Static Method
 

@@ -1,6 +1,7 @@
 import {
   collectNonSerializableFields,
   findSharedDiscriminator,
+  hasDedicatedConstructor,
   isAssignableTo,
   isJSONSerializable,
   buildMockCallMetadata,
@@ -239,6 +240,7 @@ function inferClassInstanceMemberType(
 
     if (property === "toJsonObject") {
       classDecl.needsJson = true;
+      validateNoDedicatedConstructorForJson(objectType, table, info, span);
       const nonSerializable = collectNonSerializableFields(objectType);
       if (nonSerializable.length > 0 && info && span) {
         for (const { fieldName, typeStr } of nonSerializable) {
@@ -324,6 +326,7 @@ function inferClassStaticMemberType(
 
     if (property === "fromJsonValue") {
       classDecl.needsJson = true;
+      validateNoDedicatedConstructorForJson(objectType, table, info, span);
       const nonSerializable = collectNonSerializableFields(objectType);
       if (nonSerializable.length > 0 && info && span) {
         for (const { fieldName, typeStr } of nonSerializable) {
@@ -357,6 +360,7 @@ function inferClassStaticMemberType(
       }
       classDecl.needsMetadata = true;
       classDecl.needsJson = true;
+      validateNoDedicatedConstructorForJson(objectType, table, info, span);
       validateMetadataSerializability(host, classDecl, objectType, table, info, span);
       return { kind: "class-metadata", classType: objectType };
     }
@@ -413,6 +417,21 @@ function inferClassStaticMemberType(
     );
     return UNKNOWN_TYPE;
   });
+}
+
+function validateNoDedicatedConstructorForJson(
+  objectType: Extract<ResolvedType, { kind: "class" }>,
+  table: ModuleSymbolTable,
+  info?: ModuleTypeInfo,
+  span?: SourceSpan,
+): void {
+  if (!hasDedicatedConstructor(objectType.symbol.declaration)) return;
+  reportMemberDiagnostic(
+    info,
+    table,
+    span,
+    `Class "${objectType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
+  );
 }
 
 function inferInterfaceInstanceMemberType(
@@ -519,6 +538,7 @@ function inferInterfaceStaticMemberType(
       }
       for (const cls of implClasses) {
         const clsType = { kind: "class" as const, symbol: cls };
+        validateNoDedicatedConstructorForJson(clsType, table, info, span);
         const nonSerializable = collectNonSerializableFields(clsType);
         if (nonSerializable.length > 0 && info && span) {
           for (const { fieldName, typeStr } of nonSerializable) {
@@ -683,6 +703,7 @@ function inferTypeAliasStaticMemberType(
   const classSymbols = classMembers.map((member) => member.symbol);
   for (const cls of classSymbols) {
     cls.declaration.needsJson = true;
+    validateNoDedicatedConstructorForJson({ kind: "class", symbol: cls }, table, info, span);
     const nonSerializable = collectNonSerializableFields({ kind: "class", symbol: cls });
     if (nonSerializable.length > 0 && info && span) {
       for (const { fieldName, typeStr } of nonSerializable) {

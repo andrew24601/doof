@@ -1800,10 +1800,10 @@ describe("emitter — extern class imports", () => {
     expect(cpp).toContain("return native::MathBridge::cos(x);");
   });
 
-  it("emits extern class direct construction through static create", () => {
+  it("emits extern class direct construction through static constructor", () => {
     const cpp = emit(`
       import class BlobReader from "blob.hpp" as native::BlobReader {
-        static create(data: readonly byte[], endianness: int = 0): BlobReader
+        static constructor(data: readonly byte[], endianness: int = 0): BlobReader
         length(): long
       }
 
@@ -1815,8 +1815,8 @@ describe("emitter — extern class imports", () => {
         return BlobReader { data: payload, endianness: 1 }
       }
     `);
-    expect(cpp).toContain("return native::BlobReader::create(payload, 0);");
-    expect(cpp).toContain("return native::BlobReader::create(payload, 1);");
+    expect(cpp).toContain("return native::BlobReader::constructor(payload, 0);");
+    expect(cpp).toContain("return native::BlobReader::constructor(payload, 1);");
   });
 
   it("emits #include for exported extern class", () => {

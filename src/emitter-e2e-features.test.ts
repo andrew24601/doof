@@ -235,6 +235,27 @@ describe("e2e — optional chaining", () => {
     expect(result.success).toBe(true);
   });
 
+  it("runs regular class direct construction through static constructor", () => {
+    const result = ctx.compileAndRun(`
+      class Counter {
+        count: int
+        static constructor(initial: int, step: int = 1): Counter {
+          return Counter { count: initial + step }
+        }
+      }
+
+      function main(): int {
+        a := Counter(10)
+        b := Counter { initial: 20, step: 2 }
+        return a.count + b.count
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(33);
+  });
+
   it("runs class method returning field", () => {
     const result = ctx.compileAndRun(`
       export class Pair {

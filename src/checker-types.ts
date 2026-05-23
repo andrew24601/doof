@@ -6,7 +6,7 @@
  * that the checker produces.
  */
 
-import type { Expression, SourceSpan } from "./ast.js";
+import type { ClassDeclaration, Expression, SourceSpan } from "./ast.js";
 import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic, ModuleSymbol } from "./types.js";
 
 // ============================================================================
@@ -347,6 +347,10 @@ export interface Scope {
   kind: ScopeKind;
   /** For method scopes, the resolved type of `this`. */
   thisType: ResolvedType | null;
+  /** Class currently being checked, when inside a class method. */
+  currentClassName?: string;
+  /** Method currently being checked, when inside a class method. */
+  currentMethodName?: string;
   /** Expected return type of the enclosing function/method (null if not in function). */
   returnType: ResolvedType | null;
   /** True when inside a case-expression arm body (return is disallowed). */
@@ -1313,6 +1317,7 @@ export function isJSONSerializable(
       return true;
 
     case "class": {
+      if (hasDedicatedConstructor(type.symbol.declaration)) return false;
       // Guard against circular references
       const key = `${type.symbol.module}::${type.symbol.name}`;
       if (visited.has(key)) return true; // assume OK for cycles
@@ -1371,6 +1376,15 @@ export function isJSONSerializable(
     case "method-reflection":
       return false;
   }
+}
+
+export function hasDedicatedConstructor(decl: ClassDeclaration): boolean {
+  return decl.methods.some((method) =>
+    method.static_
+    && method.name === "constructor"
+    && method.returnType?.kind === "named-type"
+    && method.returnType.name === decl.name
+  );
 }
 
 function isAssignableToJsonValue(source: ResolvedType): boolean {

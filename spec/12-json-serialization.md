@@ -1,6 +1,6 @@
 # 12. JSON Serialization
 
-Doof provides built-in JSON serialization and deserialization for class instances. Classes with all-serializable fields are eligible for `.toJsonObject()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
+Doof provides built-in JSON serialization and deserialization for class instances. Classes with all-serializable fields and no dedicated `constructor` method are eligible for `.toJsonObject()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
 
 ## Overview
 
@@ -89,6 +89,7 @@ The following types are not JSON-serializable. A compile-time error is produced 
 - `Promise<T>`
 - `Result<T, E>`
 - `void`
+- Classes with a dedicated static `constructor(...): Self` method
 
 ```doof
 class Bad {
@@ -98,6 +99,10 @@ class Bad {
 const b = Bad { callback: (x) => println(x) }
 b.toJsonObject()  // compile error
 ```
+
+Classes with a dedicated `constructor` method are excluded because custom
+construction usually encodes invariants that the automatic field-by-field JSON
+deserializer cannot safely recreate.
 
 ## Deserialization — `.fromJsonValue()`
 

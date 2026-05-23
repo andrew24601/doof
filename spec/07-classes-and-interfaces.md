@@ -140,7 +140,7 @@ class Counter {
     
     increment(): void { count += 1; }
     
-    static create(initial: int): Counter {
+    static constructor(initial: int): Counter {
         return Counter { count: initial }
     }
     
@@ -150,10 +150,37 @@ class Counter {
     }
 }
 
-let c = Counter.create(10)   // ✅ Called on the class
+let c = Counter.constructor(10) // ✅ Called on the class
+let c2 = Counter(10)            // ✅ Alias for Counter.constructor(10)
 c.increment()                // ✅ Called on the instance
-c.create(5)                  // ❌ Error: static method cannot be called on an instance
+c.constructor(5)             // ❌ Error: static method cannot be called on an instance
 ```
+
+When a class declares a static `constructor` method whose return type is the class
+itself, direct construction syntax delegates to that method. Both positional
+and named construction are validated against `constructor` parameters instead of
+fields:
+
+```javascript
+class Counter {
+    count: int
+
+    static constructor(initial: int, step: int = 1): Counter {
+        return Counter { count: initial + step } // raw field construction inside constructor
+    }
+}
+
+let a = Counter(10)                    // Counter.constructor(10)
+let b = Counter { initial: 10, step: 5 } // Counter.constructor(10, 5)
+```
+
+Inside the class's own `constructor` method, `Counter { ... }` and `Counter(...)`
+still use the field constructor so factory implementations can build the
+instance without recursively calling themselves.
+
+Classes with a dedicated `constructor` method are not eligible for automatic
+JSON serialization/deserialization, because the compiler cannot safely infer how
+JSON fields should map onto custom construction invariants.
 
 Instances must use `::` to access class statics:
 

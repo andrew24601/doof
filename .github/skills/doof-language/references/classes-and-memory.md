@@ -14,7 +14,7 @@ class User {
 
     private internalHelper(): void { }
 
-    static create(name: string): User => User { id: nextId(), name: name }
+    static constructor(name: string): User => User { id: nextId(), name: name }
 }
 ```
 
@@ -46,6 +46,12 @@ Rules:
 
 - Named construction may omit fields that have defaults.
 - Positional construction follows declaration order and may omit trailing defaults.
+- If a class has a static `constructor` method returning that class, direct
+  construction delegates to `constructor` and uses its parameters for
+  validation. Inside that class's own `constructor` method, construction still
+  uses fields so the factory can build the instance.
+- Classes with a dedicated `constructor` method are not eligible for automatic
+  JSON serialization/deserialization.
 - Name-value shorthand such as `{ name }` expands to `{ name: name }`.
 - Spread fields work in named construction.
 

@@ -2600,6 +2600,17 @@ describe("JSON serialization — toJsonObject", () => {
     ` }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
+
+  it("rejects toJsonObject on a class with a dedicated constructor", () => {
+    const info = check({ "/main.do": `
+      class User {
+        name: string
+        static constructor(name: string): User => User { name }
+      }
+      const json = User("Ada").toJsonObject()
+    ` }, "/main.do");
+    expect(info.diagnostics.some((d) => d.message.includes("dedicated constructor"))).toBe(true);
+  });
 });
 
 describe("JSON serialization — fromJsonValue", () => {
@@ -2628,6 +2639,17 @@ describe("JSON serialization — fromJsonValue", () => {
       const result = Bad.fromJsonValue({})
     ` }, "/main.do");
     expect(info.diagnostics.some((d) => d.message.includes("not JSON-serializable"))).toBe(true);
+  });
+
+  it("rejects fromJsonValue on a class with a dedicated constructor", () => {
+    const info = check({ "/main.do": `
+      class User {
+        name: string
+        static constructor(name: string): User => User { name }
+      }
+      const result = User.fromJsonValue({})
+    ` }, "/main.do");
+    expect(info.diagnostics.some((d) => d.message.includes("dedicated constructor"))).toBe(true);
   });
 });
 
@@ -3283,10 +3305,10 @@ describe("checker — constructor validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("uses extern static create params for direct construction", () => {
+  it("uses extern static constructor params for direct construction", () => {
     const info = check({ "/main.do": `
       import class BlobReader from "blob.hpp" as native::BlobReader {
-        static create(data: readonly byte[], endianness: int = 0): BlobReader
+        static constructor(data: readonly byte[], endianness: int = 0): BlobReader
         length(): long
       }
 
@@ -3297,10 +3319,40 @@ describe("checker — constructor validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
-  it("validates extern static create arity for direct construction", () => {
+  it("uses regular static constructor params for direct construction", () => {
+    const info = check({ "/main.do": `
+      class Counter {
+        count: int
+        static constructor(initial: int, step: int = 1): Counter {
+          return Counter { count: initial + step }
+        }
+      }
+
+      a := Counter(10)
+      b := Counter { initial: 10, step: 5 }
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("validates regular static constructor arity for direct construction", () => {
+    const info = check({ "/main.do": `
+      class Counter {
+        count: int
+        static constructor(initial: int): Counter {
+          return Counter { count: initial }
+        }
+      }
+
+      counter := Counter()
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("expects 1 constructor argument(s) but got 0");
+  });
+
+  it("validates extern static constructor arity for direct construction", () => {
     const info = check({ "/main.do": `
       import class BlobReader from "blob.hpp" as native::BlobReader {
-        static create(data: readonly byte[], endianness: int = 0): BlobReader
+        static constructor(data: readonly byte[], endianness: int = 0): BlobReader
       }
 
       reader := BlobReader()

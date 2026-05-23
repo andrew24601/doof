@@ -1076,6 +1076,18 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain('#include "doof_runtime.hpp"');
   });
 
+  it("does NOT emit JSON methods for a class with a dedicated constructor", () => {
+    const cpp = emit(`
+      class User {
+        name: string
+        static constructor(name: string): User => User { name }
+      }
+    `);
+    expect(cpp).toContain("static std::shared_ptr<User> constructor");
+    expect(cpp).not.toContain("toJsonObject");
+    expect(cpp).not.toContain("fromJsonValue");
+  });
+
   it("does not include external JSON headers when no JSON is used", () => {
     const cpp = emit(`
       class Point {

@@ -35,7 +35,7 @@ export function emitIfExpression(expr: IfExpression, ctx: EmitContext): string {
 export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext, targetType?: ResolvedType): string {
   const subject = emitExpression(expr.subject, ctx);
   const subjectType = expr.subject.resolvedType;
-  const resultType = targetType ?? expr.resolvedType;
+  const resultType = targetType?.kind === "unknown" ? expr.resolvedType : (targetType ?? expr.resolvedType);
 
   // For Result types → use isSuccess()/isFailure() checks
   if (subjectType && subjectType.kind === "result") {

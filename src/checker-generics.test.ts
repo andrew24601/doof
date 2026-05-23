@@ -322,6 +322,23 @@ describe("Checker — generic functions", () => {
     expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint "JsonSerializable"'))).toBe(true);
   });
 
+  it("rejects dedicated-constructor classes as JsonSerializable type arguments", () => {
+    const cr = check({
+      "/main.do": `
+        function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
+          return T.fromJsonValue(json)
+        }
+        class User {
+          name: string
+          static constructor(name: string): User => User { name }
+        }
+        const payload: JsonValue = { name: "Ada" }
+        const result = decode<User>{ json: payload }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes("dedicated constructor"))).toBe(true);
+  });
+
   it("allows imported inferred constants to participate in constrained imported calls", () => {
     const cr = check({
       "/math.do": `

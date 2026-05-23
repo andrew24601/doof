@@ -731,7 +731,7 @@ struct MathBridge {
     expect(result.exitCode).toBe(1);
   });
 
-  it("compiles extern class direct construction through static create", () => {
+  it("compiles extern class direct construction through static constructor", () => {
     const readerHeader = `
 #pragma once
 #include <cstdint>
@@ -741,7 +741,7 @@ struct MathBridge {
 namespace native {
 class BlobReader {
 public:
-    static std::shared_ptr<BlobReader> create(const std::shared_ptr<std::vector<uint8_t>>& data, int32_t offset) {
+    static std::shared_ptr<BlobReader> constructor(const std::shared_ptr<std::vector<uint8_t>>& data, int32_t offset) {
         return std::shared_ptr<BlobReader>(new BlobReader(data, offset));
     }
 
@@ -766,7 +766,7 @@ private:
 
     const result = ctx.compileAndRun(`
       import class BlobReader from "blob_reader.hpp" as native::BlobReader {
-        static create(data: readonly byte[], offset: int = 0): BlobReader
+        static constructor(data: readonly byte[], offset: int = 0): BlobReader
         current(): byte
         offset(): int
       }

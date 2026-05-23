@@ -197,6 +197,10 @@ function resolveConstructGenericTypeArgs(
   return resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx) ?? null;
 }
 
+function shouldUseConstructorFactory(classSym: import("./types.js").ClassSymbol | undefined, ctx: EmitContext): boolean {
+  return !(classSym && ctx.currentClassName === classSym.name && ctx.currentMethodName === "constructor");
+}
+
 function specializeFunctionParamsForGenericConstructCall(
   params: FunctionResolvedParam[],
   expr: ConstructExpression,
@@ -443,7 +447,8 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType, ctx);
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
-    const args = buildConstructorFieldInfoListForClassType(classType).map((field) => {
+    const allowFactory = shouldUseConstructorFactory(classType.symbol, ctx);
+    const args = buildConstructorFieldInfoListForClassType(classType, allowFactory).map((field) => {
       const prop = propMap.get(field.name);
       if (prop) {
         return prop.value ? emitExpression(prop.value, ctx, field.type) : emitIdentifierSafe(prop.name);
@@ -453,7 +458,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       }
       throw new Error(`Missing constructor field "${field.name}" during call emission`);
     });
-    return emitClassConstruction(cppName, classType.symbol, args);
+    return emitClassConstruction(cppName, classType.symbol, args, allowFactory);
   }
 
   if (expr.callee.kind === "identifier"
@@ -520,10 +525,11 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   }
 
   if (calleeType && calleeType.kind === "class") {
-    // Constructor call → std::make_shared<ClassName>(args...) or extern create(...)
+    // Constructor call → std::make_shared<ClassName>(args...) or static constructor(...)
     const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType, ctx);
-    const fieldTypes = buildFieldTypeListForClassType(classType);
+    const allowFactory = shouldUseConstructorFactory(classType.symbol, ctx);
+    const fieldTypes = buildFieldTypeListForClassType(classType, allowFactory);
     const classPositionalValues = expr.args.map((arg, index) => {
       const targetType = index < fieldTypes.length ? fieldTypes[index] : undefined;
       return emitExpression(arg.value, ctx, targetType);
@@ -532,8 +538,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       classType.symbol,
       classPositionalValues,
       (defaultExpr, targetType) => emitExpression(defaultExpr, { ...ctx, sourceLocationSpanOverride: expr.span }, targetType),
+      allowFactory,
     );
-    return emitClassConstruction(cppName, classType.symbol, positionalArgs);
+    return emitClassConstruction(cppName, classType.symbol, positionalArgs, allowFactory);
   }
 
   // Check if this is a method call on an interface-typed object → std::visit
@@ -885,8 +892,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
     const fields = resolvedExprType?.kind === "class"
-      ? buildConstructorFieldInfoListForClassType(resolvedExprType)
-      : buildConstructorFieldInfoList(sym);
+      ? buildConstructorFieldInfoListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
+      : buildConstructorFieldInfoList(sym, shouldUseConstructorFactory(sym, ctx));
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const args = fields.map((field) => {
       const prop = propMap.get(field.name);
@@ -898,13 +905,13 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
       }
       throw new Error(`Missing constructor field \"${field.name}\" during construct emission`);
     });
-    return emitClassConstruction(typeName, sym, args);
+    return emitClassConstruction(typeName, sym, args, shouldUseConstructorFactory(sym, ctx));
   }
 
   // Positional construction: Type(arg1, arg2, ...)
   const fieldTypes = resolvedExprType?.kind === "class"
-    ? buildFieldTypeListForClassType(resolvedExprType)
-    : buildFieldTypeList(sym);
+    ? buildFieldTypeListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
+    : buildFieldTypeList(sym, shouldUseConstructorFactory(sym, ctx));
   const args = (expr.args as Expression[]).map((a, i) => {
     const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
     return emitExpression(a, ctx, fieldType);
@@ -913,8 +920,9 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     sym,
     args,
     (defaultExpr, targetType) => emitExpression(defaultExpr, { ...ctx, sourceLocationSpanOverride: expr.span }, targetType),
+    shouldUseConstructorFactory(sym, ctx),
   );
-  return emitClassConstruction(typeName, sym, positionalArgs);
+  return emitClassConstruction(typeName, sym, positionalArgs, shouldUseConstructorFactory(sym, ctx));
 }
 
 // ============================================================================

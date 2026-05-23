@@ -1371,9 +1371,7 @@ function emitHpp(
   for (const iface of plan.classified.interfaces) {
     const impls = interfaceImpls.get(`${table.path}:${iface.decl.name}`);
     if (!impls || !iface.decl.needsJson) continue;
-    const allSerializable = impls.every((cls) =>
-      cls.declaration.fields.every((field) => !field.resolvedType || isJSONSerializable(field.resolvedType)),
-    );
+    const allSerializable = impls.every((cls) => isJSONSerializable({ kind: "class", symbol: cls }));
     if (!allSerializable) continue;
     const disc = findSharedDiscriminator(impls);
     if (!disc) continue;
@@ -1386,9 +1384,8 @@ function emitHpp(
   for (const alias of plan.classified.typeAliases) {
     if (!alias.decl.needsJson) continue;
     const members = collectTypeAliasClassSymbols(alias.decl.type);
-    const allSerializable = members && members.length > 0 && members.every((cls) =>
-      cls.declaration.fields.every((field) => !field.resolvedType || isJSONSerializable(field.resolvedType)),
-    );
+    const allSerializable = members && members.length > 0
+      && members.every((cls) => isJSONSerializable({ kind: "class", symbol: cls }));
     if (!allSerializable) continue;
     const disc = findSharedDiscriminator(members);
     if (!disc) continue;
@@ -2135,7 +2132,8 @@ function emitStreamAliasHpp(
   table: ModuleSymbolTable,
   lines: string[],
 ): void {
-  const { impls, streamType } = aliasInfo;
+  const { streamType } = aliasInfo;
+  const impls = dedupeStreamImplRefs(aliasInfo.impls);
 
   const moduleNamespace = table.emittedCppNamespace ?? emitModuleNamespace(table.path);
   const guardName = `DOOF_STREAM_ALIAS_${moduleNamespace.toUpperCase().replace(/::/g, "_")}_${aliasName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
@@ -2831,9 +2829,20 @@ function buildStreamImplMap(
       });
     }
 
-    result.set(aliasName, { streamType, impls });
+    result.set(aliasName, { streamType, impls: dedupeStreamImplRefs(impls) });
   }
   return result;
+}
+
+function dedupeStreamImplRefs(impls: StreamImplRef[]): StreamImplRef[] {
+  const seen = new Set<string>();
+  const uniqueImpls: StreamImplRef[] = [];
+  for (const impl of impls) {
+    if (seen.has(impl.cppTypeName)) continue;
+    seen.add(impl.cppTypeName);
+    uniqueImpls.push(impl);
+  }
+  return uniqueImpls;
 }
 
 function collectUsedStreamTypes(

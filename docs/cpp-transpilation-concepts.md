@@ -177,6 +177,10 @@ Strategy:
 - class values lower to shared pointer-managed objects
 - constructor and field initialization order is emitted explicitly
 - positional and named construction forms are normalized into the generated constructor call shape
+- a static `constructor` method returning the class becomes the direct-construction
+  target (`Type(...)` and `Type { ... }` emit `Type::constructor(...)`), except
+  inside that class's own `constructor` body where construction emits the raw field
+  constructor to avoid recursive factories
 
 Primary modules:
 
@@ -350,6 +354,8 @@ Validation anchors:
 Strategy:
 
 - serializable types get generated conversion helpers
+- classes with a dedicated static `constructor(...): Self` are excluded from
+  automatic JSON helper generation
 - interface-level deserialization relies on the known set of implementations in the analyzed project
 - metadata surfaces and `.invoke()` generation build on the same emitted type knowledge and JSON support
 

@@ -17,7 +17,7 @@ import type {
   TypeAnnotation,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
-import { isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
+import { hasDedicatedConstructor, isJSONSerializable, findSharedDiscriminator } from "./checker-types.js";
 import { emitClassCppName, emitClassSharedPtrType, emitInnerType, emitType } from "./emitter-types.js";
 import { emitQualifiedSymbolName } from "./emitter-names.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
@@ -280,6 +280,8 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
         indent: ctx.indent + 1,
         inClass: true,
         currentCallableName: `${decl.name}.${method.name}`,
+        currentClassName: decl.name,
+        currentMethodName: method.name,
       };
       if (ctx.emitMethodBodiesInline === false && (method.typeParams.length === 0 || ctx.emitExplicitClassSpecialization)) {
         emitFunctionPrototype(method, methodCtx);
@@ -300,11 +302,12 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   // JSON serialization methods (toJsonObject / fromJsonValue)
   // Only generate if the class was marked as needing JSON (on-demand)
   // AND all fields are JSON-serializable
+  // AND the class does not define a dedicated constructor
   if (decl.needsJson) {
     const allFieldsSerializable = decl.fields.every((f) =>
       !f.weak_ && (!f.resolvedType || isJSONSerializable(f.resolvedType)),
     );
-    if (allFieldsSerializable) {
+    if (!hasDedicatedConstructor(decl) && allFieldsSerializable) {
       emitToJSON(decl, name, ctx);
       emitFromJSON(decl, name, ctx);
     }
@@ -333,6 +336,8 @@ export function emitClassMethodDefinitions(decl: ClassDeclaration, ctx: EmitCont
       inClass: false,
       emitParameterDefaults: false,
       currentCallableName: `${decl.name}.${method.name}`,
+      currentClassName: decl.name,
+      currentMethodName: method.name,
       qualifiedFunctionName: `${name}::${emitIdentifierSafe(method.name)}`,
     });
     ctx.sourceLines.push("");
@@ -440,11 +445,7 @@ export function emitInterfaceDecl(decl: InterfaceDeclaration, ctx: EmitContext):
     // Generate fromJsonValue dispatcher if the interface was marked as needing JSON (on-demand)
     // AND all implementors are JSON-serializable and have a shared discriminator
     if (decl.needsJson) {
-      const allSerializable = impls.every((cls) =>
-        cls.declaration.fields.every(
-          (f) => !f.resolvedType || isJSONSerializable(f.resolvedType),
-        ),
-      );
+      const allSerializable = impls.every((cls) => isJSONSerializable({ kind: "class", symbol: cls }));
       if (allSerializable) {
         const disc = findSharedDiscriminator(impls);
         if (disc) {
@@ -548,9 +549,8 @@ export function emitTypeAlias(
 
   if (stmt.needsJson) {
     const members = collectTypeAliasClassSymbols(stmt.type);
-    const allSerializable = members && members.length > 0 && members.every((cls) =>
-      cls.declaration.fields.every((f) => !f.resolvedType || isJSONSerializable(f.resolvedType)),
-    );
+    const allSerializable = members && members.length > 0
+      && members.every((cls) => isJSONSerializable({ kind: "class", symbol: cls }));
     if (allSerializable) {
       const disc = findSharedDiscriminator(members);
       if (disc) {

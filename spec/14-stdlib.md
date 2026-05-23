@@ -78,8 +78,8 @@ Sequentially writes typed values into a growable binary buffer.
 
 ```
 // Construction
-BlobBuilder()                                          // alias for create()
-BlobBuilder.create(size: long = 0L, endianness: Endian = .LittleEndian): BlobBuilder
+BlobBuilder()                                          // alias for constructor()
+BlobBuilder.constructor(size: long = 0L, endianness: Endian = .LittleEndian): BlobBuilder
 
 // Position
 getPosition(): long
@@ -106,8 +106,8 @@ Sequentially reads typed values from an immutable byte array.
 
 ```
 // Construction
-BlobReader(data: readonly byte[])                      // alias for create()
-BlobReader.create(data: readonly byte[], endianness: Endian = .LittleEndian): BlobReader
+BlobReader(data: readonly byte[])                      // alias for constructor()
+BlobReader.constructor(data: readonly byte[], endianness: Endian = .LittleEndian): BlobReader
 
 // Position and size
 getPosition(): long
