@@ -108,9 +108,9 @@ Current placement rules that matter for declaration-order bugs:
   cross-module forward declarations, stream aliases, declarations, prototypes,
   extern variables, and init declarations are chosen before rendering
 - every generated Doof module owns a deterministic logical C++ namespace:
-  project-local modules live under `app::` followed by their path relative to
-  the root `doof.json`, while dependency modules live under
-  `lib::<dependency-package-name>::...`; names are validated during emission
+  packaged modules live under their package `doof.json` name followed by their
+  path relative to that package root, so the namespace is stable whether the
+  package is compiled directly or as a dependency; names are validated during emission
   planning so cross-module references can stay readable without absolute paths
   or trailing collision hashes, while native extern symbols keep their declared
   C++ names

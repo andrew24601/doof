@@ -109,7 +109,7 @@ describe("e2e — module splitting", () => {
     expect(result.stdout.trim()).toBe("hello from split");
   });
 
-  it("compiles a root index barrel under app::index instead of global index", () => {
+  it("compiles a root index barrel under a module namespace instead of global index", () => {
     const { success, error, codes } = ctx.compileOnlyProject(
       {
         "/main.do": `

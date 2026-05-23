@@ -1,10 +1,10 @@
 /**
  * Canonical C++ naming helpers for generated Doof modules.
  *
- * Project-local modules lower under the compiler-owned `app::` namespace using
- * their path within the owning package (`game/state.do` → `app::game::state`).
- * Dependency modules live under `lib::<package-name>::...`, where
- * `<package-name>` comes from the dependency package's `doof.json`. Namespace
+ * Packaged modules lower under the package's `doof.json` name followed by
+ * their path within the owning package (`game/state.do` in package
+ * `cardgame` → `cardgame::game::state`). This keeps generated C++ stable
+ * whether a package is compiled directly or as a dependency. Namespace
  * planning validates the lossy identifier sanitisation up front so emitted
  * names can stay readable without trailing disambiguation hashes.
  */
@@ -16,7 +16,6 @@ import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import type { ModuleSymbol, ModuleSymbolTable } from "./types.js";
 
 const APP_NAMESPACE_ROOT = "app";
-const LIB_NAMESPACE_ROOT = "lib";
 const RESERVED_NAMESPACE_COMPONENTS = new Set(["main", "std", "doof"]);
 
 export function sanitizeCppNamespaceComponent(value: string): string {
@@ -79,7 +78,7 @@ function logicalNamespaceSegments(
   modulePath: string,
   fallbackRootDir: string,
   packageOutputPaths: PackageOutputPaths | undefined,
-): { packageRoot: string; rawSegments: string[]; namespaceSegments: string[]; dependencyPackageName: string | null } {
+): { packageRoot: string; rawSegments: string[]; namespaceSegments: string[]; packageName: string | null } {
   const bundledStdPrefix = `${BUNDLED_STDLIB_ROOT}/std/`;
   if (modulePath.startsWith(bundledStdPrefix)) {
     const relativeStdPath = modulePath.slice(bundledStdPrefix.length);
@@ -89,42 +88,39 @@ function logicalNamespaceSegments(
       packageRoot: `${bundledStdPrefix}${packageSegment}`,
       rawSegments: moduleSegments,
       namespaceSegments: [
-        LIB_NAMESPACE_ROOT,
         ...packageNameToNamespaceSegments(dependencyPackageName),
         ...moduleSegments.map(sanitizeCppNamespaceComponent),
       ],
-      dependencyPackageName,
+      packageName: dependencyPackageName,
     };
   }
 
   const packageRoot = findOwningPackageRoot(modulePath, packageOutputPaths) ?? fallbackRootDir;
   const rawSegments = moduleRelativeSegments(modulePath, packageRoot);
-  const dependencyPackageName = packageOutputPaths?.namespaceNameByRootDir?.get(packageRoot) ?? null;
-  const namespaceSegments = dependencyPackageName === null
+  const packageName = packageOutputPaths?.namespaceNameByRootDir?.get(packageRoot) ?? null;
+  const namespaceSegments = packageName === null
     ? [
       APP_NAMESPACE_ROOT,
       ...rawSegments.map(sanitizeCppNamespaceComponent),
     ]
     : [
-      LIB_NAMESPACE_ROOT,
-      ...packageNameToNamespaceSegments(dependencyPackageName),
+      ...packageNameToNamespaceSegments(packageName),
       ...rawSegments.map(sanitizeCppNamespaceComponent),
     ];
 
-  return { packageRoot, rawSegments, namespaceSegments, dependencyPackageName };
+  return { packageRoot, rawSegments, namespaceSegments, packageName };
 }
 
-function validateDependencyNamespaceRoots(packageOutputPaths: PackageOutputPaths | undefined): void {
+function validatePackageNamespaceRoots(packageOutputPaths: PackageOutputPaths | undefined): void {
   if (!packageOutputPaths?.namespaceNameByRootDir) return;
 
   const seen = new Map<string, { rawName: string; rootDir: string }>();
   for (const [rootDir, rawName] of packageOutputPaths.namespaceNameByRootDir) {
-    if (rawName === null) continue;
-    const namespaceRoot = [LIB_NAMESPACE_ROOT, ...packageNameToNamespaceSegments(rawName)].join("::");
+    const namespaceRoot = packageNameToNamespaceSegments(rawName).join("::");
     const previous = seen.get(namespaceRoot);
     if (previous && previous.rawName !== rawName) {
       throw new Error(
-        `Dependency package names ${JSON.stringify(previous.rawName)} (${previous.rootDir}) and ${JSON.stringify(rawName)} (${rootDir}) both lower to C++ namespace "${namespaceRoot}"`,
+        `Package names ${JSON.stringify(previous.rawName)} (${previous.rootDir}) and ${JSON.stringify(rawName)} (${rootDir}) both lower to C++ namespace "${namespaceRoot}"`,
       );
     }
     seen.set(namespaceRoot, { rawName, rootDir });
@@ -135,12 +131,12 @@ function validateNamespaceComponentCollisions(
   modulePath: string,
   packageRoot: string,
   rawSegments: string[],
-  dependencyPackageName: string | null,
+  packageName: string | null,
   seenChildrenByScope: Map<string, Map<string, string>>,
 ): void {
-  const rootPrefix = dependencyPackageName === null
+  const rootPrefix = packageName === null
     ? APP_NAMESPACE_ROOT
-    : [LIB_NAMESPACE_ROOT, ...packageNameToNamespaceSegments(dependencyPackageName)].join("::");
+    : packageNameToNamespaceSegments(packageName).join("::");
   const sanitizedParents: string[] = rootPrefix ? rootPrefix.split("::") : [];
 
   for (const rawSegment of rawSegments) {
@@ -149,9 +145,9 @@ function validateNamespaceComponentCollisions(
     const sanitizedSegment = sanitizeCppNamespaceComponent(rawSegment);
     const previousRawSegment = children.get(sanitizedSegment);
     if (previousRawSegment && previousRawSegment !== rawSegment) {
-      const packageLabel = dependencyPackageName === null
+      const packageLabel = packageName === null
         ? "project package"
-        : `dependency package ${JSON.stringify(dependencyPackageName)}`;
+        : `package ${JSON.stringify(packageName)}`;
       throw new Error(
         `Namespace component collision in ${packageLabel}: ${JSON.stringify(previousRawSegment)} and ${JSON.stringify(rawSegment)} both lower to "${sanitizedSegment}" near ${modulePath}`,
       );
@@ -167,21 +163,21 @@ export function assignModuleNamespaces(
   modules: Map<string, ModuleSymbolTable>,
   packageOutputPaths?: PackageOutputPaths,
 ): void {
-  validateDependencyNamespaceRoots(packageOutputPaths);
+  validatePackageNamespaceRoots(packageOutputPaths);
 
   const fallbackRootDir = dirnameFsPath(resolveFsPath(entryPath));
   const seenChildrenByScope = new Map<string, Map<string, string>>();
   const emittedNamespaces = new Map<string, string>();
 
   for (const modulePath of modules.keys()) {
-    const { packageRoot, rawSegments, namespaceSegments, dependencyPackageName } =
+    const { packageRoot, rawSegments, namespaceSegments, packageName } =
       logicalNamespaceSegments(modulePath, fallbackRootDir, packageOutputPaths);
 
     validateNamespaceComponentCollisions(
       modulePath,
       packageRoot,
       rawSegments,
-      dependencyPackageName,
+      packageName,
       seenChildrenByScope,
     );
 

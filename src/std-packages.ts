@@ -53,7 +53,9 @@ export function resolveStdlibOverridePath(specifier: string, env: NodeJS.Process
 }
 
 export function getImplicitStdDependencyNames(): string[] {
-  return Object.keys(DEFAULT_STD_VERSIONS).map((packageName) => `std/${packageName}`);
+  return Object.keys(DEFAULT_STD_VERSIONS)
+    .map((packageName) => `std/${packageName}`)
+    .sort();
 }
 
 export function getStdPackageShortName(dependencyName: string): string | null {

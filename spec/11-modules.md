@@ -172,6 +172,19 @@ import { say } from "hello-doof/hello"
 
 Remote dependencies are materialized into a shared `~/.doof/packages/` cache by default. Version strings resolve git tags matching either the exact version or a `v`-prefixed form, so `0.1` can resolve `v0.1`.
 
+### Generated C++ Namespaces
+
+For packaged builds, generated C++ namespaces are derived from the package
+`name` in `doof.json` plus the module path relative to that package root. The
+same package therefore emits the same namespace when compiled directly or when
+compiled as a dependency.
+
+```text
+package name "hello-doof"
+main.do       -> hello_doof::main
+src/util.do   -> hello_doof::src::util
+```
+
 ### File Extensions
 
 Extensions are optional and inferred:

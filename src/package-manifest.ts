@@ -143,10 +143,12 @@ export interface ResolvedRemotePackage {
 export interface PackageOutputPaths {
   byRootDir: ReadonlyMap<string, string>;
   /**
-   * Raw dependency package names keyed by package root. The root package maps
-   * to null because its generated C++ namespaces are project-relative.
+   * Raw package names keyed by package root. Generated C++ namespaces use the
+   * package's own doof.json name for both root and dependency packages so a
+   * package keeps the same namespace whether compiled directly or as a
+   * dependency.
    */
-  namespaceNameByRootDir?: ReadonlyMap<string, string | null>;
+  namespaceNameByRootDir?: ReadonlyMap<string, string>;
 }
 
 export interface RemoteDependencyContext {
@@ -477,17 +479,14 @@ export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
 export function createPackageOutputPaths(graph: PackageGraph, entryPath: string): PackageOutputPaths {
   const baseDir = dirnameFsPath(resolveFsPath(entryPath));
   const byRootDir = new Map<string, string>();
-  const namespaceNameByRootDir = new Map<string, string | null>();
+  const namespaceNameByRootDir = new Map<string, string>();
 
   for (const pkg of graph.packages) {
-    if (pkg.rootDir === graph.rootPackage.rootDir) {
-      namespaceNameByRootDir.set(pkg.rootDir, null);
-    } else {
-      if (!pkg.manifest.name) {
-        throw new Error(`Dependency package at ${pkg.rootDir} must declare a name in doof.json`);
-      }
-      namespaceNameByRootDir.set(pkg.rootDir, pkg.manifest.name);
+    if (!pkg.manifest.name) {
+      const packageKind = pkg.rootDir === graph.rootPackage.rootDir ? "Root package" : "Dependency package";
+      throw new Error(`${packageKind} at ${pkg.rootDir} must declare a name in doof.json`);
     }
+    namespaceNameByRootDir.set(pkg.rootDir, pkg.manifest.name);
 
     if (pkg.remotePackage) {
       byRootDir.set(pkg.rootDir, [".packages", ...pkg.remotePackage.pathSegments].join("/"));

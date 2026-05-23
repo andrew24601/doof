@@ -51,20 +51,15 @@ See [`samples/hello-package/`](../samples/hello-package/) for a working remote p
 ## Generated C++ namespaces
 
 Generated C++ uses package-aware logical namespaces rather than filesystem-path
-names. Modules in the root package live under compiler-owned `app::`, followed
-by their path relative to the package root:
+names. Modules live under the package's `name` from `doof.json`, followed by
+their path relative to the package root. This namespace is the same whether the
+package is compiled directly or imported as a dependency:
 
 ```text
-game/state.do  →  namespace app::game::state
-index.do       →  namespace app::index
-```
-
-Modules from dependencies live under `lib::`, using the dependency package's
-`name` from its own `doof.json`:
-
-```text
-dependency package name "boardgame"
-cards.do  →  namespace lib::boardgame::cards
+package name "boardgame"
+game/state.do  →  namespace boardgame::game::state
+index.do       →  namespace boardgame::index
+cards.do       →  namespace boardgame::cards
 ```
 
 Namespace components are sanitised to legal C++ identifiers. If two sibling

@@ -1238,7 +1238,7 @@ describe("emitter-module — emitProject", () => {
             ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", ".packages/andrew24601/doof-fs"],
           ]),
           namespaceNameByRootDir: new Map([
-            ["/workspace/app", null],
+            ["/workspace/app", "demo-app"],
             ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", "doof-fs"],
           ]),
         },
@@ -1253,7 +1253,7 @@ describe("emitter-module — emitProject", () => {
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
     expect(mainModule?.hppCode).not.toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
     expect(mainModule?.cppCode).toContain('#include ".packages/andrew24601/doof-fs/index.hpp"');
-    expect(mainModule?.cppCode).toContain("::lib::doof_fs::runtime::readText");
+    expect(mainModule?.cppCode).toContain("::doof_fs::runtime::readText");
   });
 
   it("emits dependency diagnostic paths through normalized package output roots", () => {
@@ -1275,7 +1275,7 @@ describe("emitter-module — emitProject", () => {
             ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", ".packages/andrew24601/doof-fs"],
           ]),
           namespaceNameByRootDir: new Map([
-            ["/workspace/app", null],
+            ["/workspace/app", "demo-app"],
             ["/workspace/.cache/packages/andrew24601/doof-fs/5497e5306fcb80d3a0014ca41cfb236096c3583f", "doof-fs"],
           ]),
         },
@@ -1287,7 +1287,7 @@ describe("emitter-module — emitProject", () => {
     expect(runtimeModule?.cppCode).not.toContain(".cache/packages");
   });
 
-  it("uses dependency package names from doof.json for library namespaces", () => {
+  it("uses package names from doof.json for dependency namespaces", () => {
     const result = emitProjectHelper(
       {
         "/workspace/app/main.do": `
@@ -1307,7 +1307,7 @@ describe("emitter-module — emitProject", () => {
             ["/workspace/deps/cardgame", "deps/cardgame"],
           ]),
           namespaceNameByRootDir: new Map([
-            ["/workspace/app", null],
+            ["/workspace/app", "demo-app"],
             ["/workspace/deps/cardgame", "boardgame"],
           ]),
         },
@@ -1315,11 +1315,11 @@ describe("emitter-module — emitProject", () => {
     );
 
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
-    expect(mainModule?.hppCode).toContain("std::shared_ptr<::lib::boardgame::cards::PlayingCard>");
+    expect(mainModule?.hppCode).toContain("std::shared_ptr<::boardgame::cards::PlayingCard>");
     expect(mainModule?.hppCode).not.toContain("cardgame::cards");
   });
 
-  it("emits root-package modules under the compiler-owned app namespace", () => {
+  it("emits root-package modules under the package name from doof.json", () => {
     const result = emitProjectHelper(
       {
         "/workspace/app/main.do": `
@@ -1339,7 +1339,7 @@ describe("emitter-module — emitProject", () => {
       {
         packageOutputPaths: {
           byRootDir: new Map([["/workspace/app", ""]]),
-          namespaceNameByRootDir: new Map([["/workspace/app", null]]),
+          namespaceNameByRootDir: new Map([["/workspace/app", "demo-app"]]),
         },
       },
     );
@@ -1348,14 +1348,61 @@ describe("emitter-module — emitProject", () => {
     const indexModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/index.do");
     const serverModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/http/server.do");
 
-    expect(mainModule?.hppCode).toContain(`namespace ${emitModuleNamespace("/main.do")}`);
-    expect(indexModule?.hppCode).toContain("namespace app::index");
-    expect(serverModule?.hppCode).toContain("namespace app::http::server");
-    expect(mainModule?.cppCode).toContain("::app::math::add(20, 22)");
+    expect(mainModule?.hppCode).toContain("namespace demo_app::main");
+    expect(indexModule?.hppCode).toContain("namespace demo_app::index");
+    expect(serverModule?.hppCode).toContain("namespace demo_app::http::server");
+    expect(mainModule?.cppCode).toContain("::demo_app::math::add(20, 22)");
     expect(indexModule?.hppCode).not.toContain("namespace index");
   });
 
-  it("escapes dependency package namespace components that would shadow global C++ namespaces", () => {
+  it("keeps a package namespace stable when emitted directly or as a dependency", () => {
+    const files = {
+      "/workspace/app/main.do": `
+        import { run } from "../deps/tool/runtime"
+
+        export function main(): int => run()
+      `,
+      "/workspace/deps/tool/runtime.do": `export function run(): int => 42`,
+    };
+    const dependencyResult = emitProjectHelper(
+      files,
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/deps/tool", "deps/tool"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", "demo-app"],
+            ["/workspace/deps/tool", "toolkit"],
+          ]),
+        },
+      },
+    );
+    const directResult = emitProjectHelper(
+      {
+        "/workspace/deps/tool/runtime.do": files["/workspace/deps/tool/runtime.do"],
+      },
+      "/workspace/deps/tool/runtime.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([["/workspace/deps/tool", ""]]),
+          namespaceNameByRootDir: new Map([["/workspace/deps/tool", "toolkit"]]),
+        },
+      },
+    );
+
+    const dependencyRuntime = dependencyResult.modules.find((mod) => mod.modulePath === "/workspace/deps/tool/runtime.do");
+    const directRuntime = directResult.modules.find((mod) => mod.modulePath === "/workspace/deps/tool/runtime.do");
+
+    expect(dependencyRuntime?.hppCode).toContain("namespace toolkit::runtime");
+    expect(directRuntime?.hppCode).toContain("namespace toolkit::runtime");
+    expect(dependencyResult.modules.find((mod) => mod.modulePath === "/workspace/app/main.do")?.cppCode)
+      .toContain("::toolkit::runtime::run()");
+  });
+
+  it("escapes package namespace components that would shadow global C++ namespaces", () => {
     const result = emitProjectHelper(
       {
         "/workspace/app/main.do": `
@@ -1375,7 +1422,7 @@ describe("emitter-module — emitProject", () => {
             ["/workspace/deps/std-fs", "deps/std-fs"],
           ]),
           namespaceNameByRootDir: new Map([
-            ["/workspace/app", null],
+            ["/workspace/app", "demo-app"],
             ["/workspace/deps/std-fs", "std/fs"],
           ]),
         },
@@ -1383,10 +1430,10 @@ describe("emitter-module — emitProject", () => {
     );
 
     const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
-    expect(mainModule?.hppCode).toContain("std::shared_ptr<::lib::std_::fs::value::Value>");
+    expect(mainModule?.hppCode).toContain("std::shared_ptr<::std_::fs::value::Value>");
   });
 
-  it("rejects project-local namespace component collisions after sanitisation", () => {
+  it("rejects root-package namespace component collisions after sanitisation", () => {
     expect(() =>
       emitProjectHelper(
         {
