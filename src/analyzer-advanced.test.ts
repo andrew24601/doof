@@ -220,6 +220,34 @@ describe("extern class declarations", () => {
     }
   });
 
+  it("preserves bodyless markers and Doof bodies on extern class synthesis", () => {
+    const result = analyze(
+      {
+        "/main.do": `
+          import class NativeThing from "native.hpp" {
+            raw(): string
+            label(): string {
+              return raw()
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(result.diagnostics).toHaveLength(0);
+    const table = result.modules.get("/main.do")!;
+    const sym = table.symbols.get("NativeThing");
+    expect(sym?.symbolKind).toBe("class");
+    if (sym?.symbolKind === "class") {
+      expect(sym.declaration.methods).toHaveLength(2);
+      expect(sym.declaration.methods[0].name).toBe("raw");
+      expect(sym.declaration.methods[0].bodyless).toBe(true);
+      expect(sym.declaration.methods[1].name).toBe("label");
+      expect(sym.declaration.methods[1].bodyless).toBe(false);
+      expect(sym.declaration.methods[1].body.kind).toBe("block");
+    }
+  });
+
   it("preserves explicit header path", () => {
     const result = analyze(
       {

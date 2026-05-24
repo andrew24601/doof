@@ -1529,6 +1529,7 @@ function emitCppFile(
   }
 
   const classified = classifyStatements(table);
+  const externMethodClasses = collectExternClassesWithDoofMethodBodies(table);
   const monomorphizedForModule = [...monomorphizedFunctions.values()].filter((inst) => inst.modulePath === table.path);
   const nonExportedMockFunctions = classified.functions.filter((fn) => !fn.exported && hasMockCall(fn.decl));
   const exportedMockFunctions = classified.functions.filter((fn) => fn.exported && hasMockCall(fn.decl));
@@ -1687,10 +1688,21 @@ function emitCppFile(
   }
 
   lines.push(`} // namespace ${moduleNamespace}`);
-  if (lines.slice(moduleNamespaceStart + 1, lines.length - 1).every((line) => line.trim() === "")) {
+  if (externMethodClasses.length === 0 && lines.slice(moduleNamespaceStart + 1, lines.length - 1).every((line) => line.trim() === "")) {
     lines.splice(moduleNamespaceStart, lines.length - moduleNamespaceStart);
   }
   lines.push("");
+
+  emitExternClassMethodDefinitions(
+    externMethodClasses,
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    moduleNamespace,
+    lines,
+    covCtx,
+  );
 
   if (mainFn) {
     emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
@@ -1761,6 +1773,55 @@ function emitCppOnlyClassMethodDefinitions(
     lines.push(...methodCtx.sourceLines);
   }
   lines.push("}");
+  lines.push("");
+}
+
+function collectExternClassesWithDoofMethodBodies(
+  table: ModuleSymbolTable,
+): ClassifiedDecl<ClassDeclaration>[] {
+  const result: ClassifiedDecl<ClassDeclaration>[] = [];
+  for (const stmt of table.program.statements) {
+    const exported = stmt.kind === "export-declaration";
+    const inner = exported ? (stmt as any).declaration as Statement : stmt;
+    if (inner.kind !== "extern-class-declaration") continue;
+
+    const sym = table.symbols.get(inner.name);
+    if (sym?.symbolKind !== "class" || !sym.extern_) continue;
+    if (!sym.declaration.methods.some((method) => !method.bodyless)) continue;
+    result.push({ decl: sym.declaration, exported });
+  }
+  return result;
+}
+
+function emitExternClassMethodDefinitions(
+  classes: ClassifiedDecl<ClassDeclaration>[],
+  table: ModuleSymbolTable,
+  analysisResult: AnalysisResult,
+  interfaceImpls: Map<string, ClassSymbol[]>,
+  monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
+  moduleNamespace: string,
+  lines: string[],
+  covCtx: object,
+): void {
+  if (classes.length === 0) return;
+
+  lines.push(`using namespace ::${moduleNamespace};`);
+  lines.push("");
+
+  for (const cls of classes) {
+    const methodsWithBodies = cls.decl.methods.filter((method) => !method.bodyless);
+    if (methodsWithBodies.length === 0) continue;
+
+    const sym = getClassSymbolForDecl(table, cls.decl);
+    const methodCtx = {
+      ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...covCtx,
+      classNameOverride: emitClassCppName(sym, table.path),
+      emitParameterDefaults: false,
+    };
+    emitClassMethodDefinitions({ ...cls.decl, methods: methodsWithBodies }, methodCtx);
+    lines.push(...methodCtx.sourceLines);
+  }
   lines.push("");
 }
 

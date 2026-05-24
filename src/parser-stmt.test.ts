@@ -822,6 +822,41 @@ describe("Parser — extern class declarations", () => {
     }
   });
 
+  it("marks import class signatures without bodies as bodyless", () => {
+    const stmt = firstStmt(`import class Database {
+      query(sql: string): string
+    }`);
+    expect(stmt.kind).toBe("extern-class-declaration");
+    if (stmt.kind === "extern-class-declaration") {
+      expect(stmt.methods[0].bodyless).toBe(true);
+      expect(stmt.methods[0].body.kind).toBe("block");
+    }
+  });
+
+  it("parses import class block-bodied methods", () => {
+    const stmt = firstStmt(`import class Database {
+      label(): string {
+        return "db"
+      }
+    }`);
+    expect(stmt.kind).toBe("extern-class-declaration");
+    if (stmt.kind === "extern-class-declaration") {
+      expect(stmt.methods[0].bodyless).toBe(false);
+      expect(stmt.methods[0].body.kind).toBe("block");
+    }
+  });
+
+  it("parses import class arrow-bodied methods", () => {
+    const stmt = firstStmt(`import class Database {
+      label(): string => "db"
+    }`);
+    expect(stmt.kind).toBe("extern-class-declaration");
+    if (stmt.kind === "extern-class-declaration") {
+      expect(stmt.methods[0].bodyless).toBe(false);
+      expect(stmt.methods[0].body.kind).toBe("string-literal");
+    }
+  });
+
   it("parses import class with static method", () => {
     const stmt = firstStmt(`import class MathBridge from "math_bridge.hpp" {
       static cos(x: float): float
@@ -831,6 +866,18 @@ describe("Parser — extern class declarations", () => {
       expect(stmt.methods).toHaveLength(1);
       expect(stmt.methods[0].name).toBe("cos");
       expect(stmt.methods[0].static_).toBe(true);
+    }
+  });
+
+  it("parses import class static methods with bodies", () => {
+    const stmt = firstStmt(`import class MathBridge from "math_bridge.hpp" {
+      static identity(x: int): int => x
+    }`);
+    expect(stmt.kind).toBe("extern-class-declaration");
+    if (stmt.kind === "extern-class-declaration") {
+      expect(stmt.methods[0].name).toBe("identity");
+      expect(stmt.methods[0].static_).toBe(true);
+      expect(stmt.methods[0].bodyless).toBe(false);
     }
   });
 

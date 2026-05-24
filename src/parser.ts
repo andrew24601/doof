@@ -1407,7 +1407,23 @@ export class Parser {
     this.expect(TokenType.RightParen);
     this.expect(TokenType.Colon);
     const returnType = this.parseTypeAnnotation();
-    this.consumeOptionalSemicolon();
+
+    let body: Expression | Block;
+    let bodyless = false;
+    if (this.match(TokenType.Arrow)) {
+      body = this.parseExpression();
+      this.consumeOptionalSemicolon();
+    } else if (this.check(TokenType.LeftBrace)) {
+      body = this.parseBlock();
+    } else {
+      body = {
+        kind: "block",
+        statements: [],
+        span: this.span(startLoc),
+      };
+      bodyless = true;
+      this.consumeOptionalSemicolon();
+    }
 
     return {
       kind: "extern-class-method",
@@ -1415,6 +1431,8 @@ export class Parser {
       static_,
       params,
       returnType,
+      body,
+      bodyless,
       span: this.span(startLoc),
     };
   }

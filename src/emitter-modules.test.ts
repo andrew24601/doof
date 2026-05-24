@@ -1847,6 +1847,31 @@ describe("emitter — extern class imports", () => {
     expect(cpp).toContain("return native::MathBridge::cos(x);");
   });
 
+  it("emits Doof-bodied extern class methods as native out-of-line definitions", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      class Label { text: string }
+
+      import class NativeThing from "native_thing.hpp" as native::Thing {
+        raw(): string
+        same(): NativeThing {
+          return this
+        }
+        label(): Label {
+          return Label("ok")
+        }
+        static makeText(): string => "ok"
+      }
+    `);
+
+    expect(hppCode).toContain('#include "native_thing.hpp"');
+    expect(hppCode).not.toContain("struct NativeThing");
+    expect(cppCode).toContain(`using namespace ::${emitModuleNamespace("/main.do")};`);
+    expect(cppCode).toContain("std::shared_ptr<native::Thing> native::Thing::same()");
+    expect(cppCode).toContain("return this->shared_from_this();");
+    expect(cppCode).toContain("std::shared_ptr<Label> native::Thing::label()");
+    expect(cppCode).toContain("std::string native::Thing::makeText()");
+  });
+
   it("emits extern class direct construction through static constructor", () => {
     const cpp = emit(`
       import class BlobReader from "blob.hpp" as native::BlobReader {

@@ -576,6 +576,27 @@ import class MathBridge from "./math_bridge.hpp" as native::MathBridge {
 function wave(t: float): float => MathBridge.sin(t)
 ```
 
+Extern methods may optionally provide a Doof body. A signature without a body
+remains a native C++ member declaration; a method with a block or arrow body is
+emitted as an out-of-line C++ member definition for the imported class:
+
+```javascript
+import class NativeWebSocketEvent from "./native_http_server.hpp" as doof_http_server::NativeWebSocketEvent {
+    kind(): int
+    text(): string
+
+    label(): string {
+        return string(this.kind()) + ":" + this.text()
+    }
+}
+```
+
+The native header must still declare `label()`. Doof does not parse the C++
+header, so missing declarations surface as native compiler errors. If a Doof
+body uses bare `this`, the native class must inherit from
+`std::enable_shared_from_this<NativeClass>` because bare `this` lowers to
+`this->shared_from_this()` just like ordinary Doof methods.
+
 ### Header Resolution
 
 | Declaration | Generated `#include` |
@@ -691,7 +712,7 @@ The transpiler emits the appropriate C++ constructor call. The extern C++ class 
 
 ### Limitations
 
-- **No method bodies** — extern classes only declare signatures
+- **Method bodies require C++ declarations** — Doof can define imported class methods, but the native header must declare them
 - **Prefer focused exports** — `export import class` is supported, but raw native bindings should usually live in dedicated interop modules or behind higher-level Doof APIs rather than being scattered across a package surface
 - **No inheritance** — extern classes cannot extend Doof classes or vice versa
 - **Trust-based** — Doof type-checks against the declared shape, but cannot verify the actual C++ class matches; mismatches produce C++ compiler errors

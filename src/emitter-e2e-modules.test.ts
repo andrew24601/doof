@@ -731,6 +731,76 @@ struct MathBridge {
     expect(result.exitCode).toBe(1);
   });
 
+  it("compiles Doof-bodied extern class methods callable from Doof and C++", () => {
+    const nativeHeader = `
+#pragma once
+#include <cstdint>
+#include <memory>
+
+namespace native {
+struct Thing : public std::enable_shared_from_this<Thing> {
+    int32_t value;
+    explicit Thing(int32_t value) : value(value) {}
+    int32_t nativeValue() { return value; }
+    int32_t doofValue();
+    std::shared_ptr<Thing> same();
+};
+}
+`;
+    const nativeCallHeader = `
+#pragma once
+#include <cstdint>
+#include <memory>
+#include "native_thing.hpp"
+
+namespace native {
+int32_t callGenerated(std::shared_ptr<Thing> thing);
+}
+`;
+    const nativeCallSource = `
+#include "native_call.hpp"
+
+namespace native {
+int32_t callGenerated(std::shared_ptr<Thing> thing) {
+    return thing->doofValue() + thing->same()->nativeValue();
+}
+}
+`;
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_thing.hpp"), nativeHeader);
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_call.hpp"), nativeCallHeader);
+    fs.writeFileSync(path.join(ctx.tmpDir, "native_call.cpp"), nativeCallSource);
+
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": `
+          import class NativeThing from "native_thing.hpp" as native::Thing {
+            value: int
+            nativeValue(): int
+            doofValue(): int {
+              return this.nativeValue() + this.value
+            }
+            same(): NativeThing {
+              return this
+            }
+          }
+
+          import function callGenerated(thing: NativeThing): int from "native_call.hpp" as native::callGenerated
+
+          function main(): int {
+            thing := NativeThing(5)
+            return thing.doofValue() + callGenerated(thing)
+          }
+        `,
+      },
+      "/main.do",
+      { sourceFiles: [path.join(ctx.tmpDir, "native_call.cpp")] },
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(25);
+  });
+
   it("compiles extern class direct construction through static constructor", () => {
     const readerHeader = `
 #pragma once

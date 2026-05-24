@@ -831,7 +831,8 @@ function findMockReplacement(
 /**
  * Synthesize a ClassDeclaration from an ExternClassDeclaration so that the
  * rest of the pipeline (checker, emitter) can treat it identically to a
- * regular class. The generated ClassDeclaration has no method bodies.
+ * regular class. Native-only signatures are marked bodyless; methods with
+ * Doof bodies keep those bodies so the checker and emitter can process them.
  */
 function synthesizeClassDecl(ext: ExternClassDeclaration): ClassDeclaration {
   const fields: ClassField[] = ext.fields.map((f) => ({
@@ -848,19 +849,14 @@ function synthesizeClassDecl(ext: ExternClassDeclaration): ClassDeclaration {
     span: f.span,
   }));
 
-  const emptyBlock: Block = {
-    kind: "block",
-    statements: [],
-    span: ext.span,
-  };
-
   const methods: FunctionDeclaration[] = ext.methods.map((m) => ({
     kind: "function-declaration" as const,
     name: m.name,
     typeParams: [],
     params: m.params,
     returnType: m.returnType,
-    body: emptyBlock,
+    body: m.body,
+    bodyless: m.bodyless,
     exported: false,
     static_: m.static_,
     isolated_: false,

@@ -131,6 +131,10 @@ Current placement rules that matter for declaration-order bugs:
   keeping nested imported field access valid without pulling in every transitive
   dependency
 - ordinary class declarations are emitted in `.hpp` with method prototypes, while their out-of-line definitions live in the module `.cpp`
+- Doof-bodied methods declared on extern `import class` surfaces are emitted as
+  out-of-line definitions for the native C++ class after the generated module
+  namespace, with a local using directive so those bodies can call generated
+  Doof helpers without changing the native class ABI
 - imported classes referenced through pointer-shaped header surfaces are
   forward-declared before module includes so circular `.hpp` dependencies can
   still use `std::shared_ptr<T>` fields and constructor parameters

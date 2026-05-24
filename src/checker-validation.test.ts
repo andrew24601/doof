@@ -1489,6 +1489,63 @@ describe("Cross-module type checking", () => {
     );
     expect(info.diagnostics).toHaveLength(0);
   });
+
+  it("type-checks Doof-bodied methods on imported classes", () => {
+    const info = check(
+      {
+        "/main.do": `
+          import class NativeThing from "native.hpp" {
+            value: int
+            raw(): string
+            same(): NativeThing {
+              return this
+            }
+            label(): string {
+              return this.raw() + ":" + string(this.value)
+            }
+            static zero(): int {
+              return 0
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("validates return types in Doof-bodied imported class methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          import class NativeThing from "native.hpp" {
+            label(): int {
+              return "bad"
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes("not assignable to return type"))).toBe(true);
+  });
+
+  it("rejects this in static Doof-bodied imported class methods", () => {
+    const info = check(
+      {
+        "/main.do": `
+          import class NativeThing from "native.hpp" {
+            value: int
+            static bad(): int {
+              return this.value
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.some((d) => d.message.includes('"this" is not available'))).toBe(true);
+  });
 });
 
 // ============================================================================

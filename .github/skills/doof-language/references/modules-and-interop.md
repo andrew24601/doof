@@ -132,8 +132,23 @@ directly or as a dependency.
 - Can declare fields and methods (typed contracts)
 - Memory managed via `shared_ptr` (same as Doof classes)
 - Construction works like Doof classes (positional or named)
-- No method bodies, no inheritance
+- Method signatures without bodies are implemented by native C++
+- Method signatures with Doof block or arrow bodies emit out-of-line C++ member definitions
+- Native headers must declare Doof-bodied methods; missing declarations surface as C++ compiler errors
+- Bare `this` in a Doof-bodied imported method requires the native class to inherit from `std::enable_shared_from_this<Class>`
+- No inheritance
 - Mismatches surface as C++ compile errors
+
+```doof
+import class NativeEvent from "./native_event.hpp" as native::Event {
+    kind(): int
+    text(): string
+
+    label(): string {
+        return string(this.kind()) + ":" + this.text()
+    }
+}
+```
 
 ### Recommended Interop Conventions
 

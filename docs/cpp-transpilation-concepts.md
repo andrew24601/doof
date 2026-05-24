@@ -87,6 +87,10 @@ Strategy:
 - namespace-member lowering consumes checker decoration for the resolved exported symbol instead of re-resolving raw syntax during emission
 - re-exported names lower directly to the original defining symbol; extern C++ symbols keep their native `cppName`
 - native interop receives only scoped bridge aliases for the Doof types required by native headers; those aliases are an ABI aid, not a second generated module surface
+- Doof-bodied methods on `import class` lower to out-of-line definitions on
+  the native C++ class; the native header remains responsible for declaring
+  those members and for providing `shared_from_this()` support when bare `this`
+  is used
 - when an exported generated type is part of a native interop surface, its own
   header also exposes the concrete field dependencies native code may dereference
   directly; ordinary Doof-only headers still prefer forward declarations

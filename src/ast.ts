@@ -838,6 +838,9 @@ export interface ExternClassMethod {
   static_: boolean;
   params: Parameter[];
   returnType: TypeAnnotation;
+  body: Expression | Block;
+  /** True when the method is only declared in Doof and implemented by native C++. */
+  bodyless: boolean;
   span: SourceSpan;
 }
 
