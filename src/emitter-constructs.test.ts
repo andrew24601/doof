@@ -354,7 +354,7 @@ describe("emitter — lambda captures", () => {
       }
     `);
 
-    expect(cpp).toContain("invoke([secondKind]() -> void");
+    expect(cpp).toContain("invoke(doof::callback<void()>([secondKind]() -> void");
     expect(cpp).not.toContain("[second, secondKind, f]");
     expect(cpp).not.toContain("[Response");
   });
@@ -501,7 +501,7 @@ describe("emitter — type aliases", () => {
 
   it("emits using for function type alias", () => {
     const cpp = emit(`type Predicate = (x: int): bool`);
-    expect(cpp).toContain("using Predicate = std::function<bool(int32_t)>;");
+    expect(cpp).toContain("using Predicate = doof::callback<bool(int32_t)>;");
   });
 
   it("emits using for JsonValue type alias", () => {
@@ -913,7 +913,7 @@ describe("emitter — nullable class union", () => {
 });
 
 describe("emitter — lambda with function type param", () => {
-  it("emits function with std::function parameter", () => {
+  it("emits function with callback parameter", () => {
     const cpp = emit(`
       function apply(f: (x: int): int, x: int): int => f(x)
       function main(): int {
@@ -922,7 +922,8 @@ describe("emitter — lambda with function type param", () => {
         return apply(add, 32)
       }
     `);
-    expect(cpp).toContain("std::function");
+    expect(cpp).toContain("doof::callback<int32_t(int32_t)> f");
+    expect(cpp).toContain("f.call(x)");
   });
 });
 

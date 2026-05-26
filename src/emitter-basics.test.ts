@@ -939,6 +939,9 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("void println");
     expect(header).toContain("std::string concat");
     expect(header).toContain("struct Range");
+    expect(header).toContain("explicit operator bool() const");
+    expect(header).toContain("doof::Promise<R> post(Args... args) const");
+    expect(header).toContain("root-domain callback cannot be posted");
   });
 
   it("generates std::variant stringification support", () => {
@@ -976,13 +979,13 @@ describe("emitter — type mapping", () => {
     expect(emitType(t)).toBe("std::tuple<int32_t, std::string>");
   });
 
-  it("emits function types as std::function", () => {
+  it("emits function types as actor-affine callbacks", () => {
     const t: ResolvedType = {
       kind: "function",
       params: [{ name: "x", type: { kind: "primitive", name: "int" } }],
       returnType: { kind: "primitive", name: "bool" },
     };
-    expect(emitType(t)).toBe("std::function<bool(int32_t)>");
+    expect(emitType(t)).toBe("doof::callback<bool(int32_t)>");
   });
 
   it("emits null type as std::monostate", () => {

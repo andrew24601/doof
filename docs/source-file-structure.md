@@ -57,6 +57,7 @@ Tests:
 - `checker-collection-annotations.ts` — collection annotation handling
 - `checker-diagnostics.ts` — shared checker diagnostics that must stay consistent across modules
 - `checker-readonly.ts` — readonly-specific validation helpers
+- `checker-actor-boundary.ts` — actor-call boundary safety validation
 - `checker-internal.ts` — shared checker contracts and built-ins
 - `checker-test-helpers.ts` — shared checker fixtures
 

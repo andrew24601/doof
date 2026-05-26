@@ -136,7 +136,7 @@ describe("emitter — Result type", () => {
     expect(cpp).toContain("isFailure()");
     expect(cpp).toContain("doof::Result<std::string, std::variant<std::string, bool>>::failure(std::move(");
     expect(cpp).toContain("auto _result_");
-    expect(cpp).toContain("step(std::move(");
+    expect(cpp).toContain("doof::callback<doof::Result<std::string, bool>(int32_t)>(step).call(std::move(");
     expect(cpp).toContain("::success(std::move(");
   });
 
@@ -152,7 +152,7 @@ describe("emitter — Result type", () => {
       }
     `);
     expect(cpp).toContain("return 7;");
-    expect(cpp).toContain("return fallback(std::move(");
+    expect(cpp).toContain("return doof::callback<int32_t(std::string)>(fallback).call(std::move(");
     expect(cpp).toContain("std::nullopt");
     expect(cpp).toContain(".error()");
   });
@@ -476,7 +476,7 @@ describe("emitter — case expression on Result", () => {
       }
     `);
 
-    expect(cpp).toContain("invoke([=]() -> int32_t");
+    expect(cpp).toContain("invoke(doof::callback<int32_t()>([=]() -> int32_t");
     expect(cpp).toContain("return [&]() -> int32_t");
     expect(cpp).not.toContain("invoke([delivered, f]() -> int32_t");
     expect(cpp).not.toContain("return doof::Result<int32_t, std::string>::success([&]() -> int32_t");

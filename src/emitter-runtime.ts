@@ -102,6 +102,87 @@ struct SourceLocation {
           functionName(std::move(functionNameValue)) {}
 };
 
+namespace detail {
+class CallbackDomain {
+public:
+    virtual ~CallbackDomain() = default;
+    virtual void enqueue_callback(std::function<void()> task) = 0;
+};
+
+inline thread_local CallbackDomain* active_actor_domain = nullptr;
+
+class ActiveActorScope {
+    CallbackDomain* previous_;
+public:
+    explicit ActiveActorScope(CallbackDomain* actor)
+        : previous_(active_actor_domain) {
+        active_actor_domain = actor;
+    }
+
+    ~ActiveActorScope() {
+        active_actor_domain = previous_;
+    }
+};
+} // namespace detail
+
+inline detail::CallbackDomain* current_actor_domain() {
+    return detail::active_actor_domain;
+}
+
+template <typename T>
+class Promise;
+
+template <typename Signature>
+class callback;
+
+template <typename R, typename... Args>
+class callback<R(Args...)> {
+    std::function<R(Args...)> fn_;
+    detail::CallbackDomain* owner_ = nullptr;
+
+public:
+    callback() = default;
+
+    template <
+        typename F,
+        typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, callback>>
+    >
+    callback(F&& f)
+        : fn_(std::forward<F>(f)),
+          owner_(doof::current_actor_domain()) {}
+
+    explicit operator bool() const {
+        return static_cast<bool>(fn_);
+    }
+
+    R call(Args... args) const {
+        if (!fn_) {
+            doof::panic("callback invoked before initialization");
+        }
+        if (owner_ != doof::current_actor_domain()) {
+            doof::panic("callback invoked outside owning actor domain");
+        }
+        if constexpr (std::is_void_v<R>) {
+            fn_(std::forward<Args>(args)...);
+        } else {
+            return fn_(std::forward<Args>(args)...);
+        }
+    }
+
+    std::function<R(Args...)> as_local_std_function() const {
+        auto self = *this;
+        return [self](Args... args) -> R {
+            if constexpr (std::is_void_v<R>) {
+                self.call(std::forward<Args>(args)...);
+            } else {
+                return self.call(std::forward<Args>(args)...);
+            }
+        };
+    }
+
+    doof::Promise<R> post(Args... args) const;
+};
+
 [[noreturn]] inline void panic_ordered_collection_invariant(
     const char* collection,
     const char* context,
@@ -1233,7 +1314,7 @@ bool array_some(const std::shared_ptr<std::vector<T>>& arr, const Predicate& pre
         panic_at(file, line, "Attempted to iterate null array in some()");
     }
     for (const auto& item : *arr) {
-        if (std::invoke(predicate, item)) {
+        if (predicate.call(item)) {
             return true;
         }
     }
@@ -1246,7 +1327,7 @@ bool array_every(const std::shared_ptr<std::vector<T>>& arr, const Predicate& pr
         panic_at(file, line, "Attempted to iterate null array in every()");
     }
     for (const auto& item : *arr) {
-        if (!std::invoke(predicate, item)) {
+        if (!predicate.call(item)) {
             return false;
         }
     }
@@ -1261,7 +1342,7 @@ std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T
     auto result = std::make_shared<std::vector<T>>();
     result->reserve(arr->size());
     for (const auto& item : *arr) {
-        if (std::invoke(predicate, item)) {
+        if (predicate.call(item)) {
             result->push_back(item);
         }
     }
@@ -1270,15 +1351,15 @@ std::shared_ptr<std::vector<T>> array_filter(const std::shared_ptr<std::vector<T
 
 template <typename T, typename Mapper>
 auto array_map(const std::shared_ptr<std::vector<T>>& arr, const Mapper& mapper, const char* file, int32_t line)
-    -> std::shared_ptr<std::vector<std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>>> {
+    -> std::shared_ptr<std::vector<std::decay_t<decltype(std::declval<const Mapper&>().call(std::declval<const T&>()))>>> {
     if (!arr) {
         panic_at(file, line, "Attempted to iterate null array in map()");
     }
-    using U = std::decay_t<decltype(std::invoke(mapper, std::declval<const T&>()))>;
+    using U = std::decay_t<decltype(std::declval<const Mapper&>().call(std::declval<const T&>()))>;
     auto result = std::make_shared<std::vector<U>>();
     result->reserve(arr->size());
     for (const auto& item : *arr) {
-        result->push_back(std::invoke(mapper, item));
+        result->push_back(mapper.call(item));
     }
     return result;
 }
@@ -1542,26 +1623,48 @@ public:
     explicit Promise(std::future<void>&& f) : future_(f.share()) {}
     explicit Promise(std::shared_future<void> f) : future_(std::move(f)) {}
 
-    doof::Result<int32_t, std::string> get() const {
+    doof::Result<void, std::string> get() const {
         try {
             future_.get();
-            return doof::Result<int32_t, std::string>::success(0);
+            return doof::Result<void, std::string>::success();
         } catch (const std::exception& e) {
-            return doof::Result<int32_t, std::string>::failure(std::string(e.what()));
+            return doof::Result<void, std::string>::failure(std::string(e.what()));
         } catch (...) {
-            return doof::Result<int32_t, std::string>::failure(std::string("unknown error"));
+            return doof::Result<void, std::string>::failure(std::string("unknown error"));
         }
     }
 };
 
-// ============================================================================
-// async_call — submit work to thread pool (uses std::async)
-// ============================================================================
+template <typename R, typename... Args>
+doof::Promise<R> callback<R(Args...)>::post(Args... args) const {
+    if (!fn_) {
+        doof::panic("callback posted before initialization");
+    }
+    if (!owner_) {
+        doof::panic("root-domain callback cannot be posted");
+    }
 
-template <typename F>
-auto async_call(F&& f) -> doof::Promise<decltype(f())> {
-    auto fut = std::async(std::launch::async, std::forward<F>(f));
-    return doof::Promise<decltype(f())>(std::move(fut));
+    auto prom = std::make_shared<std::promise<R>>();
+    auto fut = prom->get_future();
+    auto self = *this;
+    auto packedArgs = std::make_tuple(std::forward<Args>(args)...);
+    owner_->enqueue_callback([self, prom, packedArgs = std::move(packedArgs)]() mutable {
+        try {
+            if constexpr (std::is_void_v<R>) {
+                std::apply([&](auto&&... unpacked) {
+                    self.call(std::forward<decltype(unpacked)>(unpacked)...);
+                }, std::move(packedArgs));
+                prom->set_value();
+            } else {
+                prom->set_value(std::apply([&](auto&&... unpacked) -> R {
+                    return self.call(std::forward<decltype(unpacked)>(unpacked)...);
+                }, std::move(packedArgs)));
+            }
+        } catch (...) {
+            prom->set_exception(std::current_exception());
+        }
+    });
+    return doof::Promise<R>(std::move(fut));
 }
 
 // ============================================================================
@@ -1569,12 +1672,13 @@ auto async_call(F&& f) -> doof::Promise<decltype(f())> {
 // ============================================================================
 
 template <typename T>
-class Actor : public std::enable_shared_from_this<Actor<T>> {
+class Actor : public std::enable_shared_from_this<Actor<T>>, public detail::CallbackDomain {
     std::unique_ptr<T> instance_;
     std::thread thread_;
     std::queue<std::function<void()>> mailbox_;
     std::mutex mutex_;
     std::condition_variable cv_;
+    bool accepting_ = true;
     bool stopped_ = false;
 
     void run() {
@@ -1587,6 +1691,7 @@ class Actor : public std::enable_shared_from_this<Actor<T>> {
                 task = std::move(mailbox_.front());
                 mailbox_.pop();
             }
+            doof::detail::ActiveActorScope active(this);
             task();
         }
     }
@@ -1606,6 +1711,7 @@ public:
             auto fut = prom.get_future();
             {
                 std::lock_guard<std::mutex> lock(mutex_);
+                if (!accepting_) doof::panic("actor is retiring or retired");
                 mailbox_.push([this, f = std::forward<F>(f), &prom]() {
                     try {
                         f(*instance_);
@@ -1622,6 +1728,7 @@ public:
             auto fut = prom.get_future();
             {
                 std::lock_guard<std::mutex> lock(mutex_);
+                if (!accepting_) doof::panic("actor is retiring or retired");
                 mailbox_.push([this, f = std::forward<F>(f), &prom]() {
                     try {
                         prom.set_value(f(*instance_));
@@ -1642,6 +1749,7 @@ public:
         auto fut = prom->get_future();
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            if (!accepting_) doof::panic("actor is retiring or retired");
             if constexpr (std::is_void_v<R>) {
                 mailbox_.push([this, f = std::forward<F>(f), prom]() {
                     try {
@@ -1665,10 +1773,44 @@ public:
         return doof::Promise<R>(std::move(fut));
     }
 
+    void enqueue_callback(std::function<void()> task) override {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!accepting_) doof::panic("actor is retiring or retired");
+            mailbox_.push(std::move(task));
+        }
+        cv_.notify_one();
+    }
+
+    // Retire the actor — drain accepted work, stop, and return owned state.
+    std::shared_ptr<T> retire() {
+        std::promise<std::shared_ptr<T>> prom;
+        auto fut = prom.get_future();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!accepting_) doof::panic("actor is already retiring or retired");
+            accepting_ = false;
+            mailbox_.push([this, &prom]() {
+                try {
+                    if (!instance_) doof::panic("actor is already retired");
+                    prom.set_value(std::shared_ptr<T>(std::move(instance_)));
+                    stopped_ = true;
+                } catch (...) {
+                    prom.set_exception(std::current_exception());
+                }
+            });
+        }
+        cv_.notify_one();
+        std::shared_ptr<T> value = fut.get();
+        if (thread_.joinable()) thread_.join();
+        return value;
+    }
+
     // Stop the actor — drain the queue and join the thread
     void stop() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            accepting_ = false;
             stopped_ = true;
         }
         cv_.notify_one();

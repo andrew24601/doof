@@ -1166,13 +1166,26 @@ describe("e2e — string operations", () => {
 });
 
 // ============================================================================
-// Tests: Higher-order functions with std::function
+// Tests: Higher-order functions with actor-affine callbacks
 // ============================================================================
 
 describe("e2e — higher-order functions", () => {
   it("runs function passed as parameter", () => {
     const result = ctx.compileAndRun(`
       function apply(f: (x: int): int, x: int): int => f(x)
+      function double(n: int): int => n * 2
+      function main(): int => apply(double, 21)
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(42);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs explicit callback.call invocation", () => {
+    const result = ctx.compileAndRun(`
+      function apply(f: (x: int): int, x: int): int => f.call(x)
       function double(n: int): int => n * 2
       function main(): int => apply(double, 21)
     `);

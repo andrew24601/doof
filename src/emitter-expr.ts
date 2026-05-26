@@ -34,7 +34,7 @@ import { formatFloat, formatDouble, escapeChar, emitStringLiteral, emitIdentifie
 import { emitBinaryExpression, emitUnaryExpression, emitAssignmentExpression, emitMemberExpression, emitQualifiedMemberExpression, emitIndexExpression } from "./emitter-expr-ops.js";
 import { emitCallExpression, emitConstructExpression } from "./emitter-expr-calls.js";
 import { emitIfExpression, emitCaseExpression, emitCatchExpressionIIFE, emitYieldBlockIIFE } from "./emitter-expr-control.js";
-import { emitLambdaExpression, emitAsyncExpression, emitActorCreationExpression } from "./emitter-expr-lambda.js";
+import { emitLambdaExpression, emitAsyncExpression, emitRetireExpression, emitActorCreationExpression } from "./emitter-expr-lambda.js";
 import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
@@ -126,6 +126,10 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
         if (bindingType && resolvedExprType && !typesEqual(bindingType, resolvedExprType)) {
           return emitExtractNarrowedValue(baseExpr, bindingType, resolvedExprType, ctx);
         }
+        const targetEmitType = substituteEmitType(targetType, ctx);
+        if (targetEmitType?.kind === "function") {
+          return `${emitType(targetEmitType, ctx.module.path)}(${baseExpr})`;
+        }
         return baseExpr;
       }
 
@@ -203,6 +207,9 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
 
     case "async-expression":
       return emitAsyncExpression(expr, ctx);
+
+    case "retire-expression":
+      return emitRetireExpression(expr, ctx);
 
     case "actor-creation-expression":
       return emitActorCreationExpression(expr, ctx);

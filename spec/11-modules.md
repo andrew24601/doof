@@ -597,6 +597,11 @@ body uses bare `this`, the native class must inherit from
 `std::enable_shared_from_this<NativeClass>` because bare `this` lowers to
 `this->shared_from_this()` just like ordinary Doof methods.
 
+Function-typed parameters in bodyless extern methods lower to
+`doof::callback<R(Args...)>`, not `std::function`. Native C++ that accepts a
+Doof callback must include the generated/runtime headers and choose local
+`callback.call(...)` or posted callback execution explicitly.
+
 ### Header Resolution
 
 | Declaration | Generated `#include` |
@@ -768,6 +773,11 @@ import function cos(x: float): float from "<cmath>" as std::cos
 ```
 
 The declaration specifies the function's name, parameters, return type, and optionally the header to include and the C++ qualified name to use at call sites.
+
+Function-typed parameters lower to `doof::callback<R(Args...)>` in the native
+signature. The compiler does not adapt these arguments to `std::function`,
+because a bodiless import does not state whether native C++ will invoke the
+callback immediately, store it, or schedule it.
 
 ### Header Resolution
 

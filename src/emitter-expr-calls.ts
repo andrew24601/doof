@@ -150,19 +150,18 @@ function buildPositionalCallValues(
 function buildGenericCallTypeSubstitution(
   expr: CallExpression,
   ctx: EmitContext,
+  calleeType: Extract<ResolvedType, { kind: "function" }>,
 ): Map<string, ResolvedType> | null {
-  const symbol = expr.resolvedGenericBinding?.symbol;
-  if (!symbol || symbol.symbolKind !== "function" || !expr.resolvedGenericTypeArgs) {
+  if (!calleeType.typeParams || calleeType.typeParams.length === 0 || !expr.resolvedGenericTypeArgs) {
     return null;
   }
 
   const typeArgs = resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx);
   if (!typeArgs || typeArgs.length === 0) return null;
 
-  const decl = symbol.declaration as FunctionDeclaration;
   const map = new Map<string, ResolvedType>();
-  for (let index = 0; index < decl.typeParams.length && index < typeArgs.length; index++) {
-    map.set(decl.typeParams[index], typeArgs[index]);
+  for (let index = 0; index < calleeType.typeParams.length && index < typeArgs.length; index++) {
+    map.set(calleeType.typeParams[index], typeArgs[index]);
   }
   return map;
 }
@@ -171,9 +170,10 @@ function specializeFunctionParamsForGenericCall(
   params: FunctionResolvedParam[] | undefined,
   expr: CallExpression,
   ctx: EmitContext,
+  calleeType: Extract<ResolvedType, { kind: "function" }>,
 ): FunctionResolvedParam[] | undefined {
   if (!params) return undefined;
-  const substitution = buildGenericCallTypeSubstitution(expr, ctx);
+  const substitution = buildGenericCallTypeSubstitution(expr, ctx, calleeType);
   if (!substitution) return params;
   return params.map((param) => ({
     ...param,
@@ -332,6 +332,34 @@ function emitConcreteClassName(
   return emitResolvedClassName(type, ctx.module.path);
 }
 
+function isDirectFunctionIdentifierCall(expr: CallExpression, binding: Binding | undefined): boolean {
+  if (expr.callee.kind !== "identifier") return false;
+  return binding?.kind === "function"
+    || binding?.kind === "builtin"
+    || (binding?.kind === "import" && binding.symbol?.symbolKind === "function");
+}
+
+function isFunctionFieldCall(expr: CallExpression): boolean {
+  if (expr.callee.kind !== "member-expression") return false;
+  const memberExpr = expr.callee;
+  const objectType = memberExpr.object.resolvedType;
+  if (!objectType || objectType.kind !== "class") return false;
+  return objectType.symbol.declaration.fields.some((field) =>
+    field.names.includes(memberExpr.property)
+    && field.resolvedType?.kind === "function"
+  );
+}
+
+function isExplicitCallbackCall(expr: CallExpression): boolean {
+  if (expr.callee.kind !== "member-expression") return false;
+  return expr.callee.property === "call"
+    && expr.callee.object.resolvedType?.kind === "function";
+}
+
+function emitCallbackCall(callee: string, args: string): string {
+  return `${callee}.call(${args})`;
+}
+
 function emitResultHelperCall(
   expr: CallExpression,
   memberExpr: MemberExpression,
@@ -342,12 +370,13 @@ function emitResultHelperCall(
   const object = emitExpression(memberExpr.object, ctx);
   const arg0 = positionalCallValues[0] ?? "";
   const tmp = `_result_${ctx.tempCounter++}`;
+  const callArg0 = (args: string) => `${arg0}.call(${args})`;
 
   if (memberExpr.property === "map") {
     const resultType = expr.resolvedType;
     if (!resultType || resultType.kind !== "result") return null;
     const resultCppType = emitType(resultType, ctx.module.path);
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); return ${resultCppType}::success(${arg0}(std::move(${tmp}.value()))); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); return ${resultCppType}::success(${callArg0(`std::move(${tmp}.value())`)}); }()`;
   }
 
   if (memberExpr.property === "mapError") {
@@ -355,9 +384,9 @@ function emitResultHelperCall(
     if (!resultType || resultType.kind !== "result") return null;
     const resultCppType = emitType(resultType, ctx.module.path);
     if (objectType.successType.kind === "void") {
-      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${arg0}(std::move(${tmp}.error()))); ${tmp}.value(); return ${resultCppType}::success(); }()`;
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${callArg0(`std::move(${tmp}.error())`)}); ${tmp}.value(); return ${resultCppType}::success(); }()`;
     }
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${arg0}(std::move(${tmp}.error()))); return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${callArg0(`std::move(${tmp}.error())`)}); return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
   }
 
   if (memberExpr.property === "andThen") {
@@ -366,9 +395,9 @@ function emitResultHelperCall(
     const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
     if (objectType.successType.kind === "void") {
-      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); ${tmp}.value(); auto ${nextTmp} = ${arg0}(); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); ${tmp}.value(); auto ${nextTmp} = ${arg0}.call(); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
     }
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); auto ${nextTmp} = ${arg0}(std::move(${tmp}.value())); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); auto ${nextTmp} = ${callArg0(`std::move(${tmp}.value())`)}; if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
   }
 
   if (memberExpr.property === "orElse") {
@@ -376,7 +405,7 @@ function emitResultHelperCall(
     if (!resultType || resultType.kind !== "result") return null;
     const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) { auto ${nextTmp} = ${arg0}(std::move(${tmp}.error())); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); } return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) { auto ${nextTmp} = ${callArg0(`std::move(${tmp}.error())`)}; if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); } return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
   }
 
   if (memberExpr.property === "unwrapOr") {
@@ -388,7 +417,7 @@ function emitResultHelperCall(
   if (memberExpr.property === "unwrapOrElse") {
     const returnType = expr.resolvedType ?? objectType.successType;
     const returnCppType = emitType(returnType, ctx.module.path);
-    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}(std::move(${tmp}.error())); return std::move(${tmp}.value()); }()`;
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${callArg0(`std::move(${tmp}.error())`)}; return std::move(${tmp}.value()); }()`;
   }
 
   if (memberExpr.property === "ok") {
@@ -429,10 +458,16 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (expr.callee.kind === "identifier") {
+      if (!isDirectFunctionIdentifierCall(expr, calleeBinding)) {
+        return emitCallbackCall(emitIdentifierSafe(expr.callee.name), args.join(", "));
+      }
       return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx), calleeBinding);
     }
 
     const callee = emitExpression(expr.callee, ctx);
+    if (expr.callee.kind !== "member-expression" || isFunctionFieldCall(expr) || isExplicitCallbackCall(expr)) {
+      return emitCallbackCall(callee, args.join(", "));
+    }
     return `${callee}(${args.join(", ")})`;
   }
 
@@ -486,11 +521,20 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Build argument list, passing parameter target types for null coercion.
   const paramTypes = calleeType?.kind === "function"
-    ? specializeFunctionParamsForGenericCall(calleeType.params, expr, ctx)
+    ? specializeFunctionParamsForGenericCall(calleeType.params, expr, ctx, calleeType)
     : undefined;
-  const positionalCallValues = buildPositionalCallValues(paramTypes, expr.args, ctx, expr.span);
+  const positionalCallValues = buildPositionalCallValues(
+    paramTypes,
+    expr.args,
+    ctx,
+    expr.span,
+  );
   const args = positionalCallValues.join(", ");
   const explicitGenericMethodCall = emitExplicitGenericMethodCall(expr, ctx, args);
+
+  if (isExplicitCallbackCall(expr)) {
+    return emitCallbackCall(emitExpression((expr.callee as MemberExpression).object, ctx), args);
+  }
 
   // Positional Success(value) → doof::Result<T, E>::success(val)
   if (expr.callee.kind === "identifier" && expr.callee.name === "Success" && isUnshadowedResultCtorCall(expr, "Success")) {
@@ -547,6 +591,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   if (expr.callee.kind === "member-expression") {
     const memberExpr = expr.callee as MemberExpression;
     const objType = substituteEmitType(memberExpr.object.resolvedType, ctx);
+
+    if (calleeType?.kind === "function" && isFunctionFieldCall(expr)) {
+      return emitCallbackCall(emitExpression(memberExpr, ctx), args);
+    }
 
     if (memberExpr.object.kind === "this-expression") {
       const method = emitIdentifierSafe(memberExpr.property);
@@ -743,6 +791,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (monomorphizedName) {
       return `${emitMonomorphizedCallName(monomorphizedName, expr)}(${args})`;
     }
+    if (calleeType?.kind === "function" && !isDirectFunctionIdentifierCall(expr, calleeBinding)) {
+      return emitCallbackCall(emitIdentifierSafe(expr.callee.name), args);
+    }
     return emitIdentifierCallByName(
       expr.callee.name,
       positionalCallValues,
@@ -754,6 +805,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   }
 
   const callee = emitExpression(expr.callee, ctx);
+  if (calleeType?.kind === "function" && (expr.callee.kind !== "member-expression" || isFunctionFieldCall(expr))) {
+    return emitCallbackCall(callee, args);
+  }
   return `${callee}(${args})`;
 }
 
@@ -786,10 +840,6 @@ function emitActorSyncCall(
   const obj = emitExpression(memberExpr.object, ctx);
   const method = emitIdentifierSafe(memberExpr.property);
   const className = emitClassCppName(objType.innerClass.symbol, ctx.module.path);
-
-  if (method === "stop") {
-    return `${obj}->stop()`;
-  }
 
   const retType = expr.resolvedType;
   const cppRetType = retType ? emitType(retType) : "void";

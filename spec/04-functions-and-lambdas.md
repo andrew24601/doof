@@ -398,3 +398,23 @@ This means:
 - Global functions hoist; nested functions do not
 - Functions are immutable bindings — cannot be reassigned
 - Functions close over their lexical scope like any lambda
+
+First-class function values are actor-affine callbacks. Normal Doof call syntax
+still invokes them:
+
+```javascript
+function apply(f: (x: int): int, x: int): int => f(x)
+```
+
+The explicit local form is also available:
+
+```javascript
+function apply(f: (x: int): int, x: int): int => f.call(x)
+```
+
+`f.call(...)` executes immediately and is valid only in the callback's owning
+actor domain. `f.post(...)` enqueues the invocation on the owning actor and
+returns `Promise<R>`, where `R` is the callback return type. Function-typed
+parameters in native imports also lower to `doof::callback`; native C++ must
+integrate with that callback type and choose the appropriate execution mode
+explicitly.

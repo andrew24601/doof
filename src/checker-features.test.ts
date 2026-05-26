@@ -208,12 +208,16 @@ describe("Concurrency", () => {
     expect(actor.innerClass.symbol.name).toBe("Counter");
   });
 
-  it("infers Promise type from async expression", () => {
+  it("infers Promise type from async actor method expression", () => {
     const cr = check(
       {
         "/main.do": `
-          function compute(): int { return 42 }
-          const p = async compute()
+          class Worker {
+            value: int
+            compute(): int { return value }
+          }
+          const worker = Actor<Worker>(42)
+          const p = async worker.compute()
         `,
       },
       "/main.do",
@@ -242,9 +246,13 @@ describe("Concurrency", () => {
     const cr = check(
       {
         "/main.do": `
-          function compute(): int { return 42 }
+          class Worker {
+            value: int
+            compute(): int { return value }
+          }
           function fetchData(): Promise<int> {
-            return async compute()
+            const worker = Actor<Worker>(42)
+            return async worker.compute()
           }
         `,
       },
@@ -253,7 +261,7 @@ describe("Concurrency", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("infers async block as Promise type", () => {
+  it("rejects async block", () => {
     const cr = check(
       {
         "/main.do": `
@@ -262,9 +270,311 @@ describe("Concurrency", () => {
       },
       "/main.do",
     );
+    expect(cr.diagnostics.some((d) => d.message.includes("actor method calls"))).toBe(true);
+  });
+
+  it("rejects async non-actor function call", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function compute(): int { return 42 }
+          const p = async compute()
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("actor method calls"))).toBe(true);
+  });
+
+  it("infers retire actor expression as inner class type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Worker { value: int }
+          function done(): Worker {
+            const worker = Actor<Worker>(42)
+            return retire worker
+          }
+        `,
+      },
+      "/main.do",
+    );
     expect(cr.diagnostics).toHaveLength(0);
-    const promises = findTypes(cr, (t) => t.kind === "promise");
-    expect(promises.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects retiring non-actor values", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          const value = 42
+          const done = retire value
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("Cannot retire non-actor"))).toBe(true);
+  });
+
+  it("rejects obvious same-binding actor use after retire", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Worker {
+            value: int
+            get(): int { return value }
+          }
+          function main(): int {
+            const worker = Actor<Worker>(1)
+            retire worker
+            return worker.get()
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Cannot use actor binding "worker" after it has been retired'))).toBe(true);
+  });
+
+  it("rejects actor.stop() as a lifecycle API", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Worker { value: int }
+          function main(): void {
+            const worker = Actor<Worker>(42)
+            worker.stop()
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Property "stop" does not exist on type "Worker"'))).toBe(true);
+  });
+
+  it("rejects mutable values passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload {
+            value: int
+          }
+
+          class Worker {
+            handle(payload: Payload): void {}
+          }
+
+          const worker = Actor<Worker>()
+          const payload = Payload(1)
+          worker.handle(payload)
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method parameter "payload"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("rejects mutable values passed into async actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload {
+            value: int
+          }
+
+          class Worker {
+            handle(payload: Payload): int { return payload.value }
+          }
+
+          const worker = Actor<Worker>()
+          const payload = Payload(1)
+          const promise = async worker.handle(payload)
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method parameter "payload"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("allows deeply immutable values passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload {
+            readonly value: int
+          }
+
+          class Worker {
+            handle(payload: Payload): int { return payload.value }
+          }
+
+          const worker = Actor<Worker>()
+          const payload = Payload(1)
+          const value = worker.handle(payload)
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects Actor references passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Child {
+            value: int
+          }
+
+          class Worker {
+            attach(child: Actor<Child>): void {}
+          }
+
+          const worker = Actor<Worker>()
+          const child = Actor<Child>(1)
+          worker.attach(child)
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method parameter "child"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes("Actor<T> references cannot cross actor boundaries"))).toBe(true);
+  });
+
+  it("rejects Promise values passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Producer {
+            run(): int { return 1 }
+          }
+
+          class Worker {
+            attach(promise: Promise<int>): void {}
+          }
+
+          const producer = Actor<Producer>()
+          const promise = async producer.run()
+          const worker = Actor<Worker>()
+          worker.attach(promise)
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method parameter "promise"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes("Promise<T> values cannot cross actor boundaries"))).toBe(true);
+  });
+
+  it("allows actor-affine callbacks passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Worker {
+            attach(callback: (value: int): int): void {}
+          }
+
+          function main(): void {
+            const worker = Actor<Worker>()
+            worker.attach((value: int): int => value + 1)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects callbacks with mutable payloads passed into actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload {
+            value: int
+          }
+
+          class Worker {
+            attach(callback: (payload: Payload): void): void {}
+          }
+
+          function main(): void {
+            const worker = Actor<Worker>()
+            worker.attach((payload: Payload): void => {})
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method parameter "callback"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('callback parameter "payload" cannot cross actor boundaries'))).toBe(true);
+  });
+
+  it("rejects mutable values returned from actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload {
+            value: int
+          }
+
+          class Worker {
+            make(): Payload { return Payload(1) }
+          }
+
+          const worker = Actor<Worker>()
+          const payload = worker.make()
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("Actor method return type"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("rejects Promise values returned from actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Worker {
+            run(): int { return 1 }
+            leak(): Promise<int> {
+              const nested = Actor<Worker>()
+              return async nested.run()
+            }
+          }
+
+          const worker = Actor<Worker>()
+          const promise = worker.leak()
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("Actor method return type"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes("Promise<T> values cannot cross actor boundaries"))).toBe(true);
+  });
+
+  it("infers callback.post as Promise of callback return type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            callback := (value: int): string => string(value)
+            promise := callback.post(3)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+    const postCall = collectExprs(cr.program).find((expr) =>
+      expr.kind === "call-expression"
+      && expr.callee.kind === "member-expression"
+      && expr.callee.property === "post"
+    );
+    expect(postCall?.resolvedType).toMatchObject({
+      kind: "promise",
+      valueType: { kind: "primitive", name: "string" },
+    });
   });
 
   it("allows isolated function declaration", () => {
@@ -691,9 +1001,13 @@ describe("Result<T, E> type integration", () => {
     const cr = check(
       {
         "/main.do": `
-          isolated function square(x: int): int { return x * x }
+          class Worker {
+            value: int
+            square(x: int): int { return x * x }
+          }
           function f(): void {
-            const p = async square(7)
+            const worker = Actor<Worker>(0)
+            const p = async worker.square(7)
             const r = try! p.get()
           }
         `,

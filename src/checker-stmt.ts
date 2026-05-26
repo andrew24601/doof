@@ -17,7 +17,7 @@ import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics
 import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { resolveExpectedEnumType } from "./checker-expr-ops.js";
-import { buildCaseArmScope } from "./checker-result.js";
+import { buildCaseArmScope, getTryBindingValue } from "./checker-result.js";
 import { inferMemberType } from "./checker-member.js";
 import {
   getCollectionAwareAssignabilityTypes,
@@ -45,8 +45,11 @@ export function checkStatements(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): void {
+  const retiredActorBindings = new Map<string, SourceSpan>();
   for (const stmt of stmts) {
     checkStatement(host, stmt, scope, table, info);
+    reportRetiredActorUsesInStatement(stmt, retiredActorBindings, table, info);
+    collectRetiredActorBindingsFromStatement(stmt, retiredActorBindings);
   }
 }
 
@@ -751,6 +754,265 @@ function checkValueBindingStatement(
 
   reportUnresolvedObjectLiteralBindingType(stmt, type, info, table.path, stmt.value.span);
   registerValueBinding(stmt, scope, table, info, type);
+}
+
+function spanKey(span: SourceSpan): string {
+  return `${span.start.offset}:${span.end.offset}`;
+}
+
+function bindingMatchesRetiredSpan(binding: Binding | undefined, retiredSpan: SourceSpan): boolean {
+  return !!binding && spanKey(binding.span) === spanKey(retiredSpan);
+}
+
+function walkExpression(expr: Expression, visit: (expr: Expression) => void): void {
+  visit(expr);
+  switch (expr.kind) {
+    case "binary-expression":
+      walkExpression(expr.left, visit);
+      walkExpression(expr.right, visit);
+      return;
+    case "unary-expression":
+      walkExpression(expr.operand, visit);
+      return;
+    case "assignment-expression":
+      walkExpression(expr.target, visit);
+      walkExpression(expr.value, visit);
+      return;
+    case "member-expression":
+    case "qualified-member-expression":
+      walkExpression(expr.object, visit);
+      return;
+    case "index-expression":
+      walkExpression(expr.object, visit);
+      walkExpression(expr.index, visit);
+      return;
+    case "call-expression":
+      walkExpression(expr.callee, visit);
+      for (const arg of expr.args) walkExpression(arg.value, visit);
+      return;
+    case "array-literal":
+      for (const element of expr.elements) walkExpression(element, visit);
+      return;
+    case "map-literal":
+      for (const entry of expr.entries) {
+        walkExpression(entry.key, visit);
+        walkExpression(entry.value, visit);
+      }
+      return;
+    case "tuple-literal":
+      for (const element of expr.elements) walkExpression(element, visit);
+      return;
+    case "lambda-expression":
+      if (expr.body.kind === "block") {
+        walkStatementListExpressions(expr.body.statements, (nested) => walkExpression(nested, visit));
+      } else {
+        walkExpression(expr.body, visit);
+      }
+      return;
+    case "if-expression":
+      walkExpression(expr.condition, visit);
+      walkExpression(expr.then, visit);
+      walkExpression(expr.else_, visit);
+      return;
+    case "case-expression":
+      walkExpression(expr.subject, visit);
+      for (const arm of expr.arms) {
+        for (const pattern of arm.patterns) {
+          if (pattern.kind === "value-pattern") walkExpression(pattern.value, visit);
+          if (pattern.kind === "range-pattern") {
+            if (pattern.start) walkExpression(pattern.start, visit);
+            if (pattern.end) walkExpression(pattern.end, visit);
+          }
+        }
+        if (arm.body.kind === "block") {
+          walkStatementListExpressions(arm.body.statements, (nested) => walkExpression(nested, visit));
+        } else {
+          walkExpression(arm.body, visit);
+        }
+      }
+      return;
+    case "yield-block-expression":
+      walkStatementListExpressions(expr.body.statements, (nested) => walkExpression(nested, visit));
+      return;
+    case "catch-expression":
+      walkStatementListExpressions(expr.body, (nested) => walkExpression(nested, visit));
+      return;
+    case "construct-expression":
+      if (expr.named) {
+        for (const prop of expr.args as import("./ast.js").ObjectProperty[]) {
+          if (prop.value) walkExpression(prop.value, visit);
+        }
+      } else {
+        for (const arg of expr.args as Expression[]) walkExpression(arg, visit);
+      }
+      return;
+    case "object-literal":
+      for (const prop of expr.properties) {
+        if (prop.value) walkExpression(prop.value, visit);
+      }
+      return;
+    case "string-literal":
+      for (const part of expr.parts) {
+        if (typeof part !== "string") walkExpression(part, visit);
+      }
+      return;
+    case "async-expression":
+      if (expr.expression.kind === "block") {
+        walkStatementListExpressions(expr.expression.statements, (nested) => walkExpression(nested, visit));
+      } else {
+        walkExpression(expr.expression, visit);
+      }
+      return;
+    case "retire-expression":
+      walkExpression(expr.actor, visit);
+      return;
+    case "actor-creation-expression":
+      for (const arg of expr.args) walkExpression(arg, visit);
+      return;
+    case "non-null-assertion":
+    case "as-expression":
+      walkExpression(expr.expression, visit);
+      return;
+    default:
+      return;
+  }
+}
+
+function walkStatementExpressions(stmt: Statement, visit: (expr: Expression) => void): void {
+  switch (stmt.kind) {
+    case "const-declaration":
+    case "readonly-declaration":
+    case "let-declaration":
+    case "immutable-binding":
+      visit(stmt.value);
+      return;
+    case "expression-statement":
+      visit(stmt.expression);
+      return;
+    case "return-statement":
+    case "yield-statement":
+      if (stmt.value) visit(stmt.value);
+      return;
+    case "if-statement":
+      visit(stmt.condition);
+      walkStatementListExpressions(stmt.body.statements, visit);
+      for (const elseIf of stmt.elseIfs) {
+        visit(elseIf.condition);
+        walkStatementListExpressions(elseIf.body.statements, visit);
+      }
+      if (stmt.else_) walkStatementListExpressions(stmt.else_.statements, visit);
+      return;
+    case "while-statement":
+      visit(stmt.condition);
+      walkStatementListExpressions(stmt.body.statements, visit);
+      if (stmt.then_) walkStatementListExpressions(stmt.then_.statements, visit);
+      return;
+    case "for-statement":
+      if (stmt.init) walkStatementExpressions(stmt.init, visit);
+      if (stmt.condition) visit(stmt.condition);
+      for (const update of stmt.update) visit(update);
+      walkStatementListExpressions(stmt.body.statements, visit);
+      if (stmt.then_) walkStatementListExpressions(stmt.then_.statements, visit);
+      return;
+    case "for-of-statement":
+      visit(stmt.iterable);
+      walkStatementListExpressions(stmt.body.statements, visit);
+      if (stmt.then_) walkStatementListExpressions(stmt.then_.statements, visit);
+      return;
+    case "with-statement":
+      for (const binding of stmt.bindings) visit(binding.value);
+      walkStatementListExpressions(stmt.body.statements, visit);
+      return;
+    case "case-statement":
+      visit(stmt.subject);
+      for (const arm of stmt.arms) {
+        for (const pattern of arm.patterns) {
+          if (pattern.kind === "value-pattern") visit(pattern.value);
+          if (pattern.kind === "range-pattern") {
+            if (pattern.start) visit(pattern.start);
+            if (pattern.end) visit(pattern.end);
+          }
+        }
+        if (arm.body.kind === "block") {
+          walkStatementListExpressions(arm.body.statements, visit);
+        } else {
+          visit(arm.body);
+        }
+      }
+      return;
+    case "yield-block-assignment-statement":
+      visit(stmt.value);
+      return;
+    case "positional-destructuring":
+    case "array-destructuring":
+    case "named-destructuring":
+    case "positional-destructuring-assignment":
+    case "array-destructuring-assignment":
+    case "named-destructuring-assignment":
+      visit(stmt.value);
+      return;
+    case "else-narrow-statement":
+      visit(stmt.subject);
+      walkStatementListExpressions(stmt.elseBlock.statements, visit);
+      return;
+    case "try-statement": {
+      const value = getTryBindingValue(stmt.binding);
+      if (value) visit(value);
+      return;
+    }
+    case "block":
+      walkStatementListExpressions(stmt.statements, visit);
+      return;
+    case "export-declaration":
+      walkStatementExpressions(stmt.declaration, visit);
+      return;
+    default:
+      return;
+  }
+}
+
+function walkStatementListExpressions(stmts: Statement[], visit: (expr: Expression) => void): void {
+  for (const stmt of stmts) {
+    walkStatementExpressions(stmt, visit);
+  }
+}
+
+function reportRetiredActorUsesInStatement(
+  stmt: Statement,
+  retiredActorBindings: Map<string, SourceSpan>,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  if (retiredActorBindings.size === 0) return;
+  walkStatementExpressions(stmt, (expr) => {
+    walkExpression(expr, (nested) => {
+      if (nested.kind !== "identifier") return;
+      const retiredSpan = retiredActorBindings.get(nested.name);
+      if (!retiredSpan || !bindingMatchesRetiredSpan(nested.resolvedBinding, retiredSpan)) return;
+      info.diagnostics.push({
+        severity: "error",
+        message: `Cannot use actor binding "${nested.name}" after it has been retired`,
+        span: nested.span,
+        module: table.path,
+      });
+    });
+  });
+}
+
+function collectRetiredActorBindingsFromStatement(
+  stmt: Statement,
+  retiredActorBindings: Map<string, SourceSpan>,
+): void {
+  walkStatementExpressions(stmt, (expr) => {
+    walkExpression(expr, (nested) => {
+      if (nested.kind !== "retire-expression") return;
+      if (nested.actor.kind !== "identifier") return;
+      if (nested.actor.resolvedType?.kind !== "actor") return;
+      const binding = nested.actor.resolvedBinding;
+      if (!binding) return;
+      retiredActorBindings.set(nested.actor.name, binding.span);
+    });
+  });
 }
 
 function statementToBindingKind(

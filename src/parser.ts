@@ -9,7 +9,7 @@ import type {
   SourceSpan, SourceLocation, DestructureBinding,
   FunctionDeclaration, MapEntry,
   ExternClassField, ExternClassMethod, ExternFunctionDeclaration,
-  AsyncExpression, ActorCreationExpression, CatchExpression,
+  AsyncExpression, RetireExpression, ActorCreationExpression, CatchExpression,
   LambdaExpression, CallExpression, YieldBlockExpression,
 } from "./ast.js";
 
@@ -2811,6 +2811,10 @@ export class Parser {
       return this.parseAsyncExpression(startLoc);
     }
 
+    if (this.check(TokenType.Retire)) {
+      return this.parseRetireExpression(startLoc);
+    }
+
     return this.parseAs();
   }
 
@@ -2849,6 +2853,16 @@ export class Parser {
     return {
       kind: "async-expression",
       expression: expr as Expression,
+      span: this.span(startLoc),
+    };
+  }
+
+  private parseRetireExpression(startLoc: SourceLocation): RetireExpression {
+    this.advance(); // consume 'retire'
+    const actor = this.parseUnary();
+    return {
+      kind: "retire-expression",
+      actor,
       span: this.span(startLoc),
     };
   }

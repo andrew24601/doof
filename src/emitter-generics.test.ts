@@ -510,7 +510,7 @@ describe("emitter — generic module splitting", () => {
     expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_FilteredStream<int32_t>");
     expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_MappedStream<int32_t, std::string>");
     expect(result.hppCode).toContain("template<>\nstruct __doof_private_main_TakeStream<std::string>");
-    expect(result.cppCode).toContain("chain->filter(isEven)->map<std::string>(decorate)->take(3)->collect()");
+    expect(result.cppCode).toContain("chain->filter(doof::callback<bool(int32_t)>(isEven))->map<std::string>(doof::callback<std::string(int32_t)>(decorate))->take(3)->collect()");
     expect(result.hppCode).not.toContain("__doof_stream_T");
     expect(result.cppCode).not.toContain("__doof_stream_T");
   });

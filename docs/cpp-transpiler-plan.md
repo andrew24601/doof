@@ -28,7 +28,7 @@
 - ✅ **Positional destructuring** — `(a, b) := expr` → `const auto [a, b] = expr;` e2e tested
 - ✅ **Named destructuring** — `{ x, y } := obj` → individual field accesses with correct by-name semantics (aliases, partial fields, any order)
 - ✅ **Weak pointer fields** — `weak parent: Node` → `std::weak_ptr<Node>` with correct ctor params
-- ✅ **Higher-order functions** — `std::function` parameters compile and run e2e
+- ✅ **Higher-order functions** — `doof::callback` parameters compile and run e2e
 - ✅ **Recursion** — recursive functions (fibonacci) compile and run correctly
 - ✅ **Named constructor field ordering** — args sorted to match class declaration order
 - ✅ **Module splitting** — `.hpp`/`.cpp` per module with proper includes and forward declarations
@@ -183,14 +183,14 @@ std::variant<std::monostate, int32_t, std::string> x = std::monostate{};
 | `Set<T>` | `std::unordered_set<T>` |
 | `Tuple<A, B, C>` | `std::tuple<A, B, C>` |
 
-### 1.7 Function Types → `std::function`
+### 1.7 Function Types → `doof::callback`
 
 ```doof
 type Predicate = (x: int): bool
 ```
 
 ```cpp
-using Predicate = std::function<bool(int32_t)>;
+using Predicate = doof::callback<bool(int32_t)>;
 ```
 
 ### 1.8 Enums
@@ -805,7 +805,7 @@ function emitType(type: ResolvedType): string {
     case "tuple":
       return `std::tuple<${type.elements.map(emitType).join(", ")}>`;
     case "function":
-      return `std::function<${emitType(type.returnType)}(${...})>`;
+      return `doof::callback<${emitType(type.returnType)}(${...})>`;
     case "null":
       return "std::monostate";
     case "void":
@@ -882,7 +882,7 @@ Walk expression nodes, emit C++ text. Key cases:
 - ✅ Weak pointer fields: `weak` modifier emits `std::weak_ptr<T>` with correct ctor params
 - ✅ Array literal e2e: for-of over arrays, index access, println output
 - ✅ Tuple literal + positional destructuring e2e
-- ✅ Higher-order functions: `std::function` parameters compile and run
+- ✅ Higher-order functions: `doof::callback` parameters compile and run
 - ✅ Map literals: `std::unordered_map{...}` emission
 - ✅ Recursion: recursive functions (fibonacci) verify correct C++ emission
 - ✅ Module splitting: `.hpp`/`.cpp` per module with forward declarations, includes, and anonymous namespace
@@ -934,7 +934,7 @@ Walk expression nodes, emit C++ text. Key cases:
   - Immutable bindings (const/readonly/:=/param): captured by value
   - Mutable bindings (let): captured by reference
 - [x] Handle `this` capture in methods: field access in lambdas captures `this` ✅ IMPLEMENTED
-- [x] Emit `std::function` for stored lambdas and function-type parameters ✅ E2E TESTED
+- [x] Emit `doof::callback` for stored lambdas and function-type parameters ✅ E2E TESTED
 - [x] Tests: lambda capture by-value and by-reference, this capture, higher-order functions, e2e compilation + execution
 
 ### Phase 6: Error Handling — **COMPLETE**
@@ -995,10 +995,12 @@ Walk expression nodes, emit C++ text. Key cases:
 - [x] Complete `doof_runtime.hpp` (Result, panic, println, concat, Range implemented)
 - [x] End-to-end test: compile generated C++ with clang++ ✅ **79 tests passing**
 
-### Phase 10: Concurrency — ✅ COMPLETE
+### Phase 10: Concurrency — ✅ REDESIGN IN PROGRESS
 
-Implements `isolated` functions, `Actor<T>` for stateful concurrent entities, `async` keyword for
-worker pool dispatch, and `Promise<T>` for async results. Based on [spec/10-concurrency.md](../spec/10-concurrency.md).
+Implements `Actor<T>` for stateful concurrent domains, actor-call `async`,
+`Promise<T>` results, and `retire actor` lifecycle. `isolated` remains parsed
+as a compatibility modifier, but it does not authorize worker-pool dispatch.
+Based on [spec/10-concurrency.md](../spec/10-concurrency.md).
 
 **C++ Mapping Summary:**
 
@@ -1008,10 +1010,8 @@ worker pool dispatch, and `Promise<T>` for async results. Based on [spec/10-conc
 | `Actor<T>()` | `std::make_shared<doof::Actor<Counter>>()` — actor with internal thread + message queue |
 | `actor.method(args)` (sync) | `actor->call_sync([](T& self) { self.method(args); })` — enqueue + block until complete |
 | `async actor.method(args)` | `actor->call_async([](T& self) -> R { return self.method(args); })` → `doof::Promise<R>` |
-| `async func(args)` (worker) | `doof::async_call([=]() { return func(args); })` → `doof::Promise<R>` via `std::async` |
-| `async { block }` (worker) | `doof::async_call([captures]() { block })` → `doof::Promise<R>` |
 | `promise.get()` | Returns `doof::Result<T, std::string>` — wraps `std::future` with exception→Result |
-| `actor.stop()` | `actor->stop()` — drains queue then joins thread |
+| `retire actor` | `actor->retire()` — drains accepted work, stops, and returns inner state |
 | `Promise<T>` type | `doof::Promise<T>` — wraps `std::shared_future<T>` |
 
 **Runtime support (`doof_runtime.hpp` additions):**
@@ -1032,7 +1032,7 @@ public:
     Actor(Args&&... args);
     template <typename R, typename F> R call_sync(F&& f);
     template <typename R, typename F> doof::Promise<R> call_async(F&& f);
-    void stop();
+    std::shared_ptr<T> retire();
     ~Actor() { stop(); }
 };
 
@@ -1044,9 +1044,6 @@ public:
     doof::Result<T, std::string> get();
 };
 
-// doof::async_call — submit to thread pool (std::async)
-template <typename F>
-auto async_call(F&& f) -> doof::Promise<decltype(f())>;
 ```
 
 **Lexer additions:**
@@ -1066,17 +1063,16 @@ auto async_call(F&& f) -> doof::Promise<decltype(f())>;
 **Checker additions:**
 - [x] `ActorType` resolved type wrapping the inner class
 - [x] `PromiseType` resolved type wrapping the return type
-- [x] Validate isolation rules for functions used with `async`
-- [x] Validate actor method parameter/return types (readonly-only)
-- [x] Validate `async` target is a call expression, actor method call, or block
+- [x] Reject worker-pool `async`; `async` is valid only for actor method calls
 - [x] Infer `Promise<T>` return type for async expressions
+- [ ] Validate actor method parameter/return boundary types
 
 **Emitter additions:**
 - [x] Emit `doof::Actor<T>` construction
 - [x] Emit `call_sync` / `call_async` for actor method calls
-- [x] Emit `doof::async_call` for worker dispatch
+- [x] Emit `retire actor` as `Actor<T>::retire()`
 - [x] Emit `doof::Promise<T>` type mapping
-- [x] Runtime: `Actor<T>`, `Promise<T>`, `async_call` in `doof_runtime.hpp`
+- [x] Runtime: `Actor<T>` and `Promise<T>` in `doof_runtime.hpp`
 - [x] Include `<thread>`, `<mutex>`, `<future>`, `<queue>`, `<condition_variable>` when concurrency is used
 
 **Tests:**
@@ -1144,7 +1140,7 @@ For simplicity, Phase 1 could emit a single `.cpp` file per module (all-in-one).
 - Tuple literals (`std::make_tuple(...)`) and positional destructuring (`const auto [a, b] = ...;`)
 - Map literals (`std::unordered_map{...}`)
 - Weak pointer fields (`weak parent: Node` → `std::weak_ptr<Node>` with correct ctor params)
-- Higher-order functions (`std::function` parameters compile and run)
+- Higher-order functions (`doof::callback` parameters compile and run)
 - Recursive functions (verified with fibonacci e2e)
 - Module splitting: `.hpp`/`.cpp` per module with forward declarations and includes
 - `main()` entry point: `doof_main()` + C++ `int main()` wrapper
@@ -1185,13 +1181,13 @@ This causes a C++ compilation error whenever a method assigns to a field (`this.
 
 **Fix:** Walk the method body before emission to check for any `assignment-expression` or `let-declaration` that targets a member expression with an implicit `this` receiver. If found, omit the `const` qualifier. Alternatively, add a `mutating_: boolean` flag to `FunctionDeclaration` AST nodes and let the checker populate it.
 
-#### 14.8.2 `async { block }` Returns `Promise<unknown>` Instead of `Promise<T>`
+#### 14.8.2 `async { block }` Returns `Promise<unknown>` Instead of `Promise<T>` (Obsolete)
 
 **Location:** [checker.ts](../src/checker.ts) — `inferExprTypeInner()`, `async-expression` case
 
-**Problem:** For `async { expr }`, the checker returns `{ kind: "promise", valueType: UNKNOWN_TYPE }` rather than inferring the type of the block's final expression. This means a function declared as `(): Promise<int>` cannot return `async { 42 }` without a type mismatch diagnostic.
+**Problem:** For `async { expr }`, the checker returned `{ kind: "promise", valueType: UNKNOWN_TYPE }` rather than inferring the type of the block's final expression. This was made obsolete by the concurrency redesign: `async` blocks are no longer part of the language model and now receive a semantic diagnostic.
 
-**Fix:** Infer the type of the block's last statement (if it's a return or expression statement) and use that as the `valueType`. The block-level type inference already exists for regular function bodies — reuse that logic.
+**Fix:** Keep parser support temporarily for migration diagnostics, reject async blocks in the checker, and avoid emitting worker-pool async code.
 
 #### 14.8.3 `KEYWORDS` Object Prototype Pollution (Fixed)
 
@@ -1207,7 +1203,7 @@ This causes a C++ compilation error whenever a method assigns to a field (`this.
 
 **Location:** [emitter-runtime.ts](../src/emitter-runtime.ts) — `generateRuntimeHeader()`
 
-**Problem:** The concurrency headers (`<thread>`, `<mutex>`, `<future>`, `<queue>`, `<condition_variable>`) and the `doof::Actor<T>`, `doof::Promise<T>`, `doof::async_call` template implementations are included in `doof_runtime.hpp` unconditionally, even for programs that don't use any concurrency. This increases compile times and includes unnecessary symbols.
+**Problem:** The concurrency headers (`<thread>`, `<mutex>`, `<future>`, `<queue>`, `<condition_variable>`) and the `doof::Actor<T>` / `doof::Promise<T>` template implementations are included in `doof_runtime.hpp` unconditionally, even for programs that don't use any concurrency. This increases compile times and includes unnecessary symbols.
 
 **Fix:** Pass a feature flags argument to `generateRuntimeHeader(usesConcurrency: boolean)`. Set the flag by scanning the module's AST for `actor-creation-expression` or `async-expression` nodes before emission.
 
@@ -1269,7 +1265,7 @@ function emit(source: string): string {
   - Type aliases (`using Name = CppType;`)
   - For-of with arrays and ranges
   - Map literals as `std::unordered_map`
-  - Higher-order functions with `std::function` parameters
+  - Higher-order functions with `doof::callback` parameters
   - Positional destructuring as structured bindings
   - Module splitting: `.hpp`/`.cpp` generation, pragma once, includes, forward declarations
   - Non-exported symbol visibility (anonymous namespace)
@@ -1289,7 +1285,7 @@ function emit(source: string): string {
   - Tests recursive functions (fibonacci)
   - Tests lambda capture by-value (immutable bindings) with correct execution
   - Tests lambda capture by-reference (mutable bindings) with correct execution
-  - Tests higher-order functions with `std::function` parameter passing
+  - Tests higher-order functions with `doof::callback` parameter passing
   - Tests string interpolation compilation and runtime output
   - Tests interface variant dispatch compilation
   - Tests readonly class binding compilation

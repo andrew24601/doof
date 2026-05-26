@@ -57,6 +57,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [checker-result.ts](src/checker-result.ts) (~200 lines) — Result arm scopes, catch expressions, try propagation, and binding retyping
 - [checker-expr-ops.ts](src/checker-expr-ops.ts) (~180 lines) — Binary/unary operator typing and enum expectation helpers
 - [checker-diagnostics.ts](src/checker-diagnostics.ts) — Shared checker diagnostics that must remain consistent across modules
+- [checker-actor-boundary.ts](src/checker-actor-boundary.ts) — Actor-call boundary validation for immutable values and forbidden handles
 - [ast.ts](src/ast.ts) (700 lines) — AST node definitions with `Typed` mixin for resolved types
 - See [docs/source-file-structure.md](docs/source-file-structure.md) for the live workspace map and the full emitter module inventory.
 - [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Project and module emission entry points, `.hpp` / `.cpp` splitting, and generated support files
@@ -183,6 +184,7 @@ src/
   checker-member.ts             # Member lookup and built-in member typing
   checker-result.ts             # Result/catch/try propagation helpers
   checker-expr-ops.ts           # Binary and unary operator typing helpers
+  checker-actor-boundary.ts     # Actor-call boundary validation helpers
   checker-test-helpers.ts       # Shared checker test utilities
   checker-inference.test.ts     # Checker tests: type inference & scope
   checker-compat.test.ts        # Checker tests: type compatibility & validation

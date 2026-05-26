@@ -51,6 +51,7 @@ import {
   type CheckerHost,
   type ConstructorParam,
 } from "./checker-internal.js";
+import { findActorBoundaryViolation } from "./checker-actor-boundary.js";
 import { inferBinaryType, inferUnaryType, resolveExpectedEnumType } from "./checker-expr-ops.js";
 import { inferMemberType } from "./checker-member.js";
 import { buildCaseArmScope } from "./checker-result.js";
@@ -613,6 +614,9 @@ function applyTypeSubstitutionToExpression(
         applyTypeSubstitutionToExpression(expr.expression, paramMap);
       }
       return;
+    case "retire-expression":
+      applyTypeSubstitutionToExpression(expr.actor, paramMap);
+      return;
     case "actor-creation-expression":
       for (const arg of expr.args) {
         applyTypeSubstitutionToExpression(arg, paramMap);
@@ -859,6 +863,42 @@ function validateResolvedNamedFunctionArgs(
         module: table.path,
       });
     }
+  }
+}
+
+function getActorMethodReceiverType(call: CallExpression): Extract<ResolvedType, { kind: "actor" }> | null {
+  if (call.callee.kind !== "member-expression") return null;
+  const objectType = call.callee.object.resolvedType;
+  return objectType?.kind === "actor" ? objectType : null;
+}
+
+function validateActorMethodBoundary(
+  host: CheckerHost,
+  actorType: Extract<ResolvedType, { kind: "actor" }>,
+  methodType: Extract<ResolvedType, { kind: "function" }>,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+): void {
+  for (const param of methodType.params) {
+    const violation = findActorBoundaryViolation(host, param.type, table);
+    if (!violation) continue;
+    info.diagnostics.push({
+      severity: "error",
+      message: `Actor method parameter "${param.name}" of type "${typeToString(param.type)}" cannot cross actor boundary for "${typeToString(actorType)}": ${violation.reason}`,
+      span,
+      module: table.path,
+    });
+  }
+
+  const returnViolation = findActorBoundaryViolation(host, methodType.returnType, table);
+  if (returnViolation) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Actor method return type "${typeToString(methodType.returnType)}" cannot cross actor boundary for "${typeToString(actorType)}": ${returnViolation.reason}`,
+      span,
+      module: table.path,
+    });
   }
 }
 
@@ -1398,6 +1438,7 @@ function inferExprTypeInner(
 
       if (calleeType.kind === "function") {
         let effectiveCalleeType = calleeType;
+        const actorMethodReceiver = getActorMethodReceiverType(expr);
         const hasNamedArgs = expr.args.some((arg) => arg.name);
 
         if (hasNamedArgs) {
@@ -1433,6 +1474,9 @@ function inferExprTypeInner(
             effectiveCalleeType = substituteTypeParams(calleeType, paramMap) as typeof calleeType;
           }
           validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
+          if (actorMethodReceiver) {
+            validateActorMethodBoundary(host, actorMethodReceiver, effectiveCalleeType, table, info, expr.span);
+          }
           return effectiveCalleeType.returnType;
         }
 
@@ -1465,6 +1509,9 @@ function inferExprTypeInner(
             info,
             expr.span,
           );
+          if (actorMethodReceiver) {
+            validateActorMethodBoundary(host, actorMethodReceiver, effectiveCalleeType, table, info, expr.span);
+          }
           return effectiveCalleeType.returnType;
         }
 
@@ -1481,6 +1528,9 @@ function inferExprTypeInner(
           info,
           expr.span,
         );
+        if (actorMethodReceiver) {
+          validateActorMethodBoundary(host, actorMethodReceiver, calleeType, table, info, expr.span);
+        }
         return calleeType.returnType;
       }
 
@@ -2215,10 +2265,40 @@ function inferExprTypeInner(
     case "async-expression": {
       if (expr.expression.kind === "block") {
         host.checkBlock(expr.expression as Block, scope, table, info);
+        info.diagnostics.push({
+          severity: "error",
+          message: "`async` is only valid for actor method calls; use a temporary actor for background work",
+          span: expr.span,
+          module: table.path,
+        });
         return { kind: "promise", valueType: UNKNOWN_TYPE };
+      }
+      if (!isAsyncActorMethodCall(expr.expression as Expression, scope, table, info, host)) {
+        const innerType = inferExprType(host, expr.expression as Expression, scope, table, info);
+        info.diagnostics.push({
+          severity: "error",
+          message: "`async` is only valid for actor method calls; use a temporary actor for background work",
+          span: expr.span,
+          module: table.path,
+        });
+        return { kind: "promise", valueType: innerType };
       }
       const innerType = inferExprType(host, expr.expression as Expression, scope, table, info);
       return { kind: "promise", valueType: innerType };
+    }
+
+    case "retire-expression": {
+      const actorType = inferExprType(host, expr.actor, scope, table, info);
+      if (actorType.kind === "actor") {
+        return actorType.innerClass;
+      }
+      info.diagnostics.push({
+        severity: "error",
+        message: `Cannot retire non-actor type "${typeToString(actorType)}"`,
+        span: expr.span,
+        module: table.path,
+      });
+      return UNKNOWN_TYPE;
     }
 
     case "actor-creation-expression": {
@@ -2274,6 +2354,20 @@ function inferExprTypeInner(
     default:
       return UNKNOWN_TYPE;
   }
+}
+
+function isAsyncActorMethodCall(
+  expression: Expression,
+  scope: Scope,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  host: CheckerHost,
+): boolean {
+  if (expression.kind !== "call-expression") return false;
+  const callee = expression.callee;
+  if (callee.kind !== "member-expression") return false;
+  const objectType = inferExprType(host, callee.object, scope, table, info);
+  return objectType.kind === "actor";
 }
 
 function getConstructorParams(

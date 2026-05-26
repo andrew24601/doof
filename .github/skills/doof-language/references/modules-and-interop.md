@@ -136,6 +136,7 @@ directly or as a dependency.
 - Method signatures with Doof block or arrow bodies emit out-of-line C++ member definitions
 - Native headers must declare Doof-bodied methods; missing declarations surface as C++ compiler errors
 - Bare `this` in a Doof-bodied imported method requires the native class to inherit from `std::enable_shared_from_this<Class>`
+- Function-typed parameters lower to `doof::callback<R(Args...)>`; native code must choose local call or posting behavior explicitly
 - No inheritance
 - Mismatches surface as C++ compile errors
 
@@ -190,6 +191,10 @@ This keeps the boundary declarative and removes duplicate integer-to-enum conver
 ### Exporting Extern Declarations
 
 `export import class` and `export import function` are supported. Prefer exporting them from a dedicated interop module and re-exporting through a barrel when that raw native surface is intentionally public.
+
+For `import function`, function-typed parameters also lower to
+`doof::callback<R(Args...)>`. The compiler does not erase them to
+`std::function` automatically.
 
 ## `as` Keyword Consistency
 

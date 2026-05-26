@@ -2,430 +2,213 @@
 
 ## Overview
 
-Doof's concurrency model is built around **isolation**, **immutability**, and **structured parallelism**. The design eliminates data races and deadlocks through compile-time enforcement.
+Doof's concurrency model is built around actor-owned mutable domains.
 
-### Core Principles
+An `Actor<T>` is a concurrent domain containing one mutable `T`. The main thread
+is the implicit root actor domain. Mutable state belongs to exactly one actor
+domain at a time. Immutable values may be shared freely across actor domains.
 
-1. **Isolated functions** — functions that don't access mutable shared state
-2. **Deep immutability** — `readonly` values are safe to share across threads
-3. **Actor model** — stateful concurrent entities with sequential message processing
-4. **Worker pool** — parallel computation via `async` keyword
-5. **No shared mutable state** — ever
+Cross-domain mutable interaction happens only through actor method calls.
 
 ---
 
-## Isolation
+## Actors
 
-Functions used in concurrent contexts (actors, workers) must be **isolated** — they cannot access mutable global state.
+Actors wrap classes:
 
-### Automatic Isolation Checking
-
-The compiler automatically tracks which functions are isolated:
-
-```javascript
-// Implicitly isolated — no mutable global access
-function sum(numbers: readonly int[]): int {
-    let total = 0
-    for  n of numbers { total += n; }
-    return total
-}
-
-let promise = async sum([1, 2, 3, 4, 5])  // ✅ Compiler verifies isolation
-
-// Not isolated — accesses mutable global
-let counter = 0
-function increment(): void {
-    counter += 1
-}
-
-async increment()  // ❌ Error: function is not isolated
-```
-
-### Explicit `isolated` Keyword
-
-Optional but **enforced** when present:
-
-```javascript
-isolated function processData(data: readonly int[]): int {
-    let total = 0
-    for x of data {
-        total += x
-    }
-    return total
-}  // ✅ OK
-
-let globalCounter = 0
-isolated function badFunction(): void {
-    globalCounter += 1  // ❌ Error: isolated function cannot access mutable global
-}
-```
-
-### Isolation Rules
-
-Isolated functions can:
-
-| Allowed | Not Allowed |
-|---------|-------------|
-| ✅ Access/mutate local variables | ❌ Access mutable globals |
-| ✅ Access/mutate parameters | ❌ Call non-isolated functions |
-| ✅ Access `readonly` globals | |
-| ✅ Call other isolated functions | |
-| ✅ Create and return new objects | |
-
-```javascript
-readonly PI = 3.14159
-
-isolated function circleArea(radius: float): float {
-    return PI * radius * radius  // ✅ OK: readonly global
-}
-
-let cache: Map<string, int> = {}
-isolated function lookup(key: string): Result<int, string> {
-    return cache.get(key)  // ❌ Error: accesses mutable global
-}
-```
-
----
-
-## Actors: `Actor<T>`
-
-Actors wrap classes for safe stateful concurrency. Each actor runs on its own thread, processing method calls sequentially.
-
-### Creating Actors
-
-```javascript
+```doof
 class Counter {
-    count = 0
-    
-    increment(amount: int): void { count += amount; }
-    decrement(amount: int): void { count -= amount; }
-    getCount(): int { return count; }
+    value: int
+
+    increment(n: int): void {
+        this.value = this.value + n
+    }
+
+    get(): int {
+        return this.value
+    }
 }
 
-let counter = Actor<Counter>()
+const counter = Actor<Counter>(0)
 ```
 
-### Calling Actor Methods
+Each actor processes method calls sequentially.
 
-Calls can be **synchronous** (implicit wait) or **asynchronous** (returns Promise):
+---
 
-```javascript
-// Synchronous — blocks until complete
+## Actor Calls
+
+Actor calls are synchronous by default:
+
+```doof
 counter.increment(5)
-counter.increment(3)
-let count = counter.getCount()
-print(count)  // 8
-
-// Asynchronous — returns Promise
-let p1 = async counter.increment(10)
-let p2 = async counter.increment(20)
-p1.get()
-p2.get()
+const n = counter.get()
 ```
 
-**Mental model:** `async` keyword = Promise return.
+The caller blocks until the actor method completes.
 
-### Actor Method Requirements
+Actor calls may be asynchronous:
 
-**Parameters:** Must be `readonly` (primitives or `readonly` types)
-
-```javascript
-class Processor {
-    process(data: readonly int[]): int {
-        return data.sum()  // ✅ OK: readonly parameter
-    }
-    
-    processMut(data: int[]): int {
-        return data.sum()  // ❌ Error: parameter must be readonly
-    }
-}
+```doof
+const p = async counter.increment(10)
+try! p.get()
 ```
 
-**Returns:** Must be `readonly` (prevents mutable state from escaping)
+`async actor.method(args)` returns `Promise<T>`, where `T` is the actor method's
+return type.
 
-```javascript
-class Database {
-    records: Record[] = []
-    
-    getRecords(): readonly Record[] {
-        return records  // ✅ OK: returns readonly
-    }
-    
-    getRecordsMut(): Record[] {
-        return records  // ❌ Error: return must be readonly
-    }
-}
+`async` is valid only for actor method calls. Async blocks and worker-pool
+function dispatch are not part of the core concurrency model:
+
+```doof
+async compute()   // error
+async { 42 }      // error
 ```
 
-### Actor Lifecycle
-
-```javascript
-let worker = Actor<Worker>()   // Constructor runs on actor thread
-worker.initialize(config)      // Queued call
-worker.doWork(data)            // Queued after initialize
-worker.shutdown()
-worker.stop()                  // Waits for pending calls, then stops
-```
+Use a temporary actor for background work that needs a separate mutable domain.
 
 ---
 
-## Actor Hierarchies
+## Actor Boundaries
 
-Actors form strict hierarchies — **actors cannot be passed to other actors**.
+Actor methods are actor boundaries. Values crossing an actor boundary must not
+create shared mutable state.
 
-```javascript
-class Parent {
-    children: Actor<Child>[] = []
-    
-    spawnChildren(count: int): void {
-        for i of 0..<count {
-            children.push(Actor<Child>(i))  // ✅ Parent holds children
-        }
-    }
-}
+Allowed:
 
-class Child {
-    setParent(p: Actor<Parent>): void {
-        // ❌ Error: Actor<T> cannot be a parameter type
-    }
-}
-```
+- primitives;
+- deeply immutable objects and collections.
 
-**Rules:**
-- ✅ Parent can hold references to children it creates
-- ✅ Parent can call child methods
-- ❌ Actors cannot be passed as parameters
-- ❌ No circular actor references
+Rejected:
 
-**Benefit:** Strict hierarchy prevents deadlocks by construction.
+- mutable objects and collections;
+- `Actor<T>` references;
+- `Promise<T>` values.
+
+Actor references may be copied within the domain that owns them. They may not be
+passed into another actor method.
 
 ---
 
-## Workers: `async` Keyword
+## Retirement
 
-The `async` keyword runs functions on the system worker pool for parallel computation.
+`retire actor` stops an actor and returns its inner state:
 
-### Basic Usage
-
-```javascript
-isolated function expensiveComputation(n: int): int {
-    // ... complex calculation ...
-    return result
-}
-
-let promise = async expensiveComputation(1000)
-
-case promise.get() {
-    s: Success -> print("Result: ${s.value}"),
-    f: Failure -> print("Failed: ${f.error}")
-}
+```doof
+const job = Actor<Job>()
+const state: Job = retire job
 ```
 
-### Parameter and Return Rules
+The type transformation is:
 
-**Parameters:** Must be `readonly` (shared immutably with worker)
-
-```javascript
-readonly data = [1, 2, 3, 4, 5]
-let p = async processData(data)           // ✅ OK: readonly
-
-let mutableData = [1, 2, 3]
-let p2 = async processData(mutableData)   // ❌ Error: not readonly
+```text
+Actor<T> -> T
 ```
 
-**Returns:** Can be mutable (worker creates it fresh — no sharing concern)
+Retirement is queue ordered:
 
-```javascript
-isolated function createArray(size: int): int[] {
-    let arr: int[] = []
-    for i of 0..<size { arr.push(i); }
-    return arr  // ✅ OK: mutable return from worker is fine
-}
+```doof
+const p = async job.run()
+const state = retire job
 ```
 
-### Multiple Parallel Tasks
+The actor observes:
 
-```javascript
-isolated function square(x: int): int => x * x
-
-let promises = [
-    async square(1),
-    async square(2),
-    async square(3),
-    async square(4)
-]
-
-// Explicit error handling
-let results: int[] = []
-for p of promises {
-    case p.get() {
-        s: Success -> results.push(s.value),
-        f: Failure -> panic("Worker failed")
-    }
-}
-print(results)  // [1, 4, 9, 16]
-
-// Or use try! for cleaner code when failures are unrecoverable
-let results2: int[] = []
-for p of promises {
-    results2.push(try! p.get())
-}
+```text
+run
+retire
 ```
 
-### Async Closures
+Retirement behavior:
 
-```javascript
-readonly data = [1, 2, 3, 4, 5]
+1. A retirement request is enqueued.
+2. The actor enters the retiring state and stops accepting new calls.
+3. Already queued calls continue in order.
+4. When the retirement request is reached, the actor stops.
+5. The actor's inner `T` is returned to the retiring domain.
+6. Calls through aliases after retirement has been requested are logic errors
+   and panic at runtime.
 
-let promise = async {
-    let sum = 0
-    for x of data { sum += x * x; }
-    return sum
-}
-```
+Failures from earlier async actor calls belong to their `Promise<T>` handles.
+`retire` returns `T` and does not aggregate or rethrow earlier promise failures.
 
-### Workers Calling Actors
+Actor references inside retired state remain live actor domains. Retirement moves
+ordinary state, not actor domains.
 
-Workers can call actor methods (one-way dependency is safe):
-
-```javascript
-let logger = Actor<Logger>()
-
-isolated function computeWithLogging(n: int, logger: Actor<Logger>): int {
-    logger.log("Starting computation for ${n}")
-    let result = expensiveComputation(n)
-    logger.log("Completed")
-    return result
-}
-
-let promise = async computeWithLogging(1000, logger)  // ✅ Safe
-```
-
-**Safe because:** Worker → Actor is one-way. Workers have no identity that actors could call back to.
+There is no public `actor.stop()` lifecycle method. If an actor's inner class
+defines a method named `stop`, `actor.stop()` is an ordinary actor method call,
+not a lifecycle operation. Use `retire actor` to stop an actor domain.
 
 ---
 
 ## Promises
 
-Promises represent the result of asynchronous computation.
+Promises represent asynchronous actor-call completion:
 
-### Promise API
-
-```javascript
+```doof
 class Promise<T> {
-    function get(): Result<T, Error>   // Block until ready
+    function get(): Result<T, string>
 }
 ```
 
-### Usage
-
-```javascript
-let promise = async compute(42)
-
-// Blocking wait with explicit handling
-case promise.get() {
-    s: Success -> print("Result: ${s.value}"),
-    f: Failure -> print("Error: ${f.error}")
-}
-
-// Or panic if failure is unrecoverable
-result := try! promise.get()  // int (panics on Failure)
-
-// Or convert to optional
-result := try? promise.get()  // int | null
-```
+`get()` blocks until the queued actor method completes. Runtime failures are
+reported as `Failure<string>`.
 
 ---
 
-## Parameter Passing Rules
+## Actor-Affine Callbacks
 
-| Type | To Worker (`async`) | To Actor Method |
-|------|---------------------|-----------------|
-| Primitives (`int`, `float`, `bool`, `string`) | ✅ Share | ✅ Share |
-| `readonly` objects/arrays | ✅ Share | ✅ Share |
-| Mutable objects/arrays | ❌ No | ❌ No |
-| `Actor<T>` | ✅ Share (can call) | ❌ No |
-| `Promise<T>` | ❌ No | ❌ No |
+Function values are actor-affine callbacks. A callback belongs to the actor
+domain in which it was created. Normal call syntax:
 
-**Key insight:** Deep immutability (`readonly`) means no copying needed — safe to share memory.
+```doof
+callback(args)
+```
+
+lowers to a checked local callback call. The explicit spelling is:
+
+```doof
+callback.call(args)
+```
+
+Local callback calls execute immediately and are valid only in the owning actor
+domain. Calling a callback from another actor domain is a runtime logic error.
+
+Callbacks can also be posted back to their owning actor domain:
+
+```doof
+promise := callback.post(args)
+```
+
+`post` enqueues the callback invocation on the owning actor and returns
+`Promise<R>`, where `R` is the callback return type. A posted callback does not
+run on the caller's stack. Posting a callback created in the root domain is a
+runtime logic error because the root domain has no actor mailbox.
+
+Function-typed parameters in native imports also lower to `doof::callback`; the
+compiler does not assume whether bodiless C++ will call locally, store, or
+schedule the callback.
+
+Actor-affine callback values may cross actor method boundaries. Their parameter
+and return payload types are still validated with the actor boundary rules,
+because posted callback arguments and results cross actor domains.
 
 ---
 
-## Common Patterns
+## Isolated Functions
 
-### Parallel Map-Reduce
-
-```javascript
-readonly data = [1, 2, 3, 4, 5, 6, 7, 8]
-
-// Map: spawn workers
-let promises = data.map((x) => async compute(x))
-
-// Reduce: collect results
-let total = 0
-for p of promises {
-    case p.get() {
-        s: Success -> total += s.value,
-        f: Failure -> panic("failed")
-    }
-}
-```
-
-### Actor as Service
-
-```javascript
-class Cache {
-    data: Map<string, readonly Data> = {}
-    
-    get(key: readonly string): readonly Data | null {
-        return try? data.get(key)
-    }
-    
-    set(key: readonly string, value: readonly Data): void {
-        data.set(key, value)
-    }
-}
-
-let cache = Actor<Cache>()
-cache.set("key1", data1)
-let value = cache.get("key1")
-```
-
-### Pipeline with Actors
-
-```javascript
-let stage1 = Actor<Stage1>()
-let stage2 = Actor<Stage2>()
-let stage3 = Actor<Stage3>()
-
-readonly input = [1, 2, 3, 4, 5, 6, 7, 8]
-let result1 = stage1.process(input)
-let result2 = stage2.process(result1)
-let result3 = stage3.process(result2)
-```
-
----
-
-## Design Rationale
-
-| Decision | Problem | Solution | Benefit |
-|----------|---------|----------|---------|
-| Isolation | Shared mutable state causes data races | Functions can't access mutable shared state | Compiler-enforced thread safety |
-| `readonly` parameters | Passing mutable data allows sharing | Only `readonly` values cross boundaries | Zero-copy sharing, no data races |
-| `Actor<T>` wrapper | Special actor syntax complicates language | Actors are generic wrappers around classes | Classes stay classes; clear distinction |
-| Implicit `get()` | Always requiring async/await is verbose | Actor calls without `async` implicitly wait | Synchronous-looking code for simple cases |
-| No actor passing | Circular references cause deadlocks | Strict parent-child hierarchy | Deadlock-free by construction |
-| Worker → Actor | Workers need services (logging, caching) | One-way dependency is safe | No deadlock risk |
-| No channels | Channels can cause deadlocks | Use actor methods and promises | Simpler, deadlock-free, type-safe |
+`isolated` remains a recognized function modifier as a compatibility and purity
+marker. It does not authorize worker-pool dispatch or create a separate
+concurrent execution domain. `async` does not run isolated functions on a worker
+pool.
 
 ---
 
 ## Summary
 
-Doof's concurrency model provides:
-
-- **Safety** — no data races, no deadlocks (compiler-enforced)
-- **Simplicity** — direct method calls, not message passing
-- **Performance** — deep immutability enables zero-copy sharing
-- **Clarity** — `async` = Promise, isolation is explicit
-- **Structure** — hierarchical actors, system worker pool
+- Actors are the only concurrent mutable execution domains.
+- Actor calls are synchronous unless marked `async`.
+- `async` is actor-call-only.
+- `retire actor` drains accepted work and returns the actor state.
+- Immutable values may cross domains.
+- Mutable state crosses domains only by retiring its owning actor.

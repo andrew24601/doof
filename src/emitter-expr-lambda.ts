@@ -10,6 +10,7 @@
 import type {
   LambdaExpression,
   AsyncExpression,
+  RetireExpression,
   ActorCreationExpression,
   CallExpression,
   MemberExpression,
@@ -52,11 +53,20 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
 
   if (expr.body.kind === "block") {
     const bodyLines = emitBlockBody(expr.body as Block, bodyCtx);
-    return `[${captureList}](${params}) -> ${retType} {\n${bodyLines}\n${indent(ctx)}}`;
+    const lambda = `[${captureList}](${params}) -> ${retType} {\n${bodyLines}\n${indent(ctx)}}`;
+    return wrapLambdaInCallback(lambda, expr, ctx);
   }
 
   const body = emitExpression(expr.body as Expression, bodyCtx);
-  return `[${captureList}](${params}) -> ${retType} { return ${body}; }`;
+  const lambda = `[${captureList}](${params}) -> ${retType} { return ${body}; }`;
+  return wrapLambdaInCallback(lambda, expr, ctx);
+}
+
+function wrapLambdaInCallback(lambda: string, expr: LambdaExpression, ctx: EmitContext): string {
+  if (!expr.resolvedType || expr.resolvedType.kind !== "function") {
+    return lambda;
+  }
+  return `${emitType(expr.resolvedType, ctx.module.path)}(${lambda})`;
 }
 
 // ============================================================================
@@ -65,8 +75,7 @@ export function emitLambdaExpression(expr: LambdaExpression, ctx: EmitContext): 
 
 export function emitAsyncExpression(expr: AsyncExpression, ctx: EmitContext): string {
   if (expr.expression.kind === "block") {
-    const body = ctx.emitBlock(expr.expression as Block, ctx);
-    return `doof::async_call([=]() {\n${body}${indent(ctx)}})`;
+    throw new Error("Cannot emit async block; async is only valid for actor method calls");
   }
 
   const innerExpr = expr.expression as Expression;
@@ -82,12 +91,11 @@ export function emitAsyncExpression(expr: AsyncExpression, ctx: EmitContext): st
     }
   }
 
-  const innerCode = emitExpression(innerExpr, ctx);
-  const retType = expr.resolvedType;
-  if (retType?.kind === "promise" && retType.valueType.kind === "void") {
-    return `doof::async_call([=]() { ${innerCode}; })`;
-  }
-  return `doof::async_call([=]() { return ${innerCode}; })`;
+  throw new Error("Cannot emit non-actor async expression; async is only valid for actor method calls");
+}
+
+export function emitRetireExpression(expr: RetireExpression, ctx: EmitContext): string {
+  return `${emitExpression(expr.actor, ctx)}->retire()`;
 }
 
 function emitActorAsyncCall(
@@ -279,6 +287,9 @@ function collectCaptures(
       } else {
         collectCaptures(expr.expression as Expression, lambdaBodySpan, paramNames, captures, ctx);
       }
+      break;
+    case "retire-expression":
+      collectCaptures(expr.actor, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "actor-creation-expression":
       for (const a of expr.args) collectCaptures(a, lambdaBodySpan, paramNames, captures, ctx);
@@ -569,6 +580,9 @@ function scanExprForLambdaCaptures(
         scanExprForLambdaCaptures(expr.expression as Expression, outerNames, result);
       }
       break;
+    case "retire-expression":
+      scanExprForLambdaCaptures(expr.actor, outerNames, result);
+      break;
     case "actor-creation-expression":
       for (const a of expr.args) scanExprForLambdaCaptures(a, outerNames, result);
       break;
@@ -689,6 +703,9 @@ function collectMutableCaptureNames(
       } else {
         collectMutableCaptureNames(expr.expression as Expression, lambdaBodySpan, lambdaParams, outerNames, result);
       }
+      break;
+    case "retire-expression":
+      collectMutableCaptureNames(expr.actor, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "catch-expression":
       for (const s of expr.body) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);

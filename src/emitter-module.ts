@@ -2643,6 +2643,9 @@ function collectMemberAccessModulePathsFromExpression(
         collectMemberAccessModulePathsFromExpression(expr.expression, currentModulePath, dependencies, interfaceImpls);
       }
       break;
+    case "retire-expression":
+      collectMemberAccessModulePathsFromExpression(expr.actor, currentModulePath, dependencies, interfaceImpls);
+      break;
     case "actor-creation-expression":
       for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg, currentModulePath, dependencies, interfaceImpls);
       break;
@@ -3195,6 +3198,9 @@ function collectStreamTypesFromExpression(
         collectStreamTypesFromExpression(expr.expression, result);
       }
       break;
+    case "retire-expression":
+      collectStreamTypesFromExpression(expr.actor, result);
+      break;
     case "actor-creation-expression":
       for (const arg of expr.args) collectStreamTypesFromExpression(arg, result);
       break;
@@ -3535,6 +3541,9 @@ function collectDirectStreamInstantiationsFromExpression(
       } else {
         collectDirectStreamInstantiationsFromExpression(expr.expression, result, pending, typeSubstitution);
       }
+      break;
+    case "retire-expression":
+      collectDirectStreamInstantiationsFromExpression(expr.actor, result, pending, typeSubstitution);
       break;
     case "actor-creation-expression":
       for (const arg of expr.args) collectDirectStreamInstantiationsFromExpression(arg, result, pending, typeSubstitution);
@@ -3909,6 +3918,9 @@ function collectConcreteClassInstantiationsFromExpression(
       } else {
         collectConcreteClassInstantiationsFromExpression(expr.expression, result, pendingClasses, pendingMethods, typeSubstitution);
       }
+      break;
+    case "retire-expression":
+      collectConcreteClassInstantiationsFromExpression(expr.actor, result, pendingClasses, pendingMethods, typeSubstitution);
       break;
     case "actor-creation-expression":
       for (const arg of expr.args) collectConcreteClassInstantiationsFromExpression(arg, result, pendingClasses, pendingMethods, typeSubstitution);

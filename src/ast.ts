@@ -414,6 +414,12 @@ export interface AsyncExpression extends Typed {
   span: SourceSpan;
 }
 
+export interface RetireExpression extends Typed {
+  kind: "retire-expression";
+  actor: Expression;
+  span: SourceSpan;
+}
+
 export interface NonNullAssertionExpression extends Typed {
   kind: "non-null-assertion";
   expression: Expression;
@@ -468,6 +474,7 @@ export type Expression =
   | CallerExpression
   | CatchExpression
   | AsyncExpression
+  | RetireExpression
   | NonNullAssertionExpression
   | AsExpression
   | ActorCreationExpression;

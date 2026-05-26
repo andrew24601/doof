@@ -638,7 +638,7 @@ export function emitTypeAnnotation(
     case "function-type": {
       const params = typeAnn.params.map((p) => emitTypeAnnotation(p.type, ctx)).join(", ");
       const ret = emitTypeAnnotation(typeAnn.returnType, ctx);
-      return `std::function<${ret}(${params})>`;
+      return `doof::callback<${ret}(${params})>`;
     }
 
     case "tuple-type": {

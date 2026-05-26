@@ -2004,6 +2004,31 @@ describe("emitter — import function imports", () => {
     expect(cpp).not.toContain("template<typename T>\nint abs");
   });
 
+  it("passes callbacks to import function calls as doof::callback values", () => {
+    const cpp = emit(`
+      import function install(handler: (value: int): void): void from "native_host.hpp" as native::install
+      function main(): void {
+        install((value: int): void => println(value))
+      }
+    `);
+    expect(cpp).toContain("native::install(doof::callback<void(int32_t)>(");
+    expect(cpp).not.toContain(".as_local_std_function()");
+  });
+
+  it("passes callbacks to bodyless extern class methods as doof::callback values", () => {
+    const cpp = emit(`
+      import class NativeChannel from "native_channel.hpp" {
+        send(task: (): void): void
+      }
+      function main(): void {
+        channel := NativeChannel()
+        channel.send((): void => println("sent"))
+      }
+    `);
+    expect(cpp).toContain("channel->send(doof::callback<void()>(");
+    expect(cpp).not.toContain(".as_local_std_function()");
+  });
+
   it("does not capture imported module functions in lambdas", () => {
     const cpp = emitMulti(
       {
@@ -2045,27 +2070,40 @@ describe("Concurrency", () => {
     expect(cpp).toContain("std::shared_ptr<doof::Actor<Worker>>");
   });
 
-  it("emits async function call as doof::async_call", () => {
+  it("emits async actor method call via call_async", () => {
     const cpp = emit(`
-      function compute(): int { return 42 }
-      const p = async compute()
+      class Worker {
+        value: int
+        compute(): int { return value }
+      }
+      const worker = Actor<Worker>(42)
+      const p = async worker.compute()
     `);
-    expect(cpp).toContain("doof::async_call(");
-    expect(cpp).toContain("compute()");
+    expect(cpp).toContain("call_async");
+    expect(cpp).toContain("_self.compute()");
+    expect(cpp).not.toContain("async_call");
   });
 
-  it("emits async block as doof::async_call with lambda", () => {
+  it("emits retire actor expression", () => {
     const cpp = emit(`
-      const p = async { 42 }
+      class Worker { value: int }
+      function done(): Worker {
+        const worker = Actor<Worker>(42)
+        return retire worker
+      }
     `);
-    expect(cpp).toContain("doof::async_call([=]()");
+    expect(cpp).toContain("->retire()");
   });
 
   it("emits Promise<T> type annotation", () => {
     const cpp = emit(`
-      function compute(): int { return 42 }
+      class Worker {
+        value: int
+        compute(): int { return value }
+      }
       function start(): Promise<int> {
-        return async compute()
+        const worker = Actor<Worker>(42)
+        return async worker.compute()
       }
     `);
     expect(cpp).toContain("doof::Promise<int32_t>");
@@ -2087,18 +2125,23 @@ describe("Concurrency", () => {
     expect(cpp).toContain("_self.increment()");
   });
 
-  it("emits actor.stop() directly", () => {
+  it("emits an actor method named stop through call_sync", () => {
     const cpp = emit(`
-      class Worker { value: int }
+      class Worker {
+        value: int
+        stop(): void { }
+      }
       function main(): void {
         const w = Actor<Worker>(0)
         w.stop()
       }
     `);
-    expect(cpp).toContain("->stop()");
+    expect(cpp).toContain("call_sync");
+    expect(cpp).toContain("_self.stop()");
+    expect(cpp).not.toContain("->stop()");
   });
 
-  it("emits async actor method call via call_async", () => {
+  it("emits async actor method call with receiver self type", () => {
     const cpp = emit(`
       class Calculator {
         value: int

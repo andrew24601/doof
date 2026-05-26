@@ -71,8 +71,11 @@ Important design choices:
 - interfaces lower to generated alias types used for variant-based dispatch
 - arrays, maps, and sets lower to shared pointer-backed runtime containers
 - tuples lower to `std::tuple`
-- functions lower to `std::function`
-- `Result`, `Promise`, actors, and metadata surfaces lower to runtime support types
+- Doof-visible function values lower to actor-affine `doof::callback<R(Args...)>`
+  values, including function-typed parameters in bodiless extern declarations;
+  runtime internals may still use `std::function`, and callback posting returns
+  `doof::Promise<R>`
+- `Result`, `Promise`, actors, actor retirement, and metadata surfaces lower to runtime support types
 
 This file is the owning abstraction when a semantic Doof type needs a different C++ representation.
 

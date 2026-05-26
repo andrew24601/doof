@@ -845,6 +845,21 @@ export function inferMemberType(
     return UNKNOWN_TYPE;
   }
 
+  if (objectType.kind === "function" && property === "call") {
+    return objectType;
+  }
+
+  if (objectType.kind === "function" && property === "post") {
+    return {
+      kind: "function",
+      params: objectType.params,
+      returnType: {
+        kind: "promise",
+        valueType: objectType.returnType,
+      },
+    };
+  }
+
   if (objectType.kind === "mock-capture") {
     const field = objectType.fields.find((entry) => entry.name === property);
     if (field) return field.type;
@@ -1133,10 +1148,7 @@ export function inferMemberType(
   }
 
   if (objectType.kind === "actor") {
-    if (property === "stop") {
-      return { kind: "function", params: [], returnType: VOID_TYPE };
-    }
-    return inferMemberType(host, objectType.innerClass, property, table);
+    return inferMemberType(host, objectType.innerClass, property, table, "instance", info, span);
   }
 
   if (objectType.kind === "promise") {

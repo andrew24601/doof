@@ -376,6 +376,10 @@ describe("Lexer", () => {
       expect(tokenTypes("async")[0]).toBe(TokenType.Async);
     });
 
+    it("lexes retire keyword", () => {
+      expect(tokenTypes("retire")[0]).toBe(TokenType.Retire);
+    });
+
     it("lexes isolated keyword", () => {
       expect(tokenTypes("isolated")[0]).toBe(TokenType.Isolated);
     });

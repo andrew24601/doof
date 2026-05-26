@@ -33,7 +33,10 @@ Strategy:
 - Doof primitives map to direct C++ value types such as `int32_t`, `int64_t`, `float`, `double`, `bool`, and `std::string`
 - classes lower to `std::shared_ptr<T>`
 - tuples lower to `std::tuple<...>`
-- functions lower to `std::function<...>`
+- Doof-visible function values lower to actor-affine
+  `doof::callback<R(Args...)>` values, including function-typed parameters in
+  bodiless extern declarations; raw `std::function` remains only for runtime
+  internals
 - arrays, maps, and sets lower to shared runtime container wrappers
 
 Primary modules:
@@ -137,7 +140,13 @@ Strategy:
 - capture analysis only includes bindings that are free in that lambda; lambda-local declarations and case-pattern bindings stay local to the generated callable
 - every lambda establishes its own callable return context, so nested lambda returns do not inherit outer `Result<T, E>` wrapping rules
 - mutable captured locals may need special boxing or indirection so closures stay valid after escape
-- async and actor-related forms are lowered through the same lambda-focused emission surface rather than through a separate compiler phase
+- emitted lambdas are wrapped in `doof::callback`, and first-class callback
+  invocation lowers to checked `.call(...)`
+- `callback.post(...)` lowers to the runtime callback post operation and returns
+  `doof::Promise<R>`
+- `async` is actor-call-only and lowers to `Actor<T>::call_async`
+- `retire actor` lowers to `Actor<T>::retire()` and returns the inner actor state
+- actor-related forms are lowered through the same lambda-focused emission surface rather than through a separate compiler phase
 
 Primary modules:
 

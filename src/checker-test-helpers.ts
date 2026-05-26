@@ -53,6 +53,9 @@ export function collectExprs(program: Program): Expression[] {
         if (e.expression.kind === "block") walkBlock(e.expression as Block);
         else walkExpr(e.expression as Expression);
         break;
+      case "retire-expression":
+        walkExpr(e.actor);
+        break;
       case "actor-creation-expression":
         (e.args as Expression[]).forEach(walkExpr);
         break;

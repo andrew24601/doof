@@ -28,29 +28,36 @@ describe("e2e — Concurrency", () => {
       function main(): int {
         const c = Actor<Counter>(0)
         c.increment()
-        c.stop()
+        retire c
         return 0
       }
     `);
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
-  it("compiles async function call", () => {
+  it("compiles async actor method call", () => {
     const { success, error, code } = ctx.compileOnly(`
-      function compute(): int { return 42 }
+      class Worker {
+        value: int
+        compute(): int { return this.value }
+      }
       function main(): int {
-        const p = async compute()
+        const worker = Actor<Worker>(42)
+        const p = async worker.compute()
+        retire worker
         return 0
       }
     `);
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
-  it("compiles async block", () => {
+  it("compiles retire expression", () => {
     const { success, error, code } = ctx.compileOnly(`
+      class Worker { value: int }
       function main(): int {
-        const p = async { 42 }
-        return 0
+        const worker = Actor<Worker>(42)
+        const state = retire worker
+        return state.value
       }
     `);
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
@@ -71,9 +78,13 @@ describe("e2e — Concurrency", () => {
 
   it("compiles Promise<T> type annotation", () => {
     const { success, error, code } = ctx.compileOnly(`
-      function compute(): int { return 42 }
+      class Worker {
+        value: int
+        compute(): int { return this.value }
+      }
       function start(): Promise<int> {
-        return async compute()
+        const worker = Actor<Worker>(42)
+        return async worker.compute()
       }
     `);
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
@@ -89,11 +100,17 @@ describe("e2e — Concurrency", () => {
     expect(success, `Compile error: ${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
-  it("runs async call and gets result via promise", () => {
+  it("runs async actor call and gets result via promise", () => {
     const result = ctx.compileAndRun(`
-      function compute(): int { return 42 }
+      class Worker {
+        value: int
+        compute(): int { return this.value }
+      }
       function main(): int {
-        const p = async compute()
+        const worker = Actor<Worker>(42)
+        const p = async worker.compute()
+        try! p.get()
+        retire worker
         return 0
       }
     `);
@@ -103,7 +120,7 @@ describe("e2e — Concurrency", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("runs Actor creation, method call, and stop", () => {
+  it("runs Actor creation, method call, and retire", () => {
     const result = ctx.compileAndRun(`
       class Calculator {
         x: int
@@ -115,7 +132,7 @@ describe("e2e — Concurrency", () => {
       function main(): int {
         const c = Actor<Calculator>(3, 4)
         const val = c.sum()
-        c.stop()
+        retire c
         println(val)
         return 0
       }
@@ -124,6 +141,54 @@ describe("e2e — Concurrency", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.stdout.trim()).toBe("7");
+  });
+
+  it("runs actor-local callback invocation inside an actor method", () => {
+    const result = ctx.compileAndRun(`
+      class Worker {
+        threshold: int
+        hasLarger(): int {
+          values := [1, 2, 3]
+          if values.some((value: int): bool => value > threshold) {
+            return 1
+          }
+          return 0
+        }
+      }
+      function main(): int {
+        const worker = Actor<Worker>(2)
+        const answer = worker.hasLarger()
+        retire worker
+        return answer
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("posts actor-owned callbacks back to their actor domain", () => {
+    const result = ctx.compileAndRun(`
+      class Worker {
+        value: int
+        makeCallback(): (): int {
+          return (): int => value + 1
+        }
+      }
+      function main(): int {
+        const worker = Actor<Worker>(41)
+        callback := worker.makeCallback()
+        promise := callback.post()
+        result := try! promise.get()
+        retire worker
+        return result
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(42);
   });
 
   it("runs isolated function correctly", () => {
@@ -185,7 +250,7 @@ describe("e2e — Concurrency", () => {
         a.add(20)
         a.add(12)
         const result = a.getTotal()
-        a.stop()
+        retire a
         println(result)
         return 0
       }
@@ -198,12 +263,15 @@ describe("e2e — Concurrency", () => {
 
   it("runs async with promise.get()", () => {
     const result = ctx.compileAndRun(`
-      isolated function square(x: int): int {
-        return x * x
+      class Worker {
+        value: int
+        square(x: int): int { return x * x }
       }
       function main(): int {
-        const p = async square(7)
+        const worker = Actor<Worker>(0)
+        const p = async worker.square(7)
         const r = try! p.get()
+        retire worker
         println(r)
         return 0
       }

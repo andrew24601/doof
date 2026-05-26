@@ -8,7 +8,7 @@
  *   - Unions → std::variant with null-folding heuristics
  *   - Arrays → std::shared_ptr<std::vector>
  *   - Tuples → std::tuple
- *   - Functions → std::function
+ *   - Functions → doof::callback
  *   - Weak → std::weak_ptr
  *   - Nullable → std::optional for primitives, nullptr for pointers
  */
@@ -155,7 +155,7 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
     case "function": {
       const params = type.params.map((p) => emitType(p.type, currentModulePath)).join(", ");
       const ret = emitType(type.returnType, currentModulePath);
-      return `std::function<${ret}(${params})>`;
+      return `doof::callback<${ret}(${params})>`;
     }
 
     case "mock-capture":

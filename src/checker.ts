@@ -290,6 +290,10 @@ export function validateEmitReadyDeclarations(
         }
         break;
 
+      case "retire-expression":
+        visitExpression(expr.actor);
+        break;
+
       case "non-null-assertion":
       case "as-expression":
         visitExpression(expr.expression);

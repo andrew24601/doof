@@ -150,6 +150,43 @@ Validation anchors:
 - `src/checker-validation.test.ts`
 - `spec/02-type-system.md`
 
+## Actor Boundary Safety
+
+Actor method calls are the checker surface where values cross actor domains.
+Call-expression inference detects `Actor<T>.method(...)` receivers and validates
+the effective method signature after generic substitution. Boundary-safe values
+must be deeply immutable, and `Actor<T>` references and `Promise<T>` values are
+always rejected even when nested inside otherwise readonly shapes.
+Actor-affine callback values may cross actor method boundaries, but their
+parameter and return payload types are validated by the same boundary walk.
+Validation intentionally happens at actor call sites rather than class
+declaration time, because the same method may be an ordinary local method and
+generic substitution can determine the concrete payload types that cross the
+boundary.
+
+Primary modules:
+
+- `src/checker-expr.ts`
+- `src/checker-actor-boundary.ts`
+- `src/checker-readonly.ts`
+- `src/checker-types.ts`
+
+Keep aligned:
+
+- actor method parameter and return validation should use the same boundary
+  walk for sync and async actor calls
+- the actor-boundary walk should stay stricter than deep readonly for
+  `Actor<T>` and `Promise<T>`
+- function values are actor-affine callbacks; validate their parameter and
+  return payload types rather than rejecting the callback value itself
+- same-binding actor use after `retire actor` is diagnosed in straight-line
+  statement order as a conservative use-after-retire check
+
+Validation anchors:
+
+- `src/checker-features.test.ts`
+- `spec/10-concurrency.md`
+
 ## Result Propagation and Binding Retyping
 
 `Result<T, E>` behavior crosses expression inference, statement checking, and scope mutation:

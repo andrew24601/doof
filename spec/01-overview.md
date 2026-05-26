@@ -19,7 +19,7 @@ Doof is a statically-typed, compiled programming language designed around safety
 - **No null by default** — nullability is explicit via union types (`T | null`)
 - **No exceptions** — error handling via `Result` types with `try`/`try!`/`try?`/`??` operators, and `panic` for bugs
 - **Pattern matching** via `case` expressions with type capture
-- **Concurrency without data races** — isolation, actors, and worker pools
+- **Concurrency without data races** — actor-owned mutable domains
 - **ESM-style modules** with static imports/exports
 - **Structural interfaces** with nominal classes
 - **First-class functions** with named parameters in type signatures
@@ -29,7 +29,7 @@ Doof is a statically-typed, compiled programming language designed around safety
 Doof uses **closed-world compilation** — all source code is known at compile time. This enables:
 
 - Structural interface resolution to concrete union types
-- Complete isolation checking for concurrency safety
+- Complete actor-boundary checking for concurrency safety
 - Aggressive optimisation and dead code elimination
 - Tree-shaking of unused exports
 

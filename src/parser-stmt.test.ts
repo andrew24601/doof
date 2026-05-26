@@ -1111,6 +1111,14 @@ describe("Parser — concurrency", () => {
     }
   });
 
+  it("parses retire expression", () => {
+    const expr = parseExpr("retire worker");
+    expect(expr.kind).toBe("retire-expression");
+    if (expr.kind === "retire-expression") {
+      expect(expr.actor.kind).toBe("identifier");
+    }
+  });
+
   it("parses isolated function with block body", () => {
     const stmt = firstStmt(`isolated function process(data: int): int {
       return data * 2
