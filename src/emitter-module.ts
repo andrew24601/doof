@@ -404,7 +404,7 @@ function buildHeaderPlan(
     ...collectExternInteropAliases(table, analysisResult),
     crossModuleForwardDecls: collectCrossModuleClassForwardDecls(table, analysisResult, interfaceImpls, streamAliases, streamTypesForModule),
     moduleIncludes: collectHeaderReferencedModulePaths(table, analysisResult, classified, headerNativeClasses, monomorphizedClasses, monomorphizedMethods, monomorphizedFunctions)
-      .map((dependencyModule) => modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)),
+      .map((dependencyModule) => modulePathToIncludeFromModule(table.path, dependencyModule, baseDir, packageOutputPaths)),
     classified,
     nativeClasses: headerNativeClasses,
     cppOnlyNativeClasses: nativeClasses.filter((cls) => !headerNativeClasses.includes(cls)),
@@ -1507,7 +1507,7 @@ function emitCppFile(
   lines.push(`#include "${hppName}"`);
   lines.push(`#include "doof_runtime.hpp"`);
   for (const dependencyModule of collectCppReferencedModulePaths(table, analysisResult, monomorphizedClasses, interfaceImpls)) {
-    lines.push(`#include "${modulePathToInclude(dependencyModule, baseDir, packageOutputPaths)}"`);
+    lines.push(`#include "${modulePathToIncludeFromModule(table.path, dependencyModule, baseDir, packageOutputPaths)}"`);
   }
   lines.push("");
 
@@ -2756,6 +2756,20 @@ function modulePathToCppNames(
 /** Convert a Doof module path to a #include header path (relative to baseDir). */
 function modulePathToInclude(modulePath: string, baseDir: string, packageOutputPaths?: PackageOutputPaths): string {
   return relativeModulePathWithPackages(modulePath, baseDir, packageOutputPaths).replace(/\.do$/, ".hpp");
+}
+
+/** Convert a dependency path to a header include relative to the including module output file. */
+function modulePathToIncludeFromModule(
+  fromModulePath: string,
+  toModulePath: string,
+  baseDir: string,
+  packageOutputPaths?: PackageOutputPaths,
+): string {
+  const fromCppNames = modulePathToCppNames(fromModulePath, baseDir, packageOutputPaths);
+  const fromDir = nodePath.posix.dirname(fromCppNames.hppName);
+  const toInclude = modulePathToInclude(toModulePath, baseDir, packageOutputPaths);
+  const relative = nodePath.posix.relative(fromDir, toInclude);
+  return relative === "" ? nodePath.posix.basename(toInclude) : relative;
 }
 
 function resolvePackageModuleOutputPath(

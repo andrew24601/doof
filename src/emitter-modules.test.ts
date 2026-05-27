@@ -383,6 +383,54 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(blobModule!.hppCode).not.toContain("__doof_stream_int");
     expect(blobModule!.hppCode).not.toContain("Counter");
   });
+
+  it("emits nested module dependency includes relative to the generated source file", () => {
+    const project = emitProjectHelper(
+      {
+        "/stream/index.do": `
+          export class LineStream implements Stream<string> {
+            source: Stream<int>
+            currentValue: string = ""
+
+            next(): bool => source.next()
+            value(): string => currentValue
+          }
+
+          export function toLines(source: Stream<int>): Stream<string> {
+            return LineStream { source }
+          }
+        `,
+        "/index.do": `
+          import { toLines } from "./stream/index"
+
+          class Counter implements Stream<int> {
+            current: int = 0
+            currentValue: int = 0
+
+            next(): bool {
+              if current > 0 {
+                return false
+              }
+              current = current + 1
+              return true
+            }
+
+            value(): int => currentValue
+          }
+
+          export function stream(): Stream<string> {
+            return toLines(Counter {})
+          }
+        `,
+      },
+      "/index.do",
+    );
+
+    const streamModule = project.modules.find((module) => module.modulePath === "/stream/index.do");
+    expect(streamModule).toBeDefined();
+    expect(streamModule!.cppCode).toContain('#include "../index.hpp"');
+    expect(streamModule!.cppCode).not.toContain('#include "index.hpp"');
+  });
 });
 
 describe("emitter-module — non-exported symbols", () => {
@@ -1497,8 +1545,8 @@ describe("emitter-module — emitProject", () => {
     );
 
     const indexModule = result.modules.find((mod) => mod.modulePath === "/workspace/deps/fs/index.do");
-    expect(indexModule?.hppCode).toContain('#include "deps/fs/runtime.hpp"');
-    expect(indexModule?.hppCode).toContain('#include "deps/fs/types.hpp"');
+    expect(indexModule?.hppCode).toContain('#include "runtime.hpp"');
+    expect(indexModule?.hppCode).toContain('#include "types.hpp"');
   });
 
   it("hpp omits external JSON includes when no JSON is used", () => {
