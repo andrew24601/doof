@@ -365,6 +365,28 @@ describe("e2e — lambda captures", () => {
       console.log("Compile error:", result.stderr);
     }
   });
+
+  it("runs nested lambda capturing mutable state from an outer function", () => {
+    const result = ctx.compileAndRun(`
+      function run(handler: (): void): void {
+        handler()
+      }
+
+      function main(): int {
+        let count = 1
+        run((): void => {
+          read := (): int => count
+          count = read() + 41
+        })
+        return count
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(42);
+    } else {
+      console.log("Compile error:", result.stderr);
+    }
+  });
 });
 
 // ============================================================================

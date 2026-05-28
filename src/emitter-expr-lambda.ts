@@ -238,7 +238,10 @@ function collectCaptures(
       collectCaptures(expr.value, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "lambda-expression":
-      // Nested lambda — don't descend, it handles its own captures
+      // Nested lambdas emit their own capture lists, but the enclosing
+      // lambda must still carry through bindings declared outside it so C++
+      // can make those names available to the nested closure.
+      collectCaptures(expr.body, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "if-expression":
       collectCaptures(expr.condition, lambdaBodySpan, paramNames, captures, ctx);

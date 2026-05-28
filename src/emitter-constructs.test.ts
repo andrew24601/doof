@@ -329,6 +329,25 @@ describe("emitter — lambda captures", () => {
     expect(cpp).toContain("(*x) = (*x) + 1");
   });
 
+  it("carries outer captures through nested lambdas", () => {
+    const cpp = emit(`
+      function invoke(handler: (): void): void {
+        handler()
+      }
+
+      function main(): void {
+        let count = 0
+        invoke((): void => {
+          read := (): int => count
+          read()
+        })
+      }
+    `);
+
+    expect(cpp).toContain("invoke(doof::callback<void()>([count]() -> void");
+    expect(cpp).toContain("doof::callback<int32_t()>([count]() -> int32_t");
+  });
+
   it("does not capture bindings declared inside the lambda body or its case arms", () => {
     const cpp = emit(`
       class Response {
