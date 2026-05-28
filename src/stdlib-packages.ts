@@ -9,6 +9,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   "http-server": "0.1",
   js: "0.1",
   json: "0.1",
+  game: "0.1",
   gzip: "0.1",
   log: "0.1",
   math: "0.1",
@@ -20,6 +21,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   stream: "0.1",
   time: "0.1",
   url: "0.1",
+  zstd: "0.1",
 });
 
 export type StdlibPackageVersions = typeof STDLIB_PACKAGE_VERSIONS;
