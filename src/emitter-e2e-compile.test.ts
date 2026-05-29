@@ -387,6 +387,28 @@ describe("e2e — lambda captures", () => {
       console.log("Compile error:", result.stderr);
     }
   });
+
+  it("compiles lambda capturing shorthand property in named construction", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      class Camera {}
+      class PassDescriptor {
+        camera: Camera
+      }
+
+      function run(handler: (): void): void {
+        handler()
+      }
+
+      function main(): int {
+        camera := Camera {}
+        run((): void => {
+          desc := PassDescriptor { camera }
+        })
+        return 0
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
 });
 
 // ============================================================================

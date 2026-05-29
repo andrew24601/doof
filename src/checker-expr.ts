@@ -113,7 +113,7 @@ function inferObjectLiteralProperties(
 
     const binding = host.lookupBinding(prop.name, scope);
     if (binding) {
-      (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+      markShorthandPropertyResolved(prop, binding);
       continue;
     }
 
@@ -128,6 +128,11 @@ function inferObjectLiteralProperties(
 
 function getObjectPropertyResolvedType(prop: ObjectProperty): ResolvedType {
   return prop.value?.resolvedType ?? (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType ?? UNKNOWN_TYPE;
+}
+
+function markShorthandPropertyResolved(prop: ObjectProperty, binding: Binding): void {
+  (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+  (prop as { _shorthandResolvedBinding?: Binding })._shorthandResolvedBinding = binding;
 }
 
 function inferResultObjectLiteral(
@@ -932,7 +937,7 @@ function buildNamedCallInputsFromProperties(
       }
       const binding = host.lookupBinding(prop.name, scope);
       if (binding) {
-        (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+        markShorthandPropertyResolved(prop, binding);
         return binding.type;
       }
       info.diagnostics.push({
@@ -1742,7 +1747,7 @@ function inferExprTypeInner(
             } else {
               const binding = host.lookupBinding(prop.name, scope);
               if (binding) {
-                (prop as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+                markShorthandPropertyResolved(prop, binding);
               } else {
                 info.diagnostics.push({
                   severity: "error",
@@ -1803,7 +1808,7 @@ function inferExprTypeInner(
             } else {
               const binding = host.lookupBinding(arg.name, scope);
               if (binding) {
-                (arg as { _shorthandResolvedType?: ResolvedType })._shorthandResolvedType = binding.type;
+                markShorthandPropertyResolved(arg, binding);
               } else {
                 info.diagnostics.push({
                   severity: "error",

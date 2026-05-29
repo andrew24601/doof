@@ -141,6 +141,8 @@ Strategy:
 - nested lambdas get their own capture lists, while enclosing lambdas still
   capture any outer bindings needed only by deeper closures so C++ can make
   those names available transitively
+- shorthand object and named-construction properties are treated like
+  identifier references for capture analysis
 - every lambda establishes its own callable return context, so nested lambda returns do not inherit outer `Result<T, E>` wrapping rules
 - mutable captured locals may need special boxing or indirection so closures stay valid after escape
 - emitted lambdas are wrapped in `doof::callback`, and first-class callback

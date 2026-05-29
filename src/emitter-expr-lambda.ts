@@ -15,6 +15,7 @@ import type {
   CallExpression,
   MemberExpression,
   Expression,
+  ObjectProperty,
   Block,
   Statement,
   SourceSpan,
@@ -167,6 +168,54 @@ function bindingNeedsLambdaCapture(binding: Binding): boolean {
   ].includes(binding.kind);
 }
 
+function getShorthandResolvedBinding(prop: ObjectProperty): Binding | undefined {
+  return (prop as { _shorthandResolvedBinding?: Binding })._shorthandResolvedBinding;
+}
+
+function addCaptureForBinding(
+  name: string,
+  binding: Binding,
+  captures: Map<string, string>,
+  ctx: EmitContext,
+): void {
+  if (!bindingNeedsLambdaCapture(binding)) return;
+  if (binding.kind === "field") {
+    captures.set("this", "this");
+    return;
+  }
+
+  const safeName = emitIdentifierSafe(name);
+  if (binding.mutable && ctx.capturedMutables?.has(name)) {
+    captures.set(name, safeName);        // by value (shared_ptr)
+  } else if (binding.mutable) {
+    captures.set(name, `&${safeName}`);   // by reference
+  } else {
+    captures.set(name, safeName);          // by value (immutable)
+  }
+}
+
+function collectCapturesFromObjectProperty(
+  prop: ObjectProperty,
+  lambdaBodySpan: SourceSpan,
+  paramNames: Set<string>,
+  captures: Map<string, string>,
+  ctx: EmitContext,
+): void {
+  if (prop.value) {
+    collectCaptures(prop.value, lambdaBodySpan, paramNames, captures, ctx);
+    return;
+  }
+
+  const binding = getShorthandResolvedBinding(prop);
+  if (
+    binding
+    && !paramNames.has(prop.name)
+    && !isBindingDeclaredWithin(binding, lambdaBodySpan)
+  ) {
+    addCaptureForBinding(prop.name, binding, captures, ctx);
+  }
+}
+
 /** Recursively collect captured identifiers from an expression or block. */
 function collectCaptures(
   node: Expression | Block,
@@ -192,20 +241,7 @@ function collectCaptures(
         && expr.resolvedBinding
         && !isBindingDeclaredWithin(expr.resolvedBinding, lambdaBodySpan)
       ) {
-        const binding = expr.resolvedBinding;
-        if (!bindingNeedsLambdaCapture(binding)) break;
-        if (binding.kind === "field") {
-          captures.set("this", "this");
-          break;
-        }
-        const name = emitIdentifierSafe(expr.name);
-        if (binding.mutable && ctx.capturedMutables?.has(expr.name)) {
-          captures.set(expr.name, name);        // by value (shared_ptr)
-        } else if (binding.mutable) {
-          captures.set(expr.name, `&${name}`);   // by reference
-        } else {
-          captures.set(expr.name, name);          // by value (immutable)
-        }
+        addCaptureForBinding(expr.name, expr.resolvedBinding, captures, ctx);
       }
       break;
     case "this-expression":
@@ -273,10 +309,12 @@ function collectCaptures(
       if (!expr.named) {
         for (const a of (expr.args as Expression[])) collectCaptures(a, lambdaBodySpan, paramNames, captures, ctx);
       } else {
-        for (const p of (expr.args as import("./ast.js").ObjectProperty[])) {
-          if (p.value) collectCaptures(p.value, lambdaBodySpan, paramNames, captures, ctx);
-        }
+        for (const p of (expr.args as ObjectProperty[])) collectCapturesFromObjectProperty(p, lambdaBodySpan, paramNames, captures, ctx);
       }
+      break;
+    case "object-literal":
+      for (const p of expr.properties) collectCapturesFromObjectProperty(p, lambdaBodySpan, paramNames, captures, ctx);
+      if (expr.spread) collectCaptures(expr.spread, lambdaBodySpan, paramNames, captures, ctx);
       break;
     case "map-literal":
       for (const entry of expr.entries) {
@@ -565,10 +603,16 @@ function scanExprForLambdaCaptures(
       if (!expr.named) {
         for (const a of (expr.args as Expression[])) scanExprForLambdaCaptures(a, outerNames, result);
       } else {
-        for (const p of (expr.args as import("./ast.js").ObjectProperty[])) {
+        for (const p of (expr.args as ObjectProperty[])) {
           if (p.value) scanExprForLambdaCaptures(p.value, outerNames, result);
         }
       }
+      break;
+    case "object-literal":
+      for (const p of expr.properties) {
+        if (p.value) scanExprForLambdaCaptures(p.value, outerNames, result);
+      }
+      if (expr.spread) scanExprForLambdaCaptures(expr.spread, outerNames, result);
       break;
     case "map-literal":
       for (const entry of expr.entries) {
@@ -625,9 +669,7 @@ function collectMutableCaptureNames(
       if (
         !lambdaParams.has(expr.name) &&
         expr.resolvedBinding &&
-        !isBindingDeclaredWithin(expr.resolvedBinding, lambdaBodySpan) &&
-        expr.resolvedBinding.mutable &&
-        !["class", "function", "interface", "enum", "type-alias", "field"].includes(expr.resolvedBinding.kind)
+        bindingIsMutableCapture(expr.resolvedBinding, lambdaBodySpan)
       ) {
         result.add(expr.name);
       }
@@ -689,10 +731,12 @@ function collectMutableCaptureNames(
       if (!expr.named) {
         for (const a of (expr.args as Expression[])) collectMutableCaptureNames(a, lambdaBodySpan, lambdaParams, outerNames, result);
       } else {
-        for (const p of (expr.args as import("./ast.js").ObjectProperty[])) {
-          if (p.value) collectMutableCaptureNames(p.value, lambdaBodySpan, lambdaParams, outerNames, result);
-        }
+        for (const p of (expr.args as ObjectProperty[])) collectMutableCaptureNamesFromObjectProperty(p, lambdaBodySpan, lambdaParams, outerNames, result);
       }
+      break;
+    case "object-literal":
+      for (const p of expr.properties) collectMutableCaptureNamesFromObjectProperty(p, lambdaBodySpan, lambdaParams, outerNames, result);
+      if (expr.spread) collectMutableCaptureNames(expr.spread, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "map-literal":
       for (const entry of expr.entries) {
@@ -718,6 +762,30 @@ function collectMutableCaptureNames(
       break;
     default:
       break;
+  }
+}
+
+function bindingIsMutableCapture(binding: Binding, lambdaBodySpan: SourceSpan): boolean {
+  return !isBindingDeclaredWithin(binding, lambdaBodySpan)
+    && binding.mutable
+    && !["class", "function", "interface", "enum", "type-alias", "field"].includes(binding.kind);
+}
+
+function collectMutableCaptureNamesFromObjectProperty(
+  prop: ObjectProperty,
+  lambdaBodySpan: SourceSpan,
+  lambdaParams: Set<string>,
+  outerNames: Set<string>,
+  result: Set<string>,
+): void {
+  if (prop.value) {
+    collectMutableCaptureNames(prop.value, lambdaBodySpan, lambdaParams, outerNames, result);
+    return;
+  }
+
+  const binding = getShorthandResolvedBinding(prop);
+  if (binding && !lambdaParams.has(prop.name) && bindingIsMutableCapture(binding, lambdaBodySpan)) {
+    result.add(prop.name);
   }
 }
 

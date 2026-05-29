@@ -348,6 +348,29 @@ describe("emitter — lambda captures", () => {
     expect(cpp).toContain("doof::callback<int32_t()>([count]() -> int32_t");
   });
 
+  it("captures shorthand properties in named construction", () => {
+    const cpp = emit(`
+      class Camera {}
+      class RenderPassDescriptor {
+        camera: Camera
+      }
+
+      function invoke(handler: (): void): void {
+        handler()
+      }
+
+      function main(): void {
+        camera := Camera {}
+        invoke((): void => {
+          desc := RenderPassDescriptor { camera }
+        })
+      }
+    `);
+
+    expect(cpp).toContain("invoke(doof::callback<void()>([camera]() -> void");
+    expect(cpp).toContain("std::make_shared<RenderPassDescriptor>(camera)");
+  });
+
   it("does not capture bindings declared inside the lambda body or its case arms", () => {
     const cpp = emit(`
       class Response {
