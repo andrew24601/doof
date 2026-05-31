@@ -33,6 +33,19 @@ err := AssertionError { message: "boom" }
 // err.source points at the construction site above
 ```
 
+Field defaults may call static class methods:
+
+```doof
+class Transform {
+    x: int
+    static identity(): Transform => Transform(0)
+}
+
+class Model {
+    transform: Transform = Transform.identity()
+}
+```
+
 ### Field Modifiers
 
 | Modifier | Behaviour |

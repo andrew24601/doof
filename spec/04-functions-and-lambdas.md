@@ -75,6 +75,18 @@ greet{ name: "Ada" }                 // ok
 greet{ punctuation: "?" }            // error: missing required parameter "name"
 ```
 
+Default parameter expressions may call static class methods, which makes factory
+defaults reusable across functions and class `constructor` methods:
+
+```doof
+class Transform {
+    x: int
+    static identity(): Transform => Transform(0)
+}
+
+function spawn(transform: Transform = Transform.identity()): Transform => transform
+```
+
 The `{` must immediately follow the callee token with no whitespace: `clamp{ ... }`, not `clamp { ... }`.
 
 The same named-call form applies to methods and imported functions.

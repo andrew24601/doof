@@ -559,6 +559,27 @@ describe("emitter — classes", () => {
     expect(cpp).not.toContain("/* complex default */");
   });
 
+  it("emits static class method calls in parameter and field defaults", () => {
+    const cpp = emit(`
+      class Transform {
+        x: int
+        static identity(): Transform => Transform(0)
+      }
+
+      class Model {
+        transform: Transform = Transform.identity()
+        static constructor(transform: Transform = Transform.identity()): Model {
+          return Model(transform)
+        }
+      }
+
+      function make(transform: Transform = Transform.identity()): Transform => transform
+    `);
+    expect(cpp).toContain("Model(std::shared_ptr<Transform> transform = Transform::identity())");
+    expect(cpp).toContain("static std::shared_ptr<Model> constructor(std::shared_ptr<Transform> transform = Transform::identity())");
+    expect(cpp).toContain("std::shared_ptr<Transform> transform = Transform::identity()");
+  });
+
   it("emits methods", () => {
     const cpp = emit(`
       class Circle {

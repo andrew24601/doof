@@ -1,8 +1,9 @@
-import type { Expression, Identifier, ObjectProperty, StringLiteral } from "./ast.js";
+import type { CallExpression, Expression, Identifier, ObjectProperty, StringLiteral } from "./ast.js";
 import {
   findUnsupportedHashCollectionConstraint,
   formatUnsupportedHashCollectionConstraintMessage,
   type Binding,
+  type FunctionResolvedParam,
   type ResolvedType,
 } from "./checker-types.js";
 import {
@@ -57,6 +58,35 @@ function identifierIssue(expr: Identifier): string | null {
 function shorthandPropertyIssue(prop: ObjectProperty): string | null {
   if (prop.value) return null;
   return `shorthand property "${prop.name}" is not supported in parameter defaults`;
+}
+
+function getStaticClassMethodParams(expr: CallExpression): FunctionResolvedParam[] | null {
+  if (expr.callee.kind !== "member-expression") return null;
+  const callee = expr.callee;
+  if (callee.object.kind !== "identifier") return null;
+
+  const binding = callee.object.resolvedBinding;
+  const objectType = callee.object.resolvedType;
+  if (!objectType || objectType.kind !== "class") return null;
+  if (binding?.kind !== "class" && binding?.kind !== "import") return null;
+
+  const method = objectType.symbol.declaration.methods.find(
+    (candidate) => candidate.name === callee.property && candidate.static_,
+  );
+  if (!method) return null;
+
+  const calleeType = callee.resolvedType;
+  return calleeType?.kind === "function" ? calleeType.params : null;
+}
+
+function getCallArgExpectedType(
+  params: FunctionResolvedParam[],
+  expr: CallExpression,
+  index: number,
+): ResolvedType | undefined {
+  const arg = expr.args[index];
+  if (!arg.name) return params[index]?.type;
+  return params.find((param) => param.name === arg.name)?.type;
 }
 
 export function getUnsupportedDefaultExpressionReason(
@@ -141,8 +171,20 @@ export function getUnsupportedDefaultExpressionReason(
 
     case "call-expression": {
       const callType = expr.resolvedType ?? contextType;
+      const staticMethodParams = getStaticClassMethodParams(expr);
+      if (staticMethodParams) {
+        for (let i = 0; i < expr.args.length; i++) {
+          const issue = getUnsupportedDefaultExpressionReason(
+            expr.args[i].value,
+            getCallArgExpectedType(staticMethodParams, expr, i),
+          );
+          if (issue) return issue;
+        }
+        return null;
+      }
+
       if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
-        return "only class constructor calls are supported in parameter defaults";
+        return "only class constructor calls and static class method calls are supported in parameter defaults";
       }
 
       const fieldTypes = buildFieldTypeList(callType.symbol);

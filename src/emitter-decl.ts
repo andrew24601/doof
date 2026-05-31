@@ -26,7 +26,7 @@ import type { EmitContext } from "./emitter-context.js";
 import { emitBlockStatements } from "./emitter-stmt.js";
 import { emitToJSON, emitFromJSON, emitInterfaceFromJSON, emitTypeAliasFromJSON } from "./emitter-json.js";
 import { emitMetadataDeclaration, emitMetadataDefinition } from "./emitter-metadata.js";
-import { emitDefaultExpression } from "./emitter-defaults.js";
+import { canEmitDefaultExpressionInHeader, emitDefaultExpression } from "./emitter-defaults.js";
 import type { ClassSymbol } from "./types.js";
 
 // ============================================================================
@@ -38,6 +38,24 @@ function emitTemplatePrefix(typeParams: string[], ind: string): string | null {
   if (typeParams.length === 0) return null;
   const parts = typeParams.map((p) => `typename ${p}`).join(", ");
   return `${ind}template<${parts}>`;
+}
+
+function shouldEmitParameterDefault(
+  params: Parameter[],
+  index: number,
+  ctx: EmitContext,
+  includeDefaults: boolean,
+): boolean {
+  if (!includeDefaults || !params[index].defaultValue) return false;
+  if (!ctx.emitHeaderSafeParameterDefaultsOnly) return true;
+
+  for (let scan = index; scan < params.length; scan++) {
+    const defaultValue = params[scan].defaultValue;
+    if (!defaultValue || !canEmitDefaultExpressionInHeader(defaultValue)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | null {
@@ -100,7 +118,9 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
 
   // Build parameter list
   const includeDefaults = ctx.emitParameterDefaults ?? true;
-  const params = decl.params.map((p) => emitParam(p, ctx, includeDefaults)).join(", ");
+  const params = decl.params
+    .map((p, index) => emitParam(p, ctx, shouldEmitParameterDefault(decl.params, index, ctx, includeDefaults)))
+    .join(", ");
 
   // Emit function signature
   // Note: we don't emit const on methods. Tracking which methods are
@@ -171,7 +191,9 @@ export function emitFunctionPrototype(decl: FunctionDeclaration, ctx: EmitContex
     ? emitType(resolvedDeclType.returnType, ctx.module.path)
     : "auto";
   const includeDefaults = ctx.emitParameterDefaults ?? true;
-  const params = decl.params.map((p) => emitParam(p, ctx, includeDefaults)).join(", ");
+  const params = decl.params
+    .map((p, index) => emitParam(p, ctx, shouldEmitParameterDefault(decl.params, index, ctx, includeDefaults)))
+    .join(", ");
   const staticPrefix = ctx.inClass && decl.static_ ? "static " : "";
   ctx.sourceLines.push(`${ind}${staticPrefix}${retType} ${name}(${params});`);
 }
@@ -236,8 +258,11 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     // C++ requires that once a parameter has a default, all subsequent parameters must too.
     // Find the last field that has no default — only fields after it (in the trailing all-defaulted
     // suffix) are allowed to carry default argument values.
+    const canEmitConstructorFieldDefault = (cf: { field: ClassField }) =>
+      !!cf.field.defaultValue
+        && (!ctx.emitHeaderSafeParameterDefaultsOnly || canEmitDefaultExpressionInHeader(cf.field.defaultValue));
     const lastRequiredIdx = constructorFields.reduceRight(
-      (acc: number, cf, idx) => (acc >= 0 ? acc : cf.field.defaultValue ? acc : idx),
+      (acc: number, cf, idx) => (acc >= 0 ? acc : canEmitConstructorFieldDefault(cf) ? acc : idx),
       -1,
     );
     const ctorParams = constructorFields
@@ -256,8 +281,8 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
           fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
         }
         // Only emit a default if this field is in the trailing all-defaulted suffix
-        if (idx > lastRequiredIdx && cf.field.defaultValue) {
-          const defaultVal = emitExpression(cf.field.defaultValue, ctx, resolvedFieldType ?? undefined);
+        if (idx > lastRequiredIdx && canEmitConstructorFieldDefault(cf)) {
+          const defaultVal = emitExpression(cf.field.defaultValue!, ctx, resolvedFieldType ?? undefined);
           return `${fType} ${emitIdentifierSafe(cf.name)} = ${defaultVal}`;
         }
         return `${fType} ${emitIdentifierSafe(cf.name)}`;
@@ -391,7 +416,10 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
       ctx.sourceLines.push(`${ind}std::weak_ptr<${innerType}> ${safeName};`);
     } else {
       const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
-      if (field.defaultValue) {
+      if (
+        field.defaultValue
+        && (!ctx.emitHeaderSafeParameterDefaultsOnly || canEmitDefaultExpressionInHeader(field.defaultValue))
+      ) {
         const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}${fType} ${safeName} = ${val};`);
       } else {

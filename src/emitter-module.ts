@@ -40,7 +40,7 @@ import { emitClassCppName, emitClassForwardDeclName, emitClassSharedPtrType, emi
 import { assignModuleNamespaces, emitModuleNamespace, emitQualifiedHelperName, emitQualifiedSymbolName } from "./emitter-names.js";
 import { buildGenericFunctionKey, buildMonomorphizedFunctionName, functionDeclIsStreamSensitive } from "./emitter-monomorphize.js";
 import { emitClassMethodDefinitions } from "./emitter-decl.js";
-import { emitDefaultExpression } from "./emitter-defaults.js";
+import { canEmitDefaultExpressionInHeader, emitDefaultExpression } from "./emitter-defaults.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
@@ -1398,10 +1398,18 @@ function emitHpp(
   // Function forward declarations (exported only, non-generic)
   // Generic functions get full body in .hpp since C++ templates must be header-only.
   for (const fn of plan.nonGenericExportedFunctions) {
-    lines.push(emitFunctionSignature(fn.decl, interfaceImpls) + ";");
+    lines.push(emitFunctionSignature(fn.decl, interfaceImpls, undefined, undefined, true, undefined, true) + ";");
   }
   for (const inst of plan.monomorphizedFunctionsForModule) {
-    lines.push(emitFunctionSignature(inst.decl, interfaceImpls, inst.emittedName, buildFunctionTypeSubstitutionMap(inst.decl, inst.typeArgs)) + ";");
+    lines.push(emitFunctionSignature(
+      inst.decl,
+      interfaceImpls,
+      inst.emittedName,
+      buildFunctionTypeSubstitutionMap(inst.decl, inst.typeArgs),
+      true,
+      undefined,
+      true,
+    ) + ";");
   }
   if (plan.nonGenericExportedFunctions.length > 0 || plan.monomorphizedFunctionsForModule.length > 0) {
     lines.push("");
@@ -2053,6 +2061,7 @@ function emitFunctionSignature(
   typeSubstitution?: Map<string, ResolvedType>,
   includeDefaults = true,
   currentModulePath?: string,
+  headerSafeDefaultsOnly = false,
 ): string {
   const name = emitIdentifierSafe(nameOverride ?? decl.name);
   const resolvedType = decl.resolvedType && typeSubstitution
@@ -2061,26 +2070,57 @@ function emitFunctionSignature(
   const retType = resolvedType && resolvedType.kind === "function"
     ? emitType(resolvedType.returnType, currentModulePath)
     : "auto";
-  const params = decl.params.map((p) => emitParamSignature(p, typeSubstitution, includeDefaults, currentModulePath)).join(", ");
+  const params = decl.params
+    .map((p, index) => emitParamSignature(
+      p,
+      decl.params,
+      index,
+      typeSubstitution,
+      includeDefaults,
+      currentModulePath,
+      headerSafeDefaultsOnly,
+    ))
+    .join(", ");
   return `${retType} ${name}(${params})`;
 }
 
 function emitParamSignature(
   param: Parameter,
+  params: Parameter[],
+  index: number,
   typeSubstitution?: Map<string, ResolvedType>,
   includeDefault = true,
   currentModulePath?: string,
+  headerSafeDefaultsOnly = false,
 ): string {
   const resolvedType = param.resolvedType && typeSubstitution
     ? substituteTypeParams(param.resolvedType, typeSubstitution)
     : param.resolvedType;
   const pType = resolvedType ? emitType(resolvedType, currentModulePath) : "auto";
   const name = emitIdentifierSafe(param.name);
-  if (includeDefault && param.defaultValue) {
+  if (shouldEmitSignatureDefault(params, index, includeDefault, headerSafeDefaultsOnly) && param.defaultValue) {
     const defaultVal = emitDefaultExpression(param.defaultValue, resolvedType ?? undefined, currentModulePath);
     return `${pType} ${name} = ${defaultVal}`;
   }
   return `${pType} ${name}`;
+}
+
+function shouldEmitSignatureDefault(
+  params: Parameter[],
+  index: number,
+  includeDefaults: boolean,
+  headerSafeDefaultsOnly: boolean,
+): boolean {
+  if (!includeDefaults || !params[index].defaultValue) return false;
+  if (!headerSafeDefaultsOnly) return true;
+
+  for (let scan = index; scan < params.length; scan++) {
+    const defaultValue = params[scan].defaultValue;
+    if (!defaultValue || !canEmitDefaultExpressionInHeader(defaultValue)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | null {
@@ -4378,6 +4418,7 @@ function makeHeaderCtx(
     tempCounter: 0,
     inClass: false,
     emitParameterDefaults: true,
+    emitHeaderSafeParameterDefaultsOnly: true,
     monomorphizedFunctionNames: new Map([...monomorphizedFunctions.entries()].map(([key, inst]) => [key, inst.emittedName])),
     emitBlock: makeBlockHelper(table, analysisResult, interfaceImpls),
   };

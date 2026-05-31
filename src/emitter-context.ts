@@ -33,6 +33,8 @@ export interface EmitContext {
   inClass: boolean;
   /** Whether emitted function parameters should include default arguments. */
   emitParameterDefaults?: boolean;
+  /** In headers, omit defaults that need complete cross-module declarations. */
+  emitHeaderSafeParameterDefaultsOnly?: boolean;
   /** Emit block body helper — wired to emitter-stmt's emitBlockStatements. */
   emitBlock: (block: Block, ctx: EmitContext) => string;
   /** Encoded Doof callable name for the current emission scope. */

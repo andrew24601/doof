@@ -117,6 +117,7 @@ Keep aligned:
 - shared annotation resolution and initializer/default finalization belong in `checker-declared-values.ts`
 - statement bindings, parameters, and fields should keep only their caller-specific policy locally: binding registration, default-value diagnostics, readonly checks, and diagnostic wording
 - omitted collection type arguments must continue to use the same-site initializer/default as the semantic source across all three surfaces
+- default-expression validation must stay aligned for parameters and fields; static class method calls are valid default expressions when the callee resolves through named class access
 
 Validation anchors:
 

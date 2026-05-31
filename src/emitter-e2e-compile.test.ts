@@ -1175,6 +1175,41 @@ describe("e2e — default parameters", () => {
     }
   });
 
+  it("runs static class method calls in parameter and field defaults", () => {
+    const result = ctx.compileAndRun(`
+      class Transform {
+        x: int
+        static identity(): Transform => Transform(7)
+      }
+
+      class Holder {
+        transform: Transform = Transform.identity()
+      }
+
+      class Model {
+        transform: Transform
+        static constructor(transform: Transform = Transform.identity()): Model {
+          return Model(transform)
+        }
+      }
+
+      function valueOf(transform: Transform = Transform.identity()): int {
+        return transform.x
+      }
+
+      function main(): int {
+        holder := Holder()
+        model := Model()
+        return valueOf() + holder.transform.x + model.transform.x
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(21);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
   it("runs named arguments out of order", () => {
     const result = ctx.compileAndRun(`
       function clamp(value: int, min: int, max: int): int {

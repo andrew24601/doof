@@ -19,6 +19,7 @@ class User {
 ```
 
 Each field needs either a type annotation or a default so the compiler can determine its type.
+Field and parameter defaults may call static class methods, for example `Transform.identity()`.
 
 ### Field Modifiers
 

@@ -920,6 +920,25 @@ describe("Class field validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts static class method calls in field default values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Transform {
+            x: int
+            static identity(): Transform => Transform(0)
+          }
+
+          class Model {
+            transform: Transform = Transform.identity()
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects incompatible field default value", () => {
     const info = check(
       {

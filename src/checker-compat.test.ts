@@ -1055,6 +1055,30 @@ describe("Function argument type checking", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts static class method calls in default parameter values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Transform {
+            x: int
+            static identity(): Transform => Transform(0)
+          }
+
+          class Model {
+            transform: Transform
+            static constructor(transform: Transform = Transform.identity()): Model {
+              return Model(transform)
+            }
+          }
+
+          function make(transform: Transform = Transform.identity()): Transform => transform
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects incompatible default parameter value", () => {
     const info = check(
       {

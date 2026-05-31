@@ -375,10 +375,6 @@ export function buildPositionalConstructorArgList(
   emitDefaultValue: (expr: Expression, targetType?: ResolvedType) => string,
   allowFactory = true,
 ): string[] {
-  if (!findConstructorFactoryMethod(classSym, allowFactory)) {
-    return providedArgs;
-  }
-
   const params = buildConstructorFieldInfoList(classSym, allowFactory);
   const args: string[] = [];
   for (let index = 0; index < params.length; index++) {

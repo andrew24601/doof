@@ -1594,6 +1594,40 @@ describe("emitter-module — function signature with defaults", () => {
     `);
     expect(hppCode).toContain("std::shared_ptr<doof::ordered_set<int32_t>> values = std::make_shared<doof::ordered_set<int32_t>>()");
   });
+
+  it("keeps imported static method defaults out of hpp surfaces", () => {
+    const { hppCode, cppCode } = emitSplitMulti(
+      {
+        "/transform.do": `
+          export class Transform {
+            x: int
+            static identity(): Transform => Transform(7)
+          }
+        `,
+        "/model.do": `
+          import { Transform } from "./transform"
+
+          export class Model {
+            transform: Transform = Transform.identity()
+          }
+
+          export function valueOf(transform: Transform = Transform.identity()): int => transform.x
+
+          export function make(): int {
+            model := Model()
+            return valueOf() + model.transform.x
+          }
+        `,
+      },
+      "/model.do",
+    );
+    const transformNamespace = emitModuleNamespace("/transform.do");
+    expect(hppCode).not.toContain("Transform::identity()");
+    expect(hppCode).toContain(`Model(std::shared_ptr<::${transformNamespace}::Transform> transform)`);
+    expect(hppCode).toContain(`int32_t valueOf(std::shared_ptr<::${transformNamespace}::Transform> transform);`);
+    expect(cppCode).toContain(`std::make_shared<Model>(::${transformNamespace}::Transform::identity())`);
+    expect(cppCode).toContain(`valueOf(::${transformNamespace}::Transform::identity())`);
+  });
 });
 
 describe("emitter-module — module init functions", () => {

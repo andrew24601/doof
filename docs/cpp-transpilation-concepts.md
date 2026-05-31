@@ -118,6 +118,7 @@ Strategy:
 - function declarations lower to generated C++ functions or methods with resolved parameter and return types
 - method placement depends on the owning declaration and module/header split
 - default parameters and named-argument ordering are normalized during emission
+- default parameter expressions may lower static class method calls as `Class::method(...)`
 
 Primary modules:
 
@@ -199,6 +200,8 @@ Strategy:
   target (`Type(...)` and `Type { ... }` emit `Type::constructor(...)`), except
   inside that class's own `constructor` body where construction emits the raw field
   constructor to avoid recursive factories
+- field defaults may call static class methods and lower to the same `Class::method(...)`
+  form used by ordinary static calls
 
 Primary modules:
 

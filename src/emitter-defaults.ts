@@ -1,5 +1,5 @@
-import type { Expression, ObjectProperty } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import type { CallExpression, Expression, ObjectProperty } from "./ast.js";
+import type { FunctionResolvedParam, ResolvedType } from "./checker-types.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
 import { emitClassCppName, emitEnumVariantAccess, emitNullForType, emitType } from "./emitter-types.js";
 import { escapeChar, escapeString, formatDouble, formatFloat, emitIdentifierSafe } from "./emitter-expr-literals.js";
@@ -7,16 +7,120 @@ import {
   buildPositionalConstructorArgList,
   buildConstructorFieldInfoList,
   buildFieldTypeList,
-  buildFieldTypeMap,
   emitClassConstruction,
   emitResolvedClassName,
-  sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
 function unsupportedDefault(expr: Expression, contextType?: ResolvedType): never {
   const reason = getUnsupportedDefaultExpressionReason(expr, contextType)
     ?? `expression kind "${expr.kind}" is not supported in parameter defaults`;
   throw new Error(`Cannot emit parameter default: ${reason}`);
+}
+
+function getStaticClassMethodDefaultCall(expr: CallExpression): {
+  classType: Extract<ResolvedType, { kind: "class" }>;
+  methodName: string;
+  params: FunctionResolvedParam[];
+} | null {
+  if (expr.callee.kind !== "member-expression") return null;
+  const callee = expr.callee;
+  if (callee.object.kind !== "identifier") return null;
+
+  const binding = callee.object.resolvedBinding;
+  const objectType = callee.object.resolvedType;
+  if (!objectType || objectType.kind !== "class") return null;
+  if (binding?.kind !== "class" && binding?.kind !== "import") return null;
+
+  const method = objectType.symbol.declaration.methods.find(
+    (candidate) => candidate.name === callee.property && candidate.static_,
+  );
+  const calleeType = callee.resolvedType;
+  if (!method || calleeType?.kind !== "function") return null;
+
+  return {
+    classType: objectType,
+    methodName: callee.property,
+    params: calleeType.params,
+  };
+}
+
+function emitStaticClassMethodDefaultCall(
+  expr: CallExpression,
+  currentModulePath: string | undefined,
+): string | null {
+  const staticCall = getStaticClassMethodDefaultCall(expr);
+  if (!staticCall) return null;
+
+  const args = expr.args.some((arg) => arg.name)
+    ? emitNamedStaticMethodDefaultArgs(staticCall.params, expr, currentModulePath)
+    : emitPositionalStaticMethodDefaultArgs(staticCall.params, expr, currentModulePath);
+  const className = emitClassCppName(staticCall.classType.symbol, currentModulePath);
+  return `${className}::${emitIdentifierSafe(staticCall.methodName)}(${args.join(", ")})`;
+}
+
+function emitNamedStaticMethodDefaultArgs(
+  params: FunctionResolvedParam[],
+  expr: CallExpression,
+  currentModulePath: string | undefined,
+): string[] {
+  const argMap = new Map(expr.args.filter((arg) => arg.name).map((arg) => [arg.name!, arg.value]));
+  return params.flatMap((param) => {
+    const value = argMap.get(param.name);
+    if (value) return [emitDefaultExpression(value, param.type, currentModulePath)];
+    if (param.defaultValue) return [emitDefaultExpression(param.defaultValue, param.type, currentModulePath)];
+    return [];
+  });
+}
+
+function emitPositionalStaticMethodDefaultArgs(
+  params: FunctionResolvedParam[],
+  expr: CallExpression,
+  currentModulePath: string | undefined,
+): string[] {
+  const values = expr.args.map((arg, index) =>
+    emitDefaultExpression(arg.value, params[index]?.type, currentModulePath)
+  );
+
+  for (let index = expr.args.length; index < params.length; index++) {
+    const param = params[index];
+    if (!param.defaultValue) break;
+    values.push(emitDefaultExpression(param.defaultValue, param.type, currentModulePath));
+  }
+
+  return values;
+}
+
+export function canEmitDefaultExpressionInHeader(expr: Expression): boolean {
+  switch (expr.kind) {
+    case "call-expression":
+      if (getStaticClassMethodDefaultCall(expr)) return false;
+      if (expr.callee.kind === "identifier" && expr.resolvedType?.kind === "class") return false;
+      return expr.args.every((arg) => canEmitDefaultExpressionInHeader(arg.value));
+
+    case "construct-expression":
+      return false;
+
+    case "object-literal":
+      return false;
+
+    case "tuple-literal":
+      if (expr.resolvedType?.kind === "class") return false;
+      return expr.elements.every((element) => canEmitDefaultExpressionInHeader(element));
+
+    case "array-literal":
+      return expr.elements.every((element) => canEmitDefaultExpressionInHeader(element));
+
+    case "map-literal":
+      return expr.entries.every((entry) =>
+        canEmitDefaultExpressionInHeader(entry.key) && canEmitDefaultExpressionInHeader(entry.value)
+      );
+
+    case "unary-expression":
+      return canEmitDefaultExpressionInHeader(expr.operand);
+
+    default:
+      return true;
+  }
 }
 
 export function emitDefaultExpression(expr: Expression, contextType?: ResolvedType, currentModulePath?: string): string {
@@ -113,7 +217,11 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
         const providedArgs = expr.elements
           .map((element, index) => emitDefaultExpression(element, fieldTypes[index], currentModulePath));
-        const args = buildPositionalConstructorArgList(tupleType.symbol, providedArgs, emitDefaultExpression);
+        const args = buildPositionalConstructorArgList(
+          tupleType.symbol,
+          providedArgs,
+          (defaultExpr, targetType) => emitDefaultExpression(defaultExpr, targetType, currentModulePath),
+        );
         return emitClassConstruction(className, tupleType.symbol, args);
       }
 
@@ -121,6 +229,9 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
     }
 
     case "call-expression": {
+      const staticMethodCall = emitStaticClassMethodDefaultCall(expr, currentModulePath);
+      if (staticMethodCall) return staticMethodCall;
+
       const callType = expr.resolvedType ?? contextType;
       if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
         return unsupportedDefault(expr, contextType);
@@ -129,7 +240,11 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       const fieldTypes = buildFieldTypeList(callType.symbol);
       const providedArgs = expr.args
         .map((arg, index) => emitDefaultExpression(arg.value, fieldTypes[index], currentModulePath));
-      const args = buildPositionalConstructorArgList(callType.symbol, providedArgs, emitDefaultExpression);
+      const args = buildPositionalConstructorArgList(
+        callType.symbol,
+        providedArgs,
+        (defaultExpr, targetType) => emitDefaultExpression(defaultExpr, targetType, currentModulePath),
+      );
       return emitClassConstruction(className, callType.symbol, args);
     }
 
@@ -158,7 +273,11 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       const fieldTypes = buildFieldTypeList(ctorType.symbol);
       const providedArgs = expr.args
         .map((arg, index) => emitDefaultExpression(arg as Expression, fieldTypes[index], currentModulePath));
-      const args = buildPositionalConstructorArgList(ctorType.symbol, providedArgs, emitDefaultExpression);
+      const args = buildPositionalConstructorArgList(
+        ctorType.symbol,
+        providedArgs,
+        (defaultExpr, targetType) => emitDefaultExpression(defaultExpr, targetType, currentModulePath),
+      );
       return emitClassConstruction(className, ctorType.symbol, args);
     }
 
