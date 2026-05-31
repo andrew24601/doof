@@ -507,6 +507,9 @@ function applyTypeSubstitutionToExpression(
   if (expr.resolvedType) {
     expr.resolvedType = substituteTypeParams(expr.resolvedType, paramMap);
   }
+  if (expr.kind === "dot-shorthand" && expr.resolvedShorthandOwnerType) {
+    expr.resolvedShorthandOwnerType = substituteTypeParams(expr.resolvedShorthandOwnerType, paramMap);
+  }
 
   switch (expr.kind) {
     case "binary-expression":
@@ -1002,6 +1005,32 @@ function mergeInferredMapKeyType(
   return null;
 }
 
+function resolveExpectedClassType(type?: ResolvedType): Extract<ResolvedType, { kind: "class" }> | undefined {
+  if (!type) return undefined;
+  if (type.kind === "class") return type;
+  if (type.kind === "union") {
+    const classTypes = type.types.filter((member): member is Extract<ResolvedType, { kind: "class" }> =>
+      member.kind === "class"
+    );
+    if (classTypes.length === 1) return classTypes[0];
+  }
+  return undefined;
+}
+
+function inferDotShorthandStaticMemberType(
+  host: CheckerHost,
+  expr: Extract<Expression, { kind: "dot-shorthand" }>,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  expectedType?: ResolvedType,
+): ResolvedType | null {
+  const classType = resolveExpectedClassType(expectedType);
+  if (!classType) return null;
+
+  expr.resolvedShorthandOwnerType = classType;
+  return inferMemberType(host, classType, expr.name, table, "named-static", info, expr.span);
+}
+
 export function inferExprType(
   host: CheckerHost,
   expr: Expression,
@@ -1439,7 +1468,14 @@ function inferExprTypeInner(
         return { kind: "result", successType: resultContext.successType, errorType };
       }
 
-      const calleeType = inferExprType(host, expr.callee, scope, table, info);
+      let calleeType: ResolvedType;
+      if (expr.callee.kind === "dot-shorthand") {
+        calleeType = inferDotShorthandStaticMemberType(host, expr.callee, table, info, expectedType)
+          ?? inferExprType(host, expr.callee, scope, table, info);
+        expr.callee.resolvedType = calleeType;
+      } else {
+        calleeType = inferExprType(host, expr.callee, scope, table, info);
+      }
 
       if (calleeType.kind === "function") {
         let effectiveCalleeType = calleeType;
@@ -2256,11 +2292,17 @@ function inferExprTypeInner(
     }
 
     case "dot-shorthand": {
+      const staticMemberType = inferDotShorthandStaticMemberType(host, expr, table, info, expectedType);
+      if (staticMemberType) return staticMemberType;
+
       const enumType = resolveExpectedEnumType(expectedType);
-      if (enumType) return enumType;
+      if (enumType) {
+        expr.resolvedShorthandOwnerType = enumType;
+        return enumType;
+      }
       info.diagnostics.push({
         severity: "error",
-        message: `Cannot infer enum type for ".${expr.name}"`,
+        message: `Cannot infer type for dot shorthand ".${expr.name}"`,
         span: expr.span,
         module: table.path,
       });

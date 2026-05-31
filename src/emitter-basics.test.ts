@@ -580,6 +580,24 @@ describe("emitter — classes", () => {
     expect(cpp).toContain("std::shared_ptr<Transform> transform = Transform::identity()");
   });
 
+  it("emits dot-shorthand static members in parameter and field defaults", () => {
+    const cpp = emit(`
+      class Transform {
+        readonly x: int
+        static readonly zero = Transform(0)
+        static identity(): Transform => Transform(1)
+      }
+
+      class Model {
+        transform: Transform = .zero
+      }
+
+      function make(transform: Transform = .identity()): Transform => transform
+    `);
+    expect(cpp).toContain("std::shared_ptr<Transform> transform = Transform::zero");
+    expect(cpp).toContain("std::shared_ptr<Transform> transform = Transform::identity()");
+  });
+
   it("emits methods", () => {
     const cpp = emit(`
       class Circle {

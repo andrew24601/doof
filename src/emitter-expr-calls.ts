@@ -464,6 +464,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx), calleeBinding);
     }
 
+    if (expr.callee.kind === "dot-shorthand" && expr.callee.resolvedShorthandOwnerType?.kind === "class") {
+      return `${emitExpression(expr.callee, ctx)}(${args.join(", ")})`;
+    }
+
     const callee = emitExpression(expr.callee, ctx);
     if (expr.callee.kind !== "member-expression" || isFunctionFieldCall(expr) || isExplicitCallbackCall(expr)) {
       return emitCallbackCall(callee, args.join(", "));
@@ -784,6 +788,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "interface") {
       return emitQualifiedInterfaceStaticCall(memberExpr, args, ctx);
     }
+  }
+
+  if (expr.callee.kind === "dot-shorthand" && expr.callee.resolvedShorthandOwnerType?.kind === "class") {
+    return `${emitExpression(expr.callee, ctx)}(${args})`;
   }
 
   // Map known Doof runtime builtins to doof:: namespace

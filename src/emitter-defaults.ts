@@ -22,6 +22,22 @@ function getStaticClassMethodDefaultCall(expr: CallExpression): {
   methodName: string;
   params: FunctionResolvedParam[];
 } | null {
+  if (expr.callee.kind === "dot-shorthand") {
+    const callee = expr.callee;
+    const ownerType = callee.resolvedShorthandOwnerType;
+    if (!ownerType || ownerType.kind !== "class") return null;
+    const method = ownerType.symbol.declaration.methods.find(
+      (candidate) => candidate.name === callee.name && candidate.static_,
+    );
+    const calleeType = callee.resolvedType;
+    if (!method || calleeType?.kind !== "function") return null;
+    return {
+      classType: ownerType,
+      methodName: callee.name,
+      params: calleeType.params,
+    };
+  }
+
   if (expr.callee.kind !== "member-expression") return null;
   const callee = expr.callee;
   if (callee.object.kind !== "identifier") return null;
@@ -110,6 +126,9 @@ export function canEmitDefaultExpressionInHeader(expr: Expression): boolean {
     case "array-literal":
       return expr.elements.every((element) => canEmitDefaultExpressionInHeader(element));
 
+    case "dot-shorthand":
+      return expr.resolvedShorthandOwnerType?.kind !== "class";
+
     case "map-literal":
       return expr.entries.every((entry) =>
         canEmitDefaultExpressionInHeader(entry.key) && canEmitDefaultExpressionInHeader(entry.value)
@@ -169,6 +188,9 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
     case "dot-shorthand":
       if (expr.resolvedType?.kind === "enum") {
         return emitEnumVariantAccess(expr.resolvedType, expr.name, currentModulePath);
+      }
+      if (expr.resolvedShorthandOwnerType?.kind === "class") {
+        return `${emitClassCppName(expr.resolvedShorthandOwnerType.symbol, currentModulePath)}::${emitIdentifierSafe(expr.name)}`;
       }
       return unsupportedDefault(expr, contextType);
 

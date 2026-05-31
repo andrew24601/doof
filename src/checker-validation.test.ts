@@ -939,6 +939,28 @@ describe("Class field validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts dot-shorthand static field defaults from contextual class types", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Vec3 {
+            readonly x: double
+            readonly y: double
+            readonly z: double
+
+            static readonly zero = Vec3 { x: 0.0, y: 0.0, z: 0.0 }
+          }
+
+          class MyThing {
+            v: Vec3 = .zero
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects incompatible field default value", () => {
     const info = check(
       {

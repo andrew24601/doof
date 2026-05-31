@@ -596,6 +596,7 @@ Shorthand works anywhere the compiler can infer the enum type from context:
 - Variable declarations with explicit type annotations
 - Function arguments with typed parameters
 - Return statements in functions with explicit return types
+- Parameter defaults and field defaults
 - Case arms matching on an enum value
 
 ```javascript

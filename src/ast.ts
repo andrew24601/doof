@@ -388,6 +388,8 @@ export interface EnumAccess extends Typed {
 export interface DotShorthand extends Typed {
   kind: "dot-shorthand";
   name: string;
+  /** Set by the checker when shorthand resolves through a contextual class/enum owner. */
+  resolvedShorthandOwnerType?: ResolvedType;
   span: SourceSpan;
 }
 

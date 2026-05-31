@@ -61,6 +61,18 @@ function shorthandPropertyIssue(prop: ObjectProperty): string | null {
 }
 
 function getStaticClassMethodParams(expr: CallExpression): FunctionResolvedParam[] | null {
+  if (expr.callee.kind === "dot-shorthand") {
+    const callee = expr.callee;
+    const ownerType = callee.resolvedShorthandOwnerType;
+    if (!ownerType || ownerType.kind !== "class") return null;
+    const method = ownerType.symbol.declaration.methods.find(
+      (candidate) => candidate.name === callee.name && candidate.static_,
+    );
+    if (!method) return null;
+    const calleeType = callee.resolvedType;
+    return calleeType?.kind === "function" ? calleeType.params : null;
+  }
+
   if (expr.callee.kind !== "member-expression") return null;
   const callee = expr.callee;
   if (callee.object.kind !== "identifier") return null;
@@ -116,7 +128,7 @@ export function getUnsupportedDefaultExpressionReason(
       return null;
 
     case "dot-shorthand":
-      return expr.resolvedType?.kind === "enum"
+      return expr.resolvedType?.kind === "enum" || expr.resolvedShorthandOwnerType?.kind === "class"
         ? null
         : `dot shorthand ".${expr.name}" is unresolved`;
 

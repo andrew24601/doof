@@ -1186,25 +1186,57 @@ describe("e2e — default parameters", () => {
         transform: Transform = Transform.identity()
       }
 
+      class ShorthandHolder {
+        transform: Transform = .identity()
+      }
+
       class Model {
         transform: Transform
-        static constructor(transform: Transform = Transform.identity()): Model {
+        static constructor(transform: Transform = .identity()): Model {
           return Model(transform)
         }
       }
 
-      function valueOf(transform: Transform = Transform.identity()): int {
+      function valueOf(transform: Transform = .identity()): int {
         return transform.x
       }
 
       function main(): int {
         holder := Holder()
+        shorthand := ShorthandHolder()
         model := Model()
-        return valueOf() + holder.transform.x + model.transform.x
+        return valueOf() + holder.transform.x + shorthand.transform.x + model.transform.x
       }
     `);
     if (result.exitCode !== -1) {
-      expect(result.exitCode).toBe(21);
+      expect(result.exitCode).toBe(28);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs dot-shorthand static field defaults", () => {
+    const result = ctx.compileAndRun(`
+      class Vec3 {
+        readonly x: double
+        readonly y: double
+        readonly z: double
+
+        static readonly zero = Vec3 { x: 0.0, y: 0.0, z: 0.0 }
+        static readonly one = Vec3 { x: 1.0, y: 1.0, z: 1.0 }
+      }
+
+      class MyThing {
+        v: Vec3 = .one
+      }
+
+      function main(): int {
+        thing := MyThing()
+        return int(thing.v.x + thing.v.y + thing.v.z)
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(3);
     } else {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }

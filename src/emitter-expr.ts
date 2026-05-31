@@ -194,6 +194,12 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       if (expr.resolvedType?.kind === "enum") {
         return emitEnumVariantAccess(expr.resolvedType, expr.name, ctx.module.path);
       }
+      if (expr.resolvedShorthandOwnerType?.kind === "class") {
+        const ownerType = substituteEmitType(expr.resolvedShorthandOwnerType, ctx);
+        if (ownerType?.kind === "class") {
+          return `${emitClassCppName(ownerType.symbol, ctx.module.path)}::${emitIdentifierSafe(expr.name)}`;
+        }
+      }
       throw new Error(`Cannot emit unresolved dot shorthand ".${expr.name}"`);
 
     case "this-expression":

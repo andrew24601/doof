@@ -33,16 +33,20 @@ err := AssertionError { message: "boom" }
 // err.source points at the construction site above
 ```
 
-Field defaults may call static class methods:
+Field defaults may call static class methods. When the field type is a class,
+a leading-dot shorthand may access a static field or static method on that
+class:
 
 ```doof
 class Transform {
     x: int
+    static readonly zero = Transform(0)
     static identity(): Transform => Transform(0)
 }
 
 class Model {
-    transform: Transform = Transform.identity()
+    origin: Transform = .zero
+    transform: Transform = .identity()
 }
 ```
 
@@ -144,6 +148,11 @@ Named class access uses `.`:
 let n = MathUtils.max(10, 20)
 let v = MathUtils.version
 ```
+
+In a context whose expected type is a class, `.member` is shorthand for a
+static member on that class. For example, `transform: Transform = .zero` lowers
+as `Transform.zero`, and `transform: Transform = .identity()` lowers as
+`Transform.identity()`.
 
 #### Static Members and Instance State
 

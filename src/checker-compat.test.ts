@@ -1079,6 +1079,23 @@ describe("Function argument type checking", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts dot-shorthand static method calls in default parameter values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Mat3 {
+            value: int
+            static identity(): Mat3 => Mat3(1)
+          }
+
+          function doTheThing(m: Mat3 = .identity()): Mat3 => m
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects incompatible default parameter value", () => {
     const info = check(
       {

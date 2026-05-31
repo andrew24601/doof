@@ -348,6 +348,14 @@ describe("Parser — dot shorthand", () => {
     const expr = parseExpr(".North");
     expect(expr).toMatchObject({ kind: "dot-shorthand", name: "North" });
   });
+
+  it("parses .member() calls", () => {
+    const expr = parseExpr(".identity()");
+    expect(expr.kind).toBe("call-expression");
+    if (expr.kind === "call-expression") {
+      expect(expr.callee).toMatchObject({ kind: "dot-shorthand", name: "identity" });
+    }
+  });
 });
 
 // ==========================================================================

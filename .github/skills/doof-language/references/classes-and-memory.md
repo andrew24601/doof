@@ -20,6 +20,7 @@ class User {
 
 Each field needs either a type annotation or a default so the compiler can determine its type.
 Field and parameter defaults may call static class methods, for example `Transform.identity()`.
+When the expected type is a class, `.member` may shorthand a static field or method on that class, for example `transform: Transform = .identity()`.
 
 ### Field Modifiers
 
