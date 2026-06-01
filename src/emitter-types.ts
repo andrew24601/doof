@@ -180,6 +180,9 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
     case "stream":
       return `__doof_stream_${mangleTypeForCppName(type.elementType)}`;
 
+    case "range":
+      return "doof::Range";
+
     case "union":
       return emitUnionType(type.types, currentModulePath);
 
@@ -264,6 +267,8 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return "null";
     case "stream":
       return `stream_${mangleTypeForCppName(type.elementType)}`;
+    case "range":
+      return "range";
     case "interface":
       return mangleModuleOwnedSymbol(type.symbol.module, type.symbol.name, type.symbol.emittedCppNamespace);
     case "function":

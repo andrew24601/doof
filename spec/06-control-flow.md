@@ -178,7 +178,9 @@ for name of names {
 }
 ```
 
-Current iterable forms are arrays, maps, sets, ranges, and `Stream<T>` values. A stream yields one element at a time by calling `next()` until it returns `false`, then reading the current element with `value()`.
+Current iterable forms are arrays, maps, sets, finite `Range` values, and
+`Stream<T>` values. A stream yields one element at a time by calling `next()`
+until it returns `false`, then reading the current element with `value()`.
 
 ```javascript
 class Counter implements Stream<int> {
@@ -240,11 +242,20 @@ Set iteration follows first-insertion order. Re-adding an existing value keeps i
 
 ## Range-Based For Loops
 
+`a..b` and `a..<b` create finite `Range` values. A range can be stored in a
+binding, passed to a function, or used directly in `for of`. Range iteration
+yields `int`.
+
 ### Inclusive Range (`..`)
 
 ```javascript
 for i of 1..5 {
     print(i)  // 1, 2, 3, 4, 5
+}
+
+values: Range := 1..5
+for value of values {
+    print(value)
 }
 ```
 
@@ -261,6 +272,9 @@ for i of 0..<items.length {
     print("${i}: ${items[i]}")
 }
 ```
+
+Open-ended ranges are not iterable `Range` values; they are only valid in
+`case` range patterns.
 
 ### Range with Step and Reverse
 

@@ -170,7 +170,7 @@ class Chain<T> implements Stream<T> {
 
 const chain = Chain(Counter(1, 4))
 `);
-    expect(cpp).toContain(`make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})`);
+    expect(cpp).toContain(`make_shared<__doof_private_main_Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4, 0)})`);
     expect(cpp).not.toContain("__doof_stream_T");
   });
 
@@ -241,7 +241,7 @@ const chain: Chain<int> = { source: base }
       `,
     }, "/main.do");
 
-    expect(cpp).toContain(`make_shared<::${emitModuleNamespace("/stream.do")}::Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4)})`);
+    expect(cpp).toContain(`make_shared<::${emitModuleNamespace("/stream.do")}::Chain<int32_t>>(__doof_stream_int{std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>, std::make_shared<__doof_private_main_Counter>(1, 4, 0)})`);
     expect(cpp).not.toContain("__doof_stream_T");
   });
 });

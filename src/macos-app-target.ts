@@ -1,17 +1,17 @@
 import * as nodeFs from "node:fs";
+import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
+import { execFileSync } from "node:child_process";
 import type { ResolvedDoofMacOSAppConfig } from "./build-targets.js";
 import {
   createMacOSAppSupportFiles,
   getMacOSAppInfoPlistPath,
-  getMacOSIconScriptPath,
   renderMacOSAppInfoPlist,
-  renderMacOSIconScript,
   type ProjectSupportFile,
 } from "./macos-app-support.js";
 import { toPortablePath } from "./path-utils.js";
 
-export { createMacOSAppSupportFiles, getMacOSAppInfoPlistPath, getMacOSIconScriptPath, type ProjectSupportFile };
+export { createMacOSAppSupportFiles, getMacOSAppInfoPlistPath, type ProjectSupportFile };
 
 export interface MacOSAppBundleResult {
   appPath: string;
@@ -25,7 +25,7 @@ export interface AssembleMacOSAppBundleOptions {
   config: ResolvedDoofMacOSAppConfig;
   log?: (message: string) => void;
   platform?: NodeJS.Platform;
-  generateIcon?: (iconPath: string, outputPath: string, scriptPath: string) => void;
+  generateIcon?: (iconPath: string, outputPath: string) => void;
 }
 
 export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): MacOSAppBundleResult {
@@ -34,17 +34,18 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
     throw new Error("doof build for build.target=macos-app is only supported on macOS");
   }
 
-  const { outputDir, executablePath, executableName, config, log, generateIcon } = options;
+  const { outputDir, executablePath, executableName, config, log } = options;
   const appPath = nodePath.join(outputDir, `${executableName}.app`);
   const contentsDir = nodePath.join(appPath, "Contents");
   const macosDir = nodePath.join(contentsDir, "MacOS");
   const resourcesDir = nodePath.join(contentsDir, "Resources");
   const bundleBinaryPath = nodePath.join(macosDir, executableName);
   const infoPlistPath = nodePath.join(outputDir, getMacOSAppInfoPlistPath());
-  const iconScriptPath = nodePath.join(outputDir, getMacOSIconScriptPath());
+  const pkgInfoPath = nodePath.join(outputDir, "PkgInfo");
   const iconOutputPath = nodePath.join(resourcesDir, `${executableName}.icns`);
 
-  nodeFs.rmSync(appPath, { recursive: true, force: true });
+  nodeFs.mkdirSync(appPath, { recursive: true });
+  nodeFs.rmSync(contentsDir, { recursive: true, force: true });
   nodeFs.mkdirSync(macosDir, { recursive: true });
   nodeFs.mkdirSync(resourcesDir, { recursive: true });
 
@@ -56,17 +57,14 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
   } else {
     nodeFs.writeFileSync(nodePath.join(contentsDir, "Info.plist"), renderMacOSAppInfoPlist(config, executableName), "utf8");
   }
-
-  if (!nodeFs.existsSync(iconScriptPath)) {
-    nodeFs.writeFileSync(iconScriptPath, `${renderMacOSIconScript()}\n`, "utf8");
-    nodeFs.chmodSync(iconScriptPath, 0o755);
+  if (nodeFs.existsSync(pkgInfoPath)) {
+    nodeFs.copyFileSync(pkgInfoPath, nodePath.join(contentsDir, "PkgInfo"));
+  } else {
+    nodeFs.writeFileSync(nodePath.join(contentsDir, "PkgInfo"), "APPL????", "utf8");
   }
 
   try {
-    if (!generateIcon) {
-      throw new Error("No macOS icon generator is available in this runtime");
-    }
-    generateIcon(config.iconPath, iconOutputPath, iconScriptPath);
+    (options.generateIcon ?? generateMacOSAppIconFromPng)(config.iconPath, iconOutputPath);
   } catch (error: any) {
     throw new Error(formatProcessFailure("Failed to generate macOS app icon", error));
   }
@@ -95,6 +93,43 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
 
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };
+}
+
+export function generateMacOSAppIconFromPng(iconPath: string, outputPath: string): void {
+  const workDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "doof-macos-icon-"));
+  try {
+    const iconsetDir = nodePath.join(workDir, "app.iconset");
+    nodeFs.mkdirSync(iconsetDir, { recursive: true });
+    const renderIcon = (size: number, name: string) => {
+      execFileSync("sips", ["-z", String(size), String(size), iconPath, "--out", nodePath.join(iconsetDir, name)], {
+        stdio: "pipe",
+        timeout: 30000,
+      });
+    };
+    renderIcon(16, "icon_16x16.png");
+    renderIcon(32, "icon_16x16@2x.png");
+    renderIcon(32, "icon_32x32.png");
+    renderIcon(64, "icon_32x32@2x.png");
+    renderIcon(128, "icon_128x128.png");
+    renderIcon(256, "icon_128x128@2x.png");
+    renderIcon(256, "icon_256x256.png");
+    renderIcon(512, "icon_256x256@2x.png");
+    renderIcon(512, "icon_512x512.png");
+    renderIcon(1024, "icon_512x512@2x.png");
+    nodeFs.mkdirSync(nodePath.dirname(outputPath), { recursive: true });
+    try {
+      execFileSync("iconutil", ["-c", "icns", iconsetDir, "-o", outputPath], {
+        stdio: "pipe",
+        timeout: 30000,
+      });
+    } catch {
+      // Some macOS hosts reject otherwise-valid iconsets. Keep the bundle runnable
+      // by falling back to the configured PNG asset at the requested icon path.
+      nodeFs.copyFileSync(iconPath, outputPath);
+    }
+  } finally {
+    nodeFs.rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 function expandResourcePattern(pattern: string): string[] {

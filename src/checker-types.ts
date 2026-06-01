@@ -122,6 +122,10 @@ export interface StreamResolvedType {
   elementType: ResolvedType;
 }
 
+export interface RangeResolvedType {
+  kind: "range";
+}
+
 export interface TupleResolvedType {
   kind: "tuple";
   elements: ResolvedType[];
@@ -224,6 +228,7 @@ export type ResolvedType =
   | MapResolvedType
   | SetResolvedType
   | StreamResolvedType
+  | RangeResolvedType
   | UnionResolvedType
   | TupleResolvedType
   | WeakResolvedType
@@ -256,6 +261,7 @@ export const BOOL_TYPE: PrimitiveType = { kind: "primitive", name: "bool" };
 export const VOID_TYPE: VoidType = { kind: "void" };
 export const NULL_TYPE: NullType = { kind: "null" };
 export const UNKNOWN_TYPE: UnknownType = { kind: "unknown" };
+export const RANGE_TYPE: RangeResolvedType = { kind: "range" };
 export const JSON_SERIALIZABLE_CONSTRAINT_TYPE: JsonSerializableConstraintType = { kind: "json-serializable-constraint" };
 
 export const JSON_VALUE_TYPE = {
@@ -435,6 +441,8 @@ export function typeToString(t: ResolvedType): string {
     }
     case "stream":
       return `Stream<${typeToString(t.elementType)}>`;
+    case "range":
+      return "Range";
     case "union":
       return t.types.map(typeToString).join(" | ");
     case "tuple":
@@ -582,6 +590,9 @@ export function findUnsupportedHashCollectionConstraint(type: ResolvedType): Has
 
     case "stream":
       return findUnsupportedHashCollectionConstraint(type.elementType);
+
+    case "range":
+      return null;
 
     case "result": {
       const unsupportedSuccess = findUnsupportedHashCollectionConstraint(type.successType);
@@ -767,6 +778,10 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
 
   if (source.kind === "stream" && target.kind === "stream") {
     return isAssignableTo(source.elementType, target.elementType);
+  }
+
+  if (source.kind === "range" || target.kind === "range") {
+    return source.kind === "range" && target.kind === "range";
   }
 
   // Tuple compatibility.
@@ -965,6 +980,8 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
     }
     case "stream":
       return typesEqual(a.elementType, (b as StreamResolvedType).elementType);
+    case "range":
+      return true;
     case "union": {
       const bu = b as UnionResolvedType;
       if (a.types.length !== bu.types.length) return false;
@@ -1098,6 +1115,8 @@ export function substituteTypeParams(
         kind: "stream",
         elementType: substituteTypeParams(type.elementType, paramMap),
       };
+    case "range":
+      return type;
     case "union":
       return buildNormalizedUnionType(type.types.map((t) => substituteTypeParams(t, paramMap)));
     case "tuple":
@@ -1201,6 +1220,8 @@ export function typeContainsTypeVar(type: ResolvedType): boolean {
     case "set":
     case "stream":
       return typeContainsTypeVar(type.elementType);
+    case "range":
+      return false;
     case "map":
       return typeContainsTypeVar(type.keyType) || typeContainsTypeVar(type.valueType);
     case "union":
@@ -1243,6 +1264,8 @@ export function isStreamSensitiveType(type: ResolvedType): boolean {
   switch (type.kind) {
     case "stream":
       return typeContainsTypeVar(type.elementType) || isStreamSensitiveType(type.elementType);
+    case "range":
+      return false;
     case "array":
     case "set":
       return isStreamSensitiveType(type.elementType);
@@ -1356,6 +1379,9 @@ export function isJSONSerializable(
       return true;
 
     case "stream":
+      return false;
+
+    case "range":
       return false;
 
     case "function":

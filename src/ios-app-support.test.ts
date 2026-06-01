@@ -11,7 +11,7 @@ describe("ios-app support files", () => {
     bundleId: "dev.doof.demo",
     displayName: "Doof Demo",
     version: "1.0",
-    iconPath: "/app/app-icon.svg",
+    iconPath: "/app/app-icon.png",
     resources: [],
     minimumDeploymentTarget: "16.0",
   };

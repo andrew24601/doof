@@ -10,7 +10,7 @@
       "displayName": "Doof Seahaven Towers",
       "version": "1.0",
       "category": "public.app-category.games",
-      "icon": "app-icon.svg",
+      "icon": "app-icon.png",
       "resources": [
         { "from": "images/*", "to": "images" }
       ]

@@ -19,7 +19,7 @@
  */
 
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isDoofBuildTarget, type DoofBuildTarget, type IOSAppDestination } from "./build-targets.js";
@@ -40,16 +40,13 @@ import {
   signIOSDeviceApp,
 } from "./ios-app-target-node.js";
 import { assembleMacOSAppBundle } from "./macos-app-target.js";
-import { generateMacOSAppIconWithShell } from "./macos-app-target-node.js";
 import {
-  buildCompileArgs,
-  buildCompilePlan,
-  compileCpp,
   findCompilerToolchain,
   printDiagnostic,
   RealFS,
   resolveCompilerToolchain,
   resolveNativeBuildOptions,
+  runNativeBuildGraph,
   runPipelineWithFs,
   writeProject,
 } from "./cli-core.js";
@@ -328,8 +325,6 @@ export function getCliVersion(packageJsonPath = fileURLToPath(new URL("../packag
 // Commands
 // ============================================================================
 
-export { buildCompileArgs, buildCompilePlan } from "./cli-core.js";
-
 function runPipeline(
   entryFile: string,
   verbose: boolean,
@@ -364,7 +359,7 @@ function cmdEmit(
   log(`Emitted ${project.modules.length} module(s) to ${outDir}/`);
 }
 
-function cmdBuildOrRun(args: CliArgs, run: boolean): void {
+async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
   const toolchain = resolveCompilerToolchain(args.compiler);
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
   const { project, nativeBuild: resolvedNativeBuild, outputBinaryName, provenance, buildManifest, buildTarget } = runPipeline(
@@ -374,7 +369,6 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
     args.targetOverride,
     args.iosDestination,
   );
-  writeProject(project, args.outDir, args.verbose, log, provenance, buildManifest);
   const effectiveNativeBuild = buildTarget?.kind === "ios-app"
     ? args.iosDestination === "device"
       ? buildIOSDeviceNativeBuild(
@@ -388,7 +382,16 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
         resolveIOSSimulatorBuildSettings(buildTarget.config),
       )
     : resolvedNativeBuild;
-  const binary = compileCpp(args.outDir, project, toolchain, effectiveNativeBuild, args.verbose, log, outputBinaryName);
+  const { outBinary: binary } = await runNativeBuildGraph(
+    args.outDir,
+    project,
+    toolchain,
+    effectiveNativeBuild,
+    args.verbose,
+    outputBinaryName,
+    provenance,
+    buildManifest,
+  );
   let builtArtifactPath = binary;
   let runBinaryPath = binary;
 
@@ -399,7 +402,6 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
       executableName: outputBinaryName,
       config: buildTarget.config,
       log: args.verbose ? log : undefined,
-      generateIcon: generateMacOSAppIconWithShell,
     });
     builtArtifactPath = bundle.appPath;
     runBinaryPath = bundle.binaryPath;
@@ -443,6 +445,13 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
     return;
   }
 
+  if (buildTarget?.kind === "macos-app") {
+    if (args.verbose) log(`Launching macOS app: ${builtArtifactPath}`);
+    launchMacOSAppAfterExit(builtArtifactPath, toolchain.env ?? process.env);
+    log(`Launched macOS app: ${builtArtifactPath}`);
+    return;
+  }
+
   if (args.verbose) log(`Running: ${runBinaryPath}`);
   const runTimeout = resolveRunTimeoutMs(process.env);
   try {
@@ -460,10 +469,10 @@ function cmdBuildOrRun(args: CliArgs, run: boolean): void {
   }
 }
 
-function cmdTest(args: CliArgs): void {
+async function cmdTest(args: CliArgs): Promise<void> {
   const compiler = args.compiler ? resolveCompilerToolchain(args.compiler) : findCompilerToolchain();
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
-  const result = runTestCommand({
+  const result = await runTestCommand({
     targetPath: args.entry,
     compiler,
     nativeBuild,
@@ -519,6 +528,22 @@ function resolveIOSDeviceTargetIdentifier(args: CliArgs): string {
     const message = err instanceof Error ? err.message : String(err);
     fatal(message);
   }
+}
+
+function launchMacOSAppAfterExit(appPath: string, env: NodeJS.ProcessEnv): void {
+  const script = [
+    "const { execFile } = require('node:child_process');",
+    "const appPath = process.argv[1];",
+    "setTimeout(() => {",
+    "  execFile('open', ['-n', appPath], { env: process.env }, () => {});",
+    "}, 300);",
+  ].join("");
+  const child = spawn(process.execPath, ["-e", script, appPath], {
+    detached: true,
+    stdio: "ignore",
+    env,
+  });
+  child.unref();
 }
 
 export function resolveRunTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -591,7 +616,7 @@ function isManifestPath(pathValue: string): boolean {
 // Main
 // ============================================================================
 
-export function main(argv = process.argv): void {
+export async function main(argv = process.argv): Promise<void> {
   try {
     const args = parseArgs(argv);
     const resolvedArgs = isPipelineCommand(args.command)
@@ -610,7 +635,7 @@ export function main(argv = process.argv): void {
         break;
       case "test":
         if (!resolvedArgs.entry) fatal("Missing test path. Usage: doof test <path>");
-        cmdTest(resolvedArgs);
+        await cmdTest(resolvedArgs);
         break;
       case "emit":
         cmdEmit(
@@ -623,10 +648,10 @@ export function main(argv = process.argv): void {
         );
         break;
       case "build":
-        cmdBuildOrRun(resolvedArgs, false);
+        await cmdBuildOrRun(resolvedArgs, false);
         break;
       case "run":
-        cmdBuildOrRun(resolvedArgs, true);
+        await cmdBuildOrRun(resolvedArgs, true);
         break;
     }
   } catch (err) {

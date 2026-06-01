@@ -213,6 +213,8 @@ grade := if score >= 90 then "A" else if score >= 80 then "B" else "C"
 for item of items { println(item) }
 for i of 0..<10 { println(i) }
 for i of 1..5 { println(i) }
+window: Range := 1..<5
+for i of window { println(i) }
 
 for suit, pile of foundations {
     println("${suit.name}: ${pile.cards.length}")
@@ -256,6 +258,7 @@ case direction {
 Rules:
 
 - `case` matches values, ranges, and types.
+- Open-ended ranges such as `90..` and `..<18` are valid only as `case` patterns.
 - Expression-form arms are comma-separated.
 - Statement-form arms are newline-separated, not comma-separated.
 - Multiple patterns for one arm use `|`.

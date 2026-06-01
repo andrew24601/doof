@@ -34,6 +34,8 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
   const infoPlistPath = nodePath.join(outputDir, getIOSAppInfoPlistPath());
   const assetCatalogPath = nodePath.join(outputDir, getIOSAppAssetCatalogPath());
 
+  populateIOSAppIconSetFromPng(config.iconPath, assetCatalogPath);
+
   nodeFs.rmSync(appPath, { recursive: true, force: true });
   nodeFs.mkdirSync(appPath, { recursive: true });
 
@@ -74,6 +76,24 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
 
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };
+}
+
+function populateIOSAppIconSetFromPng(iconPath: string, assetCatalogPath: string): void {
+  const iconsetDir = nodePath.join(assetCatalogPath, "AppIcon.appiconset");
+  const contentsPath = nodePath.join(iconsetDir, "Contents.json");
+  if (!nodeFs.existsSync(contentsPath)) {
+    return;
+  }
+
+  const parsed = JSON.parse(nodeFs.readFileSync(contentsPath, "utf8")) as {
+    images?: Array<{ filename?: string }>;
+  };
+  const filenames = [...new Set((parsed.images ?? [])
+    .map((image) => image.filename)
+    .filter((filename): filename is string => Boolean(filename)))];
+  for (const filename of filenames) {
+    nodeFs.copyFileSync(iconPath, nodePath.join(iconsetDir, filename));
+  }
 }
 
 function copyPath(sourcePath: string, destinationPath: string): void {

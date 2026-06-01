@@ -16,6 +16,11 @@
 
 `string.charAt(index)` returns a `char`. Convert it with `string(c)` when a one-character string is needed; `char` values also work with equality checks and string concatenation.
 
+`Range` is the built-in finite integer range type created by `a..b` and
+`a..<b`. It can be stored, passed to functions, returned, and iterated with
+`for of`; iteration yields `int`. Open-ended forms such as `5..` and `..<10`
+are case-pattern-only.
+
 ### Numeric Literals and Conversions
 
 ```doof

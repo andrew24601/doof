@@ -2,4 +2,4 @@
 
 import { main } from "./cli.js";
 
-main();
+await main();

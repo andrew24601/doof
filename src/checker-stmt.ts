@@ -5,6 +5,7 @@ import {
 } from "./checker-readonly.js";
 import {
   computeElseNarrowType,
+  INT_TYPE,
   isAssignableTo,
   type Binding,
   type ModuleTypeInfo,
@@ -136,8 +137,8 @@ export function checkStatement(
           ? iterableType.elementType
         : iterableType.kind === "stream"
           ? iterableType.elementType
-        : isRangeExpression(stmt.iterable)
-          ? iterableType
+        : iterableType.kind === "range"
+          ? INT_TYPE
           : UNKNOWN_TYPE;
 
       if (iterableType.kind === "map" && stmt.bindings.length === 2) {
@@ -1112,9 +1113,4 @@ function validateDestructuringAssignmentTarget(
       module: table.path,
     });
   }
-}
-
-function isRangeExpression(expr: Expression): boolean {
-  return expr.kind === "binary-expression"
-    && (expr.operator === ".." || expr.operator === "..<");
 }

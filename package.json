@@ -32,6 +32,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@andrew24601/reckon": "^0.1.2",
     "plist": "^3.1.0"
   }
 }

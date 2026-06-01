@@ -510,6 +510,28 @@ describe("e2e — readonly class bindings", () => {
 // ============================================================================
 
 describe("e2e — for-of with range", () => {
+  it("runs range values passed through helpers", () => {
+    const result = ctx.compileAndRun(`
+      function sum(r: Range): int {
+        let total = 0
+        for i of r {
+          total = total + i
+        }
+        return total
+      }
+
+      function main(): int {
+        r: Range := 1..<5
+        return sum(r)
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(10);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
   it("compiles for-of with inclusive range", () => {
     const { success, error, code } = ctx.compileOnly(`
       function main(): int {

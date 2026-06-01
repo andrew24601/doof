@@ -840,7 +840,7 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
           },
         },
         dependencies: {
@@ -848,7 +848,7 @@ describe("local package graphs", () => {
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/deps/boardgame/doof.json": JSON.stringify({
         name: "boardgame",
         build: {
@@ -885,7 +885,7 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
           },
         },
         dependencies: {
@@ -893,7 +893,7 @@ describe("local package graphs", () => {
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/deps/boardgame/doof.json": JSON.stringify({
         name: "boardgame",
         build: {
@@ -932,18 +932,18 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo.macos",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
           },
           iosApp: {
             bundleId: "dev.doof.demo.ios",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
     });
 
     const graph = loadPackageGraph(fs, "/app/main.do", { buildTargetOverride: "ios-app" });
@@ -954,7 +954,7 @@ describe("local package graphs", () => {
         bundleId: "dev.doof.demo.ios",
         displayName: "Doof Demo",
         version: "1.0",
-        iconPath: "/app/app-icon.svg",
+        iconPath: "/app/app-icon.png",
         resources: [],
         minimumDeploymentTarget: "16.0",
       },
@@ -972,7 +972,7 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.solitaire",
             displayName: "Doof Solitaire",
             version: "1.0",
-            icon: "./app-icon.svg",
+            icon: "./app-icon.png",
             resources: [
               { from: "images/*", to: "images" },
             ],
@@ -980,7 +980,7 @@ describe("local package graphs", () => {
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -992,7 +992,7 @@ describe("local package graphs", () => {
         bundleId: "dev.doof.solitaire",
         displayName: "Doof Solitaire",
         version: "1.0",
-        iconPath: "/app/app-icon.svg",
+        iconPath: "/app/app-icon.png",
         resources: [{ fromPattern: "/app/images/*", destination: "images" }],
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
@@ -1011,7 +1011,7 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
             resources: [
               { from: "images/*", to: "images" },
             ],
@@ -1019,7 +1019,7 @@ describe("local package graphs", () => {
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -1031,7 +1031,7 @@ describe("local package graphs", () => {
         bundleId: "dev.doof.demo",
         displayName: "Doof Demo",
         version: "1.0",
-        iconPath: "/app/app-icon.svg",
+        iconPath: "/app/app-icon.png",
         resources: [{ fromPattern: "/app/images/*", destination: "images" }],
         minimumDeploymentTarget: "16.0",
       },
@@ -1055,13 +1055,13 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
             resources: [{ from: "images/*", to: "images" }],
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -1077,7 +1077,7 @@ describe("local package graphs", () => {
         bundleId: "dev.doof.demo",
         displayName: "Demo",
         version: "1.0",
-        iconPath: "/app/app-icon.svg",
+        iconPath: "/app/app-icon.png",
         resources: [{ fromPattern: "/app/images/*", destination: "images" }],
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
@@ -1095,12 +1095,12 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "./app-icon.svg",
+            icon: "./app-icon.png",
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
     });
 
     expect(() => loadPackageGraph(fs, "/app/main.do"))
@@ -1117,7 +1117,30 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow('build.targetExecutableName is required when build.target is "ios-app"');
+  });
+
+  it("rejects non-PNG macos-app icons", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofDemo",
+          macosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "./app-icon.svg",
           },
         },
       }),
@@ -1126,7 +1149,30 @@ describe("local package graphs", () => {
     });
 
     expect(() => loadPackageGraph(fs, "/app/main.do"))
-      .toThrow('build.targetExecutableName is required when build.target is "ios-app"');
+      .toThrow("build.macosApp.icon must point to a PNG file");
+  });
+
+  it("rejects non-PNG ios-app icons", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Demo",
+            version: "1.0",
+            icon: "./app-icon.svg",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.svg": "<svg />",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("build.iosApp.icon must point to a PNG file");
   });
 
   it("rejects macos-app resource destinations that escape the bundle", () => {
@@ -1140,13 +1186,13 @@ describe("local package graphs", () => {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "./app-icon.svg",
+            icon: "./app-icon.png",
             resources: [{ from: "images/*", to: "../oops" }],
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -1430,13 +1476,13 @@ describe("manifest-derived pipeline metadata", () => {
             bundleId: "dev.doof.solitaire",
             displayName: "Doof Solitaire",
             version: "1.0",
-            icon: "./app-icon.svg",
+            icon: "./app-icon.png",
             resources: [{ from: "images/*", to: "images" }],
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -1452,7 +1498,6 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.buildTarget?.kind).toBe("macos-app");
     expect(result.project.supportFiles.map((file) => file.relativePath)).toEqual([
       "Info.plist",
-      "generate-macos-icon.sh",
     ]);
     expect(result.project.supportFiles[0]?.content).toContain("dev.doof.solitaire");
     expect(result.buildManifest.buildTarget?.kind).toBe("macos-app");
@@ -1467,9 +1512,8 @@ describe("manifest-derived pipeline metadata", () => {
       };
       expect(buildManifest.schemaVersion).toBe(2);
       expect(buildManifest.buildTarget?.kind).toBe("macos-app");
-      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.svg");
+      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.png");
       expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.solitaire");
-      expect(fs.statSync(path.join(outDir, "generate-macos-icon.sh")).mode & 0o111).not.toBe(0);
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
@@ -1489,13 +1533,13 @@ describe("manifest-derived pipeline metadata", () => {
             bundleId: "dev.doof.demo",
             displayName: "Doof Demo",
             version: "1.0",
-            icon: "app-icon.svg",
+            icon: "app-icon.png",
             resources: [{ from: "images/*", to: "images" }],
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.svg": "<svg />",
+      "/app/app-icon.png": "png",
       "/app/images/card.png": "png",
     });
 
@@ -1527,7 +1571,7 @@ describe("manifest-derived pipeline metadata", () => {
       };
       expect(buildManifest.schemaVersion).toBe(2);
       expect(buildManifest.buildTarget?.kind).toBe("ios-app");
-      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.svg");
+      expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.png");
       expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.demo");
       expect(fs.readFileSync(path.join(outDir, "ios-main.mm"), "utf8")).toContain("UIApplicationMain");
       expect(

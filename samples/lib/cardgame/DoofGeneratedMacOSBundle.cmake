@@ -19,18 +19,12 @@ function(doof_configure_generated_macos_bundle target_name output_dir)
     string(JSON DOOF_APP_ICON_PATH GET "${DOOF_BUILD_MANIFEST_RAW}" buildTarget config iconPath)
 
     set(DOOF_INFO_PLIST_PATH "${output_dir}/Info.plist")
-    set(DOOF_ICON_SCRIPT_PATH "${output_dir}/generate-macos-icon.sh")
+    set(DOOF_ICONSET_PATH "${CMAKE_CURRENT_BINARY_DIR}/${DOOF_OUTPUT_BINARY_NAME}.iconset")
     set(DOOF_ICON_ICNS_PATH "${CMAKE_CURRENT_BINARY_DIR}/${DOOF_OUTPUT_BINARY_NAME}.icns")
 
     if(NOT EXISTS "${DOOF_INFO_PLIST_PATH}")
         message(FATAL_ERROR
             "Generated Doof macOS bundle metadata was not found in ${output_dir}. Missing Info.plist."
-        )
-    endif()
-
-    if(NOT EXISTS "${DOOF_ICON_SCRIPT_PATH}")
-        message(FATAL_ERROR
-            "Generated Doof macOS icon helper was not found in ${output_dir}. Missing generate-macos-icon.sh."
         )
     endif()
 
@@ -42,9 +36,20 @@ function(doof_configure_generated_macos_bundle target_name output_dir)
 
     add_custom_command(
         OUTPUT "${DOOF_ICON_ICNS_PATH}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
-        COMMAND /bin/bash "${DOOF_ICON_SCRIPT_PATH}" "${DOOF_APP_ICON_PATH}" "${DOOF_ICON_ICNS_PATH}"
-        DEPENDS "${DOOF_APP_ICON_PATH}" "${DOOF_ICON_SCRIPT_PATH}"
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${DOOF_ICONSET_PATH}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${DOOF_ICONSET_PATH}"
+        COMMAND sips -z 16 16 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_16x16.png"
+        COMMAND sips -z 32 32 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_16x16@2x.png"
+        COMMAND sips -z 32 32 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_32x32.png"
+        COMMAND sips -z 64 64 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_32x32@2x.png"
+        COMMAND sips -z 128 128 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_128x128.png"
+        COMMAND sips -z 256 256 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_128x128@2x.png"
+        COMMAND sips -z 256 256 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_256x256.png"
+        COMMAND sips -z 512 512 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_256x256@2x.png"
+        COMMAND sips -z 512 512 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_512x512.png"
+        COMMAND sips -z 1024 1024 "${DOOF_APP_ICON_PATH}" --out "${DOOF_ICONSET_PATH}/icon_512x512@2x.png"
+        COMMAND iconutil -c icns "${DOOF_ICONSET_PATH}" -o "${DOOF_ICON_ICNS_PATH}"
+        DEPENDS "${DOOF_APP_ICON_PATH}"
         COMMENT "Generating ${DOOF_OUTPUT_BINARY_NAME} app icon"
         VERBATIM
     )

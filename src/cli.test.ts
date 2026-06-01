@@ -2,16 +2,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { reckon } from "@andrew24601/reckon";
 import type { ProjectEmitResult } from "./emitter-module.js";
 import {
-  buildCompileArgs,
-  buildCompilePlan,
   formatRunTimeoutMessage,
   getCliVersion,
   parseArgs,
   resolveCliPipelineInputs,
   resolveRunTimeoutMs,
 } from "./cli.js";
+import {
+  createNativeBuildGraphPlan,
+  createProjectMaterializePlan,
+} from "./cli-core.js";
 import { VirtualFS } from "./test-helpers.js";
 
 const tmpDirs: string[] = [];
@@ -258,215 +261,95 @@ describe("CLI run settings", () => {
 });
 
 describe("CLI compile args", () => {
-  it("builds compiler arguments from native build options", () => {
+  it("materializes generated files without touching unchanged content on later runs", async () => {
+    const outDir = createTempDir();
     const project = createProjectEmitResult();
+    project.modules[0].cppCode = "int main() { return 0; }\n";
+    const plan = createProjectMaterializePlan(project, outDir);
 
-    const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
-      cppStd: "gnu++20",
-      includePaths: ["/opt/vendor/include"],
-      libraryPaths: ["/opt/vendor/lib"],
-      linkLibraries: ["curl", "ssl"],
-      frameworks: ["Foundation"],
-      pkgConfigPackages: [],
-      sourceFiles: ["/tmp/native/bridge.cpp"],
-      objectFiles: ["/tmp/native/bridge.o"],
-      compilerFlags: ["-O2"],
-      linkerFlags: ["-pthread"],
-      defines: ["DEBUG", "API_LEVEL=2"],
-    }, {
-      platform: "linux",
-      toolchain: { kind: "gcc-like", command: "clang++" },
+    const first = await reckon(plan.tasks, {
+      cwd: path.parse(outDir).root,
+      stateDirectory: path.join(outDir, ".reckon"),
     });
+    const outputPath = path.join(outDir, "main.cpp");
+    const firstMtime = fs.statSync(outputPath).mtimeMs;
 
-    expect(outBinary).toBe("/tmp/doof-build/a.out");
-    expect(args).toContain("-std=gnu++20");
-    expect(args).toContain("-I/tmp/doof-build");
-    expect(args).toContain("-I/opt/vendor/include");
-    expect(args).toContain("-DDEBUG");
-    expect(args).toContain("-DAPI_LEVEL=2");
-    expect(args).toContain("-O2");
-    expect(args).toContain("/tmp/doof-build/main.cpp");
-    expect(args).toContain("/tmp/native/bridge.cpp");
-    expect(args).toContain("/tmp/native/bridge.o");
-    expect(args).toContain("-L/opt/vendor/lib");
-    expect(args).toContain("-lcurl");
-    expect(args).toContain("-lssl");
-    expect(args).toContain("-framework");
-    expect(args).toContain("Foundation");
-    expect(args).toContain("-pthread");
+    const second = await reckon(createProjectMaterializePlan(project, outDir).tasks, {
+      cwd: path.parse(outDir).root,
+      stateDirectory: path.join(outDir, ".reckon"),
+    });
+    const secondMtime = fs.statSync(outputPath).mtimeMs;
+
+    expect(first.executed).toContain(outputPath.includes("\\") ? `write ${outputPath}` : `write ${outputPath}`);
+    expect(second.executed).toEqual([]);
+    expect(second.skipped.length).toBeGreaterThan(0);
+    expect(secondMtime).toBe(firstMtime);
   });
 
-  it("uses the configured output binary name when provided", () => {
+  it("rewrites only generated files whose content changes", async () => {
+    const outDir = createTempDir();
     const project = createProjectEmitResult();
-
-    const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
-      cppStd: "c++17",
-      includePaths: [],
-      libraryPaths: [],
-      linkLibraries: [],
-      frameworks: [],
-      pkgConfigPackages: [],
-      sourceFiles: [],
-      objectFiles: [],
-      compilerFlags: [],
-      linkerFlags: [],
-      defines: [],
-    }, {
-      outputBinaryName: "demo-app",
-      platform: "linux",
-      toolchain: { kind: "gcc-like", command: "clang++" },
+    project.modules[0].cppCode = "one\n";
+    await reckon(createProjectMaterializePlan(project, outDir).tasks, {
+      cwd: path.parse(outDir).root,
+      stateDirectory: path.join(outDir, ".reckon"),
     });
 
-    expect(outBinary).toBe("/tmp/doof-build/demo-app");
-    expect(args).toContain("/tmp/doof-build/demo-app");
+    const cppPath = path.join(outDir, "main.cpp");
+    const hppPath = path.join(outDir, "main.hpp");
+    const firstCppMtime = fs.statSync(cppPath).mtimeMs;
+    const firstHppMtime = fs.statSync(hppPath).mtimeMs;
+
+    project.modules[0].cppCode = "two\n";
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reckon(createProjectMaterializePlan(project, outDir).tasks, {
+      cwd: path.parse(outDir).root,
+      stateDirectory: path.join(outDir, ".reckon"),
+    });
+
+    expect(fs.readFileSync(cppPath, "utf8")).toBe("two\n");
+    expect(fs.statSync(cppPath).mtimeMs).toBeGreaterThan(firstCppMtime);
+    expect(fs.statSync(hppPath).mtimeMs).toBe(firstHppMtime);
   });
 
-  it.runIf(process.platform === "win32")("builds MSVC compiler arguments on Windows", () => {
+  it("plans gcc-like object compile tasks and a final link task", () => {
     const project = createProjectEmitResult();
+    const materializePlan = createProjectMaterializePlan(project, "/tmp/doof-build");
+    const graph = createNativeBuildGraphPlan(
+      "/tmp/doof-build",
+      project,
+      { kind: "gcc-like", command: "clang++" },
+      {
+        cppStd: "c++20",
+        includePaths: ["/opt/vendor/include"],
+        libraryPaths: ["/opt/vendor/lib"],
+        linkLibraries: ["curl"],
+        frameworks: ["Foundation"],
+        pkgConfigPackages: [],
+        sourceFiles: ["/tmp/native/bridge.cpp"],
+        objectFiles: ["/tmp/native/bridge.o"],
+        compilerFlags: ["-O2"],
+        linkerFlags: ["-pthread"],
+        defines: ["DEBUG"],
+      },
+      materializePlan,
+      "demo",
+      { platform: "linux" },
+    );
 
-    const { outBinary, args } = buildCompileArgs("C:\\tmp\\doof-build", project, {
-      cppStd: "gnu++20",
-      includePaths: ["C:\\vendor\\include"],
-      libraryPaths: ["C:\\vendor\\lib"],
-      linkLibraries: ["curl", "ssl.lib"],
-      frameworks: [],
-      pkgConfigPackages: [],
-      sourceFiles: ["C:\\tmp\\native\\bridge.cpp"],
-      objectFiles: ["C:\\tmp\\native\\bridge.obj"],
-      compilerFlags: ["/O2"],
-      linkerFlags: ["/DEBUG"],
-      defines: ["DEBUG", "API_LEVEL=2"],
-    }, {
-      outputBinaryName: "demo-app",
-      platform: "win32",
-      toolchain: { kind: "msvc", command: "cl.exe" },
-    });
-
-    expect(outBinary).toBe("C:\\tmp\\doof-build\\demo-app.exe");
-    expect(args).toContain("/std:c++20");
-    expect(args).toContain("/IC:\\tmp\\doof-build");
-    expect(args).toContain("/IC:\\vendor\\include");
-    expect(args).toContain("/DDEBUG");
-    expect(args).toContain("/DAPI_LEVEL=2");
-    expect(args).toContain("/O2");
-    expect(args).toContain("C:\\tmp\\doof-build\\main.cpp");
-    expect(args).toContain("C:\\tmp\\native\\bridge.cpp");
-    expect(args).toContain("C:\\tmp\\native\\bridge.obj");
-    expect(args).toContain("/FeC:\\tmp\\doof-build\\demo-app.exe");
-    expect(args).toContain("/link");
-    expect(args).toContain("/LIBPATH:C:\\vendor\\lib");
-    expect(args).toContain("curl.lib");
-    expect(args).toContain("ssl.lib");
-    expect(args).toContain("/DEBUG");
+    expect(graph.outBinary).toBe("/tmp/doof-build/demo");
+    expect(graph.tasks.map((task) => task.label)).toEqual(expect.arrayContaining([
+      "compile /tmp/doof-build/main.cpp",
+      "compile /tmp/native/bridge.cpp",
+      "executable /tmp/doof-build/demo",
+    ]));
+    expect(graph.target.taskDependencies.map((task) => task.outputs[0])).toEqual(expect.arrayContaining([
+      "/tmp/doof-build/.doof-objects/main.cpp.o",
+      "/tmp/doof-build/.doof-objects/external/__doof_native_1_bridge.cpp.o",
+    ]));
+    expect(graph.target.fingerprint).toEqual(expect.any(String));
   });
 
-  it("builds syntax-only compiler arguments without linker inputs", () => {
-    const project = createProjectEmitResult();
-
-    const { outBinary, args } = buildCompileArgs("/tmp/doof-build", project, {
-      cppStd: "c++17",
-      includePaths: ["/opt/vendor/include"],
-      libraryPaths: ["/opt/vendor/lib"],
-      linkLibraries: ["curl"],
-      frameworks: ["Foundation"],
-      pkgConfigPackages: [],
-      sourceFiles: ["/tmp/native/bridge.cpp"],
-      objectFiles: ["/tmp/native/bridge.o"],
-      compilerFlags: ["-O2"],
-      linkerFlags: ["-pthread"],
-      defines: ["DEBUG"],
-    }, {
-      mode: "syntax-only",
-      platform: "linux",
-      toolchain: { kind: "gcc-like", command: "clang++" },
-    });
-
-    expect(outBinary).toBe("/tmp/doof-build/a.out");
-    expect(args).toContain("-fsyntax-only");
-    expect(args).not.toContain("-o");
-    expect(args).not.toContain("/tmp/doof-build/a.out");
-    expect(args).not.toContain("-L/opt/vendor/lib");
-    expect(args).not.toContain("-lcurl");
-    expect(args).not.toContain("-framework");
-    expect(args).not.toContain("Foundation");
-    expect(args).not.toContain("/tmp/native/bridge.o");
-    expect(args).not.toContain("-pthread");
-  });
-
-  it("precompiles native .c sources before the final gcc-like link step", () => {
-    const project = createProjectEmitResult();
-
-    const plan = buildCompilePlan("/tmp/doof-build", project, {
-      cppStd: "c++17",
-      includePaths: [],
-      libraryPaths: [],
-      linkLibraries: [],
-      frameworks: [],
-      pkgConfigPackages: [],
-      sourceFiles: ["/tmp/native/pcre2.c", "/tmp/native/bridge.cpp"],
-      objectFiles: [],
-      compilerFlags: [],
-      linkerFlags: [],
-      defines: [],
-    }, {
-      platform: "linux",
-      toolchain: { kind: "gcc-like", command: "clang++" },
-    });
-
-    expect(plan.outBinary).toBe("/tmp/doof-build/a.out");
-    expect(plan.commands).toHaveLength(2);
-    expect(plan.commands[0]).toEqual({
-      command: "clang",
-      args: [
-        "-I/tmp/doof-build",
-        "-x",
-        "c",
-        "-c",
-        "/tmp/native/pcre2.c",
-        "-o",
-        "/tmp/doof-build/.doof-native-objects/external/__doof_native_0_pcre2.c.o",
-      ],
-    });
-    expect(plan.commands[1].command).toBe("clang++");
-    expect(plan.commands[1].args).toContain("/tmp/doof-build/main.cpp");
-    expect(plan.commands[1].args).toContain("/tmp/native/bridge.cpp");
-    expect(plan.commands[1].args).toContain("/tmp/doof-build/.doof-native-objects/external/__doof_native_0_pcre2.c.o");
-  });
-
-  it("syntax-checks native .c sources separately on gcc-like toolchains", () => {
-    const project = createProjectEmitResult();
-
-    const plan = buildCompilePlan("/tmp/doof-build", project, {
-      cppStd: "c++17",
-      includePaths: [],
-      libraryPaths: [],
-      linkLibraries: [],
-      frameworks: [],
-      pkgConfigPackages: [],
-      sourceFiles: ["/tmp/native/pcre2.c"],
-      objectFiles: [],
-      compilerFlags: [],
-      linkerFlags: [],
-      defines: [],
-    }, {
-      mode: "syntax-only",
-      platform: "linux",
-      toolchain: { kind: "gcc-like", command: "clang++" },
-    });
-
-    expect(plan.commands).toHaveLength(2);
-    expect(plan.commands[0]).toEqual({
-      command: "clang",
-      args: [
-        "-I/tmp/doof-build",
-        "-x",
-        "c",
-        "-fsyntax-only",
-        "/tmp/native/pcre2.c",
-      ],
-    });
-    expect(plan.commands[1].args).toContain("-fsyntax-only");
-  });
 });
 
 describe("CLI version", () => {

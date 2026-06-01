@@ -215,6 +215,27 @@ Validation anchors:
 - `src/checker-inference.test.ts`
 - `spec/08-errors-and-results.md`
 
+## Built-in Range Values
+
+Finite `a..b` and `a..<b` expressions resolve to the builtin `Range` type, while
+open-ended range forms remain `case` pattern syntax only. The checker should use
+the `Range` type, not raw syntax shape, when deciding whether a `for of` source
+is range-iterable; the loop binding type is always `int`.
+
+Primary modules:
+
+- `src/parser.ts`
+- `src/checker-expr-ops.ts`
+- `src/checker-stmt.ts`
+- `src/emitter-types.ts`
+
+Validation anchors:
+
+- `src/parser-expr.test.ts`
+- `src/checker-features.test.ts`
+- `src/emitter-constructs.test.ts`
+- `src/emitter-e2e-compile.test.ts`
+
 ## Maintaining This Document
 
 Update this document when:

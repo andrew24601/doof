@@ -1,6 +1,8 @@
 import type { SourceSpan } from "./ast.js";
 import {
   BOOL_TYPE,
+  INT_TYPE,
+  RANGE_TYPE,
   STRING_TYPE,
   type EnumType,
   type ModuleTypeInfo,
@@ -45,6 +47,11 @@ export function inferBinaryType(
     return BOOL_TYPE;
   }
   if (op === "??") return inferNullCoalescingType(left, right);
+  if (op === ".." || op === "..<") {
+    validateRangeOperand(op, "left", left, info, table, span);
+    validateRangeOperand(op, "right", right, info, table, span);
+    return RANGE_TYPE;
+  }
   if (NUMERIC_BINARY_OPS.has(op)) {
     const hasInvalidOperand = validateBinaryPrimitiveOperands(op, left, right, info, table, span);
 
@@ -123,6 +130,34 @@ export function inferBinaryType(
     return widenNumeric(left.name, right.name);
   }
   return left;
+}
+
+function validateRangeOperand(
+  op: string,
+  side: "left" | "right",
+  operand: ResolvedType,
+  info: ModuleTypeInfo,
+  table: ModuleSymbolTable,
+  span: SourceSpan,
+): void {
+  if (operand.kind === "unknown") return;
+  if (operand.kind !== "primitive" || !INTEGER_PRIMITIVES.has(operand.name)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Range operator "${op}" requires integer bounds, got ${side} bound of type "${typeToString(operand)}"`,
+      span,
+      module: table.path,
+    });
+    return;
+  }
+  if (!typesEqual(operand, INT_TYPE) && operand.name !== "byte") {
+    info.diagnostics.push({
+      severity: "error",
+      message: `Range operator "${op}" currently requires int-compatible bounds, got ${side} bound of type "${typeToString(operand)}"`,
+      span,
+      module: table.path,
+    });
+  }
 }
 
 export function inferUnaryType(

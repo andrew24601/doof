@@ -1272,11 +1272,13 @@ function normalizeMacOSAppBuildConfig(
   rootDir: string,
   manifestPath: string,
 ): ResolvedDoofMacOSAppConfig {
+  const iconPath = normalizePackagePath(macosApp.icon, rootDir, manifestPath, "build.macosApp.icon");
+  validatePngAppIconPath(iconPath, manifestPath, "build.macosApp.icon");
   return {
     bundleId: macosApp.bundleId,
     displayName: macosApp.displayName,
     version: macosApp.version,
-    iconPath: normalizePackagePath(macosApp.icon, rootDir, manifestPath, "build.macosApp.icon"),
+    iconPath,
     resources: (macosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,
@@ -1306,11 +1308,13 @@ function normalizeIOSAppBuildConfig(
   rootDir: string,
   manifestPath: string,
 ): ResolvedDoofIOSAppConfig {
+  const iconPath = normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon");
+  validatePngAppIconPath(iconPath, manifestPath, "build.iosApp.icon");
   return {
     bundleId: iosApp.bundleId,
     displayName: iosApp.displayName,
     version: iosApp.version,
-    iconPath: normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon"),
+    iconPath,
     resources: (iosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,
@@ -1322,6 +1326,12 @@ function normalizeIOSAppBuildConfig(
     })),
     minimumDeploymentTarget: iosApp.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
   };
+}
+
+function validatePngAppIconPath(iconPath: string, manifestPath: string, fieldName: string): void {
+  if (nodePath.extname(iconPath).toLowerCase() !== ".png") {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldName} must point to a PNG file`);
+  }
 }
 
 function normalizeIOSAppResourceDestinationOrThrow(value: string, manifestPath: string, index: number): string {

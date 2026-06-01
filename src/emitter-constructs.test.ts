@@ -874,6 +874,32 @@ describe("emitter — member access", () => {
 // ============================================================================
 
 describe("emitter — for-of with range", () => {
+  it("emits standalone range values", () => {
+    const cpp = emit(`
+      function main(): void {
+        r: Range := 1..6
+      }
+    `);
+    expect(cpp).toContain("doof::Range r = doof::range(1, 6);");
+  });
+
+  it("emits range values passed to functions", () => {
+    const cpp = emit(`
+      function first(r: Range): int {
+        for i of r {
+          return i
+        }
+        return 0
+      }
+
+      function main(): int {
+        return first(1..<4)
+      }
+    `);
+    expect(cpp).toContain("int32_t first(doof::Range r)");
+    expect(cpp).toContain("first(doof::range_exclusive(1, 4))");
+  });
+
   it("emits range-based for with doof::range", () => {
     const cpp = emit(`
       function main(): void {
@@ -896,6 +922,19 @@ describe("emitter — for-of with range", () => {
       }
     `);
     expect(cpp).toContain("doof::range_exclusive(0, 10)");
+  });
+
+  it("emits for-of over a range variable", () => {
+    const cpp = emit(`
+      function main(): void {
+        r: Range := 1..3
+        for i of r {
+          println(i)
+        }
+      }
+    `);
+    expect(cpp).toContain("doof::Range r = doof::range(1, 3);");
+    expect(cpp).toContain("for (const auto& i : r)");
   });
 });
 

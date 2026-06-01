@@ -108,7 +108,7 @@ Feature-specific helpers:
 
 ### CLI, Build, and Packaging
 
-- `cli-core.ts` — reusable CLI pipeline logic
+- `cli-core.ts` — reusable CLI pipeline logic, Reckon-backed incremental build graph, and native compile/link planning
 - `cli.ts` — command-line entry wiring
 - `bin.ts` — executable entrypoint
 - `build-targets.ts` — resolved build target definitions

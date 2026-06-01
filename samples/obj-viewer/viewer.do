@@ -58,7 +58,7 @@ function fileBasename(path: string): string {
   let index = path.length - 1
   while index >= 0 {
     ch := path.charAt(index)
-    if ch == "/" || ch == "\\" {
+    if ch == '/' || ch == '\\' {
       return path.slice(index + 1)
     }
     index -= 1

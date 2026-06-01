@@ -118,7 +118,7 @@ Packages can opt into target-specific build behavior under `build.target`. The b
       "bundleId": "dev.doof.solitaire",
       "displayName": "Doof Solitaire",
       "version": "1.0",
-      "icon": "./app-icon.svg",
+      "icon": "./app-icon.png",
       "resources": [
         { "from": "images/*", "to": "images" }
       ]
@@ -131,6 +131,8 @@ Packages can opt into target-specific build behavior under `build.target`. The b
 ```
 
 `build.targetExecutableName` remains the executable name for both CLI builds and emitted native projects. For `macos-app`, `build.macosApp.displayName` is UI metadata, while `build.targetExecutableName` controls the bundle executable name and the `.app` directory name.
+
+Built-in app target icons must be PNG files. SVG icon conversion is not part of the Doof build pipeline.
 
 Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
 
@@ -172,7 +174,7 @@ Packages can declare native build inputs under `build.native`. These values prop
 
 Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/<owner>/<repo>/<commit>/`.
 
-Canonical style is to omit the leading `./` for package-local paths. These fields treat bare values such as `native/include`, `native/bridge.cpp`, `native/lib`, `templates`, `main.do`, or `app-icon.svg` as package-root-relative. Leading `./` is accepted, but it is just extra noise in `doof.json` and the docs prefer the shorter package-relative form.
+Canonical style is to omit the leading `./` for package-local paths. These fields treat bare values such as `native/include`, `native/bridge.cpp`, `native/lib`, `templates`, `main.do`, or `app-icon.png` as package-root-relative. Leading `./` is accepted, but it is just extra noise in `doof.json` and the docs prefer the shorter package-relative form.
 
 For real filesystem builds, Doof now copies package-native inputs into the emitted output tree and compiles against those copied paths instead of the original package cache/source tree. The default copied set is:
 

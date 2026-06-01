@@ -156,6 +156,9 @@ case day {
 | `n..` | Open-ended from n | `90..` matches 90 and above |
 | `..<n` | Open-ended up to n (exclusive) | `..<18` matches 0 to 17 |
 
+In expression positions, only finite `a..b` and `a..<b` forms create `Range`
+values. Open-ended forms are pattern-only.
+
 ---
 
 ## Type Patterns with Capture

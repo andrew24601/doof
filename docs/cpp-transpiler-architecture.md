@@ -180,7 +180,7 @@ At a high level, emission follows this sequence:
 4. Generate runtime and feature support files required by the emitted program.
 5. Return generated source plus the native-build handoff information consumed by the CLI.
 
-The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler.
+The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler. `doof build` and `doof run` materialize those files through Reckon, cache task state in `<buildDir>/.reckon/state.json`, compile generated/native sources to `<buildDir>/.doof-objects/`, and link from those object files.
 
 ## Design Constraints
 

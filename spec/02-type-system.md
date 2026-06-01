@@ -20,6 +20,27 @@ Doof features a strong, static type system with bidirectional type inference, st
 | `bool` | — | Boolean (`true` / `false`) |
 | `void` | — | Unit type (functions with no return value) |
 
+## Built-in Range Type
+
+`Range` is the finite integer range value produced by `a..b` and `a..<b`.
+It can be stored, passed to functions, returned, and iterated with `for of`.
+Iteration yields `int` values.
+
+```doof
+function sum(values: Range): int {
+    let total = 0
+    for value of values {
+        total = total + value
+    }
+    return total
+}
+
+window: Range := 1..<5
+```
+
+Open-ended forms such as `5..` and `..<10` are range patterns only; they are not
+valid `Range` values.
+
 ### The `JsonValue` Type
 
 Doof provides a built-in `JsonValue` carrier for JSON-compatible data:

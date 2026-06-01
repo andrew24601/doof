@@ -182,6 +182,39 @@ describe("Parser — arithmetic expressions", () => {
   });
 });
 
+describe("Parser — range expressions", () => {
+  it("parses finite range literals in expression positions", () => {
+    const declRange = parseExprInInitializer("1..6");
+    expect(declRange).toMatchObject({
+      kind: "binary-expression",
+      operator: "..",
+    });
+
+    const callRange = parseExpr("contains(1..<10, 4)");
+    expect(callRange.kind).toBe("call-expression");
+    if (callRange.kind === "call-expression") {
+      expect(callRange.args[0].value).toMatchObject({
+        kind: "binary-expression",
+        operator: "..<",
+      });
+    }
+
+    const arrayRange = parseExprInInitializer("[1..3]");
+    expect(arrayRange.kind).toBe("array-literal");
+    if (arrayRange.kind === "array-literal") {
+      expect(arrayRange.elements[0]).toMatchObject({
+        kind: "binary-expression",
+        operator: "..",
+      });
+    }
+  });
+
+  it("rejects open-ended range values outside case patterns", () => {
+    expect(() => parse("const r = 1..")).toThrow("Open-ended ranges are only valid in case patterns");
+    expect(() => parse("const r = ..<10")).toThrow("Open-ended ranges are only valid in case patterns");
+  });
+});
+
 // ==========================================================================
 // Comparisons & Logical
 // ==========================================================================

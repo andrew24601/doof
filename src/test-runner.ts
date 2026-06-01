@@ -1,16 +1,14 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { ModuleAnalyzer } from "./analyzer.js";
 import type { FunctionDeclaration } from "./ast.js";
 import {
-  compileCpp,
   type CompilerToolchain,
   formatDiagnostic,
   RealFS,
+  runNativeBuildGraph,
   runPipelineWithFs,
-  writeProject,
 } from "./cli-core.js";
 import type { NativeBuildOptions } from "./emitter-module.js";
 import type { CoverageModuleMetadata } from "./emitter-module.js";
@@ -208,7 +206,7 @@ export function groupTestsByModule(tests: readonly DiscoveredTest[]): TestModule
   return [...groups.values()].sort((left, right) => left.moduleDisplayPath.localeCompare(right.moduleDisplayPath));
 }
 
-export function runTestCommand(options: RunTestCommandOptions): RunTestCommandResult {
+export async function runTestCommand(options: RunTestCommandOptions): Promise<RunTestCommandResult> {
   const absoluteTargetPath = path.resolve(options.targetPath);
   const rootDir = determineRootDir(absoluteTargetPath);
   const testFiles = findTestFiles(absoluteTargetPath);
@@ -253,72 +251,68 @@ export function runTestCommand(options: RunTestCommandOptions): RunTestCommandRe
     const overlay = new Map<string, string>([[harnessPath, harnessSource]]);
     const fileSystem = new OverlayFS(overlay);
     const executionRoot = determineExecutionRoot(group.modulePath, fileSystem);
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-test-"));
+    const outDir = buildTestOutputDir(executionRoot, group.moduleDisplayPath);
 
-    try {
-      const { project, nativeBuild, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
-        fileSystem,
-        harnessPath,
-        options.verbose,
-        nativeBuildForRun,
-        options.reporter.log,
-        (diagnostic) => options.reporter.error(formatDiagnostic(diagnostic)),
-        { coverage: options.coverage },
-      );
+    const { project, nativeBuild, outputBinaryName, provenance, buildManifest } = runPipelineWithFs(
+      fileSystem,
+      harnessPath,
+      options.verbose,
+      nativeBuildForRun,
+      options.reporter.log,
+      (diagnostic) => options.reporter.error(formatDiagnostic(diagnostic)),
+      { coverage: options.coverage },
+    );
 
-      // Merge coverage module metadata from successive compilation groups.
-      // Build per-group id→path map immediately, and register metadata (first group wins).
-      const groupIdToPath = new Map<number, string>();
-      if (options.coverage && project.coverageModules) {
-        for (const m of project.coverageModules) {
-          groupIdToPath.set(m.moduleId, m.modulePath);
-          if (!coverageModulesByPath.has(m.modulePath)) {
-            coverageModulesByPath.set(m.modulePath, m);
-          }
+    // Merge coverage module metadata from successive compilation groups.
+    // Build per-group id→path map immediately, and register metadata (first group wins).
+    const groupIdToPath = new Map<number, string>();
+    if (options.coverage && project.coverageModules) {
+      for (const m of project.coverageModules) {
+        groupIdToPath.set(m.moduleId, m.modulePath);
+        if (!coverageModulesByPath.has(m.modulePath)) {
+          coverageModulesByPath.set(m.modulePath, m);
         }
       }
+    }
 
-      writeProject(project, outDir, options.verbose, options.reporter.log, provenance, buildManifest);
-      const binary = compileCpp(
-        outDir,
-        project,
-        options.compiler,
-        nativeBuild,
-        options.verbose,
-        options.reporter.log,
-        outputBinaryName,
-      );
+    const { outBinary: binary } = await runNativeBuildGraph(
+      outDir,
+      project,
+      options.compiler,
+      nativeBuild,
+      options.verbose,
+      outputBinaryName,
+      provenance,
+      buildManifest,
+    );
 
-      for (const test of group.tests) {
-        if (options.verbose) options.reporter.log(`Running ${test.id}`);
+    for (const test of group.tests) {
+      if (options.verbose) options.reporter.log(`Running ${test.id}`);
 
-        try {
-          const stdoutBuf = execFileSync(binary, [test.id], {
-            stdio: "pipe",
-            timeout: 30000,
-            cwd: executionRoot,
-            env: options.compiler.env ?? process.env,
-          });
-          if (options.coverage) {
-            mergeCoverageByPath(stdoutBuf.toString(), groupIdToPath, coverageHitsByPath);
-          }
-          passed++;
-          options.reporter.log(`PASS ${test.id}`);
-        } catch (e: any) {
-          failed++;
-          options.reporter.error(`FAIL ${test.id}`);
-          const rawStdout = e.stdout?.toString() ?? "";
-          const stderr = e.stderr?.toString()?.trimEnd() ?? "";
-          if (options.coverage && rawStdout) {
-            mergeCoverageByPath(rawStdout, groupIdToPath, coverageHitsByPath);
-          }
-          const stdout = options.coverage ? stripCoverageLines(rawStdout) : rawStdout.trimEnd();
-          if (stdout) options.reporter.error(`stdout:\n${indentBlock(stdout)}`);
-          if (stderr) options.reporter.error(`stderr:\n${indentBlock(stderr)}`);
+      try {
+        const stdoutBuf = execFileSync(binary, [test.id], {
+          stdio: "pipe",
+          timeout: 30000,
+          cwd: executionRoot,
+          env: options.compiler.env ?? process.env,
+        });
+        if (options.coverage) {
+          mergeCoverageByPath(stdoutBuf.toString(), groupIdToPath, coverageHitsByPath);
         }
+        passed++;
+        options.reporter.log(`PASS ${test.id}`);
+      } catch (e: any) {
+        failed++;
+        options.reporter.error(`FAIL ${test.id}`);
+        const rawStdout = e.stdout?.toString() ?? "";
+        const stderr = e.stderr?.toString()?.trimEnd() ?? "";
+        if (options.coverage && rawStdout) {
+          mergeCoverageByPath(rawStdout, groupIdToPath, coverageHitsByPath);
+        }
+        const stdout = options.coverage ? stripCoverageLines(rawStdout) : rawStdout.trimEnd();
+        if (stdout) options.reporter.error(`stdout:\n${indentBlock(stdout)}`);
+        if (stderr) options.reporter.error(`stderr:\n${indentBlock(stderr)}`);
       }
-    } finally {
-      fs.rmSync(outDir, { recursive: true, force: true });
     }
   }
 
@@ -421,6 +415,11 @@ function determineExecutionRoot(modulePath: string, fileSystem: FileSystem): str
 function buildHarnessPath(rootDir: string, moduleDisplayPath: string): string {
   const safeModulePath = moduleDisplayPath.replace(/[^A-Za-z0-9._-]+/g, "_");
   return path.join(rootDir, `.doof-tests`, `${HARNESS_FILENAME.replace(/\.do$/, "")}_${safeModulePath}.do`);
+}
+
+function buildTestOutputDir(executionRoot: string, moduleDisplayPath: string): string {
+  const safeModulePath = moduleDisplayPath.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return path.join(executionRoot, "build", ".doof-tests", safeModulePath);
 }
 
 function toImportSpecifier(fromPath: string, toPath: string): string {

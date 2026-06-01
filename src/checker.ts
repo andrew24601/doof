@@ -53,6 +53,7 @@ import {
   JSON_SERIALIZABLE_CONSTRAINT_TYPE,
   VOID_TYPE,
   NULL_TYPE,
+  RANGE_TYPE,
   UNKNOWN_TYPE,
   isPrimitiveName,
   isAssignableTo,
@@ -754,6 +755,7 @@ export class TypeChecker {
         if (name === "SourceLocation") return BUILTIN_SOURCE_LOCATION_TYPE;
         if (name === "JsonValue") return JSON_VALUE_TYPE;
         if (name === "JsonObject") return JSON_OBJECT_TYPE;
+        if (name === "Range") return RANGE_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
         if (name === "void") return VOID_TYPE;
         if (name === "null") return NULL_TYPE;

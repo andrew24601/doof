@@ -51,9 +51,9 @@ doof <command> [options] [entry.do | package-dir]
 
 - `check` — runs parsing, module analysis, and type checking; no output written
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
-- `build` — emits the project and compiles it; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
+- `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
 - `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
-- `test` — discovers exported test functions in `.test.do` files, builds a temporary harness per test file, compiles each test module separately, and runs each discovered test in its own process
+- `test` — discovers exported test functions in `.test.do` files, builds a harness per test file through the same incremental Reckon graph used by `build`/`run`, and runs each discovered test in its own process
 
 ### Line Coverage
 
@@ -115,7 +115,11 @@ Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` 
 
 When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that local checkout root instead of fetching the compiler's default GitHub-backed std packages. For example, `DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib` makes `std/fs` resolve from `/Users/andrew/develop/doof-stdlib/fs`.
 
-For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist` and the icon-generation helper script used by external native build integrations. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold.
+For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist`. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold. Built-in app targets require PNG icons.
+
+`doof build` and `doof run` write generated files without changing mtimes when content is unchanged, compile generated and native sources to cached objects under `<buildDir>/.doof-objects/`, and link only when relevant inputs change. Reckon state lives under `<buildDir>/.reckon/state.json`, so separate output directories have independent caches.
+
+`doof test` writes each test harness under the owning package's `build/.doof-tests/<module>/` directory. Those harness builds also use `<harnessBuildDir>/.reckon/state.json` and `<harnessBuildDir>/.doof-objects/`, so repeated test runs skip unchanged harness compilation while still rerunning the selected tests.
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
 
@@ -284,7 +288,7 @@ Package manifests can also declare `build.native.pkgConfigPackages` or platform-
 
 These flags work well for simple bridge files and library integrations. The built-in `macos-app` target now covers the basic `.app` bundle case, including `Info.plist`, icon generation, frameworks, and resource copying. The built-in `ios-app` target now covers both simulator builds and connected development-device installs on macOS by generating a UIKit host shell, compiling against either the `iphonesimulator` or `iphoneos` SDK, signing with a provisioning profile for device builds, and installing through `simctl` or `devicectl` when you use `doof run`. For projects that need Objective-C++, Swift, App Store distribution signing, or a larger native build graph, use `doof emit` plus Xcode or your existing native build system.
 
-`build.target = "macos-app"` and `build.target = "ios-app"` are currently limited to macOS for `doof build` and `doof run`, because bundle assembly, Apple SDK resolution, signing, and Apple device tooling rely on macOS tools such as `xcrun`, `simctl`, `devicectl`, `codesign`, `security`, `qlmanage`, `sips`, and `iconutil`.
+`build.target = "macos-app"` and `build.target = "ios-app"` are currently limited to macOS for `doof build` and `doof run`, because bundle assembly, Apple SDK resolution, signing, and Apple device tooling rely on macOS tools such as `xcrun`, `simctl`, `devicectl`, `codesign`, `security`, `sips`, and `iconutil`.
 
 ## Samples with Native Dependencies
 

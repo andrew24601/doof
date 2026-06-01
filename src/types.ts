@@ -248,6 +248,7 @@ export const BUILTIN_TYPE_NAMES = new Set([
   "Set",
   "ReadonlySet",
   "Tuple",
+  "Range",
   "Actor",
   "Promise",
   "Result",

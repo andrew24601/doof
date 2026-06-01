@@ -10,7 +10,7 @@
       "displayName": "Doof Solitaire",
       "version": "1.0",
       "category": "public.app-category.games",
-      "icon": "app-icon.svg",
+      "icon": "app-icon.png",
       "resources": [
         { "from": "images/*", "to": "images" }
       ]
@@ -19,7 +19,7 @@
       "bundleId": "doof.Solitaire",
       "displayName": "Doof Solitaire",
       "version": "1.0",
-      "icon": "app-icon.svg",
+      "icon": "app-icon.png",
       "resources": [
         { "from": "images/*", "to": "samples/solitaire/images" }
       ],

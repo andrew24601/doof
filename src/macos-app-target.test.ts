@@ -2,11 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateMacOSAppIconWithShell } from "./macos-app-target-node.js";
 import {
   assembleMacOSAppBundle,
   createMacOSAppSupportFiles,
-  getMacOSIconScriptPath,
 } from "./macos-app-target.js";
 
 const tmpDirs: string[] = [];
@@ -26,7 +24,7 @@ describe("macos-app target helper", () => {
       bundleId: "dev.doof.demo",
       displayName: "Doof Demo",
       version: "1.0",
-      iconPath: "/app/app-icon.svg",
+      iconPath: "/app/app-icon.png",
       resources: [],
       category: "public.app-category.developer-tools",
       minimumSystemVersion: "11.0",
@@ -34,10 +32,9 @@ describe("macos-app target helper", () => {
 
     expect(supportFiles.map((file) => file.relativePath)).toEqual([
       "Info.plist",
-      "generate-macos-icon.sh",
+      "PkgInfo",
     ]);
     expect(supportFiles[0].content).toContain("dev.doof.demo");
-    expect(supportFiles[1].executable).toBe(true);
   });
 
   it("assembles a macOS app bundle with resources", () => {
@@ -51,8 +48,8 @@ describe("macos-app target helper", () => {
     fs.writeFileSync(executablePath, "binary", "utf8");
     fs.chmodSync(executablePath, 0o755);
 
-    const iconPath = path.join(dir, "app-icon.svg");
-    fs.writeFileSync(iconPath, "<svg />", "utf8");
+    const iconPath = path.join(dir, "app-icon.png");
+    fs.writeFileSync(iconPath, "png", "utf8");
 
     const imagesDir = path.join(dir, "images");
     fs.mkdirSync(imagesDir, { recursive: true });
@@ -105,8 +102,8 @@ describe("macos-app target helper", () => {
       .toBe("png");
   });
 
-  it("executes the generated icon script through the default bundle path", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-macos-app-script-"));
+  it("uses the configured PNG icon generator through the default bundle path", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-macos-app-icon-"));
     tmpDirs.push(dir);
 
     const outputDir = path.join(dir, "build");
@@ -116,19 +113,8 @@ describe("macos-app target helper", () => {
     fs.writeFileSync(executablePath, "binary", "utf8");
     fs.chmodSync(executablePath, 0o755);
 
-    const iconPath = path.join(dir, "app-icon.svg");
-    fs.writeFileSync(iconPath, "svg", "utf8");
-
-    const scriptPath = path.join(outputDir, getMacOSIconScriptPath());
-    fs.writeFileSync(scriptPath, [
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      "INPUT_PATH=\"$1\"",
-      "OUTPUT_PATH=\"$2\"",
-      "mkdir -p \"$(dirname \"$OUTPUT_PATH\")\"",
-      "printf 'generated:%s' \"$(cat \"$INPUT_PATH\")\" > \"$OUTPUT_PATH\"",
-    ].join("\n"), "utf8");
-    fs.chmodSync(scriptPath, 0o755);
+    const iconPath = path.join(dir, "app-icon.png");
+    fs.writeFileSync(iconPath, "png", "utf8");
 
     const bundle = assembleMacOSAppBundle({
       outputDir,
@@ -144,10 +130,13 @@ describe("macos-app target helper", () => {
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
       },
-      generateIcon: generateMacOSAppIconWithShell,
+      generateIcon(inputPath, outputPath) {
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        fs.writeFileSync(outputPath, `generated:${fs.readFileSync(inputPath, "utf8")}`, "utf8");
+      },
     });
 
     expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Resources", "DoofDemo.icns"), "utf8"))
-      .toBe("generated:svg");
+      .toBe("generated:png");
   });
 });

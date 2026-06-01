@@ -98,7 +98,7 @@ describe("emitter-module — hpp/cpp split", () => {
           bundleId: "dev.doof.solitaire",
           displayName: "Doof Solitaire",
           version: "1.0",
-          iconPath: "/app/app-icon.svg",
+          iconPath: "/app/app-icon.png",
           resources: [{ fromPattern: "/app/images/*", destination: "images" }],
           category: "public.app-category.games",
           minimumSystemVersion: "11.0",
@@ -108,10 +108,9 @@ describe("emitter-module — hpp/cpp split", () => {
 
     expect(project.supportFiles.map((file) => file.relativePath)).toEqual([
       "Info.plist",
-      "generate-macos-icon.sh",
+      "PkgInfo",
     ]);
     expect(project.supportFiles[0]?.content).toContain("dev.doof.solitaire");
-    expect(project.supportFiles[1]?.content).toContain("qlmanage");
   });
 
   it("emits ios-app support files", () => {
@@ -129,7 +128,7 @@ describe("emitter-module — hpp/cpp split", () => {
           bundleId: "dev.doof.solitaire",
           displayName: "Doof Solitaire",
           version: "1.0",
-          iconPath: "/app/app-icon.svg",
+          iconPath: "/app/app-icon.png",
           resources: [{ fromPattern: "/app/images/*", destination: "images" }],
           minimumDeploymentTarget: "16.0",
         },
@@ -791,7 +790,7 @@ describe("emitter-module — main wrapper", () => {
           bundleId: "dev.doof.demo",
           displayName: "Doof Demo",
           version: "1.0",
-          iconPath: "/app/app-icon.svg",
+          iconPath: "/app/app-icon.png",
           resources: [],
           minimumDeploymentTarget: "16.0",
         },

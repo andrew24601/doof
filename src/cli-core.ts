@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
+import { createHash } from "node:crypto";
+import { reckon, type BuildSummary, type Task, type TaskContext } from "@andrew24601/reckon";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { TypeChecker } from "./checker.js";
 import { emitProject, type NativeBuildOptions, type ProjectEmitResult } from "./emitter-module.js";
@@ -132,6 +134,22 @@ export interface CompileCommandStep {
 export interface CompileCommandPlan {
   outBinary: string;
   commands: CompileCommandStep[];
+}
+
+export interface ProjectMaterializePlan {
+  tasks: Task[];
+  taskByOutputPath: Map<string, Task>;
+}
+
+export interface NativeBuildGraphPlan {
+  outBinary: string;
+  target: Task;
+  tasks: Task[];
+}
+
+export interface RunNativeBuildGraphResult {
+  outBinary: string;
+  summary: BuildSummary;
 }
 
 interface BuildCompileInputs {
@@ -408,21 +426,65 @@ export function writeProject(
   }
 }
 
-export function buildCompileArgs(
-  outDir: string,
+export function createProjectMaterializePlan(
   project: ProjectEmitResult,
-  nativeBuild: NativeBuildOptions,
-  options: BuildCompileArgsOptions = {},
-): { outBinary: string; args: string[] } {
-  const toolchain = options.toolchain ?? DEFAULT_GCC_TOOLCHAIN;
-  const mode = options.mode ?? "build";
-  const inputs = resolveBuildCompileInputs(outDir, project, nativeBuild, options);
+  outDir: string,
+  provenance?: BuildProvenance,
+  buildManifest?: BuildManifestTemplate,
+): ProjectMaterializePlan {
+  const absOutDir = resolveFsPath(outDir);
+  const tasks: Task[] = [];
+  const taskByOutputPath = new Map<string, Task>();
+  const generatedRelativePaths = new Set<string>();
 
-  const args = toolchain.kind === "msvc"
-    ? buildMsvcCompileArgs(inputs.outBinary, inputs.moduleCppFiles, inputs.includePaths, inputs.effectiveNativeBuild, mode)
-    : buildGccLikeCompileArgs(inputs.outBinary, inputs.moduleCppFiles, inputs.includePaths, inputs.effectiveNativeBuild, mode);
+  const addGeneratedFile = (relativePath: string, content: string, options: { executable?: boolean } = {}) => {
+    generatedRelativePaths.add(relativePath);
+    const outputPath = joinFsPath(absOutDir, relativePath);
+    const task = contentFileTask(outputPath, content, options);
+    tasks.push(task);
+    taskByOutputPath.set(outputPath, task);
+  };
 
-  return { outBinary: inputs.outBinary, args };
+  addGeneratedFile("doof_runtime.hpp", project.runtime);
+  for (const mod of project.modules) {
+    addGeneratedFile(mod.hppPath, mod.hppCode);
+    addGeneratedFile(mod.cppPath, mod.cppCode);
+  }
+  for (const supportFile of project.supportFiles) {
+    addGeneratedFile(supportFile.relativePath, supportFile.content, { executable: supportFile.executable });
+  }
+  if (provenance) {
+    addGeneratedFile("provenance.json", JSON.stringify(provenance, null, 2) + "\n");
+  }
+  if (buildManifest) {
+    const finalBuildManifest = finalizeBuildManifest(buildManifest, outDir);
+    addGeneratedFile("doof-build.json", JSON.stringify(finalBuildManifest, null, 2) + "\n");
+  }
+
+  const outputNativeFiles = project.outputNativeCopies.length > 0
+    ? expandOutputNativeCopies(project.outputNativeCopies)
+    : [];
+  for (const outputNativeFile of outputNativeFiles) {
+    if (generatedRelativePaths.has(outputNativeFile.relativePath)) {
+      throw new Error(`Native package copy would overwrite generated output: ${outputNativeFile.relativePath}`);
+    }
+  }
+
+  const nativeCopyManifestTask = nativeCopyManifestFileTask(
+    absOutDir,
+    outputNativeFiles.map((file) => file.relativePath),
+  );
+  tasks.push(nativeCopyManifestTask);
+  taskByOutputPath.set(nativeCopyManifestTask.outputs[0], nativeCopyManifestTask);
+
+  for (const outputNativeFile of outputNativeFiles) {
+    const outputPath = joinFsPath(absOutDir, outputNativeFile.relativePath);
+    const task = copyFileTask(outputNativeFile.sourcePath, outputPath, [nativeCopyManifestTask]);
+    tasks.push(task);
+    taskByOutputPath.set(outputPath, task);
+  }
+
+  return { tasks, taskByOutputPath };
 }
 
 export function buildCompilePlan(
@@ -503,34 +565,82 @@ export function buildCompilePlan(
   };
 }
 
-export function compileCpp(
+export function createNativeBuildGraphPlan(
+  outDir: string,
+  project: ProjectEmitResult,
+  toolchain: CompilerToolchain,
+  nativeBuild: NativeBuildOptions,
+  materializePlan: ProjectMaterializePlan,
+  outputBinaryName = getDefaultOutputBinaryName(),
+  options: { platform?: NodeJS.Platform } = {},
+): NativeBuildGraphPlan {
+  const platform = options.platform ?? process.platform;
+  const inputs = resolveBuildCompileInputs(outDir, project, nativeBuild, {
+    toolchain,
+    outputBinaryName,
+    platform,
+  });
+  const generatedHeaderTasks = project.modules
+    .map((mod) => materializePlan.taskByOutputPath.get(resolveOutputRelativePath(inputs.absOutDir, mod.hppPath, platform)))
+    .filter((task): task is Task => Boolean(task));
+  const runtimeTask = materializePlan.taskByOutputPath.get(resolveOutputRelativePath(inputs.absOutDir, "doof_runtime.hpp", platform));
+  const sharedGeneratedDependencies = uniqueTasks([
+    ...generatedHeaderTasks,
+    ...(runtimeTask ? [runtimeTask] : []),
+  ]);
+  const compileSources = uniqueStrings([...inputs.moduleCppFiles, ...inputs.effectiveNativeBuild.sourceFiles]);
+  const objectTasks = compileSources.map((sourceFile, index) => {
+    const sourceTask = materializePlan.taskByOutputPath.get(sourceFile);
+    const dependencies = uniqueTasks([
+      ...(sourceTask ? [sourceTask] : []),
+      ...sharedGeneratedDependencies,
+    ]);
+    const objectFile = buildIncrementalObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
+    return toolchain.kind === "msvc"
+      ? msvcObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies)
+      : gccLikeObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies);
+  });
+  const linkTask = toolchain.kind === "msvc"
+    ? msvcLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild)
+    : gccLikeLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild);
+
+  return {
+    outBinary: inputs.outBinary,
+    target: linkTask,
+    tasks: [...materializePlan.tasks, ...objectTasks, linkTask],
+  };
+}
+
+export async function runNativeBuildGraph(
   outDir: string,
   project: ProjectEmitResult,
   toolchain: CompilerToolchain,
   nativeBuild: NativeBuildOptions,
   verbose: boolean,
-  log: (msg: string) => void,
   outputBinaryName = getDefaultOutputBinaryName(),
-): string {
-  const plan = buildCompilePlan(outDir, project, nativeBuild, {
+  provenance?: BuildProvenance,
+  buildManifest?: BuildManifestTemplate,
+): Promise<RunNativeBuildGraphResult> {
+  const materializePlan = createProjectMaterializePlan(project, outDir, provenance, buildManifest);
+  const graphPlan = createNativeBuildGraphPlan(
+    outDir,
+    project,
     toolchain,
+    nativeBuild,
+    materializePlan,
     outputBinaryName,
+  );
+  const absOutDir = resolveFsPath(outDir);
+  const summary = await reckon(graphPlan.tasks, {
+    cwd: path.parse(absOutDir).root,
+    stateDirectory: joinFsPath(absOutDir, ".reckon"),
+    verbose,
   });
-  for (const step of plan.commands) {
-    if (verbose) log(`Compiling: ${[step.command, ...step.args].map(formatShellArg).join(" ")}`);
-    try {
-      execFileSync(step.command, step.args, {
-        stdio: "pipe",
-        timeout: 30000,
-        env: toolchain.env ?? process.env,
-      });
-    } catch (e: any) {
-      throw new Error(formatProcessFailure("Compilation failed", e));
-    }
-  }
 
-  if (verbose) log(`  binary: ${plan.outBinary}`);
-  return plan.outBinary;
+  return {
+    outBinary: graphPlan.outBinary,
+    summary,
+  };
 }
 
 function resolveBuildCompileInputs(
@@ -845,6 +955,208 @@ function resolveOutputRelativePath(outDir: string, relativePath: string, platfor
     return outDir;
   }
   return platform === "win32" ? path.win32.join(outDir, relativePath) : joinFsPath(outDir, relativePath);
+}
+
+function contentFileTask(outputPath: string, content: string, options: { executable?: boolean } = {}): Task {
+  const executable = options.executable ?? false;
+  return {
+    id: `doof:write:${outputPath}`,
+    label: `write ${outputPath}`,
+    outputs: [outputPath],
+    fileDependencies: [],
+    taskDependencies: [],
+    fingerprint: stableFingerprint({ kind: "doof-content-file", outputPath, content, executable }),
+    async execute() {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      let existing: string | null = null;
+      try {
+        existing = fs.readFileSync(outputPath, "utf8");
+      } catch {
+        existing = null;
+      }
+      if (existing !== content) {
+        fs.writeFileSync(outputPath, content, "utf8");
+      }
+      if (executable) {
+        fs.chmodSync(outputPath, 0o755);
+      }
+    },
+  };
+}
+
+function copyFileTask(sourcePath: string, outputPath: string, dependencies: readonly Task[]): Task {
+  return {
+    id: `doof:copy:${outputPath}`,
+    label: `copy ${sourcePath} -> ${outputPath}`,
+    outputs: [outputPath],
+    fileDependencies: [sourcePath],
+    taskDependencies: [...dependencies],
+    fingerprint: stableFingerprint({ kind: "doof-copy-file", sourcePath, outputPath }),
+    async execute() {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.copyFileSync(sourcePath, outputPath);
+      const mode = fs.statSync(sourcePath).mode & 0o777;
+      if ((mode & 0o111) !== 0) {
+        fs.chmodSync(outputPath, mode);
+      }
+    },
+  };
+}
+
+function nativeCopyManifestFileTask(outDir: string, nextFiles: readonly string[]): Task {
+  const manifestPath = path.join(outDir, ".doof-native-copy-manifest.json");
+  const content = JSON.stringify({ files: [...nextFiles].sort() }, null, 2) + "\n";
+  return {
+    id: `doof:native-copy-manifest:${manifestPath}`,
+    label: `write ${manifestPath}`,
+    outputs: [manifestPath],
+    fileDependencies: [],
+    taskDependencies: [],
+    fingerprint: stableFingerprint({ kind: "doof-native-copy-manifest", manifestPath, content }),
+    async execute() {
+      removeStaleOutputNativeFiles(outDir, nextFiles);
+      fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+      let existing: string | null = null;
+      try {
+        existing = fs.readFileSync(manifestPath, "utf8");
+      } catch {
+        existing = null;
+      }
+      if (existing !== content) {
+        fs.writeFileSync(manifestPath, content, "utf8");
+      }
+    },
+  };
+}
+
+function gccLikeObjectTask(
+  toolchain: CompilerToolchain,
+  sourceFile: string,
+  objectFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  dependencies: readonly Task[],
+): Task {
+  const isCSource = isNativeCSource(sourceFile);
+  const compiler = isCSource ? deriveGccLikeCCompilerCommand(toolchain.command) : toolchain.command;
+  const dependencyFile = `${objectFile}.d`;
+  const args = isCSource
+    ? buildGccLikeCObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild)
+    : buildGccLikeCxxObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild);
+
+  return {
+    id: `doof:object:${objectFile}`,
+    label: `compile ${sourceFile}`,
+    outputs: [objectFile],
+    fileDependencies: dependencies.length > 0 ? [] : [sourceFile],
+    taskDependencies: [...dependencies],
+    fingerprint: stableFingerprint({ kind: "doof-gcc-like-object", compiler, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      await runBuildCommand(context, compiler, args, toolchain.env);
+      return { discoveredDependencies: parseDependencyFile(dependencyFile).filter((entry) => entry !== sourceFile) };
+    },
+  };
+}
+
+function gccLikeLinkTask(
+  toolchain: CompilerToolchain,
+  outBinary: string,
+  objectTasks: readonly Task[],
+  nativeBuild: NativeBuildOptions,
+): Task {
+  const objectFiles = objectTasks.flatMap((task) => task.outputs);
+  const args = [
+    "-o",
+    outBinary,
+    ...objectFiles,
+    ...nativeBuild.objectFiles,
+    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
+    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+    ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
+    ...nativeBuild.linkerFlags,
+  ];
+
+  return {
+    id: `doof:link:${outBinary}`,
+    label: `executable ${outBinary}`,
+    outputs: [outBinary],
+    fileDependencies: [...nativeBuild.objectFiles],
+    taskDependencies: [...objectTasks],
+    fingerprint: stableFingerprint({ kind: "doof-gcc-like-link", compiler: toolchain.command, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(outBinary), { recursive: true });
+      await runBuildCommand(context, toolchain.command, args, toolchain.env);
+    },
+  };
+}
+
+function msvcObjectTask(
+  toolchain: CompilerToolchain,
+  sourceFile: string,
+  objectFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  dependencies: readonly Task[],
+): Task {
+  const args = [
+    "/nologo",
+    `/std:${toMsvcCppStandard(nativeBuild.cppStd)}`,
+    "/EHsc",
+    ...includePaths.map((includePath) => `/I${includePath}`),
+    ...nativeBuild.defines.map((define) => `/D${define}`),
+    ...nativeBuild.compilerFlags,
+    "/c",
+    sourceFile,
+    `/Fo${objectFile}`,
+  ];
+
+  return {
+    id: `doof:object:${objectFile}`,
+    label: `compile ${sourceFile}`,
+    outputs: [objectFile],
+    fileDependencies: dependencies.length > 0 ? [] : [sourceFile],
+    taskDependencies: [...dependencies],
+    fingerprint: stableFingerprint({ kind: "doof-msvc-object", compiler: toolchain.command, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      await runBuildCommand(context, toolchain.command, args, toolchain.env);
+    },
+  };
+}
+
+function msvcLinkTask(
+  toolchain: CompilerToolchain,
+  outBinary: string,
+  objectTasks: readonly Task[],
+  nativeBuild: NativeBuildOptions,
+): Task {
+  const objectFiles = objectTasks.flatMap((task) => task.outputs);
+  const linkArgs = [
+    ...nativeBuild.libraryPaths.map((libraryPath) => `/LIBPATH:${libraryPath}`),
+    ...nativeBuild.linkLibraries.map(normalizeMsvcLibraryName),
+    ...nativeBuild.linkerFlags,
+  ];
+  const args = [
+    "/nologo",
+    ...objectFiles,
+    ...nativeBuild.objectFiles,
+    `/Fe${outBinary}`,
+    ...(linkArgs.length > 0 ? ["/link", ...linkArgs] : []),
+  ];
+
+  return {
+    id: `doof:link:${outBinary}`,
+    label: `executable ${outBinary}`,
+    outputs: [outBinary],
+    fileDependencies: [...nativeBuild.objectFiles],
+    taskDependencies: [...objectTasks],
+    fingerprint: stableFingerprint({ kind: "doof-msvc-link", compiler: toolchain.command, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(outBinary), { recursive: true });
+      await runBuildCommand(context, toolchain.command, args, toolchain.env);
+    },
+  };
 }
 
 function syncOutputNativeFiles(
@@ -1345,6 +1657,51 @@ function buildGccLikeCCompileArgs(
   ];
 }
 
+function buildGccLikeCxxObjectArgs(
+  objectFile: string,
+  dependencyFile: string,
+  sourceFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+): string[] {
+  return [
+    `-std=${nativeBuild.cppStd}`,
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+    "-MMD",
+    "-MF",
+    dependencyFile,
+    "-c",
+    sourceFile,
+    "-o",
+    objectFile,
+  ];
+}
+
+function buildGccLikeCObjectArgs(
+  objectFile: string,
+  dependencyFile: string,
+  sourceFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+): string[] {
+  return [
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+    "-x",
+    "c",
+    "-MMD",
+    "-MF",
+    dependencyFile,
+    "-c",
+    sourceFile,
+    "-o",
+    objectFile,
+  ];
+}
+
 function buildGccLikeCSyntaxArgs(
   sourceFile: string,
   includePaths: string[],
@@ -1363,6 +1720,23 @@ function buildGccLikeCSyntaxArgs(
 
 function isNativeCSource(sourceFile: string): boolean {
   return path.extname(sourceFile).toLowerCase() === ".c";
+}
+
+function buildIncrementalObjectFilePath(
+  outDir: string,
+  sourceFile: string,
+  index: number,
+  platform: NodeJS.Platform,
+): string {
+  const objectExtension = platform === "win32" ? ".obj" : ".o";
+  const objectRoot = platform === "win32"
+    ? path.win32.join(outDir, ".doof-objects")
+    : joinFsPath(outDir, ".doof-objects");
+  const relativeSourcePath = getNativeObjectRelativeSourcePath(outDir, sourceFile, index, platform);
+
+  return platform === "win32"
+    ? path.win32.join(objectRoot, `${relativeSourcePath}${objectExtension}`)
+    : joinFsPath(objectRoot, `${relativeSourcePath}${objectExtension}`);
 }
 
 function buildNativeObjectFilePath(
@@ -1476,6 +1850,58 @@ function normalizeMsvcLibraryName(library: string): string {
   return library.toLowerCase().endsWith(".lib") ? library : `${library}.lib`;
 }
 
+async function runBuildCommand(
+  context: TaskContext,
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<void> {
+  await context.runCommand(command, args, { env });
+}
+
+function parseDependencyFile(filePath: string): string[] {
+  try {
+    const contents = fs.readFileSync(filePath, "utf8");
+    const flattened = contents.replace(/\\\r?\n/g, " ");
+    const [, dependencyList = ""] = flattened.split(/:(.+)/s);
+    const matches = dependencyList.match(/(?:\\ |[^\s])+/g) ?? [];
+    return matches.map((entry) => entry.replace(/\\ /g, " "));
+  } catch {
+    return [];
+  }
+}
+
+function uniqueTasks(tasks: readonly Task[]): Task[] {
+  const seen = new Set<string>();
+  const result: Task[] = [];
+  for (const task of tasks) {
+    if (seen.has(task.id)) {
+      continue;
+    }
+    seen.add(task.id);
+    result.push(task);
+  }
+  return result;
+}
+
+function stableFingerprint(value: unknown): string {
+  return createHash("sha1").update(JSON.stringify(stableValue(value))).digest("hex");
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, stableValue(entry)]),
+    );
+  }
+  return value;
+}
+
 export function formatDiagnostic(diagnostic: DiagnosticLike): string {
   const location = diagnostic.span
     ? `${diagnostic.module ?? "<unknown>"}:${diagnostic.span.start.line + 1}:${diagnostic.span.start.column + 1}`
@@ -1486,12 +1912,6 @@ export function formatDiagnostic(diagnostic: DiagnosticLike): string {
 
 export function printDiagnostic(diagnostic: DiagnosticLike): void {
   console.error(formatDiagnostic(diagnostic));
-}
-
-export function formatShellArg(value: string): string {
-  return /[^A-Za-z0-9_./:=+-]/.test(value)
-    ? JSON.stringify(value)
-    : value;
 }
 
 function writeFile(filePath: string, content: string, verbose: boolean, log: (msg: string) => void): void {

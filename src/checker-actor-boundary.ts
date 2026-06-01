@@ -131,6 +131,9 @@ export function findActorBoundaryViolation(
         offendingType: type,
       };
 
+    case "range":
+      return null;
+
     case "mock-capture":
     case "builtin-namespace":
     case "namespace":

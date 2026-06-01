@@ -61,7 +61,7 @@ export function playingCardTexturePaths(basePath: string, fallbackAtlasPath: str
 }
 
 function startsWithSlash(value: string): bool {
-  return value.length > 0 && value.charAt(0) == "/"
+  return value.length > 0 && value.charAt(0) == '/'
 }
 
 export function texturePaths(basePath: string): string[] {

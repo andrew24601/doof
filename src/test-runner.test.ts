@@ -282,7 +282,7 @@ describe("coverage helpers", () => {
 });
 
 describe("test runner execution", () => {
-  it("lists tests without compiling", () => {
+  it("lists tests without compiling", async () => {
     const dir = createTempDir();
     writeFile(dir, "doof.json", JSON.stringify({ name: "tests" }));
     writeFile(dir, "calc.test.do", [
@@ -292,7 +292,7 @@ describe("test runner execution", () => {
     ].join("\n"));
 
     const reporter = createReporter();
-    const result = runTestCommand({
+    const result = await runTestCommand({
       targetPath: dir,
       compiler: { kind: "gcc-like", command: "clang++" },
       nativeBuild: emptyNativeBuildOptions(),
@@ -306,7 +306,7 @@ describe("test runner execution", () => {
     expect(reporter.logs).toContain("calc.test.do::testSub");
   });
 
-  it("compiles once and reports pass/fail counts", () => {
+  it("compiles once and reports pass/fail counts", async () => {
     let compiler;
     try {
       compiler = resolveCompilerToolchain(null);
@@ -395,7 +395,7 @@ describe("test runner execution", () => {
     ].join("\n"));
 
     const reporter = createReporter();
-    const result = runTestCommand({
+    const result = await runTestCommand({
       targetPath: dir,
       compiler,
       nativeBuild: emptyNativeBuildOptions(),
@@ -412,7 +412,7 @@ describe("test runner execution", () => {
     expect(reporter.errors.some((line) => line.includes("Assertion failed: expected failure: expected values to be equal"))).toBe(true);
   });
 
-  it("runs tests from the owning package root", () => {
+  it("runs tests from the owning package root", async () => {
     let compiler;
     try {
       compiler = resolveCompilerToolchain(null);
@@ -445,7 +445,7 @@ describe("test runner execution", () => {
     process.chdir(outsideDir);
 
     try {
-      const result = runTestCommand({
+      const result = await runTestCommand({
         targetPath: path.join(invocationDir, "runtime.test.do"),
         compiler,
         nativeBuild: emptyNativeBuildOptions(),

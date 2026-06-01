@@ -2684,34 +2684,30 @@ export class Parser {
     if (!this.shouldStopStatementCaseArmExpression() && (this.check(TokenType.DotDot) || this.check(TokenType.DotDotLess))) {
       const startLoc = left.span.start;
       const op = this.advance().value as BinaryOperator;
-      // Right side is optional for open-ended ranges
       if (
-        !this.isAtEnd() &&
-        !this.check(TokenType.RightParen) &&
-        !this.check(TokenType.RightBrace) &&
-        !this.check(TokenType.RightBracket) &&
-        !this.check(TokenType.Comma) &&
-        !this.check(TokenType.Arrow) &&
-        !this.check(TokenType.Semicolon)
+        this.isAtEnd() ||
+        this.check(TokenType.RightParen) ||
+        this.check(TokenType.RightBrace) ||
+        this.check(TokenType.RightBracket) ||
+        this.check(TokenType.Comma) ||
+        this.check(TokenType.Arrow) ||
+        this.check(TokenType.Semicolon)
       ) {
-        const right = this.parseAdditive();
-        left = {
-          kind: "binary-expression",
-          operator: op,
-          left,
-          right,
-          span: this.span(startLoc),
-        };
-      } else {
-        // Open-ended range: left..
-        left = {
-          kind: "binary-expression",
-          operator: op,
-          left,
-          right: { kind: "null-literal", span: this.span(startLoc) },
-          span: this.span(startLoc),
-        };
+        const tok = this.current();
+        throw new ParseError(
+          "Open-ended ranges are only valid in case patterns; range values require both start and end bounds",
+          tok.line,
+          tok.column,
+        );
       }
+      const right = this.parseAdditive();
+      left = {
+        kind: "binary-expression",
+        operator: op,
+        left,
+        right,
+        span: this.span(startLoc),
+      };
     }
 
     return left;
@@ -3184,15 +3180,12 @@ export class Parser {
 
     // Open-ended range: ..<expr
     if (this.check(TokenType.DotDotLess)) {
-      this.advance();
-      const end = this.parseAdditive();
-      return {
-        kind: "binary-expression",
-        operator: "..<",
-        left: { kind: "null-literal", span: this.span(startLoc) },
-        right: end,
-        span: this.span(startLoc),
-      };
+      const tok = this.current();
+      throw new ParseError(
+        "Open-ended ranges are only valid in case patterns; range values require both start and end bounds",
+        tok.line,
+        tok.column,
+      );
     }
 
     // If expression: if cond then expr else expr

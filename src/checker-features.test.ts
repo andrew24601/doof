@@ -593,14 +593,18 @@ describe("Concurrency", () => {
 });
 
 describe("checker — for-of ranges", () => {
-  it("infers loop bindings from range expressions", () => {
+  it("types finite range literals as Range and infers loop bindings as int", () => {
     const { program, diagnostics } = check(
       {
         "/main.do": `
           function sum(): int {
             let total = 0
+            r: Range := 0..<4
             for i of 0..<4 {
               total = total + i
+            }
+            for j of r {
+              total = total + j
             }
             return total
           }
@@ -612,12 +616,20 @@ describe("checker — for-of ranges", () => {
     expect(diagnostics).toHaveLength(0);
 
     const fn = program.statements[0] as FunctionDeclaration;
-    const forStmt = fn.body.kind === "block"
+    const rangeDecl = fn.body.kind === "block"
       ? fn.body.statements[1]
+      : null;
+    expect(rangeDecl?.kind).toBe("immutable-binding");
+    if (rangeDecl?.kind === "immutable-binding") {
+      expect(typeToString(rangeDecl.resolvedType!)).toBe("Range");
+      expect(typeToString(rangeDecl.value.resolvedType!)).toBe("Range");
+    }
+    const forStmt = fn.body.kind === "block"
+      ? fn.body.statements[2]
       : null;
     expect(forStmt?.kind).toBe("for-of-statement");
     if (forStmt?.kind === "for-of-statement") {
-      expect(typeToString(forStmt.iterable.resolvedType!)).toBe("int");
+      expect(typeToString(forStmt.iterable.resolvedType!)).toBe("Range");
       const ids = collectExprs(program)
         .filter((expr): expr is import("./ast.js").Identifier => expr.kind === "identifier" && expr.name === "i");
       expect(ids.length).toBeGreaterThan(0);
@@ -625,6 +637,44 @@ describe("checker — for-of ranges", () => {
         expect(typeToString(id.resolvedType!)).toBe("int");
       }
     }
+  });
+
+  it("allows Range in function signatures", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function sum(r: Range): int {
+            let total = 0
+            for i of r {
+              total = total + i
+            }
+            return total
+          }
+
+          function main(): int {
+            return sum(1..3)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects non-integer and non-int-compatible range bounds", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            badFloat := 1.0..3.0
+            badLong := 1L..3L
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes("requires integer bounds"))).toBe(true);
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes("currently requires int-compatible bounds"))).toBe(true);
   });
 });
 

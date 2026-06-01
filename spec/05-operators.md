@@ -407,14 +407,17 @@ x >>= 1
 
 ## Range Operators
 
-Used for creating ranges in `for` loops and `case` statements:
+Finite range operators produce a built-in `Range` value:
 
 ```javascript
 1..5      // Inclusive range: 1, 2, 3, 4, 5
 1..<5     // Exclusive upper bound: 1, 2, 3, 4
-10..      // Open-ended from 10 (in case statements)
-..<10     // Open-ended up to 10 exclusive (in case statements)
 ```
+
+`Range` values can be stored, passed to functions, returned, and used anywhere an
+ordinary expression is valid. Bounds must be `int`-compatible integer values.
+Open-ended forms such as `10..` and `..<10` are valid only as `case` range
+patterns.
 
 ---
 

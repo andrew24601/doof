@@ -47,7 +47,7 @@ describe("ios-app target helper", () => {
         bundleId: "dev.doof.demo",
         displayName: "Doof Demo",
         version: "1.0",
-        iconPath: path.join(dir, "app-icon.svg"),
+        iconPath: path.join(dir, "app-icon.png"),
         resources: [{ fromPattern: path.join(imagesDir, "*"), destination: "samples/solitaire/images" }],
         minimumDeploymentTarget: "16.0",
       },
