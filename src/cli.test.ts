@@ -350,6 +350,48 @@ describe("CLI compile args", () => {
     expect(graph.target.fingerprint).toEqual(expect.any(String));
   });
 
+  it("makes object compilation wait for copied native package files", () => {
+    const outDir = createTempDir();
+    const nativeDir = createTempDir();
+    const nativeHeader = path.join(nativeDir, "native.hpp");
+    fs.writeFileSync(nativeHeader, "#pragma once\n", "utf8");
+
+    const project = createProjectEmitResult();
+    project.outputNativeCopies = [{
+      sourcePath: nativeHeader,
+      relativePath: "deps/native/native.hpp",
+      kind: "file",
+    }];
+    project.outputNativeIncludePaths = ["deps/native"];
+    const materializePlan = createProjectMaterializePlan(project, outDir);
+    const graph = createNativeBuildGraphPlan(
+      outDir,
+      project,
+      { kind: "gcc-like", command: "clang++" },
+      {
+        cppStd: "c++20",
+        includePaths: [],
+        libraryPaths: [],
+        linkLibraries: [],
+        frameworks: [],
+        pkgConfigPackages: [],
+        sourceFiles: [],
+        objectFiles: [],
+        compilerFlags: [],
+        linkerFlags: [],
+        defines: [],
+      },
+      materializePlan,
+      "demo",
+      { platform: "linux" },
+    );
+
+    const compileTask = graph.tasks.find((task) => task.label === `compile ${path.join(outDir, "main.cpp")}`);
+    expect(compileTask?.taskDependencies.map((task) => task.label)).toContain(
+      `copy ${nativeHeader} -> ${path.join(outDir, "deps/native/native.hpp")}`,
+    );
+  });
+
 });
 
 describe("CLI version", () => {

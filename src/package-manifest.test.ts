@@ -1337,7 +1337,11 @@ describe("manifest-derived pipeline metadata", () => {
       };
 
       expect(buildManifest.outputDir).toBe(outDir);
-      expect(buildManifest.includePaths).toEqual([outDir, path.join(outDir, "deps", "foo", "include")]);
+      expect(buildManifest.includePaths).toEqual([
+        outDir,
+        path.join(outDir, "deps", "foo", "include"),
+        path.join(outDir, "deps", "foo"),
+      ]);
       expect(buildManifest.generatedSources).toContain("main.cpp");
       expect(buildManifest.generatedHeaders).toContain("main.hpp");
       expect(buildManifest.nativeSourceFiles).toEqual([path.join(outDir, "deps", "foo", "bridge.cpp")]);
@@ -1393,6 +1397,7 @@ describe("manifest-derived pipeline metadata", () => {
     const runtimeModule = result.project.modules.find((mod) => mod.modulePath === path.join(depDir, "runtime.do"));
     expect(runtimeModule?.hppCode).toContain('#include "native_fs.hpp"');
     expect(result.project.supportFiles).toEqual([]);
+    expect(result.project.outputNativeIncludePaths).toContain(path.join("deps", "fs").replace(/\\/g, "/"));
     expect(result.project.outputNativeCopies).toContainEqual({
       sourcePath: depDir,
       relativePath: path.join("deps", "fs").replace(/\\/g, "/"),
@@ -1450,6 +1455,7 @@ describe("manifest-derived pipeline metadata", () => {
       relativePath: "native_greeting.hpp",
       kind: "auto",
     });
+    expect(result.project.outputNativeIncludePaths).toContain("");
 
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-root-native-copy-out-"));
     try {
@@ -1498,6 +1504,7 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.buildTarget?.kind).toBe("macos-app");
     expect(result.project.supportFiles.map((file) => file.relativePath)).toEqual([
       "Info.plist",
+      "PkgInfo",
     ]);
     expect(result.project.supportFiles[0]?.content).toContain("dev.doof.solitaire");
     expect(result.buildManifest.buildTarget?.kind).toBe("macos-app");

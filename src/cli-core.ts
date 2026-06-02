@@ -584,9 +584,13 @@ export function createNativeBuildGraphPlan(
     .map((mod) => materializePlan.taskByOutputPath.get(resolveOutputRelativePath(inputs.absOutDir, mod.hppPath, platform)))
     .filter((task): task is Task => Boolean(task));
   const runtimeTask = materializePlan.taskByOutputPath.get(resolveOutputRelativePath(inputs.absOutDir, "doof_runtime.hpp", platform));
+  const outputNativeCopyTasks = expandOutputNativeCopies(project.outputNativeCopies)
+    .map((file) => materializePlan.taskByOutputPath.get(resolveOutputRelativePath(inputs.absOutDir, file.relativePath, platform)))
+    .filter((task): task is Task => Boolean(task));
   const sharedGeneratedDependencies = uniqueTasks([
     ...generatedHeaderTasks,
     ...(runtimeTask ? [runtimeTask] : []),
+    ...outputNativeCopyTasks,
   ]);
   const compileSources = uniqueStrings([...inputs.moduleCppFiles, ...inputs.effectiveNativeBuild.sourceFiles]);
   const objectTasks = compileSources.map((sourceFile, index) => {
@@ -864,6 +868,10 @@ function createNativeCopyPlan(graph: PackageGraph, packageOutputPaths: PackageOu
 
     for (const extraCopyPath of pkg.nativeBuild.extraCopyPaths) {
       addCopyRoot(extraCopyPath, "auto");
+    }
+
+    if (packageCopyRoots.length > 0) {
+      copiedIncludePaths.push(packageOutputRoot);
     }
 
     outputCopies.push(...packageCopyRoots);
