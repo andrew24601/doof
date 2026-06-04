@@ -980,6 +980,8 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("struct Range");
     expect(header).toContain("explicit operator bool() const");
     expect(header).toContain("doof::Promise<R> post(Args... args) const");
+    expect(header).toContain("void dispatch(Args... args) const");
+    expect(header).toContain("call_callback_unchecked");
     expect(header).toContain("root-domain callback cannot be posted");
   });
 

@@ -196,6 +196,22 @@ let a = Counter(10)                    // Counter.constructor(10)
 let b = Counter { initial: 10, step: 5 } // Counter.constructor(10, 5)
 ```
 
+Generic classes follow the same rule. The class type arguments may be written
+explicitly or inferred from constructor arguments, including named construction
+and explicit static constructor calls:
+
+```javascript
+class Channel<T> {
+    static constructor(handler: (value: T): void): Channel<T> {
+        return Channel<T> { handler }
+    }
+}
+
+let a = Channel<string> { handler: onString }
+let b = Channel { handler: onString }
+let c = Channel.constructor{ handler: onString }
+```
+
 Inside the class's own `constructor` method, `Counter { ... }` and `Counter(...)`
 still use the field constructor so factory implementations can build the
 instance without recursively calling themselves.

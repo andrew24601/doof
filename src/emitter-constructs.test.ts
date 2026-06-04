@@ -1006,6 +1006,15 @@ describe("emitter — lambda with function type param", () => {
     expect(cpp).toContain("doof::callback<int32_t(int32_t)> f");
     expect(cpp).toContain("f.call(x)");
   });
+
+  it("emits explicit callback dispatch", () => {
+    const cpp = emit(`
+      function notify(f: (x: int): void): void {
+        f.dispatch(7)
+      }
+    `);
+    expect(cpp).toContain("f.dispatch(7)");
+  });
 });
 
 describe("emitter — this capture in lambdas", () => {

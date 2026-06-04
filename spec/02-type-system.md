@@ -864,6 +864,12 @@ show({ kind: .Failure, error: "timeout" })
 ## Generic Types
 
 Doof provides built-in generic collection types and supports generic type aliases.
+Generic alias parameters remain in scope throughout the aliased type, including
+inside union members:
+
+```javascript
+type Event<T> = Message<T> | Ready<T> | Closed<T>
+```
 
 | Type | Shorthand | Description |
 |------|-----------|-------------|

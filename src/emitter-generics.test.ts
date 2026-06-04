@@ -105,6 +105,16 @@ describe("emitter — generic type alias declarations", () => {
     expect(cpp).toContain("template<typename T>");
     expect(cpp).toContain("using Container");
   });
+
+  it("preserves type args inside generic union aliases", () => {
+    const cpp = emit(`
+class Message<T> { value: T }
+class Ready<T> { token: T }
+type Event<T> = Message<T> | Ready<T>
+`);
+    expect(cpp).toContain("template<typename T>");
+    expect(cpp).toContain("using Event = std::variant<std::shared_ptr<__doof_private_main_Message<T>>, std::shared_ptr<__doof_private_main_Ready<T>>>");
+  });
 });
 
 // ============================================================================
@@ -140,6 +150,43 @@ const box = makeBox<int>{ value: 42 }
 `);
     expect(cpp).toContain("makeBox<int32_t>(42)");
     expect(cpp).not.toContain(`std::make_shared<::${emitModuleNamespace("/main.do")}::__doof_private_main_Box<int32_t>>(42)`);
+  });
+
+  it("emits generic direct construction through static constructor", () => {
+    const cpp = emit(`
+class Channel<T> {
+  private native: int
+  handler: (value: T): void
+
+  static constructor(handler: (value: T): void): Channel<T> {
+    return Channel<T> { native: 0, handler }
+  }
+}
+
+function main(): void {
+  events := Channel { handler: (value: int): void => {} }
+}
+`);
+    expect(cpp).toContain("return std::make_shared<__doof_private_main_Channel<T>>(0, handler);");
+    expect(cpp).toContain("__doof_private_main_Channel<int32_t>::constructor(");
+  });
+
+  it("emits generic static constructor calls with class type args", () => {
+    const cpp = emit(`
+class Channel<T> {
+  private native: int
+  handler: (value: T): void
+
+  static constructor(handler: (value: T): void): Channel<T> {
+    return Channel<T> { native: 0, handler }
+  }
+}
+
+function main(): void {
+  events := Channel.constructor{ handler: (value: string): void => {} }
+}
+`);
+    expect(cpp).toContain("__doof_private_main_Channel<std::string>::constructor(");
   });
 
   it("emits inferred type args for generic class call syntax", () => {

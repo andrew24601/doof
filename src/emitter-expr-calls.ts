@@ -39,7 +39,11 @@ function isVoidResultType(type: ResolvedType): type is Extract<ResolvedType, { k
   return type.kind === "result" && type.successType.kind === "void";
 }
 
-function getStaticClassMethodCall(memberExpr: MemberExpression, ctx: EmitContext): string | null {
+function getStaticClassMethodCall(
+  memberExpr: MemberExpression,
+  ctx: EmitContext,
+  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" }>,
+): string | null {
   if (memberExpr.object.kind !== "identifier") return null;
 
   const binding = memberExpr.object.resolvedBinding;
@@ -52,14 +56,20 @@ function getStaticClassMethodCall(memberExpr: MemberExpression, ctx: EmitContext
   );
   if (!method) return null;
 
-  const className = emitClassCppName(objectType.symbol, ctx.module.path);
+  const ownerType = ownerTypeOverride?.symbol === objectType.symbol ? ownerTypeOverride : objectType;
+  const className = emitResolvedClassName(ownerType, ctx.module.path);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
-function getQualifiedClassMethodCall(memberExpr: QualifiedMemberExpression, ctx: EmitContext): string | null {
+function getQualifiedClassMethodCall(
+  memberExpr: QualifiedMemberExpression,
+  ctx: EmitContext,
+  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" }>,
+): string | null {
   const objectType = memberExpr.object.resolvedType;
   if (!objectType || objectType.kind !== "class") return null;
-  const className = emitClassCppName(objectType.symbol, ctx.module.path);
+  const ownerType = ownerTypeOverride?.symbol === objectType.symbol ? ownerTypeOverride : objectType;
+  const className = emitResolvedClassName(ownerType, ctx.module.path);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
 }
 
@@ -317,7 +327,7 @@ function emitExplicitGenericMethodCall(
   if (expr.callee.kind === "qualified-member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
     if (!objectType || objectType.kind !== "class") return null;
-    const className = emitClassCppName(objectType.symbol, ctx.module.path);
+    const className = emitResolvedClassName(objectType, ctx.module.path);
     const typeArgs = methodTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ");
     return `${className}::${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
   }
@@ -356,8 +366,18 @@ function isExplicitCallbackCall(expr: CallExpression): boolean {
     && expr.callee.object.resolvedType?.kind === "function";
 }
 
+function isExplicitCallbackDispatch(expr: CallExpression): boolean {
+  if (expr.callee.kind !== "member-expression") return false;
+  return expr.callee.property === "dispatch"
+    && expr.callee.object.resolvedType?.kind === "function";
+}
+
 function emitCallbackCall(callee: string, args: string): string {
   return `${callee}.call(${args})`;
+}
+
+function emitCallbackDispatch(callee: string, args: string): string {
+  return `${callee}.dispatch(${args})`;
 }
 
 function emitResultHelperCall(
@@ -468,9 +488,32 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return `${emitExpression(expr.callee, ctx)}(${args.join(", ")})`;
     }
 
+    if (expr.callee.kind === "member-expression") {
+      const ownerTypeOverride = expr.callee.property === "constructor" && expr.resolvedType?.kind === "class"
+        ? expr.resolvedType
+        : undefined;
+      const staticMethod = getStaticClassMethodCall(expr.callee, ctx, ownerTypeOverride);
+      if (staticMethod) {
+        return `${staticMethod}(${args.join(", ")})`;
+      }
+    }
+
+    if (expr.callee.kind === "qualified-member-expression") {
+      const ownerTypeOverride = expr.callee.property === "constructor" && expr.resolvedType?.kind === "class"
+        ? expr.resolvedType
+        : undefined;
+      const staticMethod = getQualifiedClassMethodCall(expr.callee, ctx, ownerTypeOverride);
+      if (staticMethod) {
+        return `${staticMethod}(${args.join(", ")})`;
+      }
+    }
+
     const callee = emitExpression(expr.callee, ctx);
     if (expr.callee.kind !== "member-expression" || isFunctionFieldCall(expr) || isExplicitCallbackCall(expr)) {
       return emitCallbackCall(callee, args.join(", "));
+    }
+    if (isExplicitCallbackDispatch(expr)) {
+      return emitCallbackDispatch(emitExpression((expr.callee as MemberExpression).object, ctx), args.join(", "));
     }
     return `${callee}(${args.join(", ")})`;
   }
@@ -538,6 +581,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   if (isExplicitCallbackCall(expr)) {
     return emitCallbackCall(emitExpression((expr.callee as MemberExpression).object, ctx), args);
+  }
+
+  if (isExplicitCallbackDispatch(expr)) {
+    return emitCallbackDispatch(emitExpression((expr.callee as MemberExpression).object, ctx), args);
   }
 
   // Positional Success(value) → doof::Result<T, E>::success(val)
@@ -609,7 +656,15 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const staticMethod = getStaticClassMethodCall(memberExpr, ctx);
+    const constructorOwnerType = expr.resolvedType?.kind === "class"
+      ? expr.resolvedType
+      : calleeType?.kind === "function" && calleeType.returnType.kind === "class"
+        ? calleeType.returnType
+        : undefined;
+    const ownerTypeOverride = memberExpr.property === "constructor"
+      ? constructorOwnerType
+      : undefined;
+    const staticMethod = getStaticClassMethodCall(memberExpr, ctx, ownerTypeOverride);
     if (staticMethod) {
       return `${staticMethod}(${args})`;
     }
@@ -780,7 +835,15 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const staticMethod = getQualifiedClassMethodCall(memberExpr, ctx);
+    const constructorOwnerType = expr.resolvedType?.kind === "class"
+      ? expr.resolvedType
+      : calleeType?.kind === "function" && calleeType.returnType.kind === "class"
+        ? calleeType.returnType
+        : undefined;
+    const ownerTypeOverride = memberExpr.property === "constructor"
+      ? constructorOwnerType
+      : undefined;
+    const staticMethod = getQualifiedClassMethodCall(memberExpr, ctx, ownerTypeOverride);
     if (staticMethod) {
       return `${staticMethod}(${args})`;
     }

@@ -860,6 +860,24 @@ export function inferMemberType(
     };
   }
 
+  if (objectType.kind === "function" && property === "dispatch") {
+    if (objectType.returnType.kind !== "void") {
+      reportMemberDiagnostic(
+        info,
+        table,
+        span,
+        `Method "dispatch" is only available on void-returning callbacks`,
+      );
+      return UNKNOWN_TYPE;
+    }
+
+    return {
+      kind: "function",
+      params: objectType.params,
+      returnType: objectType.returnType,
+    };
+  }
+
   if (objectType.kind === "mock-capture") {
     const field = objectType.fields.find((entry) => entry.name === property);
     if (field) return field.type;

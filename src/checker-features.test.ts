@@ -577,6 +577,159 @@ describe("Concurrency", () => {
     });
   });
 
+  it("infers callback.dispatch as void for void callbacks", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            callback := (value: int): void => {}
+            callback.dispatch(3)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+    const dispatchCall = collectExprs(cr.program).find((expr) =>
+      expr.kind === "call-expression"
+      && expr.callee.kind === "member-expression"
+      && expr.callee.property === "dispatch"
+    );
+    expect(dispatchCall?.resolvedType).toMatchObject({ kind: "void" });
+  });
+
+  it("rejects callback.dispatch on non-void callbacks", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            callback := (value: int): int => value
+            callback.dispatch(3)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes('Method "dispatch" is only available on void-returning callbacks'))).toBe(true);
+  });
+
+  it("rejects mutable std event channel payloads", () => {
+    const cr = check(
+      {
+        "/event/index.do": `
+          export enum Backpressure { None, High }
+          export enum SendError { Full, Closed }
+          export class ChannelMessage<T> { readonly value: T }
+          export class ChannelReady<T> {}
+          export class ChannelClosed<T> {}
+          export class Channel<T> {
+            send(value: T): Result<Backpressure, SendError> {
+              return Success { value: Backpressure.None }
+            }
+          }
+          export function createChannel<T>(
+            handler: (event: ChannelMessage<T> | ChannelReady<T> | ChannelClosed<T>): void,
+            keepsAlive: bool = false,
+          ): Channel<T> {
+            return Channel<T> {}
+          }
+        `,
+        "/main.do": `
+          import { createChannel, ChannelMessage, ChannelReady, ChannelClosed } from "./event/index"
+
+          class MutablePayload {
+            value: int
+          }
+
+          function main(): void {
+            events := createChannel<MutablePayload>{
+              handler: (event: ChannelMessage<MutablePayload> | ChannelReady<MutablePayload> | ChannelClosed<MutablePayload>): void => {},
+              keepsAlive: false,
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("std/event.Channel<MutablePayload> creation requires an actor-boundary-safe payload"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("rejects sends on mutable std event channel payloads", () => {
+    const cr = check(
+      {
+        "/event/index.do": `
+          export enum Backpressure { None, High }
+          export enum SendError { Full, Closed }
+          export class ChannelMessage<T> { readonly value: T }
+          export class ChannelReady<T> {}
+          export class ChannelClosed<T> {}
+          export class Channel<T> {
+            send(value: T): Result<Backpressure, SendError> {
+              return Success { value: Backpressure.None }
+            }
+          }
+        `,
+        "/main.do": `
+          import { Channel } from "./event/index"
+
+          class MutablePayload {
+            value: int
+          }
+
+          function publish(events: Channel<MutablePayload>): void {
+            try! events.send(MutablePayload { value: 1 })
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some((d) => d.message.includes("std/event.Channel<MutablePayload> send requires an actor-boundary-safe payload"))).toBe(true);
+  });
+
+  it("accepts readonly std event channel payloads", () => {
+    const cr = check(
+      {
+        "/event/index.do": `
+          export enum Backpressure { None, High }
+          export enum SendError { Full, Closed }
+          export class ChannelMessage<T> { readonly value: T }
+          export class ChannelReady<T> {}
+          export class ChannelClosed<T> {}
+          export class Channel<T> {
+            send(value: T): Result<Backpressure, SendError> {
+              return Success { value: Backpressure.None }
+            }
+          }
+          export function createChannel<T>(
+            handler: (event: ChannelMessage<T> | ChannelReady<T> | ChannelClosed<T>): void,
+            keepsAlive: bool = false,
+          ): Channel<T> {
+            return Channel<T> {}
+          }
+        `,
+        "/main.do": `
+          import { createChannel, ChannelMessage, ChannelReady, ChannelClosed } from "./event/index"
+
+          class ImmutablePayload {
+            readonly value: int
+            readonly bytes: readonly byte[]
+          }
+
+          function main(): void {
+            events := createChannel<ImmutablePayload>{
+              handler: (event: ChannelMessage<ImmutablePayload> | ChannelReady<ImmutablePayload> | ChannelClosed<ImmutablePayload>): void => {},
+              keepsAlive: false,
+            }
+            try! events.send(ImmutablePayload { value: 1, bytes: readonly [1, 2, 3] })
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("allows isolated function declaration", () => {
     const cr = check(
       {
@@ -3695,6 +3848,26 @@ describe("checker — constructor validation", () => {
       a := Counter(10)
       b := Counter { initial: 10, step: 5 }
     ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("uses generic static constructor params for cross-file direct construction", () => {
+    const info = check({
+      "/lib.do": `
+        export class Channel<T> {
+          private native: int
+          handler: (value: T): void
+
+          static constructor(handler: (value: T): void): Channel<T> {
+            return Channel<T> { native: 0, handler }
+          }
+        }
+      `,
+      "/main.do": `
+        import { Channel } from "./lib"
+        events := Channel { handler: (value: string): void => {} }
+      `,
+    }, "/main.do");
     expect(info.diagnostics).toHaveLength(0);
   });
 

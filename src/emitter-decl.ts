@@ -597,6 +597,10 @@ export function emitTypeAnnotation(
   typeAnn: import("./ast.js").TypeAnnotation,
   ctx: EmitContext,
 ): string {
+  const emitNamedTypeArgs = () => typeAnn.kind === "named-type" && typeAnn.typeArgs.length > 0
+    ? `<${typeAnn.typeArgs.map((arg) => emitTypeAnnotation(arg, ctx)).join(", ")}>`
+    : "";
+
   switch (typeAnn.kind) {
     case "named-type": {
       // Check for primitive names first
@@ -621,15 +625,16 @@ export function emitTypeAnnotation(
       // If analyzer resolved this, look at the symbol kind
       if (typeAnn.resolvedSymbol) {
         const sym = typeAnn.resolvedSymbol;
+        const typeArgSuffix = emitNamedTypeArgs();
         if (sym.symbolKind === "class") {
-          return `std::shared_ptr<${emitClassCppName(sym, ctx.module.path)}>`;
+          return `std::shared_ptr<${emitClassCppName(sym, ctx.module.path)}${typeArgSuffix}>`;
         }
         // Interface/enum/type alias — refer to the defining module namespace.
-        return emitQualifiedSymbolName(sym);
+        return `${emitQualifiedSymbolName(sym)}${typeArgSuffix}`;
       }
 
       // Fallback: use name directly
-      return emitIdentifierSafe(typeAnn.name);
+      return `${emitIdentifierSafe(typeAnn.name)}${emitNamedTypeArgs()}`;
     }
 
     case "array-type": {

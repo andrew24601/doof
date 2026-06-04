@@ -442,6 +442,66 @@ function recordResolvedGenericCall(
   }
 }
 
+function inferStaticOwnerClassTypeArgs(
+  host: CheckerHost,
+  expr: CallExpression,
+  calleeType: Extract<ResolvedType, { kind: "function" }>,
+  providedParams: FunctionResolvedParam[],
+  providedArgTypes: ResolvedType[],
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): { paramMap: Map<string, ResolvedType>; ownerType: Extract<ResolvedType, { kind: "class" }> } | null {
+  if (expr.callee.kind !== "member-expression" && expr.callee.kind !== "qualified-member-expression") {
+    return null;
+  }
+
+  const objectType = expr.callee.object.resolvedType;
+  if (!objectType || objectType.kind !== "class" || objectType.typeArgs?.length) {
+    return null;
+  }
+
+  const binding = expr.callee.object.kind === "identifier" ? expr.callee.object.resolvedBinding : undefined;
+  const isNamedStatic =
+    expr.callee.kind === "qualified-member-expression"
+    || binding?.kind === "class"
+    || binding?.kind === "import";
+  if (!isNamedStatic || objectType.symbol.declaration.typeParams.length === 0) {
+    return null;
+  }
+
+  const paramMap = host.inferTypeArgs(
+    objectType.symbol.declaration.typeParams,
+    providedParams,
+    providedArgTypes,
+  );
+  if ([...paramMap.values()].every((typeArg) => typeArg.kind === "unknown")) {
+    return null;
+  }
+
+  const typeParamConstraints = resolveDeclarationTypeParamConstraints(
+    host,
+    objectType.symbol.declaration.typeParams,
+    objectType.symbol.declaration.typeParamConstraints,
+    table,
+  );
+  validateInferredTypeArgsAgainstConstraints(
+    objectType.symbol.declaration.typeParams,
+    typeParamConstraints,
+    paramMap,
+    table,
+    info,
+    expr.span,
+  );
+
+  const ownerType: Extract<ResolvedType, { kind: "class" }> = {
+    kind: "class",
+    symbol: objectType.symbol,
+    typeArgs: getResolvedGenericTypeArgs(objectType.symbol.declaration.typeParams, paramMap),
+  };
+  expr.callee.object.resolvedType = ownerType;
+  return { paramMap, ownerType };
+}
+
 function isResolvedTypeParamBinding(
   binding: ResolvedType | undefined,
   typeParamName: string,
@@ -907,6 +967,60 @@ function validateActorMethodBoundary(
       span,
       module: table.path,
     });
+  }
+}
+
+function isStdEventChannelType(type: ResolvedType | undefined): type is Extract<ResolvedType, { kind: "class" }> {
+  if (!type || type.kind !== "class") return false;
+  return type.symbol.name === "Channel"
+    && (
+      type.symbol.module === "std/event"
+      || type.symbol.module.endsWith("/event/index.do")
+      || type.symbol.module.endsWith("/event/index")
+    );
+}
+
+function validateStdEventChannelPayload(
+  host: CheckerHost,
+  type: ResolvedType | undefined,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+  action: string,
+): void {
+  if (!isStdEventChannelType(type)) return;
+  const payloadType = type.typeArgs?.[0];
+  if (!payloadType) return;
+
+  const violation = findActorBoundaryViolation(host, payloadType, table);
+  if (!violation) return;
+
+  info.diagnostics.push({
+    severity: "error",
+    message: `std/event.Channel<${typeToString(payloadType)}> ${action} requires an actor-boundary-safe payload: ${violation.reason}`,
+    span,
+    module: table.path,
+  });
+}
+
+function validateStdEventChannelCall(
+  host: CheckerHost,
+  call: CallExpression,
+  returnType: ResolvedType,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  validateStdEventChannelPayload(host, returnType, table, info, call.span, "creation");
+
+  if (call.callee.kind === "member-expression" && call.callee.property === "send") {
+    validateStdEventChannelPayload(
+      host,
+      call.callee.object.resolvedType,
+      table,
+      info,
+      call.args[0]?.span ?? call.span,
+      "send",
+    );
   }
 }
 
@@ -1490,6 +1604,21 @@ function inferExprTypeInner(
             info,
             expr.span,
           );
+          const staticOwnerInference = inferStaticOwnerClassTypeArgs(
+            host,
+            expr,
+            calleeType,
+            orderedArgs.flatMap((arg, index) => arg ? [calleeType.params[index]] : []),
+            orderedArgs.flatMap((arg) => arg ? [arg.type] : []),
+            table,
+            info,
+          );
+          if (staticOwnerInference) {
+            for (const arg of expr.args) {
+              applyTypeSubstitutionToExpression(arg.value, staticOwnerInference.paramMap);
+            }
+            effectiveCalleeType = substituteTypeParams(effectiveCalleeType, staticOwnerInference.paramMap) as typeof calleeType;
+          }
           if (calleeType.typeParams && calleeType.typeParams.length > 0) {
             const providedParams: FunctionResolvedParam[] = [];
             const providedArgTypes: ResolvedType[] = [];
@@ -1518,6 +1647,7 @@ function inferExprTypeInner(
           if (actorMethodReceiver) {
             validateActorMethodBoundary(host, actorMethodReceiver, effectiveCalleeType, table, info, expr.span);
           }
+          validateStdEventChannelCall(host, expr, effectiveCalleeType.returnType, table, info);
           return effectiveCalleeType.returnType;
         }
 
@@ -1526,6 +1656,21 @@ function inferExprTypeInner(
           for (let i = 0; i < expr.args.length; i++) {
             const paramType = i < calleeType.params.length ? calleeType.params[i].type : undefined;
             argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
+          }
+          const staticOwnerInference = inferStaticOwnerClassTypeArgs(
+            host,
+            expr,
+            calleeType,
+            calleeType.params,
+            argTypes,
+            table,
+            info,
+          );
+          if (staticOwnerInference) {
+            for (const arg of expr.args) {
+              applyTypeSubstitutionToExpression(arg.value, staticOwnerInference.paramMap);
+            }
+            effectiveCalleeType = substituteTypeParams(effectiveCalleeType, staticOwnerInference.paramMap) as typeof calleeType;
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
           validateInferredTypeArgsAgainstConstraints(
@@ -1553,6 +1698,7 @@ function inferExprTypeInner(
           if (actorMethodReceiver) {
             validateActorMethodBoundary(host, actorMethodReceiver, effectiveCalleeType, table, info, expr.span);
           }
+          validateStdEventChannelCall(host, expr, effectiveCalleeType.returnType, table, info);
           return effectiveCalleeType.returnType;
         }
 
@@ -1561,8 +1707,23 @@ function inferExprTypeInner(
           const paramType = i < calleeType.params.length ? calleeType.params[i].type : undefined;
           argTypes.push(inferExprType(host, expr.args[i].value, scope, table, info, paramType));
         }
-        validatePositionalFunctionArgs(
+        const staticOwnerInference = inferStaticOwnerClassTypeArgs(
+          host,
+          expr,
+          calleeType,
           calleeType.params,
+          argTypes,
+          table,
+          info,
+        );
+        if (staticOwnerInference) {
+          for (const arg of expr.args) {
+            applyTypeSubstitutionToExpression(arg.value, staticOwnerInference.paramMap);
+          }
+          effectiveCalleeType = substituteTypeParams(effectiveCalleeType, staticOwnerInference.paramMap) as typeof calleeType;
+        }
+        validatePositionalFunctionArgs(
+          effectiveCalleeType.params,
           argTypes,
           expr.args.map((arg) => arg.span),
           table,
@@ -1570,9 +1731,10 @@ function inferExprTypeInner(
           expr.span,
         );
         if (actorMethodReceiver) {
-          validateActorMethodBoundary(host, actorMethodReceiver, calleeType, table, info, expr.span);
+          validateActorMethodBoundary(host, actorMethodReceiver, effectiveCalleeType, table, info, expr.span);
         }
-        return calleeType.returnType;
+        validateStdEventChannelCall(host, expr, effectiveCalleeType.returnType, table, info);
+        return effectiveCalleeType.returnType;
       }
 
       if (calleeType.kind === "class") {
@@ -1764,8 +1926,10 @@ function inferExprTypeInner(
             paramSubMap.set(sym.declaration.typeParams[i], resolvedTypeArgs[i]);
           }
         }
+        let effectiveTypeArgs = resolvedTypeArgs;
 
         let constructParams = getConstructorParams(host, sym, table, true, scope);
+        const usesConstructorFactory = constructParams.some((param) => param.source === "parameter");
         if (paramSubMap) {
           constructParams = constructParams.map((p) => ({
             ...p,
@@ -1794,6 +1958,33 @@ function inferExprTypeInner(
               }
             }
           }
+          if (!paramSubMap && sym.declaration.typeParams.length > 0) {
+            const providedParams: ConstructorParam[] = [];
+            const providedArgTypes: ResolvedType[] = [];
+            for (const prop of props) {
+              const fieldParam = cpMap.get(prop.name);
+              if (!fieldParam) continue;
+              providedParams.push(fieldParam);
+              providedArgTypes.push(getObjectPropertyResolvedType(prop));
+            }
+            const inferredMap = host.inferTypeArgs(sym.declaration.typeParams, providedParams, providedArgTypes);
+            validateInferredTypeArgsAgainstConstraints(
+              sym.declaration.typeParams,
+              typeParamConstraints,
+              inferredMap,
+              table,
+              info,
+              expr.span,
+            );
+            if ([...inferredMap.values()].some((typeArg) => typeArg.kind !== "unknown")) {
+              paramSubMap = inferredMap;
+              effectiveTypeArgs = getResolvedGenericTypeArgs(sym.declaration.typeParams, inferredMap);
+              constructParams = constructParams.map((p) => ({
+                ...p,
+                type: substituteTypeParams(p.type, inferredMap),
+              }));
+            }
+          }
           validateNamedConstructorArgs(host, sym, props, true, table, info, expr.span, constructParams);
         } else {
           const argTypes: ResolvedType[] = [];
@@ -1813,7 +2004,7 @@ function inferExprTypeInner(
             module: table.path,
           });
         }
-        if (sym.module !== table.path) {
+        if (!usesConstructorFactory && sym.module !== table.path) {
           const privateFieldsWithoutDefaults = sym.declaration.fields.filter(
             (f) => f.private_ && f.defaultValue === null,
           );
@@ -1827,8 +2018,8 @@ function inferExprTypeInner(
             });
           }
         }
-        return resolvedTypeArgs
-          ? { kind: "class", symbol: sym, typeArgs: resolvedTypeArgs }
+        return effectiveTypeArgs
+          ? { kind: "class", symbol: sym, typeArgs: effectiveTypeArgs }
           : { kind: "class", symbol: sym };
       }
 
@@ -1917,6 +2108,7 @@ function inferExprTypeInner(
           effectiveCalleeType = substituteTypeParams(targetBinding.type, paramMap) as typeof targetBinding.type;
         }
         validateResolvedNamedFunctionArgs(effectiveCalleeType.params, orderedArgs, table, info);
+        validateStdEventChannelPayload(host, effectiveCalleeType.returnType, table, info, expr.span, "creation");
         return effectiveCalleeType.returnType;
       }
 

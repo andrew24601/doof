@@ -135,6 +135,11 @@ class Promise;
 template <typename Signature>
 class callback;
 
+namespace detail {
+template <typename R, typename... Args>
+R call_callback_unchecked(const doof::callback<R(Args...)>& cb, Args... args);
+}
+
 template <typename R, typename... Args>
 class callback<R(Args...)> {
     std::function<R(Args...)> fn_;
@@ -181,7 +186,49 @@ public:
     }
 
     doof::Promise<R> post(Args... args) const;
+
+    void dispatch(Args... args) const {
+        static_assert(std::is_void_v<R>, "callback.dispatch is only available for void callbacks");
+        if (!fn_) {
+            doof::panic("callback dispatched before initialization");
+        }
+
+        if (!owner_) {
+            detail::call_callback_unchecked(*this, std::forward<Args>(args)...);
+            return;
+        }
+
+        auto self = *this;
+        auto packedArgs = std::make_tuple(std::forward<Args>(args)...);
+        owner_->enqueue_callback([self, packedArgs = std::move(packedArgs)]() mutable {
+            std::apply([&](auto&&... unpacked) {
+                self.call(std::forward<decltype(unpacked)>(unpacked)...);
+            }, std::move(packedArgs));
+        });
+    }
+
+private:
+    template <typename CR, typename... CArgs>
+    friend CR detail::call_callback_unchecked(const doof::callback<CR(CArgs...)>& cb, CArgs... args);
+
+    R call_unchecked(Args... args) const {
+        if (!fn_) {
+            doof::panic("callback invoked before initialization");
+        }
+        if constexpr (std::is_void_v<R>) {
+            fn_(std::forward<Args>(args)...);
+        } else {
+            return fn_(std::forward<Args>(args)...);
+        }
+    }
 };
+
+namespace detail {
+template <typename R, typename... Args>
+R call_callback_unchecked(const doof::callback<R(Args...)>& cb, Args... args) {
+    return cb.call_unchecked(std::forward<Args>(args)...);
+}
+}
 
 [[noreturn]] inline void panic_ordered_collection_invariant(
     const char* collection,
