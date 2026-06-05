@@ -123,6 +123,112 @@ public:
         active_actor_domain = previous_;
     }
 };
+
+class ApplicationDomain final : public CallbackDomain {
+public:
+    static ApplicationDomain& shared() {
+        static ApplicationDomain domain;
+        return domain;
+    }
+
+    static bool is_application_domain(CallbackDomain* domain) {
+        return domain == &shared();
+    }
+
+    void enqueue_callback(std::function<void()> task) override {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            mailbox_.push(std::move(task));
+        }
+        notify_ready();
+    }
+
+    int32_t drain_ready() {
+        int32_t dispatched = 0;
+        while (true) {
+            std::function<void()> task;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (mailbox_.empty()) {
+                    return dispatched;
+                }
+                task = std::move(mailbox_.front());
+                mailbox_.pop();
+            }
+
+            ActiveActorScope active(this);
+            task();
+            ++dispatched;
+        }
+    }
+
+    bool wait_and_dispatch_one() {
+        std::function<void()> task;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            ready_.wait(lock, [this] {
+                return !mailbox_.empty() || keep_alive_count_ == 0;
+            });
+            if (mailbox_.empty()) {
+                return false;
+            }
+            task = std::move(mailbox_.front());
+            mailbox_.pop();
+        }
+
+        ActiveActorScope active(this);
+        task();
+        return true;
+    }
+
+    void add_keep_alive_source(bool keeps_alive) {
+        if (!keeps_alive) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++keep_alive_count_;
+    }
+
+    void remove_keep_alive_source(bool keeps_alive) {
+        if (!keeps_alive) {
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (keep_alive_count_ > 0) {
+                --keep_alive_count_;
+            }
+        }
+        notify_ready();
+    }
+
+    void set_wake_handler(std::function<void()> handler) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        wake_handler_ = std::move(handler);
+    }
+
+private:
+    ApplicationDomain() = default;
+
+    void notify_ready() {
+        std::function<void()> wake_handler;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            wake_handler = wake_handler_;
+        }
+
+        ready_.notify_all();
+        if (wake_handler) {
+            wake_handler();
+        }
+    }
+
+    std::mutex mutex_;
+    std::condition_variable ready_;
+    std::queue<std::function<void()>> mailbox_;
+    int64_t keep_alive_count_ = 0;
+    std::function<void()> wake_handler_;
+};
 } // namespace detail
 
 inline detail::CallbackDomain* current_actor_domain() {
@@ -1687,24 +1793,22 @@ doof::Promise<R> callback<R(Args...)>::post(Args... args) const {
     if (!fn_) {
         doof::panic("callback posted before initialization");
     }
-    if (!owner_) {
-        doof::panic("root-domain callback cannot be posted");
-    }
+    auto owner = owner_ ? owner_ : &doof::detail::ApplicationDomain::shared();
 
     auto prom = std::make_shared<std::promise<R>>();
     auto fut = prom->get_future();
     auto self = *this;
     auto packedArgs = std::make_tuple(std::forward<Args>(args)...);
-    owner_->enqueue_callback([self, prom, packedArgs = std::move(packedArgs)]() mutable {
+    owner->enqueue_callback([self, prom, packedArgs = std::move(packedArgs)]() mutable {
         try {
             if constexpr (std::is_void_v<R>) {
                 std::apply([&](auto&&... unpacked) {
-                    self.call(std::forward<decltype(unpacked)>(unpacked)...);
+                    doof::detail::call_callback_unchecked(self, std::forward<decltype(unpacked)>(unpacked)...);
                 }, std::move(packedArgs));
                 prom->set_value();
             } else {
                 prom->set_value(std::apply([&](auto&&... unpacked) -> R {
-                    return self.call(std::forward<decltype(unpacked)>(unpacked)...);
+                    return doof::detail::call_callback_unchecked(self, std::forward<decltype(unpacked)>(unpacked)...);
                 }, std::move(packedArgs)));
             }
         } catch (...) {

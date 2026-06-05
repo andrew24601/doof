@@ -982,7 +982,8 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("doof::Promise<R> post(Args... args) const");
     expect(header).toContain("void dispatch(Args... args) const");
     expect(header).toContain("call_callback_unchecked");
-    expect(header).toContain("root-domain callback cannot be posted");
+    expect(header).toContain("class ApplicationDomain final");
+    expect(header).toContain("wait_and_dispatch_one");
   });
 
   it("generates std::variant stringification support", () => {

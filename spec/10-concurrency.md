@@ -182,8 +182,9 @@ promise := callback.post(args)
 
 `post` enqueues the callback invocation on the owning actor and returns
 `Promise<R>`, where `R` is the callback return type. A posted callback does not
-run on the caller's stack. Posting a callback created in the root domain is a
-runtime logic error because the root domain has no actor mailbox.
+run on the caller's stack. A callback created in the root application domain is
+posted to the root mailbox. The host or generated entrypoint decides which
+thread drains that mailbox, so UI runtimes can preserve strict thread affinity.
 
 Function-typed parameters in native imports also lower to `doof::callback`; the
 compiler does not assume whether bodiless C++ will call locally, store, or

@@ -752,6 +752,8 @@ describe("emitter-module — main wrapper", () => {
     `);
     expect(cppCode).toContain("doof_main()");
     expect(cppCode).toContain("doof_entry_main");
+    expect(cppCode).toContain("doof::detail::ApplicationDomain::shared()");
+    expect(cppCode).toContain("doof::detail::ActiveActorScope __doof_application_scope");
     expect(cppCode).toContain("int main(int argc, char** argv)");
   });
 

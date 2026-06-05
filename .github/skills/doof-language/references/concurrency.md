@@ -136,8 +136,8 @@ function apply(f: (x: int): int, x: int): int => f.call(x)
 Local callback calls are checked by the runtime and must execute inside the
 owning actor domain. Use `callback.post(args)` to enqueue callback work back
 onto the owning actor; it returns `Promise<R>` for callback return type `R`.
-Posting root-domain callbacks is a runtime logic error because the root domain
-has no actor mailbox.
+Root-domain callbacks post to the root application mailbox. The host decides
+which thread drains that mailbox, which preserves UI runtime thread affinity.
 
 Actor-affine callback values may cross actor method boundaries, but their
 parameter and return payload types must also be boundary-safe. Function-typed
