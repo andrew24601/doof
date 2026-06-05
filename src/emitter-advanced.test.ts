@@ -38,6 +38,26 @@ describe("emitter — Result type", () => {
     expect(header).toContain("struct Result<void, E>");
   });
 
+  it("emits catchPanic as a narrow panic-to-Result wrapper", () => {
+    const cpp = emit(`
+      function f(): Result<int, string> {
+        return catchPanic(=> 42)
+      }
+    `);
+    expect(cpp).toContain("catch (const doof::Panic& _panic)");
+    expect(cpp).toContain("doof::Result<int32_t, std::string>::success");
+    expect(cpp).toContain("doof::Result<int32_t, std::string>::failure");
+  });
+
+  it("emits catchPanic for void callbacks without a success payload", () => {
+    const cpp = emit(`
+      function f(): Result<void, string> {
+        return catchPanic(=> println("ok"))
+      }
+    `);
+    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+  });
+
   it("emits doof::Result with class error type", () => {
     const cpp = emit(`
       class MyError { message: string }

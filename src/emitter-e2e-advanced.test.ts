@@ -971,6 +971,79 @@ describe("e2e — catch expression", () => {
   });
 });
 
+describe("e2e — catchPanic", () => {
+  it("returns Success when the callback completes", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        const result = catchPanic(=> 7)
+        case result {
+          s: Success -> println(s.value)
+          f: Failure -> println(f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("7");
+  });
+
+  it("returns Failure with the panic message when the callback panics", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        const result = catchPanic(=> panic("boundary failed"))
+        case result {
+          s: Success -> println("unexpected")
+          f: Failure -> println(f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("main.do:3: boundary failed");
+  });
+
+  it("keeps uncaught panics terminating at the process boundary", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        panic("still fatal")
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.trim()).toBe("panic: main.do:3: still fatal");
+  });
+
+  it("does not convert async panics into Promise failures", () => {
+    const result = ctx.compileAndRun(`
+      class Worker {
+        fail(): void {
+          panic("async fatal")
+        }
+      }
+      function main(): int {
+        const worker = Actor<Worker>()
+        const p = async worker.fail()
+        try! p.get()
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.trim()).toBe("panic: main.do:4: async fatal");
+  });
+});
+
 // ============================================================================
 // Tests: union type casting between shared_ptr and variant representations
 // ============================================================================

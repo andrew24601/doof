@@ -477,6 +477,25 @@ function getElement<T>(array: T[], index: int): T {
 - Prints stack trace and panic message
 - Should **only** be used for programmer errors, not expected runtime conditions
 
+### `catchPanic`
+
+`catchPanic` is a narrow built-in for process-boundary recovery. It runs a parameterless callback and converts a panic from that callback into a `Failure<string>` containing the panic message:
+
+```javascript
+function catchPanic<T>(f: () => T): Result<T, string>
+```
+
+If the callback completes normally, `catchPanic` returns `Success<T>`.
+
+```javascript
+const result = catchPanic(=> {
+    initializePlugin()
+    return "ready"
+})
+```
+
+Use `catchPanic` sparingly at controlled boundaries such as plugin hosts, test harnesses, or request/process adapters. It is not a general exception system, and expected failures should still be modeled as `Result<T, E>`.
+
 ### Assertions
 
 ```javascript
@@ -534,6 +553,7 @@ Do not use assertions for:
 | **Result + `try?`** | When error details don't matter, convert to optional | Optional features, cached data |
 | **Result + `??`** | Provide specific fallback value on Failure | Configuration with defaults, fallback chains |
 | **`else` narrow** | Unwrap Result or nullable with custom bail-out logic | Guard clauses, early-return patterns |
+| **`catchPanic`** | Controlled boundary recovery from programmer-error panics | Plugin/process/test harness isolation |
 | **Panic** | Programmer errors (bugs) | Array bounds violations, assertion failures |
 
 ```javascript

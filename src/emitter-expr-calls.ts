@@ -380,6 +380,23 @@ function emitCallbackDispatch(callee: string, args: string): string {
   return `${callee}.dispatch(${args})`;
 }
 
+function emitCatchPanicCall(
+  expr: CallExpression,
+  positionalCallValues: string[],
+  ctx: EmitContext,
+): string | null {
+  const resultType = expr.resolvedType;
+  if (!resultType || resultType.kind !== "result") return null;
+  const callback = positionalCallValues[0];
+  if (!callback) return null;
+
+  const resultCppType = emitType(resultType, ctx.module.path);
+  if (isVoidResultType(resultType)) {
+    return `[&]() -> ${resultCppType} { try { ${callback}.call(); return ${resultCppType}::success(); } catch (const doof::Panic& _panic) { return ${resultCppType}::failure(std::string(_panic.what())); } }()`;
+  }
+  return `[&]() -> ${resultCppType} { try { return ${resultCppType}::success(${callback}.call()); } catch (const doof::Panic& _panic) { return ${resultCppType}::failure(std::string(_panic.what())); } }()`;
+}
+
 function emitResultHelperCall(
   expr: CallExpression,
   memberExpr: MemberExpression,
@@ -859,6 +876,10 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   // Map known Doof runtime builtins to doof:: namespace
   if (expr.callee.kind === "identifier") {
+    if (expr.callee.name === "catchPanic" && isBuiltinRuntimeFunctionBinding(calleeBinding)) {
+      const catchPanicCall = emitCatchPanicCall(expr, positionalCallValues, ctx);
+      if (catchPanicCall) return catchPanicCall;
+    }
     if (monomorphizedName) {
       return `${emitMonomorphizedCallName(monomorphizedName, expr)}(${args})`;
     }

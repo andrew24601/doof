@@ -1901,6 +1901,7 @@ function emitExternCMainEntryWrapper(
   const returnsInt = retType === "int32_t" || retType === "int64_t";
 
   lines.push('extern "C" int doof_entry_main(int argc, char** argv) {');
+  lines.push("    try {");
   lines.push("    auto& __doof_application_domain = doof::detail::ApplicationDomain::shared();");
   lines.push("    doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain);");
 
@@ -1928,6 +1929,10 @@ function emitExternCMainEntryWrapper(
     }
   }
 
+  lines.push("    } catch (const doof::Panic& _panic) {");
+  lines.push('        std::cerr << "panic: " << _panic.what() << std::endl;');
+  lines.push("        std::abort();");
+  lines.push("    }");
   lines.push("}");
 }
 

@@ -92,6 +92,44 @@ describe("checker — SourceLocation and @caller", () => {
   });
 });
 
+describe("checker — catchPanic", () => {
+  it("infers catchPanic as Result<T, string> from a callback return type", () => {
+    const cr = check({ "/main.do": `
+      function main(): void {
+        value := catchPanic(=> 42)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const valueDecl = cr.program.statements[0].kind === "function-declaration"
+      && cr.program.statements[0].body.kind === "block"
+      ? cr.program.statements[0].body.statements[0]
+      : null;
+    expect(valueDecl?.kind).toBe("immutable-binding");
+    if (valueDecl?.kind === "immutable-binding") {
+      expect(typeToString(valueDecl.resolvedType!)).toBe("Result<int, string>");
+    }
+  });
+
+  it("infers catchPanic with void callbacks as Result<void, string>", () => {
+    const cr = check({ "/main.do": `
+      function main(): void {
+        value := catchPanic(=> println("ok"))
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const valueDecl = cr.program.statements[0].kind === "function-declaration"
+      && cr.program.statements[0].body.kind === "block"
+      ? cr.program.statements[0].body.statements[0]
+      : null;
+    expect(valueDecl?.kind).toBe("immutable-binding");
+    if (valueDecl?.kind === "immutable-binding") {
+      expect(typeToString(valueDecl.resolvedType!)).toBe("Result<void, string>");
+    }
+  });
+});
+
 // ============================================================================
 // Namespace imports
 // ============================================================================

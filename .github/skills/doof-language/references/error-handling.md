@@ -199,6 +199,12 @@ if index < 0 || index >= array.length {
 
 Use panic for impossible states, assertion failures, or other programmer bugs.
 
+### `catchPanic`
+
+`catchPanic<T>(f: () => T): Result<T, string>` runs a parameterless callback and returns `Success<T>` when it completes normally. If the callback panics, it returns `Failure<string>` with the panic message.
+
+Use it only as a controlled escape hatch at process or host boundaries. It is not a general exception system, and expected failures should stay as `Result<T, E>`.
+
 ## When to Use What
 
 | Mechanism | Use For |
@@ -210,6 +216,7 @@ Use panic for impossible states, assertion failures, or other programmer bugs.
 | declaration-`else` | unwrap-or-bail control flow |
 | `??` | specific fallback value |
 | `catch` | local error capture without propagation |
+| `catchPanic` | controlled boundary recovery from panics |
 | `panic` | programmer errors |
 
 ## Resource Cleanup

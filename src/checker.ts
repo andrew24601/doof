@@ -966,7 +966,8 @@ export class TypeChecker {
    * into the given scope so the type checker recognizes them.
    */
   private addBuiltinFunctions(scope: Scope): void {
-    const builtins: { name: string; params: FunctionResolvedParam[]; returnType: ResolvedType }[] = [
+    const catchPanicSuccessType: ResolvedType = { kind: "typevar", name: "T" };
+    const builtins: { name: string; params: FunctionResolvedParam[]; returnType: ResolvedType; typeParams?: string[] }[] = [
       // println(value: T): void — print a value followed by a newline
       { name: "println", params: [{ name: "value", type: UNKNOWN_TYPE }], returnType: VOID_TYPE },
       // println(): void — print an empty line (0-arg overload handled by UNKNOWN_TYPE param being optional in practice)
@@ -976,6 +977,13 @@ export class TypeChecker {
       { name: "panic", params: [{ name: "message", type: STRING_TYPE }], returnType: VOID_TYPE },
       // assert(condition: bool, message: string): void — panic when the condition is false
       { name: "assert", params: [{ name: "condition", type: BOOL_TYPE }, { name: "message", type: STRING_TYPE }], returnType: VOID_TYPE },
+      // catchPanic<T>(f: () => T): Result<T, string> — convert a panic from f into a Failure message
+      {
+        name: "catchPanic",
+        params: [{ name: "f", type: { kind: "function", params: [], returnType: catchPanicSuccessType } }],
+        returnType: { kind: "result", successType: catchPanicSuccessType, errorType: STRING_TYPE },
+        typeParams: ["T"],
+      },
       // to_string(value: T): string — convert any value to a string
       { name: "to_string", params: [{ name: "value", type: UNKNOWN_TYPE }], returnType: STRING_TYPE },
       // concat(...args): string — concatenate values into a string
@@ -988,7 +996,12 @@ export class TypeChecker {
       scope.bindings.set(b.name, {
         name: b.name,
         kind: "function",
-        type: { kind: "function", params: b.params, returnType: b.returnType },
+        type: {
+          kind: "function",
+          params: b.params,
+          returnType: b.returnType,
+          typeParams: b.typeParams,
+        },
         mutable: false,
         span: BUILTIN_SPAN,
         module: "<builtin>",

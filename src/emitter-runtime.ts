@@ -34,6 +34,7 @@ const RUNTIME_HEADER = `#pragma once
 #include <cstdlib>
 #include <condition_variable>
 #include <cmath>
+#include <exception>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -59,9 +60,16 @@ namespace doof {
 // Panic — unrecoverable error
 // ============================================================================
 
+class Panic final {
+    std::string message_;
+public:
+    explicit Panic(std::string msg) : message_(std::move(msg)) {}
+    const char* what() const noexcept { return message_.c_str(); }
+    const std::string& message() const noexcept { return message_; }
+};
+
 [[noreturn]] inline void panic(const std::string& msg) {
-    std::cerr << "panic: " << msg << std::endl;
-    std::abort();
+    throw Panic(msg);
 }
 
 [[noreturn]] inline void panic_at(const char* file, int32_t line, const std::string& msg) {
@@ -1760,6 +1768,8 @@ public:
     doof::Result<T, std::string> get() const {
         try {
             return doof::Result<T, std::string>::success(future_.get());
+        } catch (const doof::Panic&) {
+            throw;
         } catch (const std::exception& e) {
             return doof::Result<T, std::string>::failure(std::string(e.what()));
         } catch (...) {
@@ -1780,6 +1790,8 @@ public:
         try {
             future_.get();
             return doof::Result<void, std::string>::success();
+        } catch (const doof::Panic&) {
+            throw;
         } catch (const std::exception& e) {
             return doof::Result<void, std::string>::failure(std::string(e.what()));
         } catch (...) {
