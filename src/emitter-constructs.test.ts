@@ -417,6 +417,38 @@ describe("emitter — lambda captures", () => {
     expect(cpp).not.toContain("std::make_shared<int32_t>(0)");
     expect(cpp).not.toContain("[local]");
   });
+
+  it("captures declaration-else subjects and fallback blocks inside lambdas", () => {
+    const cpp = emit(`
+      class Sender {
+        send(): Result<int, string> => Success(1)
+      }
+
+      function invoke(handler: (): void): void {
+        handler()
+      }
+
+      function create(): Tuple<Sender, int> {
+        return (Sender {}, 1)
+      }
+
+      function main(): void {
+        let attempts = 0
+        (sender, _) := create()
+        invoke((): void => {
+          sent := sender.send() else {
+            attempts = attempts + 1
+            return
+          }
+        })
+      }
+    `);
+
+    expect(cpp).toContain("auto attempts = std::make_shared<int32_t>(0)");
+    expect(cpp).toContain("invoke(doof::callback<void()>([sender, attempts]() -> void");
+    expect(cpp).toMatch(/auto _else\d+ = sender->send\(\);/);
+    expect(cpp).toContain("(*attempts) = (*attempts) + 1");
+  });
 });
 
 

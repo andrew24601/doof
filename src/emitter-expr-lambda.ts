@@ -414,6 +414,10 @@ function collectCapturesFromStatement(
       for (const b of stmt.bindings) collectCaptures(b.value, lambdaBodySpan, paramNames, captures, ctx);
       for (const s of stmt.body.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
+    case "else-narrow-statement":
+      collectCaptures(stmt.subject, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.elseBlock.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
+      break;
     case "block":
       for (const s of stmt.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
@@ -522,6 +526,10 @@ function scanStatementForLambdaCaptures(
     case "with-statement":
       for (const b of stmt.bindings) scanExprForLambdaCaptures(b.value, outerNames, result);
       scanStatementsForLambdaCaptures(stmt.body.statements, outerNames, result);
+      break;
+    case "else-narrow-statement":
+      scanExprForLambdaCaptures(stmt.subject, outerNames, result);
+      scanStatementsForLambdaCaptures(stmt.elseBlock.statements, outerNames, result);
       break;
     case "block":
       scanStatementsForLambdaCaptures(stmt.statements, outerNames, result);
@@ -858,6 +866,10 @@ function collectMutableCaptureNamesFromStmt(
     case "with-statement":
       for (const b of stmt.bindings) collectMutableCaptureNames(b.value, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
+      break;
+    case "else-narrow-statement":
+      collectMutableCaptureNames(stmt.subject, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.elseBlock.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "block":
       for (const s of stmt.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
