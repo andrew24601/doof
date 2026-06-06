@@ -116,14 +116,14 @@ function main(args: string[]): int {
 }
 
 function hasHelpFlag(args: string[]): bool {
-  if args.length <= 1 {
+  if args.length == 0 {
     return false
   }
-  return args[1] == "--help" || args[1] == "-h"
+  return args[0] == "--help" || args[0] == "-h"
 }
 
 function printUsage(args: string[]): void {
-  program := if args.length > 0 then args[0] else "./build-openai-responses/a.out"
+  program := "openai-responses"
   println("Usage: ${program} [prompt words...]")
   println("Environment:")
   println("  OPENAI_API_KEY  required")
@@ -131,12 +131,12 @@ function printUsage(args: string[]): void {
 }
 
 function promptFromArgs(args: string[]): string {
-  if args.length <= 1 {
+  if args.length == 0 {
     return ""
   }
 
   let prompt = ""
-  let index = 1
+  let index = 0
   while index < args.length {
     if prompt != "" {
       prompt += " "

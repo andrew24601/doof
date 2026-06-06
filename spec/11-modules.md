@@ -323,6 +323,10 @@ function main(): int { ... }
 function main(args: string[]): int { ... }
 ```
 
+When `main` accepts `args`, the array contains only user-provided command-line
+arguments. The executable path is omitted, so `doof-server ./site` receives
+`args[0] == "./site"`.
+
 **Return value:**
 - `void` — Program exits with code 0
 - `int` — Program exits with the returned code

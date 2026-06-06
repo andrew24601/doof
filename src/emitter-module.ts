@@ -1913,7 +1913,7 @@ function emitExternCMainEntryWrapper(
   }
 
   if (hasArgs) {
-    lines.push("    auto args = std::make_shared<std::vector<std::string>>(argv, argv + argc);");
+    lines.push("    auto args = std::make_shared<std::vector<std::string>>(argv + 1, argv + argc);");
     if (returnsInt) {
       lines.push(`    return static_cast<int>(${emitQualifiedHelperName(table.path, "doof_main", analysisResult.modules)}(args));`);
     } else {
