@@ -317,6 +317,23 @@ describe("e2e — lambda captures", () => {
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
+  it("compiles callback lambda using a file-level constant", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      const ROUTE = "/health"
+
+      function invoke(handler: (): string): string {
+        return handler()
+      }
+
+      function main(): int {
+        path := invoke((): string => ROUTE)
+        return path.length
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+    expect(code).not.toContain("[ROUTE]");
+  });
+
   it("runs lambda capturing immutable binding", () => {
     const result = ctx.compileAndRun(`
       function main(): int {

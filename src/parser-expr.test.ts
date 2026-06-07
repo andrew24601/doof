@@ -632,23 +632,9 @@ describe("Parser — trailing lambdas", () => {
   });
 
   it("does not allow chaining after trailing lambda", () => {
-    // Chaining off a trailing lambda is forbidden — the trailing lambda
-    // terminates the postfix chain, so `.filter()` starts a new statement.
-    const expr = parseExpr("items.map() { it * 2 }");
-    expect(expr.kind).toBe("call-expression");
-    if (expr.kind === "call-expression") {
-      expect(expr.args).toHaveLength(1);
-      const lambda = expr.args[0].value;
-      expect(lambda.kind).toBe("lambda-expression");
-      if (lambda.kind === "lambda-expression") {
-        expect(lambda.trailing).toBe(true);
-      }
-      // Verify the callee is just `items.map`, not chained further
-      expect(expr.callee.kind).toBe("member-expression");
-      if (expr.callee.kind === "member-expression") {
-        expect(expr.callee.property).toBe("map");
-      }
-    }
+    expect(() => parse("items.map() { it * 2 }.filter()")).toThrow(
+      "Chaining after a trailing lambda is not allowed",
+    );
   });
 
   it("parses trailing lambda with existing positional args", () => {
@@ -698,43 +684,22 @@ describe("Parser — trailing lambdas", () => {
     }
   });
 
-  it("parses trailing lambda in binding RHS", () => {
-    const stmt = firstStmt("doubled := items.map() { it * 2 }");
-    expect(stmt.kind).toBe("immutable-binding");
-    if (stmt.kind === "immutable-binding") {
-      expect(stmt.name).toBe("doubled");
-      const call = stmt.value;
-      expect(call.kind).toBe("call-expression");
-      if (call.kind === "call-expression") {
-        expect(call.args).toHaveLength(1);
-        const lambda = call.args[0].value;
-        expect(lambda.kind).toBe("lambda-expression");
-        if (lambda.kind === "lambda-expression") {
-          expect(lambda.trailing).toBe(true);
-        }
-      }
-    }
+  it("rejects trailing lambda in binding RHS", () => {
+    expect(() => firstStmt("doubled := items.map() { it * 2 }")).toThrow(
+      "bare block statements are not allowed",
+    );
   });
 
-  it("parses trailing lambda in assignment RHS", () => {
-    const stmt = firstStmt("result = items.filter() { it > 0 }");
-    expect(stmt.kind).toBe("expression-statement");
-    if (stmt.kind === "expression-statement") {
-      const assign = stmt.expression;
-      expect(assign.kind).toBe("assignment-expression");
-      if (assign.kind === "assignment-expression") {
-        const call = assign.value;
-        expect(call.kind).toBe("call-expression");
-        if (call.kind === "call-expression") {
-          expect(call.args).toHaveLength(1);
-          const lambda = call.args[0].value;
-          expect(lambda.kind).toBe("lambda-expression");
-          if (lambda.kind === "lambda-expression") {
-            expect(lambda.trailing).toBe(true);
-          }
-        }
-      }
-    }
+  it("rejects trailing lambda in assignment RHS", () => {
+    expect(() => firstStmt("result = items.filter() { it > 0 }")).toThrow(
+      "bare block statements are not allowed",
+    );
+  });
+
+  it("rejects trailing lambda in try binding", () => {
+    expect(() => parse("try items.filter() { it > 0 }")).toThrow(
+      "bare block statements are not allowed",
+    );
   });
 
   it("regular lambdas have trailing: false", () => {

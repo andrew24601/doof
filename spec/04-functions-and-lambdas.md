@@ -313,7 +313,7 @@ users.filter((user) => user.age >= 18)
 
 ### Trailing Lambdas
 
-When calling a function, a trailing block `{ body }` after the closing `)` is parsed as an additional parameterless lambda argument. The opening `{` must be on the **same line** as the closing `)`. Trailing lambdas are intentionally scoped to read as control-structure-like statement blocks (e.g. `forEach`, `withTransaction`, `withLock`):
+When a function call is used as a complete expression statement, a trailing block `{ body }` after the closing `)` is parsed as an additional parameterless lambda argument. The opening `{` must be on the **same line** as the closing `)`. Trailing lambdas are intentionally scoped to read as control-structure-like statement blocks (e.g. `forEach`, `withTransaction`, `withLock`):
 
 ```javascript
 // Void callback — trailing lambda form
@@ -329,9 +329,26 @@ items.forEach() {
 forEachWithInit([1, 2, 3], 0) { print(it) }
 ```
 
+Trailing lambdas are statement syntax, not general expression syntax. They are only valid as the final part of an expression statement:
+
+```javascript
+// OK — complete expression statement
+items.forEach() { print(it) }
+
+// ERROR — trailing lambda in a binding initializer
+logged := withTransaction() { writeAuditLog(it) }
+
+// ERROR — trailing lambda in an assignment RHS
+handler = withLock() { refresh() }
+
+// OK — use explicit lambdas in expression positions
+logged := withTransaction(=> writeAuditLog(it))
+handler = withLock((): void => { refresh() })
+```
+
 **Restrictions:**
 
-Trailing lambdas have three compile-time restrictions that keep them unambiguous and statement-like:
+Trailing lambdas have compile-time restrictions that keep them unambiguous and statement-like:
 
 1. **Void-only:** The target callback parameter must return `void`. If the expected lambda type has a non-void return type, the trailing form is rejected — use an explicit lambda instead:
 
@@ -371,6 +388,7 @@ items.filter((it) => it > 0).map(=> it * 2)
 **Semantics:**
 - The trailing block is a **parameterless** lambda — parameter names are inherited from the callback type signature (same as `=> expr`).
 - The trailing lambda is appended as the **last positional argument** to the call.
+- The call plus trailing lambda must form a complete expression statement; bindings, assignments, returns, arguments, and other expression contexts require an explicit lambda.
 - Parentheses `()` are always required before the trailing block.
 - The opening `{` must be on the **same line** as the closing `)` to avoid ambiguity with destructuring and other `{`-starting constructs on the following line:
 

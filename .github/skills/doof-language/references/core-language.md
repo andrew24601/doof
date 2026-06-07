@@ -147,7 +147,7 @@ Collection shorthand parameter names are:
 
 ### Trailing Lambdas
 
-A same-line block after `)` becomes a trailing lambda for statement-like callbacks:
+A same-line block after `)` becomes a trailing lambda only when the call is the complete expression statement:
 
 ```doof
 items.forEach() { print(it) }
@@ -158,11 +158,12 @@ withTransaction() {
 
 Restrictions:
 
+- The call plus trailing lambda must be the final part of an expression statement.
 - The callback type must return `void`.
 - `return` is forbidden inside the trailing lambda body.
 - Chaining from a trailing-lambda call is forbidden.
 
-Use an explicit lambda for value-producing callbacks.
+Use an explicit lambda for value-producing callbacks, binding initializers, assignment RHS values, return values, and arguments.
 
 ### Function Types and Modifiers
 

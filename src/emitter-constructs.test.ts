@@ -270,6 +270,40 @@ describe("emitter — lambda captures", () => {
     expect(cpp).toContain("[n]");
   });
 
+  it("does not capture file-level constants used in callback lambdas", () => {
+    const cpp = emit(`
+      const BASE_PATH = "/health"
+
+      function onEvent(handler: (): string): string {
+        return handler()
+      }
+
+      function main(): string {
+        return onEvent((): string => BASE_PATH)
+      }
+    `);
+
+    expect(cpp).toContain("onEvent(doof::callback<std::string()>([=]() -> std::string");
+    expect(cpp).not.toContain("[BASE_PATH]");
+  });
+
+  it("does not capture file-level readonly values used in callback lambdas", () => {
+    const cpp = emit(`
+      readonly prefix = "/api"
+
+      function onEvent(handler: (): string): string {
+        return handler()
+      }
+
+      function main(): string {
+        return onEvent((): string => prefix)
+      }
+    `);
+
+    expect(cpp).toContain("onEvent(doof::callback<std::string()>([=]() -> std::string");
+    expect(cpp).not.toContain("[prefix]");
+  });
+
   it("falls back to [=] for no outer references", () => {
     const cpp = emit(`
       function main(): void {
@@ -1452,7 +1486,7 @@ describe("emitter — trailing lambdas", () => {
     expect(cpp).toContain("print");
   });
 
-  it("emits trailing lambda in binding RHS", () => {
+  it("emits trailing lambda expression statement", () => {
     const cpp = emit(`
       type Action = (it: int): void
       function doWith(x: int, fn: Action): void { fn(x) }

@@ -156,6 +156,13 @@ function analyzeLambdaCaptures(expr: LambdaExpression, ctx: EmitContext): string
 }
 
 function bindingNeedsLambdaCapture(binding: Binding): boolean {
+  if (
+    binding.symbol
+    && (binding.symbol.symbolKind === "const" || binding.symbol.symbolKind === "readonly")
+  ) {
+    return false;
+  }
+
   return ![
     "class",
     "function",

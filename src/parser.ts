@@ -32,8 +32,6 @@ export class Parser {
   private inCaseSubject: boolean = false;
   private inStatementCaseArmExpression: boolean = false;
   private statementCaseArmExpressionLine: number = 0;
-  /** When true, a `{` after `)` on the same line is consumed as a trailing lambda. */
-  private allowTrailingLambda: boolean = false;
   /** Diagnostics produced by the lexer during tokenization. */
   public lexerDiagnostics: LexerDiagnostic[] = [];
 
@@ -311,22 +309,16 @@ export class Parser {
     }
 
     // Expression statement — may also be := binding
-    return this.parseExpressionOrBinding();
+    return this.parseExpressionOrBinding(true);
   }
 
-  private parseExpressionOrBinding(): Statement {
+  private parseExpressionOrBinding(allowTrailingLambdaStatement: boolean = false): Statement {
     const startLoc = this.loc();
 
     // Check for typed immutable binding: `name: Type := expr`
     if (this.check(TokenType.Identifier) && this.looksLikeTypedBinding()) {
       return this.parseTypedImmutableBinding();
     }
-
-    // Enable trailing lambdas for expression-statements and bindings.
-    // A trailing `{` on the same line as `)` is consumed as a lambda.
-    const prevTrailingLambda = this.allowTrailingLambda;
-    this.allowTrailingLambda = true;
-    try {
 
     if (this.check(TokenType.Underscore) && this.peek(1).type === TokenType.ColonEqual) {
       this.advance();
@@ -440,16 +432,60 @@ export class Parser {
       };
     }
 
+    const expression = allowTrailingLambdaStatement
+      ? this.parseTrailingLambdaExpressionStatement(expr)
+      : expr;
     this.consumeOptionalSemicolon();
     return {
       kind: "expression-statement",
-      expression: expr,
+      expression,
       span: this.span(startLoc),
     };
+  }
 
-    } finally {
-      this.allowTrailingLambda = prevTrailingLambda;
+  private parseTrailingLambdaExpressionStatement(expr: Expression): Expression {
+    const prev = this.tokens[this.pos - 1];
+    if (
+      expr.kind !== "call-expression" ||
+      prev?.type !== TokenType.RightParen ||
+      !this.check(TokenType.LeftBrace) ||
+      !this.isCurrentTokenOnSameLineAsPrevious()
+    ) {
+      return expr;
     }
+
+    const blockStart = this.loc();
+    const block = this.parseBlock();
+    const lambda: LambdaExpression = {
+      kind: "lambda-expression",
+      params: [],
+      returnType: null,
+      body: block,
+      parameterless: true,
+      trailing: true,
+      span: block.span,
+    };
+    (expr as CallExpression).args.push({
+      value: lambda,
+      span: block.span,
+    });
+    expr.span = { start: expr.span.start, end: block.span.end };
+    if (
+      this.isCurrentTokenOnSameLineAsPrevious() &&
+      this.check(
+        TokenType.Dot,
+        TokenType.DoubleColon,
+        TokenType.QuestionDot,
+        TokenType.BangDot,
+        TokenType.LeftParen,
+        TokenType.LeftBracket,
+        TokenType.QuestionBracket,
+        TokenType.Bang,
+      )
+    ) {
+      throw this.error("Chaining after a trailing lambda is not allowed; use an explicit lambda instead");
+    }
+    return expr;
   }
 
   private parseTypedImmutableBinding(): Statement {
@@ -458,10 +494,7 @@ export class Parser {
     this.expect(TokenType.Colon);
     const type = this.parseTypeAnnotation();
     this.expect(TokenType.ColonEqual);
-    const prevTrailingLambda = this.allowTrailingLambda;
-    this.allowTrailingLambda = true;
     const value = this.parseExpression();
-    this.allowTrailingLambda = prevTrailingLambda;
 
     // Check for else-narrow: `x: Type := expr else { ... }`
     if (this.check(TokenType.Else)) {
@@ -2999,35 +3032,6 @@ export class Parser {
         };
       } else if (this.check(TokenType.LeftParen) && this.isCurrentTokenOnSameLineAsPrevious()) {
         expr = this.parseCallExpression(expr);
-        // Trailing lambda: `call() { body }` — attach block as trailing lambda arg.
-        // Requires:
-        // 1. allowTrailingLambda context (expression-statements and bindings only)
-        // 2. `{` is on the SAME LINE as the closing `)` to avoid ambiguity
-        //    with destructuring or other `{`-starting constructs on the next line.
-        if (this.allowTrailingLambda
-            && this.check(TokenType.LeftBrace)
-            && expr.kind === "call-expression"
-            && this.isCurrentTokenOnSameLineAsPrevious()) {
-          const blockStart = this.loc();
-          const block = this.parseBlock();
-          const lambda: LambdaExpression = {
-            kind: "lambda-expression",
-            params: [],
-            returnType: null,
-            body: block,
-            parameterless: true,
-            trailing: true,
-            span: this.span(blockStart),
-          };
-          (expr as CallExpression).args.push({
-            value: lambda,
-            span: this.span(blockStart),
-          });
-          // Update the call span to include the trailing block
-          expr.span = { start: expr.span.start, end: this.loc() };
-          // No chaining after trailing lambda — break out of postfix loop
-          break;
-        }
       } else if (this.check(TokenType.LeftBrace)
           && this.isCurrentTokenImmediatelyAfterPrevious()) {
         expr = this.parseNamedCallExpression(expr);

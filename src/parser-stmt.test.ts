@@ -51,6 +51,64 @@ describe("Parser — control flow", () => {
     }
   });
 
+  it("does not parse an if body as a trailing lambda in a lambda block", () => {
+    const program = parse(`
+      enum Kind {
+        MouseDown,
+        MouseMove,
+      }
+
+      enum MouseButton {
+        Left,
+        Other,
+      }
+
+      class Event {
+        kind(): Kind => Kind.MouseDown
+        mouseButton(): MouseButton => MouseButton.Other
+        x(): double => 1.0
+      }
+
+      function isPieceDragButton(button: MouseButton): bool {
+        return button == MouseButton.Left || button == MouseButton.Other
+      }
+
+      function main(): int {
+        event := Event {}
+        let draggedPiece = -1
+
+        handler := (event: Event): void => {
+          if event.kind() == Kind.MouseDown && isPieceDragButton(event.mouseButton()) {
+            worldX := event.x()
+          }
+
+          if event.kind() == Kind.MouseMove && draggedPiece >= 0 {
+            worldX := event.x()
+          }
+        }
+
+        handler(event)
+        return 0
+      }
+    `);
+
+    const main = program.statements[4];
+    expect(main.kind).toBe("function-declaration");
+    if (main.kind === "function-declaration" && main.body.kind === "block") {
+      const handler = main.body.statements[2];
+      expect(handler.kind).toBe("immutable-binding");
+      if (handler.kind === "immutable-binding") {
+        expect(handler.value.kind).toBe("lambda-expression");
+        if (handler.value.kind === "lambda-expression" && handler.value.body.kind === "block") {
+          expect(handler.value.body.statements.map((stmt) => stmt.kind)).toEqual([
+            "if-statement",
+            "if-statement",
+          ]);
+        }
+      }
+    }
+  });
+
   it("parses while loop", () => {
     const stmt = firstStmt(`while count < 10 {
       count += 1

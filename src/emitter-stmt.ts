@@ -1477,8 +1477,6 @@ function isConstexprValue(expr: Expression): boolean {
     case "bool-literal":
     case "char-literal":
       return true;
-    case "string-literal":
-      return expr.parts.length === 0 || (expr.parts.length === 1 && typeof expr.parts[0] === "string");
     case "unary-expression":
       return (expr.operator === "-" || expr.operator === "+") && isConstexprValue(expr.operand);
     default:

@@ -82,9 +82,9 @@ describe("emitter — const declarations", () => {
     expect(cpp).toContain("constexpr auto DEBUG = true;");
   });
 
-  it("emits constexpr for literal string", () => {
+  it("emits const auto for literal string", () => {
     const cpp = emit(`const NAME = "hello"`);
-    expect(cpp).toContain('constexpr auto NAME = std::string("hello");');
+    expect(cpp).toContain('const auto NAME = std::string("hello");');
   });
 });
 
