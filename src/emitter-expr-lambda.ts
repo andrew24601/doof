@@ -418,6 +418,10 @@ function collectCapturesFromStatement(
       collectCaptures(stmt.subject, lambdaBodySpan, paramNames, captures, ctx);
       for (const s of stmt.elseBlock.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
+    case "result-else-statement":
+      collectCaptures(stmt.subject, lambdaBodySpan, paramNames, captures, ctx);
+      for (const s of stmt.elseBlock.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
+      break;
     case "block":
       for (const s of stmt.statements) collectCapturesFromStatement(s, lambdaBodySpan, paramNames, captures, ctx);
       break;
@@ -528,6 +532,10 @@ function scanStatementForLambdaCaptures(
       scanStatementsForLambdaCaptures(stmt.body.statements, outerNames, result);
       break;
     case "else-narrow-statement":
+      scanExprForLambdaCaptures(stmt.subject, outerNames, result);
+      scanStatementsForLambdaCaptures(stmt.elseBlock.statements, outerNames, result);
+      break;
+    case "result-else-statement":
       scanExprForLambdaCaptures(stmt.subject, outerNames, result);
       scanStatementsForLambdaCaptures(stmt.elseBlock.statements, outerNames, result);
       break;
@@ -868,6 +876,10 @@ function collectMutableCaptureNamesFromStmt(
       for (const s of stmt.body.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;
     case "else-narrow-statement":
+      collectMutableCaptureNames(stmt.subject, lambdaBodySpan, lambdaParams, outerNames, result);
+      for (const s of stmt.elseBlock.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
+      break;
+    case "result-else-statement":
       collectMutableCaptureNames(stmt.subject, lambdaBodySpan, lambdaParams, outerNames, result);
       for (const s of stmt.elseBlock.statements) collectMutableCaptureNamesFromStmt(s, lambdaBodySpan, lambdaParams, outerNames, result);
       break;

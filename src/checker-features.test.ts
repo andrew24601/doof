@@ -6166,6 +6166,109 @@ describe("checker — else-narrow statement", () => {
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
   });
+
+  it("handles Result expression statements with result-else", () => {
+    const cr = check({ "/main.do": `
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function test(): void {
+        save() else error {
+          println(error)
+        }
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("allows non-exiting result-else blocks", () => {
+    const cr = check({ "/main.do": `
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function test(): void {
+        save() else error {
+          println(error)
+        }
+        println("after")
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("binds captured Failure payload in declaration else", () => {
+    const cr = check({ "/main.do": `
+      function readText(): Result<string, string> => Success { value: "ok" }
+      function test(): Result<string, string> {
+        text := readText() else error {
+          return Failure { error: "read: " + error }
+        }
+        return Success { value: text }
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("binds captured Failure payload in typed declaration else", () => {
+    const cr = check({ "/main.do": `
+      function readText(): Result<string, string> => Success { value: "ok" }
+      function test(): Result<string, string> {
+        text: string := readText() else error {
+          return Failure { error: "read: " + error }
+        }
+        return Success { value: text }
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("still requires captured declaration else blocks to exit for non-discard bindings", () => {
+    const cr = check({ "/main.do": `
+      function readText(): Result<string, string> => Failure { error: "disk" }
+      function test(): string {
+        text := readText() else error {
+          println(error)
+        }
+        return text
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics.some(d => d.message.includes("must exit scope"))).toBe(true);
+  });
+
+  it("allows discard declaration else blocks to continue", () => {
+    const cr = check({ "/main.do": `
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function test(): void {
+        _ := save() else error {
+          println(error)
+        }
+        println("after")
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects failure capture for nullable-only else-narrow", () => {
+    const cr = check({ "/main.do": `
+      function maybeName(): string | null => null
+      function test(): string {
+        name := maybeName() else error {
+          return error
+        }
+        return name
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics.some(d => d.message.includes("failure capture requires a non-null Result type"))).toBe(true);
+  });
+
+  it("rejects failure capture for Result or null else-narrow", () => {
+    const cr = check({ "/main.do": `
+      function maybeRead(): Result<string, string> | null => null
+      function test(): string {
+        text := maybeRead() else error {
+          return error
+        }
+        return text
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics.some(d => d.message.includes("failure capture requires a non-null Result type"))).toBe(true);
+  });
 });
 
 // ============================================================================

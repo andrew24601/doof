@@ -432,7 +432,12 @@ export function validateEmitReadyDeclarations(
         break;
 
       case "else-narrow-statement":
-        validateNamedValue("binding", stmt.name, stmt.resolvedType, stmt.span);
+        if (stmt.name !== "_") validateNamedValue("binding", stmt.name, stmt.resolvedType, stmt.span);
+        visitExpression(stmt.subject);
+        visitBlock(stmt.elseBlock);
+        break;
+
+      case "result-else-statement":
         visitExpression(stmt.subject);
         visitBlock(stmt.elseBlock);
         break;

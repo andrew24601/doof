@@ -113,14 +113,17 @@ user!.name
 Declaration-`else` provides an unwrap-or-bail pattern for nullable and `Result` values.
 
 ```doof
-config := loadConfig() else { return "" }
+config := loadConfig() else error { return "load failed: " + error.message }
 name := maybeName else { panic("missing name") }
+_ := saveState() else error { println("save failed: " + error) }
 ```
 
 Rules:
 
-- The `else` block must exit the current scope via `return`, `break`, `continue`, or `panic(...)`.
-- Inside the `else` block, the binding has the original full type.
+- The `else` block must exit the current scope via `return`, `break`, `continue`, or `panic(...)` when the binding name is used after the block.
+- `_ := result else ...` is a discard handler; it does not introduce a binding after the block, so its `else` block can continue.
+- `else error { ... }` captures the `Failure<E>.error` payload for non-null `Result<T, E>` subjects.
+- Without capture, inside the `else` block, the binding has the original full type.
 - After the block, the binding has the narrowed happy-path type.
 - It applies only to nullable and/or `Result` types.
 
@@ -132,6 +135,22 @@ x := loadConfig() else {
     }
 }
 ```
+
+## Result Statement-`else`
+
+Use statement-`else` to acknowledge and handle a `Result` returned from a side-effecting expression without a full `case` statement.
+
+```doof
+saveState() else error {
+    println("save failed: " + error)
+}
+```
+
+Rules:
+
+- It applies only to non-null `Result<T, E>` expressions.
+- `else error { ... }` captures the `Failure<E>.error` payload as `E`.
+- The handler does not need to exit scope because no success-path binding must be satisfied.
 
 ## Checked Narrowing with `as`
 

@@ -122,6 +122,14 @@ export function collectExprs(program: Program): Expression[] {
       case "positional-destructuring-assignment": walkExpr(s.value); break;
       case "named-destructuring-assignment": walkExpr(s.value); break;
       case "try-statement": walkStmt(s.binding); break;
+      case "else-narrow-statement":
+        walkExpr(s.subject);
+        walkBlock(s.elseBlock);
+        break;
+      case "result-else-statement":
+        walkExpr(s.subject);
+        walkBlock(s.elseBlock);
+        break;
       case "block": walkBlock(s); break;
     }
   }

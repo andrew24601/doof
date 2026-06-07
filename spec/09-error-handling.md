@@ -129,6 +129,16 @@ content := try! readFile("config.json")
 // ✅ Convert to optional with try?
 content := try? readFile("config.json")
 
+// ✅ Handle Failure locally without binding Success
+readFile("config.json") else error {
+    print("Read failed: ${error.message}")
+}
+
+// ✅ Handle Failure locally and discard Success
+_ := writeText("out.txt", content) else error {
+    print("Write failed: ${error.message}")
+}
+
 // ✅ Pass to another function
 process(readFile("config.json"))
 
@@ -143,6 +153,38 @@ case readFile("config.json") {
 ```
 
 **Rationale:** Silently dropping a `Result` means a `Failure` is ignored without acknowledgement. This is a common source of bugs in error handling — the language enforces that every potential failure is at least acknowledged at the call site.
+
+---
+
+### Result `else` — Local Failure Handling
+
+For side-effecting calls, a Result-returning expression statement can attach an `else` handler:
+
+```javascript
+savePuzzleState(path, pieces) else error {
+    println("Failed to save puzzle state: ${error}")
+}
+```
+
+The expression must have a non-null `Result<T, E>` type. The captured name receives the `Failure<E>.error` payload as type `E`. The handler may fall through because there is no success value that must be available after the statement.
+
+Declaration-`else` also supports failure capture:
+
+```javascript
+text := readText(path) else error {
+    return Failure { error: ioErrorMessage("read", path, error) }
+}
+```
+
+When a declaration introduces a binding (`text` above), the `else` block must exit scope so the binding is definitely available afterward. The discard form has no such invariant:
+
+```javascript
+_ := writeText(path, text) else error {
+    println("Write failed: ${error}")
+}
+```
+
+Failure capture is only valid for non-null Result subjects. Nullable-only values and `Result<T, E> | null` values cannot use `else error` because the unhappy path may be null.
 
 ---
 

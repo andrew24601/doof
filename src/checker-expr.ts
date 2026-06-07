@@ -796,6 +796,17 @@ function applyTypeSubstitutionToStatement(
     case "try-statement":
       applyTypeSubstitutionToStatement(stmt.binding, paramMap);
       return;
+    case "else-narrow-statement":
+      if (stmt.resolvedType) {
+        stmt.resolvedType = substituteTypeParams(stmt.resolvedType, paramMap);
+      }
+      applyTypeSubstitutionToExpression(stmt.subject, paramMap);
+      applyTypeSubstitutionToBlock(stmt.elseBlock, paramMap);
+      return;
+    case "result-else-statement":
+      applyTypeSubstitutionToExpression(stmt.subject, paramMap);
+      applyTypeSubstitutionToBlock(stmt.elseBlock, paramMap);
+      return;
     case "block":
       applyTypeSubstitutionToBlock(stmt, paramMap);
       return;
@@ -809,7 +820,6 @@ function applyTypeSubstitutionToStatement(
     case "export-all-declaration":
     case "break-statement":
     case "continue-statement":
-    case "else-narrow-statement":
     case "interface-declaration":
     case "enum-declaration":
     case "type-alias-declaration":

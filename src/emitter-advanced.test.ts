@@ -1602,6 +1602,48 @@ describe("emitter — else-narrow statement", () => {
     // Inside the else block, x is bound to the temp
     expect(cpp).toMatch(/auto& x = _else\d+;/);
   });
+
+  it("emits Result expression else with captured error", () => {
+    const cpp = emit(`
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function test(): void {
+        save() else error {
+          println(error)
+        }
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
+  });
+
+  it("emits declaration else with captured error", () => {
+    const cpp = emit(`
+      function readText(): Result<string, string> => Failure { error: "disk" }
+      function test(): Result<string, string> {
+        text := readText() else error {
+          return Failure { error: error }
+        }
+        return Success { value: text }
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
+    expect(cpp).toMatch(/auto text = _else\d+\.value\(\);/);
+  });
+
+  it("does not emit a post-handler binding for discard declaration else", () => {
+    const cpp = emit(`
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function test(): void {
+        _ := save() else error {
+          println(error)
+        }
+      }
+    `);
+    expect(cpp).toContain("isFailure()");
+    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
+    expect(cpp).not.toMatch(/auto _ = _else\d+\.value\(\);/);
+  });
 });
 
 // ============================================================================

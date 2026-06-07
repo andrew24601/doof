@@ -9,6 +9,7 @@ import {
   isAssignableTo,
   type Binding,
   type ModuleTypeInfo,
+  type ResultResolvedType,
   type ResolvedType,
   type Scope,
   typeToString,
@@ -489,9 +490,10 @@ export function checkStatement(
       const declaredType = stmt.type
         ? host.resolveTypeAnnotation(stmt.type, table)
         : null;
-      const subjectType = host.inferExprType(stmt.subject, scope, table, info, declaredType ?? undefined);
-      const fullType = declaredType ?? subjectType;
+      const subjectType = host.inferExprType(stmt.subject, scope, table, info);
+      const fullType = subjectType;
       const { narrowedType, applicable } = computeElseNarrowType(fullType);
+      const directResultType = getDirectResultType(fullType);
 
       if (!applicable) {
         info.diagnostics.push({
@@ -501,19 +503,33 @@ export function checkStatement(
           module: table.path,
         });
       }
+      if (declaredType && !isAssignableTo(narrowedType, declaredType)) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Type "${typeToString(narrowedType)}" is not assignable to type "${typeToString(declaredType)}"`,
+          span: stmt.type?.span ?? stmt.span,
+          module: table.path,
+        });
+      }
 
       const elseScope = host.pushScope(scope, "block");
-      elseScope.bindings.set(stmt.name, {
-        name: stmt.name,
-        kind: "immutable-binding",
-        type: fullType,
-        mutable: false,
-        span: stmt.span,
-        module: table.path,
-      });
+      if (stmt.failureName) {
+        if (!directResultType) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Else failure capture requires a non-null Result type, but got "${typeToString(fullType)}"`,
+            span: stmt.span,
+            module: table.path,
+          });
+        } else if (stmt.failureName !== "_") {
+          bindImmutable(elseScope, stmt.failureName, directResultType.errorType, stmt.span, table.path);
+        }
+      } else if (stmt.name !== "_") {
+        bindImmutable(elseScope, stmt.name, fullType, stmt.span, table.path);
+      }
       host.checkBlock(stmt.elseBlock, elseScope, table, info);
 
-      if (!host.blockAlwaysExits(stmt.elseBlock)) {
+      if (stmt.name !== "_" && !failureHandlerSatisfiesBindingInvariant(host, stmt.elseBlock)) {
         info.diagnostics.push({
           severity: "error",
           message: "Else-narrow block must exit scope via return, break, or continue",
@@ -522,15 +538,31 @@ export function checkStatement(
         });
       }
 
-      stmt.resolvedType = narrowedType;
-      scope.bindings.set(stmt.name, {
-        name: stmt.name,
-        kind: "immutable-binding",
-        type: narrowedType,
-        mutable: false,
-        span: stmt.span,
-        module: table.path,
-      });
+      const bindingType = declaredType ?? narrowedType;
+      stmt.resolvedType = bindingType;
+      if (stmt.name !== "_") {
+        bindImmutable(scope, stmt.name, bindingType, stmt.span, table.path);
+      }
+      break;
+    }
+
+    case "result-else-statement": {
+      const subjectType = host.inferExprType(stmt.subject, scope, table, info);
+      const resultType = getDirectResultType(subjectType);
+      if (!resultType) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Result-else requires a non-null Result type, but got "${typeToString(subjectType)}"`,
+          span: stmt.span,
+          module: table.path,
+        });
+      }
+
+      const elseScope = host.pushScope(scope, "block");
+      if (stmt.failureName && resultType && stmt.failureName !== "_") {
+        bindImmutable(elseScope, stmt.failureName, resultType.errorType, stmt.span, table.path);
+      }
+      host.checkBlock(stmt.elseBlock, elseScope, table, info);
       break;
     }
 
@@ -570,6 +602,31 @@ export function checkBlock(
 ): void {
   const blockScope = host.pushScope(parentScope, "block");
   host.checkStatements(block.statements, blockScope, table, info);
+}
+
+function bindImmutable(
+  scope: Scope,
+  name: string,
+  type: ResolvedType,
+  span: SourceSpan,
+  modulePath: string,
+): void {
+  scope.bindings.set(name, {
+    name,
+    kind: "immutable-binding",
+    type,
+    mutable: false,
+    span,
+    module: modulePath,
+  });
+}
+
+function getDirectResultType(type: ResolvedType): ResultResolvedType | null {
+  return type.kind === "result" ? type : null;
+}
+
+function failureHandlerSatisfiesBindingInvariant(host: CheckerHost, block: Block): boolean {
+  return host.blockAlwaysExits(block);
 }
 
 export function checkDestructuringAssignment(
@@ -953,6 +1010,10 @@ function walkStatementExpressions(stmt: Statement, visit: (expr: Expression) => 
       visit(stmt.value);
       return;
     case "else-narrow-statement":
+      visit(stmt.subject);
+      walkStatementListExpressions(stmt.elseBlock.statements, visit);
+      return;
+    case "result-else-statement":
       visit(stmt.subject);
       walkStatementListExpressions(stmt.elseBlock.statements, visit);
       return;

@@ -408,7 +408,7 @@ class AppError { message: string }
 function loadConfig(): Result<Config, AppError> => Success { value: Config { name: "app" } }
 
 function test(): string {
-    x := loadConfig() else { return "" }
+    x := loadConfig() else error { return error.message }
     // x is Config here (Result unwrapped to success type)
     return x.name
 }
@@ -444,7 +444,7 @@ function test(): string {
 
 ### Accessing the Full Type in the Else Block
 
-Inside the else block, `name` has the **full original type** (before narrowing). This allows inspecting the failure state:
+Inside the else block, `name` has the **full original type** (before narrowing) when no failure capture is declared. This allows inspecting the failure state:
 
 ```javascript
 function loadConfig(): Result<Config, AppError> => Failure { error: AppError { message: "not found" } }
@@ -461,6 +461,22 @@ function test(): string {
     return x.name
 }
 ```
+
+For non-null `Result<T, E>` subjects, `else error { ... }` captures the `Failure<E>.error` payload directly:
+
+```javascript
+function loadConfig(): Result<Config, AppError> => Failure { error: AppError { message: "not found" } }
+
+function test(): string {
+    x := loadConfig() else error {
+        // error has type AppError
+        return error.message
+    }
+    return x.name
+}
+```
+
+Failure capture is Result-only. Nullable-only subjects and `Result<T, E> | null` subjects cannot use `else error` because the unhappy path may be null and has no failure payload.
 
 ### With Type Annotations
 
@@ -486,10 +502,23 @@ function process(): void {
 
 ### Rules
 
-1. **Else block must exit scope**: The block must end with `return`, `break`, or `continue`. Non-exiting blocks are a compile-time error.
+1. **Else block must exit scope when a binding is introduced**: The block must end with `return`, `break`, or `continue` unless the binding name is `_`.
 2. **Binding is immutable**: The narrowed variable is an immutable binding (`:=`).
 3. **Result and/or nullable only**: The expression must have a Result or nullable type. Other types produce a compile error.
-4. **Full type inside else**: The variable has the full, un-narrowed type inside the else block.
+4. **Full type or captured failure inside else**: Without capture, the variable has the full, un-narrowed type inside the else block. With `else name`, `name` is the Result failure payload.
+5. **Discard handlers can continue**: `_ := result else error { ... }` handles the failure path without introducing a success binding after the block, so the handler can fall through.
+
+### Result Expression Handler
+
+Result-returning expression statements can use `else` directly to handle failures without binding the success value:
+
+```javascript
+savePuzzleState(path) else error {
+    println("failed to save: " + error)
+}
+```
+
+This form applies only to non-null `Result<T, E>` expressions. The `else` block does not need to exit scope because there is no post-block binding invariant to satisfy.
 
 ---
 

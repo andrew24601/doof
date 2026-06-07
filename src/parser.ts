@@ -328,6 +328,26 @@ export class Parser {
     this.allowTrailingLambda = true;
     try {
 
+    if (this.check(TokenType.Underscore) && this.peek(1).type === TokenType.ColonEqual) {
+      this.advance();
+      this.expect(TokenType.ColonEqual);
+      const value = this.parseExpression();
+      if (!this.check(TokenType.Else)) {
+        throw this.error('Discard binding "_" requires an else block');
+      }
+      const { failureName, elseBlock } = this.parseElseCaptureAndBlock();
+      this.consumeOptionalSemicolon();
+      return {
+        kind: "else-narrow-statement" as const,
+        name: "_",
+        type: null,
+        subject: value,
+        failureName,
+        elseBlock,
+        span: this.span(startLoc),
+      };
+    }
+
     const expr = this.parseExpression();
 
     if (this.check(TokenType.LeftArrow)) {
@@ -355,14 +375,14 @@ export class Parser {
 
       // Check for else-narrow: `x := expr else { ... }`
       if (this.check(TokenType.Else)) {
-        this.advance();
-        const elseBlock = this.parseBlock();
+        const { failureName, elseBlock } = this.parseElseCaptureAndBlock();
         this.consumeOptionalSemicolon();
         return {
           kind: "else-narrow-statement" as const,
           name: expr.name,
           type: null,
           subject: value,
+          failureName,
           elseBlock,
           span: this.span(startLoc),
         };
@@ -382,16 +402,40 @@ export class Parser {
     const assignOp = this.tryParseAssignmentOperator();
     if (assignOp) {
       const value = this.parseExpression();
+      const assignmentExpression = {
+        kind: "assignment-expression" as const,
+        operator: assignOp,
+        target: expr,
+        value,
+        span: this.span(startLoc),
+      };
+      if (this.check(TokenType.Else)) {
+        const { failureName, elseBlock } = this.parseElseCaptureAndBlock();
+        this.consumeOptionalSemicolon();
+        return {
+          kind: "result-else-statement" as const,
+          subject: assignmentExpression,
+          failureName,
+          elseBlock,
+          span: this.span(startLoc),
+        };
+      }
       this.consumeOptionalSemicolon();
       return {
         kind: "expression-statement",
-        expression: {
-          kind: "assignment-expression",
-          operator: assignOp,
-          target: expr,
-          value,
-          span: this.span(startLoc),
-        },
+        expression: assignmentExpression,
+        span: this.span(startLoc),
+      };
+    }
+
+    if (this.check(TokenType.Else)) {
+      const { failureName, elseBlock } = this.parseElseCaptureAndBlock();
+      this.consumeOptionalSemicolon();
+      return {
+        kind: "result-else-statement" as const,
+        subject: expr,
+        failureName,
+        elseBlock,
         span: this.span(startLoc),
       };
     }
@@ -421,14 +465,14 @@ export class Parser {
 
     // Check for else-narrow: `x: Type := expr else { ... }`
     if (this.check(TokenType.Else)) {
-      this.advance();
-      const elseBlock = this.parseBlock();
+      const { failureName, elseBlock } = this.parseElseCaptureAndBlock();
       this.consumeOptionalSemicolon();
       return {
         kind: "else-narrow-statement" as const,
         name,
         type,
         subject: value,
+        failureName,
         elseBlock,
         span: this.span(startLoc),
       };
@@ -470,6 +514,15 @@ export class Parser {
       i++;
       if (i > 50) return false; // safety
     }
+  }
+
+  private parseElseCaptureAndBlock(): { failureName: string | null; elseBlock: Block } {
+    this.expect(TokenType.Else);
+    const failureName = this.check(TokenType.Identifier) && this.peek(1).type === TokenType.LeftBrace
+      ? this.advance().value
+      : null;
+    const elseBlock = this.parseBlock();
+    return { failureName, elseBlock };
   }
 
   private tryParseAssignmentOperator(): AssignmentOperator | null {

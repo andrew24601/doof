@@ -2013,9 +2013,57 @@ describe("Parser — else narrow statement", () => {
     expect(stmt.kind).toBe("else-narrow-statement");
     if (stmt.kind === "else-narrow-statement") {
       expect(stmt.name).toBe("x");
+      expect(stmt.failureName).toBeNull();
       expect(stmt.subject.kind).toBe("call-expression");
       expect(stmt.elseBlock.kind).toBe("block");
       expect(stmt.type).toBeNull();
+    }
+  });
+
+  it("parses else-narrow with failure capture", () => {
+    const stmt = firstStmt(`x := getValue() else error { return error }`);
+    expect(stmt.kind).toBe("else-narrow-statement");
+    if (stmt.kind === "else-narrow-statement") {
+      expect(stmt.name).toBe("x");
+      expect(stmt.failureName).toBe("error");
+      expect(stmt.subject.kind).toBe("call-expression");
+    }
+  });
+
+  it("parses discard else-narrow with failure capture", () => {
+    const stmt = firstStmt(`_ := save() else error { println(error) }`);
+    expect(stmt.kind).toBe("else-narrow-statement");
+    if (stmt.kind === "else-narrow-statement") {
+      expect(stmt.name).toBe("_");
+      expect(stmt.failureName).toBe("error");
+      expect(stmt.elseBlock.kind).toBe("block");
+    }
+  });
+
+  it("does not parse discard name as a usable expression after else-narrow", () => {
+    expect(() => parse(`
+      _ := save() else error { println(error) }
+      println(_)
+    `)).toThrow();
+  });
+
+  it("parses expression result-else with failure capture", () => {
+    const stmt = firstStmt(`save() else error { println(error) }`);
+    expect(stmt.kind).toBe("result-else-statement");
+    if (stmt.kind === "result-else-statement") {
+      expect(stmt.failureName).toBe("error");
+      expect(stmt.subject.kind).toBe("call-expression");
+      expect(stmt.elseBlock.kind).toBe("block");
+    }
+  });
+
+  it("parses expression result-else without failure capture", () => {
+    const stmt = firstStmt(`save() else { println("failed") }`);
+    expect(stmt.kind).toBe("result-else-statement");
+    if (stmt.kind === "result-else-statement") {
+      expect(stmt.failureName).toBeNull();
+      expect(stmt.subject.kind).toBe("call-expression");
+      expect(stmt.elseBlock.kind).toBe("block");
     }
   });
 
@@ -2024,10 +2072,22 @@ describe("Parser — else narrow statement", () => {
     expect(stmt.kind).toBe("else-narrow-statement");
     if (stmt.kind === "else-narrow-statement") {
       expect(stmt.name).toBe("x");
+      expect(stmt.failureName).toBeNull();
       expect(stmt.type).not.toBeNull();
       expect(stmt.type!.kind).toBe("named-type");
       expect(stmt.subject.kind).toBe("call-expression");
       expect(stmt.elseBlock.kind).toBe("block");
+    }
+  });
+
+  it("parses typed else-narrow with failure capture", () => {
+    const stmt = firstStmt(`x: string := getValue() else error { return error }`);
+    expect(stmt.kind).toBe("else-narrow-statement");
+    if (stmt.kind === "else-narrow-statement") {
+      expect(stmt.name).toBe("x");
+      expect(stmt.failureName).toBe("error");
+      expect(stmt.type).not.toBeNull();
+      expect(stmt.subject.kind).toBe("call-expression");
     }
   });
 

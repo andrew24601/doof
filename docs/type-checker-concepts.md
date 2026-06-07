@@ -196,6 +196,8 @@ Validation anchors:
 - successful bindings are retyped from `Result<T, E>` to `T`
 - `catch` collects error types into nullable unions
 - case arms over `Result` values receive wrapper bindings for `.value` and `.error`
+- declaration-`else` handlers must exit only when a narrowed binding is introduced after the handler
+- Result statement-`else` and `_ := result else ...` handlers mark the Result as handled without requiring scope exit
 
 Primary modules:
 
@@ -208,6 +210,7 @@ Keep aligned:
 - any new binding form supported by `try` must be handled by both validation and retyping
 - bare-expression `try`, destructuring `try`, `catch`, and result-pattern case arms should remain mutually consistent
 - diagnostics for unused or misapplied `Result` values should stay aligned between statement and expression positions
+- failure-capture syntax (`else error`) should bind the `Failure<E>.error` payload only for non-null `Result<T, E>` subjects
 
 Validation anchors:
 

@@ -616,6 +616,15 @@ export interface ElseNarrowStatement extends Typed {
   name: string;
   type: TypeAnnotation | null;
   subject: Expression;
+  failureName: string | null;
+  elseBlock: Block;
+  span: SourceSpan;
+}
+
+export interface ResultElseStatement {
+  kind: "result-else-statement";
+  subject: Expression;
+  failureName: string | null;
   elseBlock: Block;
   span: SourceSpan;
 }
@@ -994,6 +1003,7 @@ export type Statement =
   | CaseStatement
   | TryStatement
   | ElseNarrowStatement
+  | ResultElseStatement
   | ExpressionStatement
   | ArrayDestructuring
   | PositionalDestructuring

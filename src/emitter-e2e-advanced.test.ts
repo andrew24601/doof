@@ -2408,6 +2408,78 @@ describe("e2e — else-narrow statement", () => {
     expect(result.exitCode).toBe(77);
   });
 
+  it("skips expression result-else block on success", () => {
+    const result = ctx.compileAndRun(`
+      function save(): Result<void, string> => Success()
+      function main(): int {
+        save() else error {
+          return 9
+        }
+        return 5
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(5);
+  });
+
+  it("runs expression result-else block on failure with captured error", () => {
+    const result = ctx.compileAndRun(`
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function main(): int {
+        save() else error {
+          return error.length
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(4);
+  });
+
+  it("allows discard declaration else to continue after handling failure", () => {
+    const result = ctx.compileAndRun(`
+      function save(): Result<void, string> => Failure { error: "disk" }
+      function main(): int {
+        let total = 1
+        _ := save() else error {
+          total = total + error.length
+        }
+        return total
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(5);
+  });
+
+  it("uses captured binding else error to transform failures", () => {
+    const result = ctx.compileAndRun(`
+      function readText(): Result<string, string> => Failure { error: "disk" }
+      function load(): Result<string, string> {
+        text := readText() else error {
+          return Failure { error: "read: " + error }
+        }
+        return Success { value: text }
+      }
+      function main(): int {
+        result := load()
+        return case result {
+          s: Success -> s.value.length,
+          f: Failure -> f.error.length
+        }
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(10);
+  });
+
   it("accesses full type inside else block", () => {
     const result = ctx.compileAndRun(`
       function getValue(): string | null => null

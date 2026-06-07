@@ -15,6 +15,7 @@ import type {
   TryStatement,
   WithStatement,
   ElseNarrowStatement,
+  ResultElseStatement,
 } from "./ast.js";
 import type { ResolvedType } from "./checker-types.js";
 import { emitClassCppName, emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
@@ -275,6 +276,10 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
 
     case "else-narrow-statement":
       emitElseNarrowStatement(stmt, ctx);
+      break;
+
+    case "result-else-statement":
+      emitResultElseStatement(stmt, ctx);
       break;
 
     default:
@@ -1300,11 +1305,19 @@ function emitElseNarrowStatement(stmt: ElseNarrowStatement, ctx: EmitContext): v
   const condition = emitElseNarrowCondition(tmp, subjectType, ctx);
   ctx.sourceLines.push(`${ind}if (${condition}) {`);
 
-  // Bind name with full type inside else block
-  ctx.sourceLines.push(`${innerInd}auto& ${safeName} = ${tmp};`);
+  if (stmt.failureName) {
+    if (stmt.failureName !== "_") {
+      ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = ${tmp}.error();`);
+    }
+  } else if (stmt.name !== "_") {
+    // Bind name with full type inside else block
+    ctx.sourceLines.push(`${innerInd}auto& ${safeName} = ${tmp};`);
+  }
   emitBlockStatements(stmt.elseBlock, { ...ctx, indent: ctx.indent + 1 });
 
   ctx.sourceLines.push(`${ind}}`);
+
+  if (stmt.name === "_") return;
 
   // Emit narrowed binding after else block
   if (narrowedType && subjectType) {
@@ -1312,6 +1325,23 @@ function emitElseNarrowStatement(stmt: ElseNarrowStatement, ctx: EmitContext): v
   } else {
     ctx.sourceLines.push(`${ind}auto& ${safeName} = ${tmp};`);
   }
+}
+
+function emitResultElseStatement(stmt: ResultElseStatement, ctx: EmitContext): void {
+  const ind = indent(ctx);
+  const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
+  const subjectType = stmt.subject.resolvedType;
+  const tmp = `_else${ctx.tempCounter++}`;
+  const subjectExpr = emitExpression(stmt.subject, ctx);
+
+  ctx.sourceLines.push(`${ind}auto ${tmp} = ${subjectExpr};`);
+  const condition = emitElseNarrowCondition(tmp, subjectType, ctx);
+  ctx.sourceLines.push(`${ind}if (${condition}) {`);
+  if (stmt.failureName && stmt.failureName !== "_") {
+    ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = ${tmp}.error();`);
+  }
+  emitBlockStatements(stmt.elseBlock, { ...ctx, indent: ctx.indent + 1 });
+  ctx.sourceLines.push(`${ind}}`);
 }
 
 /**
