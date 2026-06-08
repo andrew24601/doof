@@ -119,6 +119,10 @@ Packages can opt into target-specific build behavior under `build.target`. The b
       "displayName": "Doof Solitaire",
       "version": "1.0",
       "icon": "./app-icon.png",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Doof Solitaire uses the local network to find nearby players.",
+        "NSBonjourServices": ["_doof-solitaire._tcp"]
+      },
       "resources": [
         { "from": "images/*", "to": "images" }
       ]
@@ -139,6 +143,8 @@ Packages may declare both `build.macosApp` and `build.iosApp` metadata in the sa
 `build.macosApp.resources[].to` is rooted under `Contents/Resources`.
 
 For `ios-app`, `build.iosApp.resources[].to` is rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
+
+`build.macosApp.infoPlist` and `build.iosApp.infoPlist` add app-declared keys to the generated `Info.plist`. Values may be strings, numbers, booleans, arrays, or nested objects. Doof-managed bundle keys such as `CFBundleIdentifier`, `CFBundleExecutable`, and `MinimumOSVersion` cannot be overridden through `infoPlist`.
 
 If omitted, `macos-app` currently defaults to:
 

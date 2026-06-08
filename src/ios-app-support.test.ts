@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import plist from "plist";
 import {
   createIOSAppSupportFiles,
   renderIOSAppIconSetContents,
@@ -35,6 +36,23 @@ describe("ios-app support files", () => {
     expect(plist).toContain("Doof Demo");
     expect(plist).toContain("16.0");
     expect(plist).toContain("LSRequiresIPhoneOS");
+  });
+
+  it("renders custom local-network Info.plist metadata", () => {
+    const xml = renderIOSAppInfoPlist({
+      ...config,
+      displayName: "Doof & Demo",
+      infoPlist: {
+        NSLocalNetworkUsageDescription: "Doof Jigsaw uses the local network to find nearby players.",
+        NSBonjourServices: ["_doof-jigsaw._tcp"],
+      },
+    }, "DoofDemo");
+    const parsed = plist.parse(xml) as Record<string, unknown>;
+
+    expect(parsed.CFBundleDisplayName).toBe("Doof & Demo");
+    expect(parsed.NSLocalNetworkUsageDescription)
+      .toBe("Doof Jigsaw uses the local network to find nearby players.");
+    expect(parsed.NSBonjourServices).toEqual(["_doof-jigsaw._tcp"]);
   });
 
   it("renders an iOS entry shell that sanitizes the app delegate class name", () => {

@@ -78,6 +78,7 @@ describe("std package metadata", () => {
       "std/json",
       "std/log",
       "std/math",
+      "std/multiplayer",
       "std/os",
       "std/path",
       "std/postgres",

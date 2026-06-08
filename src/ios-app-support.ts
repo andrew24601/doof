@@ -1,4 +1,5 @@
 import type { ResolvedDoofIOSAppConfig } from "./build-targets.js";
+import { renderInfoPlist, type AppInfoPlist } from "./app-info-plist.js";
 import type { ProjectSupportFile } from "./macos-app-support.js";
 
 const IOS_APP_ICONSET_CONTENTS_PATH = "Assets.xcassets/AppIcon.appiconset/Contents.json";
@@ -39,48 +40,25 @@ export function createIOSAppSupportFiles(
 }
 
 export function renderIOSAppInfoPlist(config: ResolvedDoofIOSAppConfig, executableName: string): string {
-  return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-    '<plist version="1.0">',
-    '<dict>',
-    '  <key>CFBundleDevelopmentRegion</key>',
-    '  <string>en</string>',
-    '  <key>CFBundleDisplayName</key>',
-    `  <string>${escapeXml(config.displayName)}</string>`,
-    '  <key>CFBundleExecutable</key>',
-    `  <string>${escapeXml(executableName)}</string>`,
-    '  <key>CFBundleIdentifier</key>',
-    `  <string>${escapeXml(config.bundleId)}</string>`,
-    '  <key>CFBundleInfoDictionaryVersion</key>',
-    '  <string>6.0</string>',
-    '  <key>CFBundleName</key>',
-    `  <string>${escapeXml(config.displayName)}</string>`,
-    '  <key>CFBundlePackageType</key>',
-    '  <string>APPL</string>',
-    '  <key>CFBundleShortVersionString</key>',
-    `  <string>${escapeXml(config.version)}</string>`,
-    '  <key>CFBundleVersion</key>',
-    `  <string>${escapeXml(config.version)}</string>`,
-    '  <key>LSRequiresIPhoneOS</key>',
-    '  <true/>',
-    '  <key>MinimumOSVersion</key>',
-    `  <string>${escapeXml(config.minimumDeploymentTarget)}</string>`,
-    '  <key>UIDeviceFamily</key>',
-    '  <array>',
-    '    <integer>1</integer>',
-    '    <integer>2</integer>',
-    '  </array>',
-    '  <key>UILaunchStoryboardName</key>',
-    '  <string></string>',
-    '  <key>UIApplicationSceneManifest</key>',
-    '  <dict>',
-    '    <key>UIApplicationSupportsMultipleScenes</key>',
-    '    <false/>',
-    '  </dict>',
-    '</dict>',
-    '</plist>',
-  ].join("\n");
+  const base: AppInfoPlist = {
+    CFBundleDevelopmentRegion: "en",
+    CFBundleDisplayName: config.displayName,
+    CFBundleExecutable: executableName,
+    CFBundleIdentifier: config.bundleId,
+    CFBundleInfoDictionaryVersion: "6.0",
+    CFBundleName: config.displayName,
+    CFBundlePackageType: "APPL",
+    CFBundleShortVersionString: config.version,
+    CFBundleVersion: config.version,
+    LSRequiresIPhoneOS: true,
+    MinimumOSVersion: config.minimumDeploymentTarget,
+    UIDeviceFamily: [1, 2],
+    UILaunchStoryboardName: "",
+    UIApplicationSceneManifest: {
+      UIApplicationSupportsMultipleScenes: false,
+    },
+  };
+  return renderInfoPlist(base, config.infoPlist);
 }
 
 export function renderIOSAppMainSource(executableName: string): string {
@@ -146,14 +124,6 @@ export function renderIOSAppIconSetContents(): string {
       version: 1,
     },
   }, null, 2);
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;");
 }
 
 function escapeObjCString(value: string): string {

@@ -1,4 +1,5 @@
 import * as nodePath from "node:path";
+import type { AppInfoPlist } from "./app-info-plist.js";
 
 export type DoofBuildTarget = "macos-app" | "ios-app";
 export type IOSAppDestination = "simulator" | "device";
@@ -13,6 +14,7 @@ export interface DoofMacOSAppConfig {
   displayName: string;
   version: string;
   icon: string;
+  infoPlist?: AppInfoPlist;
   resources?: DoofMacOSAppResourceConfig[];
   category?: string;
   minimumSystemVersion?: string;
@@ -28,6 +30,7 @@ export interface DoofIOSAppConfig {
   displayName: string;
   version: string;
   icon: string;
+  infoPlist?: AppInfoPlist;
   resources?: DoofIOSAppResourceConfig[];
   minimumDeploymentTarget?: string;
 }
@@ -42,6 +45,7 @@ export interface ResolvedDoofMacOSAppConfig {
   displayName: string;
   version: string;
   iconPath: string;
+  infoPlist?: AppInfoPlist;
   resources: ResolvedDoofMacOSAppResource[];
   category: string;
   minimumSystemVersion: string;
@@ -57,6 +61,7 @@ export interface ResolvedDoofIOSAppConfig {
   displayName: string;
   version: string;
   iconPath: string;
+  infoPlist?: AppInfoPlist;
   resources: ResolvedDoofIOSAppResource[];
   minimumDeploymentTarget: string;
 }

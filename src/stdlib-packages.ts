@@ -13,6 +13,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   gzip: "0.1",
   log: "0.1",
   math: "0.1",
+  multiplayer: "0.1",
   os: "0.1",
   path: "0.1",
   postgres: "0.1",

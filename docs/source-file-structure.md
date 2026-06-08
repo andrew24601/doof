@@ -112,6 +112,7 @@ Feature-specific helpers:
 - `cli.ts` — command-line entry wiring
 - `bin.ts` — executable entrypoint
 - `build-targets.ts` — resolved build target definitions
+- `app-info-plist.ts` — shared app `Info.plist` value types, managed-key validation, and plist rendering
 - `e2e-test-helpers.ts` — compiler-plus-native-build test helpers
 
 Associated surfaces nearby include native target helpers such as `macos-app-support.ts`, `ios-app-support.ts`, `stdlib-constants.ts`, and the package/build-manifest modules imported by the CLI and emitter.

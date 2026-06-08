@@ -195,6 +195,7 @@ src/
   emitter-names.ts              # Canonical generated module namespaces and cross-module symbol naming
   emitter-types.ts              # ResolvedType → C++ type mapping
   emitter-defaults.ts           # Default value emission helpers
+  app-info-plist.ts             # Shared app Info.plist value types and rendering
   macos-app-support.ts          # Browser-safe macOS app support file generation helpers
   stdlib-constants.ts           # Browser-safe stdlib constants shared by emitters and loaders
   emitter-expr.ts               # Expression emission dispatcher

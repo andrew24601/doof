@@ -6,6 +6,13 @@ import * as nodePath from "node:path";
 import type { NativeBuildOptions } from "./emitter-module.js";
 import type { FileSystem } from "./resolver.js";
 import {
+  IOS_MANAGED_INFO_PLIST_KEYS,
+  MACOS_MANAGED_INFO_PLIST_KEYS,
+  validateCustomInfoPlistKeys,
+  type AppInfoPlist,
+  type AppInfoPlistValue,
+} from "./app-info-plist.js";
+import {
   DEFAULT_MACOS_APP_CATEGORY,
   DEFAULT_MACOS_MINIMUM_SYSTEM_VERSION,
   DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
@@ -914,6 +921,7 @@ function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSApp
     displayName: readRequiredString(value.displayName, manifestPath, "build.macosApp.displayName"),
     version: readRequiredString(value.version, manifestPath, "build.macosApp.version"),
     icon: readRequiredString(value.icon, manifestPath, "build.macosApp.icon"),
+    infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.macosApp.infoPlist"),
     resources: readOptionalMacOSAppResources(value.resources, manifestPath),
     category: readOptionalString(value.category, manifestPath, "build.macosApp.category"),
     minimumSystemVersion: readOptionalString(
@@ -938,6 +946,7 @@ function parseIOSAppConfig(value: unknown, manifestPath: string): DoofIOSAppConf
     displayName: readRequiredString(value.displayName, manifestPath, "build.iosApp.displayName"),
     version: readRequiredString(value.version, manifestPath, "build.iosApp.version"),
     icon: readRequiredString(value.icon, manifestPath, "build.iosApp.icon"),
+    infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.iosApp.infoPlist"),
     resources: readOptionalIOSAppResources(value.resources, manifestPath),
     minimumDeploymentTarget: readOptionalString(
       value.minimumDeploymentTarget,
@@ -1129,6 +1138,54 @@ function readOptionalStringArray(value: unknown, manifestPath: string, fieldPath
   });
 }
 
+function readOptionalInfoPlist(value: unknown, manifestPath: string, fieldPath: string): AppInfoPlist | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an object`);
+  }
+
+  const infoPlist: AppInfoPlist = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key.length === 0) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} keys must not be empty`);
+    }
+    infoPlist[key] = readInfoPlistValue(entry, manifestPath, `${fieldPath}.${key}`);
+  }
+  return infoPlist;
+}
+
+function readInfoPlistValue(value: unknown, manifestPath: string, fieldPath: string): AppInfoPlistValue {
+  if (typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => readInfoPlistValue(entry, manifestPath, `${fieldPath}[${index}]`));
+  }
+
+  if (isRecord(value)) {
+    const result: Record<string, AppInfoPlistValue> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (key.length === 0) {
+        throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} keys must not be empty`);
+      }
+      result[key] = readInfoPlistValue(entry, manifestPath, `${fieldPath}.${key}`);
+    }
+    return result;
+  }
+
+  throw new Error(
+    `Invalid doof.json at ${manifestPath}: ${fieldPath} must be a string, number, boolean, array, or object`,
+  );
+}
+
 function isValidExecutableName(value: string): boolean {
   return value.length > 0 && !value.includes("/") && !value.includes("\\") && value !== "." && value !== "..";
 }
@@ -1274,11 +1331,18 @@ function normalizeMacOSAppBuildConfig(
 ): ResolvedDoofMacOSAppConfig {
   const iconPath = normalizePackagePath(macosApp.icon, rootDir, manifestPath, "build.macosApp.icon");
   validatePngAppIconPath(iconPath, manifestPath, "build.macosApp.icon");
+  validateCustomInfoPlistKeys(
+    macosApp.infoPlist,
+    MACOS_MANAGED_INFO_PLIST_KEYS,
+    manifestPath,
+    "build.macosApp.infoPlist",
+  );
   return {
     bundleId: macosApp.bundleId,
     displayName: macosApp.displayName,
     version: macosApp.version,
     iconPath,
+    infoPlist: macosApp.infoPlist,
     resources: (macosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,
@@ -1310,11 +1374,18 @@ function normalizeIOSAppBuildConfig(
 ): ResolvedDoofIOSAppConfig {
   const iconPath = normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon");
   validatePngAppIconPath(iconPath, manifestPath, "build.iosApp.icon");
+  validateCustomInfoPlistKeys(
+    iosApp.infoPlist,
+    IOS_MANAGED_INFO_PLIST_KEYS,
+    manifestPath,
+    "build.iosApp.infoPlist",
+  );
   return {
     bundleId: iosApp.bundleId,
     displayName: iosApp.displayName,
     version: iosApp.version,
     iconPath,
+    infoPlist: iosApp.infoPlist,
     resources: (iosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,

@@ -1000,6 +1000,40 @@ describe("local package graphs", () => {
     });
   });
 
+  it("normalizes macos-app custom Info.plist metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          targetExecutableName: "DoofDemo",
+          macosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.png",
+            infoPlist: {
+              NSLocalNetworkUsageDescription: "Find nearby players.",
+              NSBonjourServices: ["_doof-jigsaw._tcp"],
+              DemoNested: { Enabled: true, Weight: 2 },
+            },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget?.kind).toBe("macos-app");
+    expect(graph.rootPackage.buildTarget?.config.infoPlist).toEqual({
+      NSLocalNetworkUsageDescription: "Find nearby players.",
+      NSBonjourServices: ["_doof-jigsaw._tcp"],
+      DemoNested: { Enabled: true, Weight: 2 },
+    });
+  });
+
   it("normalizes ios-app target metadata", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
@@ -1036,6 +1070,90 @@ describe("local package graphs", () => {
         minimumDeploymentTarget: "16.0",
       },
     });
+  });
+
+  it("normalizes ios-app custom Info.plist metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.png",
+            infoPlist: {
+              NSLocalNetworkUsageDescription: "Find nearby players.",
+              NSBonjourServices: ["_doof-jigsaw._tcp"],
+            },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget?.kind).toBe("ios-app");
+    expect(graph.rootPackage.buildTarget?.config.infoPlist).toEqual({
+      NSLocalNetworkUsageDescription: "Find nearby players.",
+      NSBonjourServices: ["_doof-jigsaw._tcp"],
+    });
+  });
+
+  it("rejects unsupported custom Info.plist values", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.png",
+            infoPlist: {
+              NSBonjourServices: ["_doof-jigsaw._tcp", null],
+            },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("build.iosApp.infoPlist.NSBonjourServices[1] must be a string, number, boolean, array, or object");
+  });
+
+  it("rejects custom Info.plist entries that override Doof-managed keys", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "ios-app",
+          targetExecutableName: "DoofDemo",
+          iosApp: {
+            bundleId: "dev.doof.demo",
+            displayName: "Doof Demo",
+            version: "1.0",
+            icon: "app-icon.png",
+            infoPlist: {
+              CFBundleIdentifier: "dev.example.override",
+            },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("build.iosApp.infoPlist.CFBundleIdentifier conflicts with a Doof-managed Info.plist key");
   });
 
   it("treats bare build paths as package-root relative", () => {
@@ -1483,6 +1601,10 @@ describe("manifest-derived pipeline metadata", () => {
             displayName: "Doof Solitaire",
             version: "1.0",
             icon: "./app-icon.png",
+            infoPlist: {
+              NSLocalNetworkUsageDescription: "Doof Jigsaw uses the local network to find nearby puzzle players.",
+              NSBonjourServices: ["_doof-jigsaw._tcp"],
+            },
             resources: [{ from: "images/*", to: "images" }],
           },
         },
@@ -1520,7 +1642,10 @@ describe("manifest-derived pipeline metadata", () => {
       expect(buildManifest.schemaVersion).toBe(2);
       expect(buildManifest.buildTarget?.kind).toBe("macos-app");
       expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.png");
-      expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.solitaire");
+      const infoPlist = fs.readFileSync(path.join(outDir, "Info.plist"), "utf8");
+      expect(infoPlist).toContain("dev.doof.solitaire");
+      expect(infoPlist).toContain("NSLocalNetworkUsageDescription");
+      expect(infoPlist).toContain("_doof-jigsaw._tcp");
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
@@ -1541,6 +1666,10 @@ describe("manifest-derived pipeline metadata", () => {
             displayName: "Doof Demo",
             version: "1.0",
             icon: "app-icon.png",
+            infoPlist: {
+              NSLocalNetworkUsageDescription: "Doof Jigsaw uses the local network to find nearby puzzle players.",
+              NSBonjourServices: ["_doof-jigsaw._tcp"],
+            },
             resources: [{ from: "images/*", to: "images" }],
           },
         },
@@ -1579,7 +1708,10 @@ describe("manifest-derived pipeline metadata", () => {
       expect(buildManifest.schemaVersion).toBe(2);
       expect(buildManifest.buildTarget?.kind).toBe("ios-app");
       expect(buildManifest.buildTarget?.config.iconPath).toBe("/app/app-icon.png");
-      expect(fs.readFileSync(path.join(outDir, "Info.plist"), "utf8")).toContain("dev.doof.demo");
+      const infoPlist = fs.readFileSync(path.join(outDir, "Info.plist"), "utf8");
+      expect(infoPlist).toContain("dev.doof.demo");
+      expect(infoPlist).toContain("NSLocalNetworkUsageDescription");
+      expect(infoPlist).toContain("_doof-jigsaw._tcp");
       expect(fs.readFileSync(path.join(outDir, "ios-main.mm"), "utf8")).toContain("UIApplicationMain");
       expect(
         fs.readFileSync(path.join(outDir, "Assets.xcassets", "AppIcon.appiconset", "Contents.json"), "utf8"),

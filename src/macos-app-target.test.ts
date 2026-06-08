@@ -2,10 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import plist from "plist";
 import {
   assembleMacOSAppBundle,
   createMacOSAppSupportFiles,
 } from "./macos-app-target.js";
+import { renderMacOSAppInfoPlist } from "./macos-app-support.js";
 
 const tmpDirs: string[] = [];
 
@@ -35,6 +37,28 @@ describe("macos-app target helper", () => {
       "PkgInfo",
     ]);
     expect(supportFiles[0].content).toContain("dev.doof.demo");
+  });
+
+  it("renders custom local-network Info.plist metadata", () => {
+    const xml = renderMacOSAppInfoPlist({
+      bundleId: "dev.doof.demo",
+      displayName: "Doof & Demo",
+      version: "1.0",
+      iconPath: "/app/app-icon.png",
+      resources: [],
+      category: "public.app-category.developer-tools",
+      minimumSystemVersion: "11.0",
+      infoPlist: {
+        NSLocalNetworkUsageDescription: "Doof Jigsaw uses the local network to find nearby players.",
+        NSBonjourServices: ["_doof-jigsaw._tcp"],
+      },
+    }, "DoofDemo");
+    const parsed = plist.parse(xml) as Record<string, unknown>;
+
+    expect(parsed.CFBundleDisplayName).toBe("Doof & Demo");
+    expect(parsed.NSLocalNetworkUsageDescription)
+      .toBe("Doof Jigsaw uses the local network to find nearby players.");
+    expect(parsed.NSBonjourServices).toEqual(["_doof-jigsaw._tcp"]);
   });
 
   it("assembles a macOS app bundle with resources", () => {
