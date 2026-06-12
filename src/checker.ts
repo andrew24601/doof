@@ -1045,6 +1045,7 @@ export class TypeChecker {
   }
 
   private symbolToType(sym: ModuleSymbol, table: ModuleSymbolTable, typeArgs?: TypeAnnotation[]): ResolvedType {
+    const declarationTable = this.analysisResult.modules.get(sym.module) ?? table;
     switch (sym.symbolKind) {
       case "class": {
         const resolvedArgs = this.resolveGenericTypeArgs(sym.declaration.typeParams, typeArgs, table);
@@ -1070,18 +1071,18 @@ export class TypeChecker {
             paramMap.set(declTypeParams[i], this.resolveTypeAnnotation(typeArgs[i], table));
           }
           this.typeParamStack.push(new Set(declTypeParams));
-          const baseType = this.resolveTypeAnnotation(sym.declaration.type, table);
+          const baseType = this.resolveTypeAnnotation(sym.declaration.type, declarationTable);
           this.typeParamStack.pop();
           return substituteTypeParams(baseType, paramMap);
         }
         // Non-generic alias or no args provided — resolve with type params in scope
         if (declTypeParams.length > 0) {
           this.typeParamStack.push(new Set(declTypeParams));
-          const t = this.resolveTypeAnnotation(sym.declaration.type, table);
+          const t = this.resolveTypeAnnotation(sym.declaration.type, declarationTable);
           this.typeParamStack.pop();
           return t;
         }
-        return this.resolveTypeAnnotation(sym.declaration.type, table);
+        return this.resolveTypeAnnotation(sym.declaration.type, declarationTable);
       }
       case "function": {
         if (sym.declaration.resolvedType?.kind === "function") {
@@ -1092,19 +1093,19 @@ export class TypeChecker {
         const typeParamConstraints = this.resolveTypeParamConstraintTypes(
           declTypeParams,
           sym.declaration.typeParamConstraints,
-          table,
+          declarationTable,
         );
         if (declTypeParams.length > 0) {
           this.typeParamStack.push(new Set(declTypeParams));
         }
         const params: FunctionResolvedParam[] = sym.declaration.params.map((p) => ({
           name: p.name,
-          type: p.type ? this.resolveTypeAnnotation(p.type, table) : UNKNOWN_TYPE,
+          type: p.type ? this.resolveTypeAnnotation(p.type, declarationTable) : UNKNOWN_TYPE,
           hasDefault: p.defaultValue !== null,
           defaultValue: p.defaultValue,
         }));
         const returnType = sym.declaration.returnType
-          ? this.resolveTypeAnnotation(sym.declaration.returnType, table)
+          ? this.resolveTypeAnnotation(sym.declaration.returnType, declarationTable)
           : UNKNOWN_TYPE;
         if (declTypeParams.length > 0) {
           this.typeParamStack.pop();
@@ -1126,7 +1127,7 @@ export class TypeChecker {
           return sym.declaration.resolvedType;
         }
         return sym.declaration.type
-          ? this.resolveTypeAnnotation(sym.declaration.type, table)
+          ? this.resolveTypeAnnotation(sym.declaration.type, declarationTable)
           : UNKNOWN_TYPE; // will be refined during checkStatement
     }
   }

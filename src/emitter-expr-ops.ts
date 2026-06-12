@@ -12,7 +12,7 @@ import type {
   QualifiedMemberExpression,
   IndexExpression,
 } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { isJsonValueType, type ResolvedType } from "./checker-types.js";
 import { emitClassCppName, emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable, isVariantUnionType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -174,6 +174,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
   if ((expr.operator === "==" || expr.operator === "!=") &&
       expr.right.kind === "null-literal") {
     const lhsType = expr.left.resolvedType;
+    if (lhsType && isJsonValueType(lhsType)) {
+      const lhs = emitBinaryOperand(expr.left, ctx, 20, "left");
+      const check = `doof::json_is_null(${lhs})`;
+      return expr.operator === "==" ? check : `!${check}`;
+    }
     if (lhsType && isMonostateNullable(lhsType)) {
       const lhs = emitBinaryOperand(expr.left, ctx, 20, "left");
       const check = `std::holds_alternative<std::monostate>(${lhs})`;
@@ -188,6 +193,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
   if ((expr.operator === "==" || expr.operator === "!=") &&
       expr.left.kind === "null-literal") {
     const rhsType = expr.right.resolvedType;
+    if (rhsType && isJsonValueType(rhsType)) {
+      const rhs = emitBinaryOperand(expr.right, ctx, 20, "right");
+      const check = `doof::json_is_null(${rhs})`;
+      return expr.operator === "==" ? check : `!${check}`;
+    }
     if (rhsType && isMonostateNullable(rhsType)) {
       const rhs = emitBinaryOperand(expr.right, ctx, 20, "right");
       const check = `std::holds_alternative<std::monostate>(${rhs})`;

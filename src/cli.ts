@@ -339,7 +339,11 @@ function runPipeline(
 }
 
 function cmdCheck(entry: string, verbose: boolean, targetOverride: DoofBuildTarget | null, iosDestination: IOSAppDestination): void {
-  const { warningCount } = runPipeline(entry, verbose, createEmptyNativeBuildOptions(), targetOverride, iosDestination);
+  const { warningCount } = runPipelineWithFs(new RealFS(), entry, verbose, createEmptyNativeBuildOptions(), log, printDiagnostic, {
+    buildTargetOverride: targetOverride ?? undefined,
+    iosDestinationOverride: iosDestination,
+    materializeExternalDependencies: false,
+  });
   log(warningCount > 0
     ? `Check passed with ${pluralize(warningCount, "warning")}`
     : "Check passed — no errors");

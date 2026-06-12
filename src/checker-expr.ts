@@ -38,6 +38,7 @@ import {
   type ModuleTypeInfo,
   type ResolvedType,
   type Scope,
+  typeContainsTypeVar,
   typeToString,
   typesEqual,
   typesEqualAtRuntime,
@@ -1586,7 +1587,11 @@ function inferExprTypeInner(
             return UNKNOWN_TYPE;
           }
           const successType = argTypes[0];
-          return { kind: "result", successType, errorType: resultContext.errorType };
+          const resolvedSuccessType = !typeContainsTypeVar(resultContext.successType)
+            && isAssignableTo(successType, resultContext.successType)
+            ? resultContext.successType
+            : successType;
+          return { kind: "result", successType: resolvedSuccessType, errorType: resultContext.errorType };
         }
         const errorType = argTypes[0];
         return { kind: "result", successType: resultContext.successType, errorType };
@@ -1873,7 +1878,11 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const successType = valueProp.value.resolvedType ?? UNKNOWN_TYPE;
-        return { kind: "result", successType, errorType: resultContext.errorType };
+        const resolvedSuccessType = !typeContainsTypeVar(resultContext.successType)
+          && isAssignableTo(successType, resultContext.successType)
+          ? resultContext.successType
+          : successType;
+        return { kind: "result", successType: resolvedSuccessType, errorType: resultContext.errorType };
       }
 
       if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Failure") {

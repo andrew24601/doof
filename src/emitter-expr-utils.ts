@@ -174,6 +174,9 @@ function resolveModuleSymbolType(
   typeArgs: readonly TypeAnnotation[],
   ctx?: EmitContext,
 ): ResolvedType {
+  const declarationCtx = ctx?.allModules.get(symbol.module)
+    ? { ...ctx, module: ctx.allModules.get(symbol.module)! }
+    : ctx;
   switch (symbol.symbolKind) {
     case "class": {
       const resolvedArgs = typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx));
@@ -193,7 +196,7 @@ function resolveModuleSymbolType(
       return { kind: "enum", symbol };
 
     case "type-alias": {
-      const aliasType = resolveTypeAnnotation(symbol.declaration.type, ctx);
+      const aliasType = resolveTypeAnnotation(symbol.declaration.type, declarationCtx);
       if (symbol.declaration.typeParams.length === 0 || typeArgs.length === 0) {
         return aliasType;
       }

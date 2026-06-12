@@ -34,6 +34,81 @@ describe("e2e — module splitting", () => {
     expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
   });
 
+  it("compiles calls to imported functions with class construction defaults", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/types.do": `
+          export class Header {
+            name: string
+          }
+        `,
+        "/websocket.do": `
+          import { Header } from "./types"
+
+          export class WebSocketOptions {
+            headers: Header[] = []
+          }
+        `,
+        "/api.do": `
+          import { WebSocketOptions } from "./websocket"
+
+          export function connectThing(
+            address: string,
+            options: WebSocketOptions = WebSocketOptions {},
+          ): Result<void, string> {
+            return Success()
+          }
+        `,
+        "/main.do": `
+          import { connectThing } from "./api"
+
+          function main(): int {
+            result := connectThing("ws://example")
+            case result {
+              _: Success -> return 0
+              _: Failure -> return 1
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
+  it("compiles generated JSON for imported nested class fields", () => {
+    const { success, error, codes } = ctx.compileOnlyProject(
+      {
+        "/model.do": `
+          export class Child {
+            value: int
+          }
+        `,
+        "/session.do": `
+          import { Child } from "./model"
+
+          export class Event {
+            child: Child | null = null
+            children: Child[] = []
+          }
+        `,
+        "/main.do": `
+          import { formatJsonValue } from "std/json"
+          import { Child } from "./model"
+          import { Event } from "./session"
+
+          function main(): int {
+            event := Event { child: Child { value: 1 } }
+            println(formatJsonValue(event.toJsonObject()))
+            return 0
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
+  });
+
   it("runs a single module split with exit code", () => {
     const result = ctx.compileAndRunProject(
       {

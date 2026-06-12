@@ -13,6 +13,7 @@ import {
   createBuildProvenance,
   createPackageOutputPaths,
   loadPackageGraph,
+  materializePackageGraphExternalDependencies,
   narrowPackageGraphForBuild,
   type BuildProvenance,
   type PackageOutputPaths,
@@ -78,6 +79,7 @@ interface BuildManifestTemplate {
   linkerFlags: string[];
   packageRoots: string[];
   remoteDependencies: BuildProvenance["dependencies"];
+  externalDependencies: BuildProvenance["externalDependencies"];
 }
 
 export interface DoofBuildManifest {
@@ -99,6 +101,7 @@ export interface DoofBuildManifest {
   linkerFlags: string[];
   packageRoots: string[];
   remoteDependencies: BuildProvenance["dependencies"];
+  externalDependencies: BuildProvenance["externalDependencies"];
 }
 
 export type CompilerToolchainKind = "gcc-like" | "msvc";
@@ -285,7 +288,12 @@ export function runPipelineWithFs(
   nativeBuild: NativeBuildOptions,
   log: (msg: string) => void,
   onDiagnostic: (diagnostic: DiagnosticLike) => void,
-  options: { buildTargetOverride?: DoofBuildTarget; iosDestinationOverride?: IOSAppDestination; coverage?: boolean } = {},
+  options: {
+    buildTargetOverride?: DoofBuildTarget;
+    iosDestinationOverride?: IOSAppDestination;
+    coverage?: boolean;
+    materializeExternalDependencies?: boolean;
+  } = {},
 ): PipelineResult {
   const normalizedEntryPath = resolveFsPath(entryPath);
   const pipelineFileSystem = withNodeBundledStdlib(fileSystem);
@@ -297,6 +305,7 @@ export function runPipelineWithFs(
     buildTargetOverride: options.buildTargetOverride,
     iosDestinationOverride: options.iosDestinationOverride,
     implicitStdDependencies: fileSystem instanceof RealFS,
+    acquireExternalDependency: fileSystem instanceof RealFS ? () => {} : undefined,
   });
   const resolver = createNodeBundledModuleResolver(fileSystem, {
     packages: packageGraph.packages.map((pkg) => ({
@@ -322,6 +331,9 @@ export function runPipelineWithFs(
   if (verbose) log(`  ${analysisResult.modules.size} module(s) analyzed`);
 
   const buildPackageGraph = narrowPackageGraphForBuild(packageGraph, analysisResult.modules.keys());
+  if (fileSystem instanceof RealFS && options.materializeExternalDependencies !== false) {
+    materializePackageGraphExternalDependencies(buildPackageGraph);
+  }
   const mergedPackageNativeBuild = mergePackageNativeBuild(buildPackageGraph);
   const packageOutputPaths = createPackageOutputPaths(buildPackageGraph, normalizedEntryPath);
   const nativeCopyPlan = fileSystem instanceof RealFS
@@ -366,8 +378,12 @@ export function runPipelineWithFs(
       outputNativeIncludePaths: nativeCopyPlan.includePaths,
       outputNativeSourceFiles: nativeCopyPlan.sourceFiles,
       outputNativeLibraryPaths: nativeCopyPlan.libraryPaths,
+      externalDependencySentinelPaths: collectExternalDependencySentinelPaths(buildPackageGraph),
     }
-    : emittedProject;
+    : {
+      ...emittedProject,
+      externalDependencySentinelPaths: collectExternalDependencySentinelPaths(buildPackageGraph),
+    };
   if (verbose) log(`  ${project.modules.length} module(s) emitted`);
 
   const provenance = createBuildProvenance(buildPackageGraph);
@@ -593,11 +609,13 @@ export function createNativeBuildGraphPlan(
     ...outputNativeCopyTasks,
   ]);
   const compileSources = uniqueStrings([...inputs.moduleCppFiles, ...inputs.effectiveNativeBuild.sourceFiles]);
+  const externalDependencyTasks = project.externalDependencySentinelPaths.map(externalDependencySentinelTask);
   const objectTasks = compileSources.map((sourceFile, index) => {
     const sourceTask = materializePlan.taskByOutputPath.get(sourceFile);
     const dependencies = uniqueTasks([
       ...(sourceTask ? [sourceTask] : []),
       ...sharedGeneratedDependencies,
+      ...externalDependencyTasks,
     ]);
     const objectFile = buildIncrementalObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
     return toolchain.kind === "msvc"
@@ -605,13 +623,13 @@ export function createNativeBuildGraphPlan(
       : gccLikeObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies);
   });
   const linkTask = toolchain.kind === "msvc"
-    ? msvcLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild)
-    : gccLikeLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild);
+    ? msvcLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild, externalDependencyTasks)
+    : gccLikeLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild, externalDependencyTasks);
 
   return {
     outBinary: inputs.outBinary,
     target: linkTask,
-    tasks: [...materializePlan.tasks, ...objectTasks, linkTask],
+    tasks: [...materializePlan.tasks, ...externalDependencyTasks, ...objectTasks, linkTask],
   };
 }
 
@@ -771,6 +789,7 @@ function createBuildManifestTemplate(
     linkerFlags: [...nativeBuild.linkerFlags],
     packageRoots: [...packageRoots],
     remoteDependencies: provenance.dependencies,
+    externalDependencies: provenance.externalDependencies,
   };
 }
 
@@ -806,6 +825,7 @@ function finalizeBuildManifest(template: BuildManifestTemplate, outDir: string):
     linkerFlags: [...template.linkerFlags],
     packageRoots: [...template.packageRoots],
     remoteDependencies: template.remoteDependencies,
+    externalDependencies: template.externalDependencies,
   };
 }
 
@@ -826,6 +846,16 @@ function mergeResolvedNativeBuildOptions(
     linkerFlags: uniqueStrings([...packageNativeBuild.linkerFlags, ...nativeBuild.linkerFlags]),
     defines: uniqueStrings([...packageNativeBuild.defines, ...nativeBuild.defines]),
   };
+}
+
+function collectExternalDependencySentinelPaths(graph: PackageGraph): string[] {
+  const sentinelPaths: string[] = [];
+  for (const pkg of graph.packages) {
+    for (const dependency of Object.values(pkg.manifest.externalDependencies)) {
+      sentinelPaths.push(path.resolve(pkg.rootDir, dependency.destination, ".doof-external.json"));
+    }
+  }
+  return uniqueStrings(sentinelPaths);
 }
 
 function createNativeCopyPlan(graph: PackageGraph, packageOutputPaths: PackageOutputPaths): NativeCopyPlan {
@@ -1037,6 +1067,22 @@ function nativeCopyManifestFileTask(outDir: string, nextFiles: readonly string[]
   };
 }
 
+function externalDependencySentinelTask(sentinelPath: string): Task {
+  return {
+    id: `doof:external-dependency:${sentinelPath}`,
+    label: `external dependency ${sentinelPath}`,
+    outputs: [sentinelPath],
+    fileDependencies: [sentinelPath],
+    taskDependencies: [],
+    fingerprint: stableFingerprint({ kind: "doof-external-dependency-sentinel", sentinelPath }),
+    async execute() {
+      if (!fs.existsSync(sentinelPath)) {
+        throw new Error(`External dependency sentinel is missing: ${sentinelPath}`);
+      }
+    },
+  };
+}
+
 function gccLikeObjectTask(
   toolchain: CompilerToolchain,
   sourceFile: string,
@@ -1072,6 +1118,7 @@ function gccLikeLinkTask(
   outBinary: string,
   objectTasks: readonly Task[],
   nativeBuild: NativeBuildOptions,
+  dependencies: readonly Task[] = [],
 ): Task {
   const objectFiles = objectTasks.flatMap((task) => task.outputs);
   const args = [
@@ -1090,7 +1137,7 @@ function gccLikeLinkTask(
     label: `executable ${outBinary}`,
     outputs: [outBinary],
     fileDependencies: [...nativeBuild.objectFiles],
-    taskDependencies: [...objectTasks],
+    taskDependencies: uniqueTasks([...objectTasks, ...dependencies]),
     fingerprint: stableFingerprint({ kind: "doof-gcc-like-link", compiler: toolchain.command, args, env: toolchain.env }),
     async execute(context) {
       fs.mkdirSync(path.dirname(outBinary), { recursive: true });
@@ -1138,6 +1185,7 @@ function msvcLinkTask(
   outBinary: string,
   objectTasks: readonly Task[],
   nativeBuild: NativeBuildOptions,
+  dependencies: readonly Task[] = [],
 ): Task {
   const objectFiles = objectTasks.flatMap((task) => task.outputs);
   const linkArgs = [
@@ -1158,7 +1206,7 @@ function msvcLinkTask(
     label: `executable ${outBinary}`,
     outputs: [outBinary],
     fileDependencies: [...nativeBuild.objectFiles],
-    taskDependencies: [...objectTasks],
+    taskDependencies: uniqueTasks([...objectTasks, ...dependencies]),
     fingerprint: stableFingerprint({ kind: "doof-msvc-link", compiler: toolchain.command, args, env: toolchain.env }),
     async execute(context) {
       fs.mkdirSync(path.dirname(outBinary), { recursive: true });

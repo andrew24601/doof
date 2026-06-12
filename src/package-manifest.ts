@@ -104,12 +104,48 @@ export interface DoofRemoteDependencyConfig {
 
 export type DoofDependencyConfig = DoofLocalDependencyConfig | DoofRemoteDependencyConfig;
 
+export interface DoofArchiveExternalDependencyConfig {
+  kind: "archive";
+  url: string;
+  sha256: string;
+  destination: string;
+  stripComponents: number;
+  copyFiles: DoofExternalDependencyCopyFileConfig[];
+  commands: DoofExternalDependencyCommandConfig[];
+}
+
+export interface DoofExternalDependencyCopyFileConfig {
+  from: string;
+  to: string;
+}
+
+export interface DoofExternalDependencyCommandConfig {
+  program: string;
+  args: string[];
+  env: Record<string, string>;
+  workingDirectory?: string;
+}
+
+export interface DoofGitExternalDependencyConfig {
+  kind: "git";
+  url: string;
+  ref: string;
+  commit: string;
+  destination: string;
+  commands: DoofExternalDependencyCommandConfig[];
+}
+
+export type DoofExternalDependencyConfig =
+  | DoofArchiveExternalDependencyConfig
+  | DoofGitExternalDependencyConfig;
+
 export interface DoofManifest {
   name?: string;
   version?: string;
   license?: string;
   build?: DoofBuildConfig;
   dependencies: Record<string, DoofDependencyConfig>;
+  externalDependencies: Record<string, DoofExternalDependencyConfig>;
 }
 
 export interface LoadedPackage {
@@ -129,6 +165,7 @@ export interface PackageGraph {
 
 export interface BuildProvenance {
   dependencies: BuildProvenanceEntry[];
+  externalDependencies: ExternalDependencyProvenanceEntry[];
 }
 
 export interface BuildProvenanceEntry {
@@ -136,6 +173,17 @@ export interface BuildProvenanceEntry {
   url: string;
   version: string;
   commit: string | null;
+  referencedFrom: string[];
+}
+
+export interface ExternalDependencyProvenanceEntry {
+  name: string;
+  kind: "archive" | "git";
+  url: string;
+  destination: string;
+  sha256?: string;
+  ref?: string;
+  commit?: string;
   referencedFrom: string[];
 }
 
@@ -175,10 +223,20 @@ export interface LoadPackageGraphOptions {
   implicitStdDependencies?: boolean;
   buildTargetOverride?: DoofBuildTarget;
   iosDestinationOverride?: IOSAppDestination;
+  acquireExternalDependency?: (
+    dependencyName: string,
+    dependency: DoofExternalDependencyConfig,
+    context: ExternalDependencyContext,
+  ) => void;
   resolveRemoteDependency?: (
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
   ) => ResolvedRemoteDependency;
+}
+
+export interface ExternalDependencyContext {
+  packageRootDir: string;
+  manifestPath: string;
 }
 
 interface MutableLoadedPackage {
@@ -232,6 +290,11 @@ interface PackageLoadContext {
     dependency: DoofRemoteDependencyConfig,
     context: RemoteDependencyContext,
   ) => ResolvedRemoteDependency;
+  acquireExternalDependency: (
+    dependencyName: string,
+    dependency: DoofExternalDependencyConfig,
+    context: ExternalDependencyContext,
+  ) => void;
   discoveredPackages: Map<string, DiscoveredPackage>;
   remotePackagesByKey: Map<string, RemotePackageSelection[]>;
 }
@@ -265,6 +328,7 @@ interface RemotePackageCoordinate {
 const MANIFEST_FILENAME = "doof.json";
 const REMOTE_METADATA_FILENAME = ".doof-remote.json";
 const REMOTE_VERSIONS_FILENAME = "versions.json";
+const EXTERNAL_METADATA_FILENAME = ".doof-external.json";
 
 export function findDoofManifestPath(fileSystem: FileSystem, entryPath: string): string | null {
   const normalizedPath = resolveFsPath(entryPath);
@@ -324,6 +388,7 @@ export function loadPackageGraph(
     effectiveIOSDestination: options.iosDestinationOverride ?? "simulator",
     rootManifestPath: normalizedManifestPath,
     resolveRemoteDependency: options.resolveRemoteDependency ?? defaultResolveRemoteDependency,
+    acquireExternalDependency: options.acquireExternalDependency ?? defaultAcquireExternalDependency,
     discoveredPackages: new Map<string, DiscoveredPackage>(),
     remotePackagesByKey: new Map<string, RemotePackageSelection[]>(),
   };
@@ -432,7 +497,36 @@ export function materializeRemoteDependencyByUrl(
 export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
   const packagesByRoot = new Map(graph.packages.map((pkg) => [pkg.rootDir, pkg]));
   const provenanceByKey = new Map<string, BuildProvenanceEntry>();
+  const externalProvenanceByKey = new Map<string, ExternalDependencyProvenanceEntry>();
   const visitedEdges = new Set<string>();
+
+  for (const pkg of graph.packages) {
+    for (const [dependencyName, dependency] of Object.entries(pkg.manifest.externalDependencies)) {
+      const key = [
+        dependencyName,
+        dependency.kind,
+        dependency.url,
+        dependency.destination,
+        dependency.kind === "archive" ? dependency.sha256 : dependency.commit,
+      ].join("\u0000");
+      const existing = externalProvenanceByKey.get(key) ?? {
+        name: dependencyName,
+        kind: dependency.kind,
+        url: dependency.url,
+        destination: dependency.destination,
+        referencedFrom: [],
+        ...(dependency.kind === "archive"
+          ? { sha256: dependency.sha256 }
+          : { ref: dependency.ref, commit: dependency.commit }),
+      };
+      const referencer = pkg.remotePackage?.url ?? ".";
+      if (!existing.referencedFrom.includes(referencer)) {
+        existing.referencedFrom.push(referencer);
+        existing.referencedFrom.sort();
+      }
+      externalProvenanceByKey.set(key, existing);
+    }
+  }
 
   function visitPackage(pkg: LoadedPackage) {
     for (const dependencyRoot of pkg.dependencyRoots.values()) {
@@ -480,7 +574,12 @@ export function createBuildProvenance(graph: PackageGraph): BuildProvenance {
     const rightKey = `${right.url}\u0000${right.version}`;
     return leftKey.localeCompare(rightKey);
   });
-  return { dependencies };
+  const externalDependencies = [...externalProvenanceByKey.values()].sort((left, right) => {
+    const leftKey = `${left.name}\u0000${left.url}`;
+    const rightKey = `${right.name}\u0000${right.url}`;
+    return leftKey.localeCompare(rightKey);
+  });
+  return { dependencies, externalDependencies };
 }
 
 export function createPackageOutputPaths(graph: PackageGraph, entryPath: string): PackageOutputPaths {
@@ -542,6 +641,17 @@ export function mergePackageNativeBuild(graph: PackageGraph): ResolvedPackageNat
   return merged;
 }
 
+export function materializePackageGraphExternalDependencies(graph: PackageGraph): void {
+  for (const pkg of graph.packages) {
+    for (const [dependencyName, dependency] of Object.entries(pkg.manifest.externalDependencies)) {
+      defaultAcquireExternalDependency(dependencyName, dependency, {
+        packageRootDir: pkg.rootDir,
+        manifestPath: pkg.manifestPath,
+      });
+    }
+  }
+}
+
 function discoverPackageFromManifest(
   fileSystem: FileSystem,
   manifestPath: string,
@@ -561,6 +671,7 @@ function discoverPackageFromManifest(
   }
 
   const manifest = readManifestOrThrow(fileSystem, normalizedManifestPath);
+  acquireExternalDependencies(manifest, rootDir, normalizedManifestPath, context);
   const buildTargetOverride = normalizedManifestPath === context.rootManifestPath
     ? context.effectiveBuildTarget
     : undefined;
@@ -856,8 +967,9 @@ function parseDoofManifest(rawManifest: string, manifestPath: string): DoofManif
   const license = readOptionalString(parsed.license, manifestPath, "license");
   const build = parseBuildConfig(parsed.build, manifestPath);
   const dependencies = parseDependencies(parsed.dependencies, manifestPath);
+  const externalDependencies = parseExternalDependencies(parsed.externalDependencies, manifestPath);
 
-  return { name, version, license, build, dependencies };
+  return { name, version, license, build, dependencies, externalDependencies };
 }
 
 function parseBuildConfig(value: unknown, manifestPath: string): DoofBuildConfig | undefined {
@@ -1098,6 +1210,178 @@ function parseDependencyConfig(
   throw new Error(
     `Invalid doof.json at ${manifestPath}: dependency ${dependencyName} must declare either path or url/version`,
   );
+}
+
+function parseExternalDependencies(
+  value: unknown,
+  manifestPath: string,
+): Record<string, DoofExternalDependencyConfig> {
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: externalDependencies must be an object`);
+  }
+
+  const dependencies: Record<string, DoofExternalDependencyConfig> = {};
+  for (const [dependencyName, dependencyValue] of Object.entries(value)) {
+    if (!isValidDependencyName(dependencyName)) {
+      throw new Error(
+        `Invalid doof.json at ${manifestPath}: invalid external dependency name ${JSON.stringify(dependencyName)}`,
+      );
+    }
+    dependencies[dependencyName] = parseExternalDependencyConfig(dependencyValue, manifestPath, dependencyName);
+  }
+
+  return dependencies;
+}
+
+function parseExternalDependencyConfig(
+  value: unknown,
+  manifestPath: string,
+  dependencyName: string,
+): DoofExternalDependencyConfig {
+  const fieldPath = `externalDependencies.${dependencyName}`;
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an object`);
+  }
+
+  const kind = readRequiredString(value.kind, manifestPath, `${fieldPath}.kind`);
+  const url = readRequiredString(value.url, manifestPath, `${fieldPath}.url`);
+  const destination = readRequiredString(value.destination, manifestPath, `${fieldPath}.destination`);
+
+  if (kind === "archive") {
+    const sha256 = readRequiredString(value.sha256, manifestPath, `${fieldPath}.sha256`);
+    if (!isSupportedExternalArchiveUrl(url)) {
+      throw new Error(
+        `Invalid doof.json at ${manifestPath}: ${fieldPath}.url must end with .zip, .tar.gz, .tgz, .tar.bz2, .tbz2, or .tar.xz`,
+      );
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(sha256)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}.sha256 must be a 64-character hex string`);
+    }
+    return {
+      kind,
+      url,
+      sha256: sha256.toLowerCase(),
+      destination,
+      stripComponents: readOptionalNonNegativeInteger(value.stripComponents, manifestPath, `${fieldPath}.stripComponents`) ?? 1,
+      copyFiles: readOptionalExternalDependencyCopyFiles(value.copyFiles, manifestPath, `${fieldPath}.copyFiles`),
+      commands: readOptionalExternalDependencyCommands(value.commands, manifestPath, `${fieldPath}.commands`),
+    };
+  }
+
+  if (kind === "git") {
+    const ref = readRequiredString(value.ref, manifestPath, `${fieldPath}.ref`);
+    const commit = readRequiredString(value.commit, manifestPath, `${fieldPath}.commit`);
+    if (!/^[0-9a-fA-F]{40}$/.test(commit)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}.commit must be a 40-character hex string`);
+    }
+    return {
+      kind,
+      url,
+      ref,
+      commit: commit.toLowerCase(),
+      destination,
+      commands: readOptionalExternalDependencyCommands(value.commands, manifestPath, `${fieldPath}.commands`),
+    };
+  }
+
+  throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}.kind must be either "archive" or "git"`);
+}
+
+function isSupportedExternalArchiveUrl(url: string): boolean {
+  const lowerUrl = url.toLowerCase();
+  return lowerUrl.endsWith(".zip")
+    || lowerUrl.endsWith(".tar.gz")
+    || lowerUrl.endsWith(".tgz")
+    || lowerUrl.endsWith(".tar.bz2")
+    || lowerUrl.endsWith(".tbz2")
+    || lowerUrl.endsWith(".tar.xz");
+}
+
+function readOptionalNonNegativeInteger(value: unknown, manifestPath: string, fieldPath: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || typeof value !== "number" || value < 0) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function readOptionalExternalDependencyCopyFiles(
+  value: unknown,
+  manifestPath: string,
+  fieldPath: string,
+): DoofExternalDependencyCopyFileConfig[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an array`);
+  }
+
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must be an object`);
+    }
+    return {
+      from: readRequiredString(entry.from, manifestPath, `${fieldPath}[${index}].from`),
+      to: readRequiredString(entry.to, manifestPath, `${fieldPath}[${index}].to`),
+    };
+  });
+}
+
+function readOptionalExternalDependencyCommands(
+  value: unknown,
+  manifestPath: string,
+  fieldPath: string,
+): DoofExternalDependencyCommandConfig[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an array`);
+  }
+
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must be an object`);
+    }
+    return {
+      program: readRequiredString(entry.program, manifestPath, `${fieldPath}[${index}].program`),
+      args: readOptionalStringArray(entry.args, manifestPath, `${fieldPath}[${index}].args`) ?? [],
+      env: readOptionalStringMap(entry.env, manifestPath, `${fieldPath}[${index}].env`) ?? {},
+      workingDirectory: readOptionalString(entry.workingDirectory, manifestPath, `${fieldPath}[${index}].workingDirectory`),
+    };
+  });
+}
+
+function readOptionalStringMap(
+  value: unknown,
+  manifestPath: string,
+  fieldPath: string,
+): Record<string, string> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an object`);
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key.length === 0) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} keys must not be empty`);
+    }
+    if (typeof entry !== "string") {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}.${key} must be a string`);
+    }
+    result[key] = entry;
+  }
+  return result;
 }
 
 function readOptionalString(value: unknown, manifestPath: string, fieldPath: string): string | undefined {
@@ -1447,6 +1731,337 @@ function isWithinRoot(targetPath: string, rootDir: string): boolean {
   const portableRelativePath = relativePath.replace(/\\/g, "/");
   return relativePath === ""
     || (!portableRelativePath.startsWith("../") && portableRelativePath !== ".." && !isAbsoluteFsPath(relativePath));
+}
+
+function acquireExternalDependencies(
+  manifest: DoofManifest,
+  rootDir: string,
+  manifestPath: string,
+  context: PackageLoadContext,
+): void {
+  for (const [dependencyName, dependency] of Object.entries(manifest.externalDependencies)) {
+    const destination = normalizePackagePath(
+      dependency.destination,
+      rootDir,
+      manifestPath,
+      `externalDependencies.${dependencyName}.destination`,
+    );
+    context.acquireExternalDependency(dependencyName, dependency, {
+      packageRootDir: rootDir,
+      manifestPath,
+    });
+    if (!isWithinRoot(destination, rootDir)) {
+      throw new Error(
+        `Invalid doof.json at ${manifestPath}: externalDependencies.${dependencyName}.destination must stay within the package root`,
+      );
+    }
+  }
+}
+
+function defaultAcquireExternalDependency(
+  dependencyName: string,
+  dependency: DoofExternalDependencyConfig,
+  context: ExternalDependencyContext,
+): void {
+  if (!nodeFs.existsSync(context.manifestPath)) {
+    return;
+  }
+
+  const destination = normalizePackagePath(
+    dependency.destination,
+    context.packageRootDir,
+    context.manifestPath,
+    `externalDependencies.${dependencyName}.destination`,
+  );
+  const expectedMarker = createExternalDependencyMarker(dependencyName, dependency);
+  const existingMarker = readExternalDependencyMarker(destination);
+
+  if (existingMarker && externalDependencyMarkerMatches(existingMarker, expectedMarker)) {
+    return;
+  }
+
+  if (nodeFs.existsSync(destination)) {
+    if (!existingMarker && !isEmptyDirectory(destination)) {
+      throw new Error(
+        `External dependency ${dependencyName} destination already exists without ${EXTERNAL_METADATA_FILENAME}: ${destination}`,
+      );
+    }
+    nodeFs.rmSync(destination, { recursive: true, force: true });
+  }
+
+  if (dependency.kind === "archive") {
+    materializeArchiveExternalDependency(dependencyName, dependency, context.packageRootDir, destination, expectedMarker);
+    return;
+  }
+
+  materializeGitExternalDependency(dependencyName, dependency, context.packageRootDir, destination, expectedMarker);
+}
+
+interface ExternalDependencyMarker {
+  schemaVersion: 1;
+  name: string;
+  kind: "archive" | "git";
+  url: string;
+  destination: string;
+  acquiredAt: string;
+  platform?: NodeJS.Platform;
+  commands?: DoofExternalDependencyCommandConfig[];
+  sha256?: string;
+  stripComponents?: number;
+  copyFiles?: DoofExternalDependencyCopyFileConfig[];
+  ref?: string;
+  commit?: string;
+}
+
+function createExternalDependencyMarker(
+  dependencyName: string,
+  dependency: DoofExternalDependencyConfig,
+): ExternalDependencyMarker {
+  return {
+    schemaVersion: 1,
+    name: dependencyName,
+    kind: dependency.kind,
+    url: dependency.url,
+    destination: dependency.destination,
+    acquiredAt: new Date().toISOString(),
+    platform: process.platform,
+    commands: dependency.commands,
+    ...(dependency.kind === "archive"
+      ? { sha256: dependency.sha256, stripComponents: dependency.stripComponents, copyFiles: dependency.copyFiles }
+      : { ref: dependency.ref, commit: dependency.commit }),
+  };
+}
+
+function readExternalDependencyMarker(destination: string): ExternalDependencyMarker | null {
+  const markerPath = nodePath.join(destination, EXTERNAL_METADATA_FILENAME);
+  if (!nodeFs.existsSync(markerPath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(nodeFs.readFileSync(markerPath, "utf8")) as Partial<ExternalDependencyMarker>;
+    if (parsed.schemaVersion !== 1 || parsed.kind !== "archive" && parsed.kind !== "git") {
+      return null;
+    }
+    return parsed as ExternalDependencyMarker;
+  } catch {
+    return null;
+  }
+}
+
+function externalDependencyMarkerMatches(
+  actual: ExternalDependencyMarker,
+  expected: ExternalDependencyMarker,
+): boolean {
+  return actual.schemaVersion === 1
+    && actual.name === expected.name
+    && actual.kind === expected.kind
+    && actual.url === expected.url
+    && actual.destination === expected.destination
+    && actual.platform === expected.platform
+    && JSON.stringify(actual.commands ?? []) === JSON.stringify(expected.commands ?? [])
+    && actual.sha256 === expected.sha256
+    && actual.stripComponents === expected.stripComponents
+    && JSON.stringify(actual.copyFiles ?? []) === JSON.stringify(expected.copyFiles ?? [])
+    && actual.ref === expected.ref
+    && actual.commit === expected.commit;
+}
+
+function writeExternalDependencyMarker(destination: string, marker: ExternalDependencyMarker): void {
+  nodeFs.writeFileSync(
+    nodePath.join(destination, EXTERNAL_METADATA_FILENAME),
+    JSON.stringify({ ...marker, acquiredAt: new Date().toISOString() }, null, 2) + "\n",
+  );
+}
+
+function isEmptyDirectory(path: string): boolean {
+  try {
+    return nodeFs.statSync(path).isDirectory() && nodeFs.readdirSync(path).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function materializeArchiveExternalDependency(
+  dependencyName: string,
+  dependency: DoofArchiveExternalDependencyConfig,
+  packageRootDir: string,
+  destination: string,
+  marker: ExternalDependencyMarker,
+): void {
+  const parentDir = nodePath.dirname(destination);
+  nodeFs.mkdirSync(parentDir, { recursive: true });
+  const tempRoot = nodeFs.mkdtempSync(nodePath.join(parentDir, `.doof-${dependencyName}-`));
+  const archivePath = nodePath.join(tempRoot, "source");
+  const extractDir = nodePath.join(tempRoot, "extract");
+  const stagedDestination = nodePath.join(tempRoot, "payload");
+
+  try {
+    nodeFs.mkdirSync(extractDir, { recursive: true });
+    execFileSync("curl", ["-L", "-f", "-o", archivePath, dependency.url], { stdio: "pipe" });
+    const actualSha256 = createHash("sha256").update(nodeFs.readFileSync(archivePath)).digest("hex");
+    if (actualSha256 !== dependency.sha256) {
+      throw new Error(
+        `External dependency ${dependencyName} checksum mismatch: expected ${dependency.sha256}, got ${actualSha256}`,
+      );
+    }
+
+    extractExternalArchive(archivePath, dependency.url, extractDir);
+    const sourceRoot = resolveStrippedArchiveRoot(extractDir, dependency.stripComponents, dependencyName);
+    nodeFs.mkdirSync(stagedDestination, { recursive: true });
+    copyDirectoryContents(sourceRoot, stagedDestination);
+    applyExternalDependencyCopyFiles(stagedDestination, dependency.copyFiles, dependencyName);
+    nodeFs.renameSync(stagedDestination, destination);
+    runExternalDependencyCommands(dependencyName, dependency.commands, packageRootDir, destination);
+    writeExternalDependencyMarker(destination, marker);
+  } catch (error: any) {
+    nodeFs.rmSync(destination, { recursive: true, force: true });
+    throw new Error(`Failed to acquire external dependency ${dependencyName}: ${error?.message ?? String(error)}`);
+  } finally {
+    nodeFs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function extractExternalArchive(archivePath: string, url: string, extractDir: string): void {
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.endsWith(".zip")) {
+    execFileSync("unzip", ["-q", archivePath, "-d", extractDir], { stdio: "pipe" });
+    return;
+  }
+
+  execFileSync("tar", ["-xf", archivePath, "-C", extractDir], { stdio: "pipe" });
+}
+
+function resolveStrippedArchiveRoot(extractDir: string, stripComponents: number, dependencyName: string): string {
+  let current = extractDir;
+  for (let index = 0; index < stripComponents; index++) {
+    const entries = nodeFs.readdirSync(current).filter((entry) => entry !== "__MACOSX");
+    if (entries.length !== 1) {
+      throw new Error(
+        `External dependency ${dependencyName} archive cannot strip ${stripComponents} component(s) from multiple roots`,
+      );
+    }
+    current = nodePath.join(current, entries[0]);
+  }
+  return current;
+}
+
+function copyDirectoryContents(sourceDir: string, destinationDir: string): void {
+  for (const entry of nodeFs.readdirSync(sourceDir)) {
+    nodeFs.cpSync(nodePath.join(sourceDir, entry), nodePath.join(destinationDir, entry), { recursive: true });
+  }
+}
+
+function applyExternalDependencyCopyFiles(
+  destination: string,
+  copyFiles: readonly DoofExternalDependencyCopyFileConfig[],
+  dependencyName: string,
+): void {
+  for (const copyFile of copyFiles) {
+    const fromPath = nodePath.resolve(destination, copyFile.from);
+    const toPath = nodePath.resolve(destination, copyFile.to);
+    if (!isWithinRoot(fromPath, destination) || !isWithinRoot(toPath, destination)) {
+      throw new Error(`External dependency ${dependencyName} copyFiles entries must stay within the destination`);
+    }
+    nodeFs.mkdirSync(nodePath.dirname(toPath), { recursive: true });
+    nodeFs.copyFileSync(fromPath, toPath);
+  }
+}
+
+function materializeGitExternalDependency(
+  dependencyName: string,
+  dependency: DoofGitExternalDependencyConfig,
+  packageRootDir: string,
+  destination: string,
+  marker: ExternalDependencyMarker,
+): void {
+  const parentDir = nodePath.dirname(destination);
+  nodeFs.mkdirSync(parentDir, { recursive: true });
+  const tempDir = nodeFs.mkdtempSync(nodePath.join(parentDir, `.doof-${dependencyName}-`));
+
+  try {
+    execFileSync("git", ["clone", "--depth", "1", "--branch", dependency.ref, dependency.url, tempDir], { stdio: "pipe" });
+    const actualCommit = execFileSync("git", ["-C", tempDir, "rev-parse", "HEAD"], { stdio: "pipe" }).toString().trim();
+    if (actualCommit.toLowerCase() !== dependency.commit) {
+      throw new Error(
+        `External dependency ${dependencyName} commit mismatch: expected ${dependency.commit}, got ${actualCommit}`,
+      );
+    }
+    nodeFs.rmSync(nodePath.join(tempDir, ".git"), { recursive: true, force: true });
+    nodeFs.renameSync(tempDir, destination);
+    runExternalDependencyCommands(dependencyName, dependency.commands, packageRootDir, destination);
+    writeExternalDependencyMarker(destination, marker);
+  } catch (error: any) {
+    nodeFs.rmSync(destination, { recursive: true, force: true });
+    throw new Error(`Failed to acquire external dependency ${dependencyName}: ${error?.message ?? String(error)}`);
+  } finally {
+    nodeFs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function runExternalDependencyCommands(
+  dependencyName: string,
+  commands: readonly DoofExternalDependencyCommandConfig[],
+  packageRootDir: string,
+  destination: string,
+): void {
+  const substitutions = createExternalCommandSubstitutions(packageRootDir, destination);
+  for (const [index, command] of commands.entries()) {
+    const workingDirectory = command.workingDirectory
+      ? resolveExternalCommandWorkingDirectory(command.workingDirectory, packageRootDir, destination, dependencyName)
+      : destination;
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const [key, value] of Object.entries(command.env)) {
+      env[key] = applyExternalCommandSubstitutions(value, substitutions);
+    }
+
+    try {
+      execFileSync(
+        applyExternalCommandSubstitutions(command.program, substitutions),
+        command.args.map((arg) => applyExternalCommandSubstitutions(arg, substitutions)),
+        { cwd: workingDirectory, env, stdio: "pipe" },
+      );
+    } catch (error: any) {
+      throw new Error(
+        `command ${index + 1} (${command.program}) failed: ${formatProcessFailure(command.program, error)}`,
+      );
+    }
+  }
+}
+
+function resolveExternalCommandWorkingDirectory(
+  workingDirectory: string,
+  packageRootDir: string,
+  destination: string,
+  dependencyName: string,
+): string {
+  const substitutions = createExternalCommandSubstitutions(packageRootDir, destination);
+  const resolved = nodePath.resolve(destination, applyExternalCommandSubstitutions(workingDirectory, substitutions));
+  if (!isWithinRoot(resolved, destination)) {
+    throw new Error(`External dependency ${dependencyName} command workingDirectory must stay within the destination`);
+  }
+  return resolved;
+}
+
+function createExternalCommandSubstitutions(packageRootDir: string, destination: string): Record<string, string> {
+  return {
+    packageRoot: packageRootDir,
+    destination,
+    jobs: String(Math.max(1, nodeOs.cpus().length)),
+  };
+}
+
+function applyExternalCommandSubstitutions(value: string, substitutions: Record<string, string>): string {
+  return value.replace(/\$\{(packageRoot|destination|jobs)\}/g, (_match, name: string) => substitutions[name] ?? "");
+}
+
+function formatProcessFailure(prefix: string, error: any): string {
+  const stdout = error?.stdout?.toString()?.trim();
+  const stderr = error?.stderr?.toString()?.trim();
+  const details = [stdout, stderr].filter((value): value is string => Boolean(value && value.length > 0));
+  return details.length > 0
+    ? `${prefix}:\n${details.join("\n")}`
+    : `${prefix}:\n${error?.message ?? String(error)}`;
 }
 
 function defaultResolveRemoteDependency(

@@ -35,7 +35,7 @@ import {
   sortNamedArgsByFieldOrder,
 } from "./emitter-expr-utils.js";
 
-function isVoidResultType(type: ResolvedType): type is Extract<ResolvedType, { kind: "result" }> {
+function isVoidResultType(type: ResolvedType): boolean {
   return type.kind === "result" && type.successType.kind === "void";
 }
 
@@ -211,6 +211,23 @@ function shouldUseConstructorFactory(classSym: import("./types.js").ClassSymbol 
   return !(classSym && ctx.currentClassName === classSym.name && ctx.currentMethodName === "constructor");
 }
 
+function getCurrentClassMethod(
+  name: string,
+  ctx: EmitContext,
+): FunctionDeclaration | null {
+  const currentClass = ctx.currentClassName
+    ? ctx.module.symbols.get(ctx.currentClassName)
+    : undefined;
+  if (currentClass?.symbolKind !== "class") return null;
+
+  const currentMethod = currentClass.declaration.methods.find((method) => method.name === ctx.currentMethodName);
+  const staticContext = currentMethod?.static_ ?? false;
+  return currentClass.declaration.methods.find((candidate) =>
+    candidate.name === name
+    && candidate.static_ === staticContext
+  ) ?? null;
+}
+
 function specializeFunctionParamsForGenericConstructCall(
   params: FunctionResolvedParam[],
   expr: ConstructExpression,
@@ -288,6 +305,10 @@ function emitIdentifierCallByName(
   const genericSuffix = genericTypeArgs && genericTypeArgs.length > 0
     ? `<${genericTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ")}>`
     : "";
+  if (getCurrentClassMethod(name, ctx)?.static_ === false) {
+    return `this->${emitIdentifierSafe(name)}${genericSuffix}(${joinedArgs})`;
+  }
+
   const externCppName = resolveExternFunctionCppName(name, ctx);
   if (externCppName) {
     return `${externCppName}(${joinedArgs})`;
@@ -611,14 +632,16 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (isVoidResultType(resultType)) {
         return `${emitType(resultType, ctx.module.path)}::success()`;
       }
-      return `${emitType(resultType, ctx.module.path)}::success(${args})`;
+      const valueArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, resultType.successType) : args;
+      return `${emitType(resultType, ctx.module.path)}::success(${valueArg})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
       if (isVoidResultType(fnRet)) {
         return `${emitType(fnRet, ctx.module.path)}::success()`;
       }
-      return `${emitType(fnRet, ctx.module.path)}::success(${args})`;
+      const valueArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, fnRet.successType) : args;
+      return `${emitType(fnRet, ctx.module.path)}::success(${valueArg})`;
     }
     throw new Error("Success() call is missing Result type context during emission");
   }
@@ -627,11 +650,13 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
   if (expr.callee.kind === "identifier" && expr.callee.name === "Failure" && isUnshadowedResultCtorCall(expr, "Failure")) {
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
-      return `${emitType(resultType, ctx.module.path)}::failure(${args})`;
+      const errorArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, resultType.errorType) : args;
+      return `${emitType(resultType, ctx.module.path)}::failure(${errorArg})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
-      return `${emitType(fnRet, ctx.module.path)}::failure(${args})`;
+      const errorArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, fnRet.errorType) : args;
+      return `${emitType(fnRet, ctx.module.path)}::failure(${errorArg})`;
     }
     throw new Error("Failure() call is missing Result type context during emission");
   }
@@ -969,7 +994,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
       if (!valueProp?.value) {
         throw new Error("Success { ... } is missing a value property during emission");
       }
-      const val = emitExpression(valueProp.value, ctx);
+      const val = emitExpression(valueProp.value, ctx, resultType.successType);
       return `${emitType(resultType, ctx.module.path)}::success(${val})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
@@ -981,7 +1006,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
       if (!valueProp?.value) {
         throw new Error("Success { ... } is missing a value property during emission");
       }
-      const val = emitExpression(valueProp.value, ctx);
+      const val = emitExpression(valueProp.value, ctx, fnRet.successType);
       return `${emitType(fnRet, ctx.module.path)}::success(${val})`;
     }
     throw new Error("Success { ... } is missing Result type context during emission");
@@ -994,14 +1019,13 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     if (!errorProp?.value) {
       throw new Error("Failure { ... } is missing an error property during emission");
     }
-    const err = emitExpression(errorProp.value, ctx);
     const resultType = expr.resolvedType;
     if (resultType && resultType.kind === "result") {
-      return `${emitType(resultType, ctx.module.path)}::failure(${err})`;
+      return `${emitType(resultType, ctx.module.path)}::failure(${emitExpression(errorProp.value, ctx, resultType.errorType)})`;
     }
     const fnRet = ctx.currentFunctionReturnType;
     if (fnRet && fnRet.kind === "result") {
-      return `${emitType(fnRet, ctx.module.path)}::failure(${err})`;
+      return `${emitType(fnRet, ctx.module.path)}::failure(${emitExpression(errorProp.value, ctx, fnRet.errorType)})`;
     }
     throw new Error("Failure { ... } is missing Result type context during emission");
   }
@@ -1102,6 +1126,11 @@ function resolveFunctionParams(
   expr: ConstructExpression,
   ctx: EmitContext,
 ): FunctionResolvedParam[] | null {
+  const currentClassMethod = getCurrentClassMethod(expr.type, ctx);
+  if (currentClassMethod?.resolvedType?.kind === "function") {
+    return currentClassMethod.resolvedType.params;
+  }
+
   const local = ctx.module.symbols.get(expr.type);
   if (local?.symbolKind === "function" && local.declaration.resolvedType?.kind === "function") {
     return local.declaration.resolvedType.params;

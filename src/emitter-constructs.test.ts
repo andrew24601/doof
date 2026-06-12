@@ -827,7 +827,7 @@ describe("emitter — null literal", () => {
     expect(cpp).not.toMatch(/make_shared<MaybeNamed>\(nullptr\)/);
   });
 
-  it("emits JsonValue null comparisons using monostate variant checks", () => {
+  it("emits JsonValue null comparisons using runtime null checks", () => {
     const cpp = emit(`
       function hasValue(val: JsonValue): bool {
         return val != null
@@ -837,8 +837,8 @@ describe("emitter — null literal", () => {
         return null == val
       }
     `);
-    expect(cpp).toContain("!std::holds_alternative<std::monostate>(val)");
-    expect(cpp).toContain("std::holds_alternative<std::monostate>(val)");
+    expect(cpp).toContain("!doof::json_is_null(val)");
+    expect(cpp).toContain("doof::json_is_null(val)");
     expect(cpp).not.toContain("val != nullptr");
     expect(cpp).not.toContain("nullptr == val");
   });
@@ -1126,6 +1126,23 @@ describe("emitter — this capture in lambdas", () => {
     `);
     expect(cpp).toContain("return this->read();");
     expect(cpp).not.toContain("shared_from_this()->read()");
+  });
+
+  it("emits bare named method calls as implicit this calls", () => {
+    const cpp = emit(`
+      export class MeshBuilder {
+        function vertex(position: int, color: int = 1): int => position + color
+        function quad(a: int, b: int): int {
+          ai := this.vertex{ position: a, color: 2 }
+          bi := vertex{ position: b, color: 3 }
+          return ai + bi
+        }
+      }
+    `);
+
+    expect(cpp).toContain("this->vertex(a, 2)");
+    expect(cpp).toContain("this->vertex(b, 3)");
+    expect(cpp).not.toContain("make_shared<vertex>");
   });
 });
 

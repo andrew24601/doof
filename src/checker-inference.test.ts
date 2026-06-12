@@ -960,6 +960,34 @@ describe("Type annotation resolution", () => {
     expect(typeToString(refs[0].type)).toBe("int | string");
   });
 
+  it("resolves imported type aliases in their declaring module", () => {
+    const info = check(
+      {
+        "/events.do": `
+          export class TextEvent { text: string }
+          export class CloseEvent { code: int }
+          export type SocketEvent = TextEvent | CloseEvent
+        `,
+        "/main.do": `
+          import { SocketEvent, TextEvent } from "./events"
+
+          function handle(event: SocketEvent): string {
+            text := event as TextEvent
+            case text {
+              s: Success -> return s.value.text
+              _: Failure -> return ""
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+    const refs = findId(info, "event");
+    expect(refs.length).toBeGreaterThanOrEqual(1);
+    expect(typeToString(refs[0].type)).toBe("TextEvent | CloseEvent");
+  });
+
   it("resolves class type annotations", () => {
     const info = check(
       {

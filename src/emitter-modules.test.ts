@@ -1564,6 +1564,31 @@ describe("emitter-module — emitProject", () => {
     `);
     expect(hppCode).toContain('#include "doof_runtime.hpp"');
   });
+
+  it("hpp includes imported nested class definitions for generated JSON", () => {
+    const project = emitProjectHelper(
+      {
+        "/model.do": `
+          export class Child {
+            value: int
+          }
+        `,
+        "/session.do": `
+          import { Child } from "./model"
+
+          export class Event {
+            child: Child | null = null
+            children: Child[] = []
+          }
+
+          export function encode(event: Event): JsonObject => event.toJsonObject()
+        `,
+      },
+      "/session.do",
+    );
+    const session = project.modules.find((module) => module.modulePath === "/session.do");
+    expect(session?.hppCode).toContain('#include "model.hpp"');
+  });
 });
 
 describe("emitter-module — function signature with defaults", () => {
@@ -1628,6 +1653,25 @@ describe("emitter-module — function signature with defaults", () => {
     expect(hppCode).toContain(`int32_t valueOf(std::shared_ptr<::${transformNamespace}::Transform> transform);`);
     expect(cppCode).toContain(`std::make_shared<Model>(::${transformNamespace}::Transform::identity())`);
     expect(cppCode).toContain(`valueOf(::${transformNamespace}::Transform::identity())`);
+  });
+
+  it("qualifies imported consts in field defaults", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/defaults.do": `
+          export const DEFAULT_PATH = "/jigsaw"
+        `,
+        "/options.do": `
+          import { DEFAULT_PATH } from "./defaults"
+
+          export class Options {
+            socketPath: string = DEFAULT_PATH
+          }
+        `,
+      },
+      "/options.do",
+    );
+    expect(hppCode).toContain("::app::defaults::DEFAULT_PATH");
   });
 });
 

@@ -10,6 +10,7 @@ import {
   emitClassConstruction,
   emitResolvedClassName,
 } from "./emitter-expr-utils.js";
+import { emitSymbolReferenceName } from "./emitter-names.js";
 
 function unsupportedDefault(expr: Expression, contextType?: ResolvedType): never {
   const reason = getUnsupportedDefaultExpressionReason(expr, contextType)
@@ -174,6 +175,9 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       return contextType ? emitNullForType(contextType) : "nullptr";
 
     case "identifier":
+      if (expr.resolvedBinding?.kind === "import" && expr.resolvedBinding.symbol) {
+        return emitSymbolReferenceName(expr.resolvedBinding.symbol);
+      }
       return emitIdentifierSafe(expr.name);
 
     case "caller-expression":

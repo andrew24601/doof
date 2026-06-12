@@ -106,6 +106,8 @@ export interface ProjectEmitResult {
   outputNativeSourceFiles: string[];
   /** Output-relative library search paths for copied native inputs. */
   outputNativeLibraryPaths: string[];
+  /** External dependency materialization sentinels required by native inputs. */
+  externalDependencySentinelPaths: string[];
   /** Present when coverage instrumentation was requested via ProjectBuildMetadata.coverage. */
   coverageModules?: CoverageModuleMetadata[];
 }
@@ -337,6 +339,7 @@ export function emitProject(
     outputNativeIncludePaths: [],
     outputNativeSourceFiles: [],
     outputNativeLibraryPaths: [],
+    externalDependencySentinelPaths: [],
     coverageModules,
   };
 }
@@ -614,6 +617,82 @@ function collectHeaderReferencedModulePaths(
     }
   };
 
+  const addJsonCompleteTypeDeps = (type: ResolvedType | null | undefined): void => {
+    if (!type || isJsonValueType(type)) return;
+    switch (type.kind) {
+      case "class":
+        addModule(type.symbol.module);
+        for (const arg of type.typeArgs ?? []) {
+          addJsonCompleteTypeDeps(arg);
+        }
+        break;
+      case "interface":
+        addModule(type.symbol.module);
+        for (const arg of type.typeArgs ?? []) {
+          addJsonCompleteTypeDeps(arg);
+        }
+        break;
+      case "enum":
+        addModule(type.symbol.module);
+        break;
+      case "array":
+      case "set":
+      case "stream":
+        addJsonCompleteTypeDeps(type.elementType);
+        break;
+      case "map":
+        addJsonCompleteTypeDeps(type.keyType);
+        addJsonCompleteTypeDeps(type.valueType);
+        break;
+      case "union":
+        for (const inner of type.types) {
+          addJsonCompleteTypeDeps(inner);
+        }
+        break;
+      case "tuple":
+        for (const element of type.elements) {
+          addJsonCompleteTypeDeps(element);
+        }
+        break;
+      case "function":
+        for (const param of type.params) {
+          addJsonCompleteTypeDeps(param.type);
+        }
+        addJsonCompleteTypeDeps(type.returnType);
+        break;
+      case "weak":
+        addJsonCompleteTypeDeps(type.inner);
+        break;
+      case "actor":
+        addJsonCompleteTypeDeps(type.innerClass);
+        break;
+      case "promise":
+        addJsonCompleteTypeDeps(type.valueType);
+        break;
+      case "result":
+        addJsonCompleteTypeDeps(type.successType);
+        addJsonCompleteTypeDeps(type.errorType);
+        break;
+      case "success-wrapper":
+        addJsonCompleteTypeDeps(type.valueType);
+        break;
+      case "failure-wrapper":
+        addJsonCompleteTypeDeps(type.errorType);
+        break;
+      case "mock-capture":
+        for (const field of type.fields) {
+          addJsonCompleteTypeDeps(field.type);
+        }
+        break;
+      case "class-metadata":
+      case "method-reflection":
+        addJsonCompleteTypeDeps(type.classType);
+        break;
+      default:
+        break;
+    }
+  };
+
   const addFunctionSurfaceDeps = (decl: FunctionDeclaration): void => {
     addResolvedTypeDeps(decl.resolvedType);
     addTypeAnnotationDeps(decl.returnType);
@@ -631,6 +710,9 @@ function collectHeaderReferencedModulePaths(
     for (const field of cls.decl.fields) {
       addTypeAnnotationDeps(field.type);
       addResolvedTypeDeps(field.resolvedType);
+      if (cls.decl.needsJson) {
+        addJsonCompleteTypeDeps(field.resolvedType);
+      }
     }
     for (const method of cls.decl.methods) {
       addFunctionSurfaceDeps(method);
@@ -2603,6 +2685,8 @@ function collectMemberAccessModulePathsFromExpression(
   dependencies: Set<string>,
   interfaceImpls: Map<string, ClassSymbol[]>,
 ): void {
+  collectConcreteMemberObjectModulePaths(expr.resolvedType, currentModulePath, dependencies, interfaceImpls);
+
   switch (expr.kind) {
     case "binary-expression":
       collectMemberAccessModulePathsFromExpression(expr.left, currentModulePath, dependencies, interfaceImpls);
@@ -2627,6 +2711,24 @@ function collectMemberAccessModulePathsFromExpression(
     case "call-expression":
       collectMemberAccessModulePathsFromExpression(expr.callee, currentModulePath, dependencies, interfaceImpls);
       for (const arg of expr.args) collectMemberAccessModulePathsFromExpression(arg.value, currentModulePath, dependencies, interfaceImpls);
+      if (expr.callee.resolvedType?.kind === "function") {
+        const params = expr.callee.resolvedType.params;
+        if (expr.args.some((arg) => arg.name)) {
+          const provided = new Set(expr.args.map((arg) => arg.name).filter((name): name is string => !!name));
+          for (const param of params) {
+            if (provided.has(param.name) || !param.defaultValue) continue;
+            collectConcreteMemberObjectModulePaths(param.type, currentModulePath, dependencies, interfaceImpls);
+            collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies, interfaceImpls);
+          }
+        } else {
+          for (let index = expr.args.length; index < params.length; index++) {
+            const param = params[index];
+            if (!param.defaultValue) break;
+            collectConcreteMemberObjectModulePaths(param.type, currentModulePath, dependencies, interfaceImpls);
+            collectMemberAccessModulePathsFromExpression(param.defaultValue, currentModulePath, dependencies, interfaceImpls);
+          }
+        }
+      }
       break;
     case "array-literal":
     case "tuple-literal":

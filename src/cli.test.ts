@@ -392,6 +392,41 @@ describe("CLI compile args", () => {
     );
   });
 
+  it("makes native compilation and linking wait for external dependency sentinels", () => {
+    const outDir = createTempDir();
+    const sentinelPath = path.join(outDir, "vendor", "hello", ".doof-external.json");
+    const project = createProjectEmitResult();
+    project.externalDependencySentinelPaths = [sentinelPath];
+    const materializePlan = createProjectMaterializePlan(project, outDir);
+    const graph = createNativeBuildGraphPlan(
+      outDir,
+      project,
+      { kind: "gcc-like", command: "clang++" },
+      {
+        cppStd: "c++20",
+        includePaths: [],
+        libraryPaths: [path.join(outDir, "vendor", "hello", ".doof-build", "lib")],
+        linkLibraries: ["hello"],
+        frameworks: [],
+        pkgConfigPackages: [],
+        sourceFiles: [],
+        objectFiles: [],
+        compilerFlags: [],
+        linkerFlags: [],
+        defines: [],
+      },
+      materializePlan,
+      "demo",
+      { platform: "linux" },
+    );
+
+    const sentinelTask = graph.tasks.find((task) => task.label === `external dependency ${sentinelPath}`);
+    const compileTask = graph.tasks.find((task) => task.label === `compile ${path.join(outDir, "main.cpp")}`);
+    expect(sentinelTask?.outputs).toEqual([sentinelPath]);
+    expect(compileTask?.taskDependencies.map((task) => task.label)).toContain(`external dependency ${sentinelPath}`);
+    expect(graph.target.taskDependencies.map((task) => task.label)).toContain(`external dependency ${sentinelPath}`);
+  });
+
 });
 
 describe("CLI version", () => {
@@ -433,5 +468,6 @@ function createProjectEmitResult(): ProjectEmitResult {
     outputNativeIncludePaths: [],
     outputNativeSourceFiles: [],
     outputNativeLibraryPaths: [],
+    externalDependencySentinelPaths: [],
   };
 }

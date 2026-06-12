@@ -153,6 +153,27 @@ describe("e2e — C++ compilation", () => {
         return null == val
       }
 
+      function isAlsoMissing(val: JsonValue): bool {
+        return val == null
+      }
+
+      function main(): int {
+        return 0
+      }
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
+
+  it("compiles Success(null) for nullable Result success types", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      class Thing {
+        value: int
+      }
+
+      function maybeThing(): Result<Thing | null, string> {
+        return Success(null)
+      }
+
       function main(): int {
         return 0
       }

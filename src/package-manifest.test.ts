@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -168,6 +169,371 @@ describe("local package graphs", () => {
     const graph = loadPackageGraph(fs, "/app/main.do");
 
     expect(graph.rootPackage.dependencyRoots.get("std/fs")).toBe("/deps/std-fs");
+  });
+
+  it("parses external dependencies, acquires them before native build normalization, and records provenance", () => {
+    const calls: string[] = [];
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          curl: {
+            kind: "archive",
+            url: "https://example.com/curl.tar.gz",
+            sha256: "a".repeat(64),
+            destination: "vendor/curl",
+          },
+          quickjs: {
+            kind: "git",
+            url: "https://github.com/quickjs-ng/quickjs.git",
+            ref: "v0.14.0",
+            commit: "b".repeat(40),
+            destination: "vendor/quickjs",
+          },
+        },
+        build: {
+          native: {
+            includePaths: ["vendor/curl/include", "vendor/quickjs"],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do", {
+      acquireExternalDependency(dependencyName, dependency, context) {
+        calls.push(`${dependencyName}:${dependency.kind}:${context.packageRootDir}`);
+      },
+    });
+
+    expect(calls).toEqual(["curl:archive:/app", "quickjs:git:/app"]);
+    expect(graph.rootPackage.manifest.externalDependencies.curl).toMatchObject({
+      kind: "archive",
+      stripComponents: 1,
+    });
+    expect(graph.rootPackage.nativeBuild.includePaths).toEqual([
+      "/app/vendor/curl/include",
+      "/app/vendor/quickjs",
+    ]);
+    expect(createBuildProvenance(graph)).toEqual({
+      dependencies: [],
+      externalDependencies: [
+        {
+          name: "curl",
+          kind: "archive",
+          url: "https://example.com/curl.tar.gz",
+          destination: "vendor/curl",
+          sha256: "a".repeat(64),
+          referencedFrom: ["."],
+        },
+        {
+          name: "quickjs",
+          kind: "git",
+          url: "https://github.com/quickjs-ng/quickjs.git",
+          destination: "vendor/quickjs",
+          ref: "v0.14.0",
+          commit: "b".repeat(40),
+          referencedFrom: ["."],
+        },
+      ],
+    });
+  });
+
+  it("rejects invalid external dependency declarations", () => {
+    const baseManifest = {
+      name: "app",
+      externalDependencies: {
+        bad: {
+          kind: "archive",
+          url: "https://example.com/archive.txt",
+          sha256: "a".repeat(64),
+          destination: "vendor/bad",
+        },
+      },
+    };
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify(baseManifest),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("externalDependencies.bad.url must end with");
+
+    const missingShaFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          bad: { kind: "archive", url: "https://example.com/archive.tar.gz", destination: "vendor/bad" },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+    expect(() => loadPackageGraph(missingShaFs, "/app/main.do"))
+      .toThrow("externalDependencies.bad.sha256 is required");
+
+    const invalidCommandsFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          bad: {
+            kind: "archive",
+            url: "https://example.com/archive.tar.gz",
+            sha256: "a".repeat(64),
+            destination: "vendor/bad",
+            commands: [{ args: ["missing-program"] }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+    expect(() => loadPackageGraph(invalidCommandsFs, "/app/main.do"))
+      .toThrow("externalDependencies.bad.commands[0].program is required");
+
+    const escapingDestinationFs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          bad: {
+            kind: "git",
+            url: "https://example.com/repo.git",
+            ref: "v1",
+            commit: "b".repeat(40),
+            destination: "../bad",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+    expect(() => loadPackageGraph(escapingDestinationFs, "/app/main.do"))
+      .toThrow("externalDependencies.bad.destination must stay within the package root");
+  });
+
+  it("acquires archive external dependencies and reuses matching markers", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-archive-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "source", "archive-root");
+      fs.mkdirSync(path.join(sourceRoot, "include"), { recursive: true });
+      fs.writeFileSync(path.join(sourceRoot, "include", "hello.h"), "#pragma once\n", "utf8");
+      fs.writeFileSync(path.join(sourceRoot, "LICENSE"), "license\n", "utf8");
+      const archivePath = path.join(tempDir, "hello.tar.gz");
+      execFileSync("tar", ["-czf", archivePath, "-C", path.join(tempDir, "source"), "archive-root"], { stdio: "pipe" });
+      const sha256 = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          hello: {
+            kind: "archive",
+            url: `file://${archivePath}`,
+            sha256,
+            destination: "vendor/hello",
+          },
+        },
+        build: {
+          native: {
+            includePaths: ["vendor/hello/include"],
+            extraCopyPaths: ["vendor/hello/LICENSE"],
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      const graph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"));
+      const vendorDir = path.join(appDir, "vendor", "hello");
+
+      expect(graph.rootPackage.nativeBuild.includePaths).toEqual([path.join(vendorDir, "include")]);
+      expect(fs.existsSync(path.join(vendorDir, "include", "hello.h"))).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(vendorDir, ".doof-external.json"), "utf8"))).toMatchObject({
+        schemaVersion: 1,
+        name: "hello",
+        kind: "archive",
+        url: `file://${archivePath}`,
+        sha256,
+        destination: "vendor/hello",
+        stripComponents: 1,
+      });
+
+      fs.unlinkSync(archivePath);
+      expect(() => loadPackageGraph(new RealFS(), path.join(appDir, "main.do"))).not.toThrow();
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs archive external dependency commands before writing the marker", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-commands-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "source", "archive-root");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(sourceRoot, "build.js"),
+        [
+          "const fs = require('node:fs');",
+          "const path = require('node:path');",
+          "const [, , packageRoot, destination, jobs] = process.argv;",
+          "fs.mkdirSync(path.join(destination, '.doof-build', 'include'), { recursive: true });",
+          "fs.mkdirSync(path.join(destination, '.doof-build', 'lib'), { recursive: true });",
+          "fs.writeFileSync(path.join(destination, '.doof-build', 'include', 'hello.h'), `${packageRoot}\\n${jobs}\\n${process.env.DOOF_TEST_VALUE}\\n`);",
+          "fs.writeFileSync(path.join(destination, '.doof-build', 'lib', 'libhello.a'), 'archive\\n');",
+        ].join("\n"),
+        "utf8",
+      );
+      const archivePath = path.join(tempDir, "hello.tar.gz");
+      execFileSync("tar", ["-czf", archivePath, "-C", path.join(tempDir, "source"), "archive-root"], { stdio: "pipe" });
+      const sha256 = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          hello: {
+            kind: "archive",
+            url: `file://${archivePath}`,
+            sha256,
+            destination: "vendor/hello",
+            commands: [{
+              program: process.execPath,
+              args: ["build.js", "${packageRoot}", "${destination}", "${jobs}"],
+              env: { DOOF_TEST_VALUE: "from-env" },
+            }],
+          },
+        },
+        build: {
+          native: {
+            includePaths: ["vendor/hello/.doof-build/include"],
+            libraryPaths: ["vendor/hello/.doof-build/lib"],
+            linkLibraries: ["hello"],
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      const graph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"));
+      const vendorDir = path.join(appDir, "vendor", "hello");
+      const marker = JSON.parse(fs.readFileSync(path.join(vendorDir, ".doof-external.json"), "utf8"));
+
+      expect(graph.rootPackage.nativeBuild.includePaths).toEqual([path.join(vendorDir, ".doof-build", "include")]);
+      expect(graph.rootPackage.nativeBuild.libraryPaths).toEqual([path.join(vendorDir, ".doof-build", "lib")]);
+      expect(fs.readFileSync(path.join(vendorDir, ".doof-build", "include", "hello.h"), "utf8"))
+        .toContain("from-env");
+      expect(fs.existsSync(path.join(vendorDir, ".doof-build", "lib", "libhello.a"))).toBe(true);
+      expect(marker.commands).toEqual([{
+        program: process.execPath,
+        args: ["build.js", "${packageRoot}", "${destination}", "${jobs}"],
+        env: { DOOF_TEST_VALUE: "from-env" },
+      }]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not write the external dependency marker when commands fail", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-command-fail-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "source", "archive-root");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(path.join(sourceRoot, "fail.js"), "process.exit(7);\n", "utf8");
+      const archivePath = path.join(tempDir, "hello.tar.gz");
+      execFileSync("tar", ["-czf", archivePath, "-C", path.join(tempDir, "source"), "archive-root"], { stdio: "pipe" });
+      const sha256 = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          hello: {
+            kind: "archive",
+            url: `file://${archivePath}`,
+            sha256,
+            destination: "vendor/hello",
+            commands: [{ program: process.execPath, args: ["fail.js"] }],
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      expect(() => loadPackageGraph(new RealFS(), path.join(appDir, "main.do")))
+        .toThrow("command 1");
+      expect(fs.existsSync(path.join(appDir, "vendor", "hello", ".doof-external.json"))).toBe(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails archive acquisition when the checksum does not match", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-bad-archive-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "source", "archive-root");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(path.join(sourceRoot, "hello.txt"), "hello\n", "utf8");
+      const archivePath = path.join(tempDir, "hello.tar.gz");
+      execFileSync("tar", ["-czf", archivePath, "-C", path.join(tempDir, "source"), "archive-root"], { stdio: "pipe" });
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          hello: {
+            kind: "archive",
+            url: `file://${archivePath}`,
+            sha256: "0".repeat(64),
+            destination: "vendor/hello",
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      expect(() => loadPackageGraph(new RealFS(), path.join(appDir, "main.do")))
+        .toThrow("checksum mismatch");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails git external acquisition when the resolved commit does not match", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-git-"));
+
+    try {
+      const repoDir = path.join(tempDir, "repo");
+      fs.mkdirSync(repoDir, { recursive: true });
+      fs.writeFileSync(path.join(repoDir, "README.md"), "# dependency\n", "utf8");
+      execFileSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["config", "user.name", "Doof Tests"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["config", "user.email", "doof-tests@example.com"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["add", "."], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["commit", "-m", "initial"], { cwd: repoDir, stdio: "pipe" });
+      execFileSync("git", ["tag", "v1"], { cwd: repoDir, stdio: "pipe" });
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          repo: {
+            kind: "git",
+            url: repoDir,
+            ref: "v1",
+            commit: "0".repeat(40),
+            destination: "vendor/repo",
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      expect(() => loadPackageGraph(new RealFS(), path.join(appDir, "main.do")))
+        .toThrow("commit mismatch");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("injects implicit std dependencies when a package does not declare them", () => {
@@ -431,6 +797,7 @@ describe("local package graphs", () => {
         commit: "abc123",
         referencedFrom: ["."],
       }],
+      externalDependencies: [],
     });
     expect(createPackageOutputPaths(graph, "/app/main.do").byRootDir.get("/cache/foo")).toBe(".packages/example/foo");
   });
@@ -505,6 +872,7 @@ describe("local package graphs", () => {
           commit: resolvedCommit,
           referencedFrom: ["."],
         }],
+        externalDependencies: [],
       });
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -645,6 +1013,7 @@ describe("local package graphs", () => {
         commit: "2222222",
         referencedFrom: ["."],
       }],
+      externalDependencies: [],
     });
   });
 
@@ -713,6 +1082,7 @@ describe("local package graphs", () => {
           referencedFrom: ["."],
         },
       ],
+      externalDependencies: [],
     });
   });
 
@@ -1339,8 +1709,11 @@ describe("manifest-derived pipeline metadata", () => {
     );
 
     expect(result.outputBinaryName).toBe(normalizeOutputBinaryName("demo-app"));
-    expect(createBuildProvenance(loadPackageGraph(fs, "/app/main.do"))).toEqual({ dependencies: [] });
-    expect(result.provenance).toEqual({ dependencies: [] });
+    expect(createBuildProvenance(loadPackageGraph(fs, "/app/main.do"))).toEqual({
+      dependencies: [],
+      externalDependencies: [],
+    });
+    expect(result.provenance).toEqual({ dependencies: [], externalDependencies: [] });
   });
 
   it("propagates package native inputs into runtime build metadata", () => {
