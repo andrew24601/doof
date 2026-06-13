@@ -1852,7 +1852,9 @@ describe("emitter — namespace imports", () => {
         return args.length
       }
     `);
-    expect(cppCode).toContain("auto args = std::make_shared<std::vector<std::string>>(argv + 1, argv + argc);");
+    expect(cppCode).toContain("auto args = argc > 1 && argv != nullptr");
+    expect(cppCode).toContain("? std::make_shared<std::vector<std::string>>(argv + 1, argv + argc)");
+    expect(cppCode).toContain(": std::make_shared<std::vector<std::string>>();");
     expect(cppCode).toContain(`return static_cast<int>(::${emitModuleNamespace("/main.do")}::doof_main(args));`);
   });
 });

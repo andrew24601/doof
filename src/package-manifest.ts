@@ -39,6 +39,10 @@ import {
   toPortablePath,
 } from "./path-utils.js";
 import {
+  buildIOSDeviceTargetTriple,
+  buildIOSSimulatorTargetTriple,
+} from "./ios-app-target-node.js";
+import {
   getImplicitStdDependencyConfig,
   getImplicitStdDependencyNames,
   getStdPackageShortName,
@@ -156,6 +160,8 @@ export interface LoadedPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  externalDependencySentinelPaths: readonly string[];
+  externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
 
 export interface PackageGraph {
@@ -237,6 +243,10 @@ export interface LoadPackageGraphOptions {
 export interface ExternalDependencyContext {
   packageRootDir: string;
   manifestPath: string;
+  nativeTarget: string;
+  sdkPath: string;
+  targetTriple: string;
+  configureHost: string;
 }
 
 interface MutableLoadedPackage {
@@ -247,6 +257,8 @@ interface MutableLoadedPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  externalDependencySentinelPaths: string[];
+  externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
 
 type DiscoveredDependency =
@@ -271,6 +283,8 @@ interface DiscoveredPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  externalDependencySentinelPaths: string[];
+  externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
 
 interface RemotePackageSelection {
@@ -462,6 +476,8 @@ export function narrowPackageGraphForBuild(
       dependencyRoots: new Map(
         [...pkg.dependencyRoots].filter(([, dependencyRoot]) => selectedRoots.has(dependencyRoot)),
       ),
+      externalDependencySentinelPaths: [...pkg.externalDependencySentinelPaths],
+      externalDependencyNativeTargetContext: pkg.externalDependencyNativeTargetContext,
     }));
   const rootPackage = packages.find((pkg) => pkg.rootDir === graph.rootPackage.rootDir);
   if (!rootPackage) {
@@ -647,6 +663,7 @@ export function materializePackageGraphExternalDependencies(graph: PackageGraph)
       defaultAcquireExternalDependency(dependencyName, dependency, {
         packageRootDir: pkg.rootDir,
         manifestPath: pkg.manifestPath,
+        ...pkg.externalDependencyNativeTargetContext,
       });
     }
   }
@@ -671,7 +688,18 @@ function discoverPackageFromManifest(
   }
 
   const manifest = readManifestOrThrow(fileSystem, normalizedManifestPath);
-  acquireExternalDependencies(manifest, rootDir, normalizedManifestPath, context);
+  const externalDependencyNativeTargetContext = createExternalDependencyNativeTargetContext(
+    manifest.build,
+    context.effectiveBuildTarget,
+    context.effectiveIOSDestination,
+  );
+  const externalDependencySentinelPaths = acquireExternalDependencies(
+    manifest,
+    rootDir,
+    normalizedManifestPath,
+    context,
+    externalDependencyNativeTargetContext,
+  );
   const buildTargetOverride = normalizedManifestPath === context.rootManifestPath
     ? context.effectiveBuildTarget
     : undefined;
@@ -689,6 +717,8 @@ function discoverPackageFromManifest(
       context.effectiveIOSDestination,
     ),
     buildTarget: normalizeBuildTargetConfig(manifest.build, rootDir, normalizedManifestPath, buildTargetOverride),
+    externalDependencySentinelPaths,
+    externalDependencyNativeTargetContext,
   };
   context.discoveredPackages.set(rootDir, discovered);
 
@@ -895,6 +925,8 @@ function finalizeLoadedPackage(
     remotePackage: discovered.remotePackage,
     nativeBuild: discovered.nativeBuild,
     buildTarget: discovered.buildTarget,
+    externalDependencySentinelPaths: [...discovered.externalDependencySentinelPaths],
+    externalDependencyNativeTargetContext: discovered.externalDependencyNativeTargetContext,
   };
   finalizedPackages.set(rootDir, finalized);
 
@@ -1738,7 +1770,9 @@ function acquireExternalDependencies(
   rootDir: string,
   manifestPath: string,
   context: PackageLoadContext,
-): void {
+  nativeTargetContext: ExternalDependencyNativeTargetContext,
+): string[] {
+  const sentinelPaths: string[] = [];
   for (const [dependencyName, dependency] of Object.entries(manifest.externalDependencies)) {
     const destination = normalizePackagePath(
       dependency.destination,
@@ -1749,13 +1783,74 @@ function acquireExternalDependencies(
     context.acquireExternalDependency(dependencyName, dependency, {
       packageRootDir: rootDir,
       manifestPath,
+      ...nativeTargetContext,
     });
     if (!isWithinRoot(destination, rootDir)) {
       throw new Error(
         `Invalid doof.json at ${manifestPath}: externalDependencies.${dependencyName}.destination must stay within the package root`,
       );
     }
+    sentinelPaths.push(nodePath.join(destination, EXTERNAL_METADATA_FILENAME));
+    if (dependency.commands.length > 0) {
+      sentinelPaths.push(getExternalDependencyNativeMarkerPath(destination, nativeTargetContext.nativeTarget));
+    }
   }
+  return uniqueStrings(sentinelPaths);
+}
+
+interface ExternalDependencyNativeTargetContext {
+  nativeTarget: string;
+  sdkPath: string;
+  targetTriple: string;
+  configureHost: string;
+}
+
+function createExternalDependencyNativeTargetContext(
+  build: DoofBuildConfig | undefined,
+  effectiveBuildTarget: DoofBuildTarget | undefined,
+  effectiveIOSDestination: IOSAppDestination,
+): ExternalDependencyNativeTargetContext {
+  if (effectiveBuildTarget === "ios-app" && process.platform === "darwin") {
+    const minimumDeploymentTarget = build?.iosApp?.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET;
+    if (effectiveIOSDestination === "device") {
+      return {
+        nativeTarget: "ios-device",
+        sdkPath: resolveAppleSdkPath("iphoneos"),
+        targetTriple: buildIOSDeviceTargetTriple(minimumDeploymentTarget),
+        configureHost: "aarch64-apple-darwin",
+      };
+    }
+    const simulatorConfigureHost = process.arch === "x64" ? "x86_64-apple-darwin" : "aarch64-apple-darwin";
+    return {
+      nativeTarget: "ios-simulator",
+      sdkPath: resolveAppleSdkPath("iphonesimulator"),
+      targetTriple: buildIOSSimulatorTargetTriple(minimumDeploymentTarget),
+      configureHost: simulatorConfigureHost,
+    };
+  }
+
+  if (process.platform === "darwin") {
+    return { nativeTarget: "macos", sdkPath: "", targetTriple: "", configureHost: "" };
+  }
+  if (process.platform === "win32") {
+    return { nativeTarget: "windows", sdkPath: "", targetTriple: "", configureHost: "" };
+  }
+  if (process.platform === "linux") {
+    return { nativeTarget: "linux", sdkPath: "", targetTriple: "", configureHost: "" };
+  }
+  return { nativeTarget: process.platform, sdkPath: "", targetTriple: "", configureHost: "" };
+}
+
+function resolveAppleSdkPath(sdkName: string): string {
+  return execFileSync("xcrun", ["--sdk", sdkName, "--show-sdk-path"], { encoding: "utf8", stdio: "pipe" }).trim();
+}
+
+function getExternalDependencyNativeMarkerPath(destination: string, nativeTarget: string): string {
+  return nodePath.join(destination, `.doof-external-native-${nativeTarget}.json`);
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 function defaultAcquireExternalDependency(
@@ -1776,25 +1871,26 @@ function defaultAcquireExternalDependency(
   const expectedMarker = createExternalDependencyMarker(dependencyName, dependency);
   const existingMarker = readExternalDependencyMarker(destination);
 
-  if (existingMarker && externalDependencyMarkerMatches(existingMarker, expectedMarker)) {
-    return;
-  }
-
-  if (nodeFs.existsSync(destination)) {
-    if (!existingMarker && !isEmptyDirectory(destination)) {
-      throw new Error(
-        `External dependency ${dependencyName} destination already exists without ${EXTERNAL_METADATA_FILENAME}: ${destination}`,
-      );
+  if (!existingMarker || !externalDependencyMarkerMatches(existingMarker, expectedMarker)) {
+    if (nodeFs.existsSync(destination)) {
+      if (!existingMarker && !isEmptyDirectory(destination)) {
+        throw new Error(
+          `External dependency ${dependencyName} destination already exists without ${EXTERNAL_METADATA_FILENAME}: ${destination}`,
+        );
+      }
+      nodeFs.rmSync(destination, { recursive: true, force: true });
     }
-    nodeFs.rmSync(destination, { recursive: true, force: true });
+
+    if (dependency.kind === "archive") {
+      materializeArchiveExternalDependency(dependencyName, dependency, destination, expectedMarker);
+    } else {
+      materializeGitExternalDependency(dependencyName, dependency, destination, expectedMarker);
+    }
   }
 
-  if (dependency.kind === "archive") {
-    materializeArchiveExternalDependency(dependencyName, dependency, context.packageRootDir, destination, expectedMarker);
-    return;
+  if (dependency.commands.length > 0) {
+    runExternalDependencyNativeCommands(dependencyName, dependency.commands, context, destination);
   }
-
-  materializeGitExternalDependency(dependencyName, dependency, context.packageRootDir, destination, expectedMarker);
 }
 
 interface ExternalDependencyMarker {
@@ -1805,7 +1901,6 @@ interface ExternalDependencyMarker {
   destination: string;
   acquiredAt: string;
   platform?: NodeJS.Platform;
-  commands?: DoofExternalDependencyCommandConfig[];
   sha256?: string;
   stripComponents?: number;
   copyFiles?: DoofExternalDependencyCopyFileConfig[];
@@ -1825,7 +1920,6 @@ function createExternalDependencyMarker(
     destination: dependency.destination,
     acquiredAt: new Date().toISOString(),
     platform: process.platform,
-    commands: dependency.commands,
     ...(dependency.kind === "archive"
       ? { sha256: dependency.sha256, stripComponents: dependency.stripComponents, copyFiles: dependency.copyFiles }
       : { ref: dependency.ref, commit: dependency.commit }),
@@ -1859,7 +1953,6 @@ function externalDependencyMarkerMatches(
     && actual.url === expected.url
     && actual.destination === expected.destination
     && actual.platform === expected.platform
-    && JSON.stringify(actual.commands ?? []) === JSON.stringify(expected.commands ?? [])
     && actual.sha256 === expected.sha256
     && actual.stripComponents === expected.stripComponents
     && JSON.stringify(actual.copyFiles ?? []) === JSON.stringify(expected.copyFiles ?? [])
@@ -1885,7 +1978,6 @@ function isEmptyDirectory(path: string): boolean {
 function materializeArchiveExternalDependency(
   dependencyName: string,
   dependency: DoofArchiveExternalDependencyConfig,
-  packageRootDir: string,
   destination: string,
   marker: ExternalDependencyMarker,
 ): void {
@@ -1912,7 +2004,6 @@ function materializeArchiveExternalDependency(
     copyDirectoryContents(sourceRoot, stagedDestination);
     applyExternalDependencyCopyFiles(stagedDestination, dependency.copyFiles, dependencyName);
     nodeFs.renameSync(stagedDestination, destination);
-    runExternalDependencyCommands(dependencyName, dependency.commands, packageRootDir, destination);
     writeExternalDependencyMarker(destination, marker);
   } catch (error: any) {
     nodeFs.rmSync(destination, { recursive: true, force: true });
@@ -1971,7 +2062,6 @@ function applyExternalDependencyCopyFiles(
 function materializeGitExternalDependency(
   dependencyName: string,
   dependency: DoofGitExternalDependencyConfig,
-  packageRootDir: string,
   destination: string,
   marker: ExternalDependencyMarker,
 ): void {
@@ -1989,7 +2079,6 @@ function materializeGitExternalDependency(
     }
     nodeFs.rmSync(nodePath.join(tempDir, ".git"), { recursive: true, force: true });
     nodeFs.renameSync(tempDir, destination);
-    runExternalDependencyCommands(dependencyName, dependency.commands, packageRootDir, destination);
     writeExternalDependencyMarker(destination, marker);
   } catch (error: any) {
     nodeFs.rmSync(destination, { recursive: true, force: true });
@@ -1999,16 +2088,93 @@ function materializeGitExternalDependency(
   }
 }
 
+interface ExternalDependencyNativeMarker {
+  schemaVersion: 1;
+  nativeTarget: string;
+  builtAt: string;
+  sdkPath: string;
+  targetTriple: string;
+  configureHost: string;
+  commands: DoofExternalDependencyCommandConfig[];
+}
+
+function runExternalDependencyNativeCommands(
+  dependencyName: string,
+  commands: readonly DoofExternalDependencyCommandConfig[],
+  context: ExternalDependencyContext,
+  destination: string,
+): void {
+  const markerPath = getExternalDependencyNativeMarkerPath(destination, context.nativeTarget);
+  const expectedMarker: ExternalDependencyNativeMarker = {
+    schemaVersion: 1,
+    nativeTarget: context.nativeTarget,
+    builtAt: new Date().toISOString(),
+    sdkPath: context.sdkPath,
+    targetTriple: context.targetTriple,
+    configureHost: context.configureHost,
+    commands: [...commands],
+  };
+  const existingMarker = readExternalDependencyNativeMarker(markerPath);
+  if (existingMarker && externalDependencyNativeMarkerMatches(existingMarker, expectedMarker)) {
+    return;
+  }
+
+  try {
+    runExternalDependencyCommands(dependencyName, commands, context, destination);
+    writeExternalDependencyNativeMarker(markerPath, expectedMarker);
+  } catch (error: any) {
+    nodeFs.rmSync(markerPath, { force: true });
+    throw new Error(
+      `Failed to build external dependency ${dependencyName} for ${context.nativeTarget}: ${error?.message ?? String(error)}`,
+    );
+  }
+}
+
+function readExternalDependencyNativeMarker(markerPath: string): ExternalDependencyNativeMarker | null {
+  if (!nodeFs.existsSync(markerPath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(nodeFs.readFileSync(markerPath, "utf8")) as Partial<ExternalDependencyNativeMarker>;
+    if (parsed.schemaVersion !== 1 || typeof parsed.nativeTarget !== "string") {
+      return null;
+    }
+    return parsed as ExternalDependencyNativeMarker;
+  } catch {
+    return null;
+  }
+}
+
+function externalDependencyNativeMarkerMatches(
+  actual: ExternalDependencyNativeMarker,
+  expected: ExternalDependencyNativeMarker,
+): boolean {
+  return actual.schemaVersion === 1
+    && actual.nativeTarget === expected.nativeTarget
+    && actual.sdkPath === expected.sdkPath
+    && actual.targetTriple === expected.targetTriple
+    && actual.configureHost === expected.configureHost
+    && JSON.stringify(actual.commands) === JSON.stringify(expected.commands);
+}
+
+function writeExternalDependencyNativeMarker(markerPath: string, marker: ExternalDependencyNativeMarker): void {
+  nodeFs.writeFileSync(
+    markerPath,
+    JSON.stringify({ ...marker, builtAt: new Date().toISOString() }, null, 2) + "\n",
+  );
+}
+
 function runExternalDependencyCommands(
   dependencyName: string,
   commands: readonly DoofExternalDependencyCommandConfig[],
-  packageRootDir: string,
+  context: ExternalDependencyContext,
   destination: string,
 ): void {
-  const substitutions = createExternalCommandSubstitutions(packageRootDir, destination);
+  const substitutions = createExternalCommandSubstitutions(context, destination);
   for (const [index, command] of commands.entries()) {
     const workingDirectory = command.workingDirectory
-      ? resolveExternalCommandWorkingDirectory(command.workingDirectory, packageRootDir, destination, dependencyName)
+      ? resolveExternalCommandWorkingDirectory(command.workingDirectory, context, destination, dependencyName)
       : destination;
     const env: NodeJS.ProcessEnv = { ...process.env };
     for (const [key, value] of Object.entries(command.env)) {
@@ -2031,11 +2197,11 @@ function runExternalDependencyCommands(
 
 function resolveExternalCommandWorkingDirectory(
   workingDirectory: string,
-  packageRootDir: string,
+  context: ExternalDependencyContext,
   destination: string,
   dependencyName: string,
 ): string {
-  const substitutions = createExternalCommandSubstitutions(packageRootDir, destination);
+  const substitutions = createExternalCommandSubstitutions(context, destination);
   const resolved = nodePath.resolve(destination, applyExternalCommandSubstitutions(workingDirectory, substitutions));
   if (!isWithinRoot(resolved, destination)) {
     throw new Error(`External dependency ${dependencyName} command workingDirectory must stay within the destination`);
@@ -2043,16 +2209,26 @@ function resolveExternalCommandWorkingDirectory(
   return resolved;
 }
 
-function createExternalCommandSubstitutions(packageRootDir: string, destination: string): Record<string, string> {
+function createExternalCommandSubstitutions(
+  context: ExternalDependencyContext,
+  destination: string,
+): Record<string, string> {
   return {
-    packageRoot: packageRootDir,
+    packageRoot: context.packageRootDir,
     destination,
     jobs: String(Math.max(1, nodeOs.cpus().length)),
+    nativeTarget: context.nativeTarget,
+    sdkPath: context.sdkPath,
+    targetTriple: context.targetTriple,
+    configureHost: context.configureHost,
   };
 }
 
 function applyExternalCommandSubstitutions(value: string, substitutions: Record<string, string>): string {
-  return value.replace(/\$\{(packageRoot|destination|jobs)\}/g, (_match, name: string) => substitutions[name] ?? "");
+  return value.replace(
+    /\$\{(packageRoot|destination|jobs|nativeTarget|sdkPath|targetTriple|configureHost)\}/g,
+    (_match, name: string) => substitutions[name] ?? "",
+  );
 }
 
 function formatProcessFailure(prefix: string, error: any): string {

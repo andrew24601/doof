@@ -363,7 +363,7 @@ describe("local package graphs", () => {
     }
   });
 
-  it("runs archive external dependency commands before writing the marker", () => {
+  it("runs archive external dependency commands and writes a target marker", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-commands-"));
 
     try {
@@ -415,24 +415,160 @@ describe("local package graphs", () => {
 
       const graph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"));
       const vendorDir = path.join(appDir, "vendor", "hello");
-      const marker = JSON.parse(fs.readFileSync(path.join(vendorDir, ".doof-external.json"), "utf8"));
+      const nativeTarget = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
+      const sourceMarker = JSON.parse(fs.readFileSync(path.join(vendorDir, ".doof-external.json"), "utf8"));
+      const nativeMarker = JSON.parse(
+        fs.readFileSync(path.join(vendorDir, `.doof-external-native-${nativeTarget}.json`), "utf8"),
+      );
 
       expect(graph.rootPackage.nativeBuild.includePaths).toEqual([path.join(vendorDir, ".doof-build", "include")]);
       expect(graph.rootPackage.nativeBuild.libraryPaths).toEqual([path.join(vendorDir, ".doof-build", "lib")]);
       expect(fs.readFileSync(path.join(vendorDir, ".doof-build", "include", "hello.h"), "utf8"))
         .toContain("from-env");
       expect(fs.existsSync(path.join(vendorDir, ".doof-build", "lib", "libhello.a"))).toBe(true);
-      expect(marker.commands).toEqual([{
-        program: process.execPath,
-        args: ["build.js", "${packageRoot}", "${destination}", "${jobs}"],
-        env: { DOOF_TEST_VALUE: "from-env" },
-      }]);
+      expect(sourceMarker.commands).toBeUndefined();
+      expect(nativeMarker).toMatchObject({
+        schemaVersion: 1,
+        nativeTarget,
+        commands: [{
+          program: process.execPath,
+          args: ["build.js", "${packageRoot}", "${destination}", "${jobs}"],
+          env: { DOOF_TEST_VALUE: "from-env" },
+        }],
+      });
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("does not write the external dependency marker when commands fail", () => {
+  it("runs active native external dependency commands and writes a target marker", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-native-commands-"));
+
+    try {
+      const sourceRoot = path.join(tempDir, "source", "archive-root");
+      fs.mkdirSync(sourceRoot, { recursive: true });
+      fs.writeFileSync(
+        path.join(sourceRoot, "build.js"),
+        [
+          "const fs = require('node:fs');",
+          "const path = require('node:path');",
+          "const [, , destination, nativeTarget, targetTriple, sdkPath] = process.argv;",
+          "const outDir = path.join(destination, '.doof-build', nativeTarget);",
+          "fs.mkdirSync(path.join(outDir, 'include'), { recursive: true });",
+          "fs.mkdirSync(path.join(outDir, 'lib'), { recursive: true });",
+          "fs.writeFileSync(path.join(outDir, 'include', 'hello.h'), `${nativeTarget}\\n${targetTriple}\\n${sdkPath}\\n`);",
+          "fs.writeFileSync(path.join(outDir, 'lib', 'libhello.a'), 'archive\\n');",
+        ].join("\n"),
+        "utf8",
+      );
+      const archivePath = path.join(tempDir, "hello.tar.gz");
+      execFileSync("tar", ["-czf", archivePath, "-C", path.join(tempDir, "source"), "archive-root"], { stdio: "pipe" });
+      const sha256 = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+
+      const appDir = path.join(tempDir, "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, "doof.json"), JSON.stringify({
+        name: "app",
+        externalDependencies: {
+          hello: {
+            kind: "archive",
+            url: `file://${archivePath}`,
+            sha256,
+            destination: "vendor/hello",
+            commands: [{
+              program: process.execPath,
+              args: ["build.js", "${destination}", "${nativeTarget}", "${targetTriple}", "${sdkPath}"],
+            }],
+          },
+        },
+        build: {
+          native: {
+            includePaths: ["vendor/hello/.doof-build/${nativeTarget}/include"],
+          },
+        },
+      }, null, 2));
+      fs.writeFileSync(path.join(appDir, "main.do"), "function main(): void {}\n");
+
+      const graph = loadPackageGraph(new RealFS(), path.join(appDir, "main.do"));
+      const vendorDir = path.join(appDir, "vendor", "hello");
+      const nativeTarget = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
+      const nativeMarkerPath = path.join(vendorDir, `.doof-external-native-${nativeTarget}.json`);
+
+      expect(fs.existsSync(nativeMarkerPath)).toBe(true);
+      expect(graph.rootPackage.externalDependencySentinelPaths).toContain(nativeMarkerPath);
+      expect(fs.readFileSync(path.join(vendorDir, ".doof-build", nativeTarget, "include", "hello.h"), "utf8"))
+        .toContain(nativeTarget);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("selects native external dependency command markers for the active Apple target", () => {
+    if (process.platform !== "darwin") {
+      return;
+    }
+
+    const manifest = {
+      name: "app",
+      build: {
+        targetExecutableName: "DoofDemo",
+        iosApp: {
+          bundleId: "dev.doof.demo",
+          displayName: "Doof Demo",
+          version: "1.0",
+          icon: "app-icon.png",
+          minimumDeploymentTarget: "16.0",
+        },
+      },
+      externalDependencies: {
+        hello: {
+          kind: "archive",
+          url: "https://example.com/hello.tar.gz",
+          sha256: "a".repeat(64),
+          destination: "vendor/hello",
+          commands: [{ program: "true" }],
+        },
+      },
+    };
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify(manifest),
+      "/app/main.do": "function main(): void {}",
+      "/app/app-icon.png": "png",
+    });
+
+    const nativeTargets: string[] = [];
+    const macGraph = loadPackageGraph(fs, "/app/main.do", {
+      acquireExternalDependency(_name, _dependency, context) {
+        nativeTargets.push(context.nativeTarget);
+      },
+    });
+    const simGraph = loadPackageGraph(fs, "/app/main.do", {
+      buildTargetOverride: "ios-app",
+      acquireExternalDependency(_name, _dependency, context) {
+        nativeTargets.push(context.nativeTarget);
+      },
+    });
+    const deviceGraph = loadPackageGraph(fs, "/app/main.do", {
+      buildTargetOverride: "ios-app",
+      iosDestinationOverride: "device",
+      acquireExternalDependency(_name, _dependency, context) {
+        nativeTargets.push(context.nativeTarget);
+      },
+    });
+
+    expect(nativeTargets).toEqual(["macos", "ios-simulator", "ios-device"]);
+    expect(macGraph.rootPackage.externalDependencySentinelPaths).toContain(
+      "/app/vendor/hello/.doof-external-native-macos.json",
+    );
+    expect(simGraph.rootPackage.externalDependencySentinelPaths).toContain(
+      "/app/vendor/hello/.doof-external-native-ios-simulator.json",
+    );
+    expect(deviceGraph.rootPackage.externalDependencySentinelPaths).toContain(
+      "/app/vendor/hello/.doof-external-native-ios-device.json",
+    );
+  });
+
+  it("does not write the external dependency native marker when commands fail", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-external-command-fail-"));
 
     try {
@@ -461,7 +597,10 @@ describe("local package graphs", () => {
 
       expect(() => loadPackageGraph(new RealFS(), path.join(appDir, "main.do")))
         .toThrow("command 1");
-      expect(fs.existsSync(path.join(appDir, "vendor", "hello", ".doof-external.json"))).toBe(false);
+      const nativeTarget = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
+      expect(fs.existsSync(path.join(appDir, "vendor", "hello", ".doof-external.json"))).toBe(true);
+      expect(fs.existsSync(path.join(appDir, "vendor", "hello", `.doof-external-native-${nativeTarget}.json`)))
+        .toBe(false);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

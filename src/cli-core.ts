@@ -851,9 +851,7 @@ function mergeResolvedNativeBuildOptions(
 function collectExternalDependencySentinelPaths(graph: PackageGraph): string[] {
   const sentinelPaths: string[] = [];
   for (const pkg of graph.packages) {
-    for (const dependency of Object.values(pkg.manifest.externalDependencies)) {
-      sentinelPaths.push(path.resolve(pkg.rootDir, dependency.destination, ".doof-external.json"));
-    }
+    sentinelPaths.push(...pkg.externalDependencySentinelPaths);
   }
   return uniqueStrings(sentinelPaths);
 }

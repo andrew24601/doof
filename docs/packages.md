@@ -228,6 +228,43 @@ When the effective target is `ios-app` on macOS, the CLI also recognizes `build.
 
 `build.native.pkgConfigPackages` lets the CLI resolve host-native include paths, library paths, link libraries, frameworks, and flags through `pkg-config` during `emit`, `build`, and `run`. This is useful for packages like SDL3 that are commonly installed through Homebrew, Linux package managers, or other native package systems.
 
+## External Dependencies
+
+Packages may declare top-level `externalDependencies` to acquire vendored source trees before native build metadata is resolved. Archive dependencies are downloaded, checksum-verified, extracted into `destination`, and marked with `.doof-external.json`; git dependencies are cloned at the pinned commit and marked the same way.
+
+External dependency `commands` run after source acquisition for the active native target. They use these substitutions in `program`, `args`, `env`, and `workingDirectory`: `${packageRoot}`, `${destination}`, `${jobs}`, `${nativeTarget}`, `${sdkPath}`, `${targetTriple}`, and `${configureHost}`.
+
+Use a single command list for the dependency. If the underlying native library needs different configure flags or environment variables per platform, keep that branching in a script owned by the package and pass the target substitutions into it:
+
+```json
+{
+  "externalDependencies": {
+    "curl": {
+      "kind": "archive",
+      "url": "https://example.com/curl.tar.xz",
+      "sha256": "...",
+      "destination": "vendor/curl",
+      "commands": [
+        {
+          "program": "sh",
+          "args": [
+            "${packageRoot}/build-curl.sh",
+            "${destination}",
+            "${nativeTarget}",
+            "${configureHost}",
+            "${targetTriple}",
+            "${sdkPath}",
+            "${jobs}"
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Each active target writes a separate `.doof-external-native-<target>.json` marker keyed by the command configuration and target substitutions, so a static library built for one target never satisfies another target's build. Keep link selection in `build.native` fragments: `includePaths`, `libraryPaths`, `frameworks`, flags, and link libraries stay target-scoped there.
+
 ## doof-build.json
 
 `doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, and any resolved target metadata such as `build.target = "macos-app"` or `build.target = "ios-app"`.
