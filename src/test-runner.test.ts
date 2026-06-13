@@ -77,6 +77,19 @@ describe("test runner discovery", () => {
 
     expect(() => discoverTests(dir, findTestFiles(dir))).toThrow("must not declare parameters");
   });
+
+  it("reports invalid test signatures at the function declaration location", () => {
+    const dir = createTempDir();
+    writeFile(dir, "doof.json", JSON.stringify({ name: "tests" }));
+    const testFile = path.join(dir, "broken.test.do");
+    writeFile(dir, "broken.test.do", [
+      "",
+      "export function testBroken(name: string): void {}",
+      "",
+    ].join("\n"));
+
+    expect(() => discoverTests(dir, findTestFiles(dir))).toThrow(`${testFile}:2:8: error: test "testBroken" must not declare parameters`);
+  });
 });
 
 describe("test runner harness", () => {

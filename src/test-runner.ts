@@ -378,7 +378,7 @@ function collectTestsFromTable(rootDir: string, table: ModuleSymbolTable): Disco
 
 function validateTestFunction(symbol: FunctionSymbol, modulePath: string): string | null {
   const declaration = symbol.declaration;
-  const location = `${modulePath}:${declaration.span.start.line + 1}:${declaration.span.start.column + 1}`;
+  const location = `${modulePath}:${declaration.span.start.line}:${declaration.span.start.column}`;
   if (declaration.params.length > 0) {
     return `${location}: error: test \"${symbol.name}\" must not declare parameters`;
   }

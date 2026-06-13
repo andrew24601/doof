@@ -1958,7 +1958,7 @@ function stableValue(value: unknown): unknown {
 
 export function formatDiagnostic(diagnostic: DiagnosticLike): string {
   const location = diagnostic.span
-    ? `${diagnostic.module ?? "<unknown>"}:${diagnostic.span.start.line + 1}:${diagnostic.span.start.column + 1}`
+    ? `${diagnostic.module ?? "<unknown>"}:${diagnostic.span.start.line}:${diagnostic.span.start.column}`
     : diagnostic.module ?? "<unknown>";
   const prefix = diagnostic.severity === "error" ? "error" : "warning";
   return `${location}: ${prefix}: ${diagnostic.message}`;
