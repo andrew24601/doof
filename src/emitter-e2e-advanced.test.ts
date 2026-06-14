@@ -2498,6 +2498,26 @@ describe("e2e — else-narrow statement", () => {
     expect(result.stdout.trim()).toBe("was null");
   });
 
+  it("compiles nullable string direct null comparisons", () => {
+    const result = ctx.compileAndRun(`
+      function getValue(): string | null => null
+      function main(): int {
+        value := getValue()
+        if value == null {
+          println("missing")
+        }
+        if null != value {
+          println("present")
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("missing");
+  });
+
   it("works in a loop with break", () => {
     const result = ctx.compileAndRun(`
       function getValue(i: int): int | null {

@@ -184,10 +184,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
       const check = `std::holds_alternative<std::monostate>(${lhs})`;
       return expr.operator === "==" ? check : `!${check}`;
     }
-    // optional<T> cannot use == nullptr; emit std::nullopt instead
-    if (lhsType && isOptionalNullable(lhsType)) {
+    // Folded nullable types need the null spelling that matches their C++ carrier:
+    // optional<T> uses std::nullopt, pointer-backed nullables use nullptr.
+    if (lhsType && (isOptionalNullable(lhsType) || isPointerType(lhsType))) {
       const lhs = emitBinaryOperand(expr.left, ctx, 20, "left");
-      return `${lhs} ${expr.operator} std::nullopt`;
+      return `${lhs} ${expr.operator} ${emitNullForType(lhsType)}`;
     }
   }
   if ((expr.operator === "==" || expr.operator === "!=") &&
@@ -203,10 +204,11 @@ export function emitBinaryExpression(expr: BinaryExpression, ctx: EmitContext): 
       const check = `std::holds_alternative<std::monostate>(${rhs})`;
       return expr.operator === "==" ? check : `!${check}`;
     }
-    // optional<T> cannot use == nullptr; emit std::nullopt instead
-    if (rhsType && isOptionalNullable(rhsType)) {
+    // Folded nullable types need the null spelling that matches their C++ carrier:
+    // optional<T> uses std::nullopt, pointer-backed nullables use nullptr.
+    if (rhsType && (isOptionalNullable(rhsType) || isPointerType(rhsType))) {
       const rhs = emitBinaryOperand(expr.right, ctx, 20, "right");
-      return `std::nullopt ${expr.operator} ${rhs}`;
+      return `${emitNullForType(rhsType)} ${expr.operator} ${rhs}`;
     }
   }
 

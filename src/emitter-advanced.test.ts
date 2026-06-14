@@ -758,6 +758,18 @@ describe("emitter — null coercion in generated C++", () => {
     expect(cpp).toContain("std::holds_alternative<std::monostate>");
     expect(cpp).toContain("!std::holds_alternative<std::monostate>");
   });
+
+  it("emits std::nullopt for nullable string null comparisons", () => {
+    const cpp = emit(`
+      function isMissing(value: string | null): bool => value == null
+      function isPresent(value: string | null): bool => null != value
+      function main(): int => 0
+    `);
+    expect(cpp).toContain("value == std::nullopt");
+    expect(cpp).toContain("std::nullopt != value");
+    expect(cpp).not.toContain("value == nullptr");
+    expect(cpp).not.toContain("nullptr != value");
+  });
 });
 
 // ============================================================================
