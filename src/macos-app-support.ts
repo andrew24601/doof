@@ -31,12 +31,10 @@ export function getMacOSAppInfoPlistPath(): string {
 }
 
 export function renderMacOSAppInfoPlist(config: ResolvedDoofMacOSAppConfig, executableName: string): string {
-  const iconFileName = `${executableName}.icns`;
   const base: AppInfoPlist = {
     CFBundleDevelopmentRegion: "en",
     CFBundleDisplayName: config.displayName,
     CFBundleExecutable: executableName,
-    CFBundleIconFile: iconFileName,
     CFBundleIdentifier: config.bundleId,
     CFBundleInfoDictionaryVersion: "6.0",
     CFBundleName: config.displayName,
@@ -48,5 +46,8 @@ export function renderMacOSAppInfoPlist(config: ResolvedDoofMacOSAppConfig, exec
     NSHighResolutionCapable: true,
     NSPrincipalClass: "NSApplication",
   };
+  if (config.iconPath !== undefined) {
+    base.CFBundleIconFile = `${executableName}.icns`;
+  }
   return renderInfoPlist(base, config.infoPlist);
 }

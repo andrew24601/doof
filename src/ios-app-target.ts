@@ -34,7 +34,9 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
   const infoPlistPath = nodePath.join(outputDir, getIOSAppInfoPlistPath());
   const assetCatalogPath = nodePath.join(outputDir, getIOSAppAssetCatalogPath());
 
-  populateIOSAppIconSetFromPng(config.iconPath, assetCatalogPath);
+  if (config.iconPath !== undefined) {
+    populateIOSAppIconSetFromPng(config.iconPath, assetCatalogPath);
+  }
 
   nodeFs.rmSync(appPath, { recursive: true, force: true });
   nodeFs.mkdirSync(appPath, { recursive: true });

@@ -42,7 +42,9 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
   const bundleBinaryPath = nodePath.join(macosDir, executableName);
   const infoPlistPath = nodePath.join(outputDir, getMacOSAppInfoPlistPath());
   const pkgInfoPath = nodePath.join(outputDir, "PkgInfo");
-  const iconOutputPath = nodePath.join(resourcesDir, `${executableName}.icns`);
+  const iconOutputPath = config.iconPath === undefined
+    ? undefined
+    : nodePath.join(resourcesDir, `${executableName}.icns`);
 
   nodeFs.mkdirSync(appPath, { recursive: true });
   nodeFs.rmSync(contentsDir, { recursive: true, force: true });
@@ -63,10 +65,12 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
     nodeFs.writeFileSync(nodePath.join(contentsDir, "PkgInfo"), "APPL????", "utf8");
   }
 
-  try {
-    (options.generateIcon ?? generateMacOSAppIconFromPng)(config.iconPath, iconOutputPath);
-  } catch (error: any) {
-    throw new Error(formatProcessFailure("Failed to generate macOS app icon", error));
+  if (config.iconPath !== undefined && iconOutputPath !== undefined) {
+    try {
+      (options.generateIcon ?? generateMacOSAppIconFromPng)(config.iconPath, iconOutputPath);
+    } catch (error: any) {
+      throw new Error(formatProcessFailure("Failed to generate macOS app icon", error));
+    }
   }
 
   const seenDestinations = new Set<string>();

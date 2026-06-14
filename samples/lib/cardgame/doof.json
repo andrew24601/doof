@@ -4,40 +4,33 @@
   "license": "ISC",
   "build": {
     "native": {
+      "includePaths": ["."],
+      "sourceFiles": [
+        "engine/render/MetalRenderer.mm",
+        "engine/render/TextureLoader.mm",
+        "engine/render/TextureRegistry.mm",
+        "engine/math/MathUtil.cpp"
+      ],
+      "frameworks": ["Foundation", "Metal", "QuartzCore", "ImageIO"],
       "macos": {
-        "includePaths": ["."],
         "sourceFiles": [
-          "native_boardgame_host.mm",
-          "engine/render/MetalRenderer.mm",
-          "engine/render/TextureLoader.mm",
-          "engine/render/TextureRegistry.mm",
-          "engine/math/MathUtil.cpp"
+          "native_boardgame_host.mm"
         ],
-        "frameworks": ["Cocoa", "Foundation", "Metal", "QuartzCore", "ImageIO"],
+        "frameworks": ["Cocoa"],
         "pkgConfigPackages": ["sdl3"],
         "defines": ["SDL_MAIN_HANDLED"]
       },
       "iosSimulator": {
-        "includePaths": ["."],
         "sourceFiles": [
-          "ios_boardgame_host.mm",
-          "engine/render/MetalRenderer.mm",
-          "engine/render/TextureLoader.mm",
-          "engine/render/TextureRegistry.mm",
-          "engine/math/MathUtil.cpp"
+          "ios_boardgame_host.mm"
         ],
-        "frameworks": ["UIKit", "Foundation", "Metal", "QuartzCore", "ImageIO", "CoreGraphics"]
+        "frameworks": ["UIKit", "CoreGraphics"]
       },
       "iosDevice": {
-        "includePaths": ["."],
         "sourceFiles": [
-          "ios_boardgame_host.mm",
-          "engine/render/MetalRenderer.mm",
-          "engine/render/TextureLoader.mm",
-          "engine/render/TextureRegistry.mm",
-          "engine/math/MathUtil.cpp"
+          "ios_boardgame_host.mm"
         ],
-        "frameworks": ["UIKit", "Foundation", "Metal", "QuartzCore", "ImageIO", "CoreGraphics"]
+        "frameworks": ["UIKit", "CoreGraphics"]
       }
     }
   },

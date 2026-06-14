@@ -111,21 +111,21 @@ Packages can opt into target-specific build behavior under `build.target`. The b
 
 ```json
 {
+  "name": "solitaire-sample",
+  "version": "0.1.0",
+  "target": "macos-app",
+  "executable": "DoofSolitaire",
+  "id": "dev.doof.solitaire",
+  "title": "Doof Solitaire",
+  "icon": "app-icon.png",
+  "resources": ["images"],
   "build": {
-    "target": "macos-app",
-    "targetExecutableName": "DoofSolitaire",
     "macosApp": {
-      "bundleId": "dev.doof.solitaire",
-      "displayName": "Doof Solitaire",
-      "version": "1.0",
-      "icon": "./app-icon.png",
+      "category": "public.app-category.games",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Doof Solitaire uses the local network to find nearby players.",
         "NSBonjourServices": ["_doof-solitaire._tcp"]
-      },
-      "resources": [
-        { "from": "images/*", "to": "images" }
-      ]
+      }
     },
     "native": {
       "frameworks": ["Cocoa", "Foundation"]
@@ -134,15 +134,28 @@ Packages can opt into target-specific build behavior under `build.target`. The b
 }
 ```
 
-`build.targetExecutableName` remains the executable name for both CLI builds and emitted native projects. For `macos-app`, `build.macosApp.displayName` is UI metadata, while `build.targetExecutableName` controls the bundle executable name and the `.app` directory name.
+App-target metadata can be declared either as compact top-level fields or under `build`. The compact fields are:
 
-Built-in app target icons must be PNG files. SVG icon conversion is not part of the Doof build pipeline.
+- `target`: `macos-app` or `ios-app`
+- `executable`: executable file name and `.app` directory name
+- `id`: bundle identifier
+- `title`: UI display name
+- `icon`: optional PNG app icon
+- `resources`: bundle resources, either strings such as `"images"` or explicit `{ "from": "...", "to": "..." }` objects
 
-Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
+Root-level compact fields win when the same value is also declared under `build` or target-specific app metadata. If `executable` is omitted for an app target, it defaults to the package `name`. If `title` is omitted, it defaults to the package `name`. If `id` is omitted, it defaults to `dev.doof.<sanitized-package-name>`. App metadata `version` defaults to the package `version`, then `"1.0"`.
 
-`build.macosApp.resources[].to` is rooted under `Contents/Resources`.
+`build.targetExecutableName` remains accepted as the legacy spelling for `executable`. For `macos-app`, `title` / `build.macosApp.displayName` is UI metadata, while `executable` / `build.targetExecutableName` controls the bundle executable name and the `.app` directory name.
 
-For `ios-app`, `build.iosApp.resources[].to` is rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
+Built-in app target icons are optional. When provided, they must be PNG files; SVG icon conversion is not part of the Doof build pipeline. When omitted, Doof emits a buildable bundle without Doof-managed app icon metadata or generated icon assets.
+
+Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `target` / `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
+
+For string resources, `"images"` is shorthand for `{ "from": "images/*", "to": "images" }`.
+
+`resources[].to` and `build.macosApp.resources[].to` are rooted under `Contents/Resources`.
+
+For `ios-app`, `resources[].to` and `build.iosApp.resources[].to` are rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
 
 `build.macosApp.infoPlist` and `build.iosApp.infoPlist` add app-declared keys to the generated `Info.plist`. Values may be strings, numbers, booleans, arrays, or nested objects. Doof-managed bundle keys such as `CFBundleIdentifier`, `CFBundleExecutable`, and `MinimumOSVersion` cannot be overridden through `infoPlist`.
 
@@ -211,9 +224,10 @@ Native build metadata can also be scoped to the current host platform:
 {
   "build": {
     "native": {
+      "sourceFiles": ["native/shared_host.mm"],
+      "frameworks": ["Foundation", "ImageIO"],
       "macos": {
         "includePaths": ["native/include"],
-        "sourceFiles": ["native_host.mm"],
         "frameworks": ["Cocoa", "Metal"],
         "pkgConfigPackages": ["sdl3"]
       }
@@ -222,7 +236,7 @@ Native build metadata can also be scoped to the current host platform:
 }
 ```
 
-Currently supported platform keys are `macos`, `linux`, and `windows`. The CLI applies the fragment for the current host platform on top of the base `build.native` settings.
+Currently supported platform keys are `macos`, `linux`, and `windows`. The CLI applies the fragment for the current host platform on top of the base `build.native` settings. Put shared native sources, frameworks, include paths, and flags in the base `build.native` fragment, then keep platform fragments to the values that truly differ.
 
 When the effective target is `ios-app` on macOS, the CLI also recognizes `build.native.iosSimulator` and `build.native.iosDevice`. The selected fragment depends on `--ios-destination`, which lets a package keep separate simulator and device bridge settings in one manifest.
 

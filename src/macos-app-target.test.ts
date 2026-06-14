@@ -61,6 +61,20 @@ describe("macos-app target helper", () => {
     expect(parsed.NSBonjourServices).toEqual(["_doof-jigsaw._tcp"]);
   });
 
+  it("omits icon metadata when no macOS app icon is configured", () => {
+    const xml = renderMacOSAppInfoPlist({
+      bundleId: "dev.doof.demo",
+      displayName: "Doof Demo",
+      version: "1.0",
+      resources: [],
+      category: "public.app-category.developer-tools",
+      minimumSystemVersion: "11.0",
+    }, "DoofDemo");
+    const parsed = plist.parse(xml) as Record<string, unknown>;
+
+    expect(parsed.CFBundleIconFile).toBeUndefined();
+  });
+
   it("assembles a macOS app bundle with resources", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-macos-app-bundle-"));
     tmpDirs.push(dir);

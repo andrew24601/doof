@@ -22,12 +22,7 @@ export function createIOSAppSupportFiles(
   config: ResolvedDoofIOSAppConfig,
   executableName: string,
 ): ProjectSupportFile[] {
-  return [
-    {
-      relativePath: IOS_APP_ICONSET_CONTENTS_PATH,
-      content: `${renderIOSAppIconSetContents()}
-`,
-    },
+  const supportFiles: ProjectSupportFile[] = [
     {
       relativePath: IOS_APP_INFO_PLIST_PATH,
       content: renderIOSAppInfoPlist(config, executableName),
@@ -37,6 +32,14 @@ export function createIOSAppSupportFiles(
       content: renderIOSAppMainSource(executableName),
     },
   ];
+  if (config.iconPath !== undefined) {
+    supportFiles.unshift({
+      relativePath: IOS_APP_ICONSET_CONTENTS_PATH,
+      content: `${renderIOSAppIconSetContents()}
+`,
+    });
+  }
+  return supportFiles;
 }
 
 export function renderIOSAppInfoPlist(config: ResolvedDoofIOSAppConfig, executableName: string): string {

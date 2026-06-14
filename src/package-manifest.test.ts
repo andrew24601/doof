@@ -1509,6 +1509,120 @@ describe("local package graphs", () => {
     });
   });
 
+  it("normalizes root compact macos-app metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "std-game-ui-sample",
+        version: "0.1.0",
+        target: "macos-app",
+        executable: "UI",
+        id: "extremebasic.ui",
+        title: "Doof UI",
+        icon: "app-icon.png",
+        resources: ["fonts"],
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+      "/app/fonts/app.ttf": "font",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("UI");
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "macos-app",
+      config: {
+        bundleId: "extremebasic.ui",
+        displayName: "Doof UI",
+        version: "0.1.0",
+        iconPath: "/app/app-icon.png",
+        resources: [{ fromPattern: "/app/fonts/*", destination: "fonts" }],
+        category: "public.app-category.developer-tools",
+        minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
+  it("normalizes build-nested compact app metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "demo-app",
+        build: {
+          target: "macos-app",
+          executable: "Demo",
+          id: "dev.example.demo",
+          title: "Demo App",
+          icon: "app-icon.png",
+          resources: ["assets"],
+          macosApp: {
+            category: "public.app-category.games",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/app-icon.png": "png",
+      "/app/assets/sprite.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("Demo");
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "macos-app",
+      config: {
+        bundleId: "dev.example.demo",
+        displayName: "Demo App",
+        version: "1.0",
+        iconPath: "/app/app-icon.png",
+        resources: [{ fromPattern: "/app/assets/*", destination: "assets" }],
+        category: "public.app-category.games",
+        minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
+  it("lets root compact fields override nested app fields", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "demo-app",
+        target: "macos-app",
+        executable: "RootDemo",
+        id: "dev.example.root",
+        title: "Root Demo",
+        resources: ["root-assets"],
+        build: {
+          executable: "BuildDemo",
+          id: "dev.example.build",
+          title: "Build Demo",
+          resources: ["build-assets"],
+          macosApp: {
+            bundleId: "dev.example.macos",
+            displayName: "macOS Demo",
+            resources: [{ from: "macos-assets/*", to: "macos-assets" }],
+            category: "public.app-category.games",
+          },
+        },
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/root-assets/file.txt": "root",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("RootDemo");
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "macos-app",
+      config: {
+        bundleId: "dev.example.root",
+        displayName: "Root Demo",
+        version: "1.0",
+        resources: [{ fromPattern: "/app/root-assets/*", destination: "root-assets" }],
+        category: "public.app-category.games",
+        minimumSystemVersion: "11.0",
+      },
+    });
+  });
+
   it("normalizes macos-app custom Info.plist metadata", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
@@ -1576,6 +1690,30 @@ describe("local package graphs", () => {
         version: "1.0",
         iconPath: "/app/app-icon.png",
         resources: [{ fromPattern: "/app/images/*", destination: "images" }],
+        minimumDeploymentTarget: "16.0",
+      },
+    });
+  });
+
+  it("normalizes compact ios-app defaults without an icon", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "mobile-demo",
+        target: "ios-app",
+      }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("mobile-demo");
+    expect(graph.rootPackage.buildTarget).toEqual({
+      kind: "ios-app",
+      config: {
+        bundleId: "dev.doof.mobile-demo",
+        displayName: "mobile-demo",
+        version: "1.0",
+        resources: [],
         minimumDeploymentTarget: "16.0",
       },
     });
@@ -1712,48 +1850,46 @@ describe("local package graphs", () => {
     });
   });
 
-  it("requires an executable name for macos-app targets", () => {
+  it("defaults the executable name for macos-app targets", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
-        name: "app",
+        name: "demo-app",
         build: {
           target: "macos-app",
           macosApp: {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "./app-icon.png",
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.png": "png",
     });
 
-    expect(() => loadPackageGraph(fs, "/app/main.do"))
-      .toThrow('build.targetExecutableName is required when build.target is "macos-app"');
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("demo-app");
   });
 
-  it("requires an executable name for ios-app targets", () => {
+  it("defaults the executable name for ios-app targets", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({
-        name: "app",
+        name: "demo-app",
         build: {
           target: "ios-app",
           iosApp: {
             bundleId: "dev.doof.demo",
             displayName: "Demo",
             version: "1.0",
-            icon: "app-icon.png",
           },
         },
       }),
       "/app/main.do": "function main(): int => 0",
-      "/app/app-icon.png": "png",
     });
 
-    expect(() => loadPackageGraph(fs, "/app/main.do"))
-      .toThrow('build.targetExecutableName is required when build.target is "ios-app"');
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("demo-app");
   });
 
   it("rejects non-PNG macos-app icons", () => {
@@ -1826,6 +1962,34 @@ describe("local package graphs", () => {
     expect(() => loadPackageGraph(fs, "/app/main.do"))
       .toThrow("build.macosApp.resources[0].to bundle resource destinations must stay within Contents/Resources");
   });
+
+  it("rejects compact resource destinations that escape the bundle", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        target: "macos-app",
+        resources: ["../oops"],
+      }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("build.macosApp.resources[0].from must stay within the package root");
+  });
+
+  it("allows compact executable without app metadata", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        executable: "compact-demo",
+      }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("compact-demo");
+    expect(graph.rootPackage.buildTarget).toBeNull();
+  });
 });
 
 describe("manifest-derived pipeline metadata", () => {
@@ -1853,6 +2017,27 @@ describe("manifest-derived pipeline metadata", () => {
       externalDependencies: [],
     });
     expect(result.provenance).toEqual({ dependencies: [], externalDependencies: [] });
+  });
+
+  it("uses compact executable for native output naming", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        executable: "compact-demo",
+      }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    const result = runPipelineWithFs(
+      fs,
+      "/app/main.do",
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.outputBinaryName).toBe(normalizeOutputBinaryName("compact-demo"));
   });
 
   it("propagates package native inputs into runtime build metadata", () => {

@@ -10,10 +10,10 @@ export interface DoofMacOSAppResourceConfig {
 }
 
 export interface DoofMacOSAppConfig {
-  bundleId: string;
-  displayName: string;
-  version: string;
-  icon: string;
+  bundleId?: string;
+  displayName?: string;
+  version?: string;
+  icon?: string;
   infoPlist?: AppInfoPlist;
   resources?: DoofMacOSAppResourceConfig[];
   category?: string;
@@ -26,10 +26,10 @@ export interface DoofIOSAppResourceConfig {
 }
 
 export interface DoofIOSAppConfig {
-  bundleId: string;
-  displayName: string;
-  version: string;
-  icon: string;
+  bundleId?: string;
+  displayName?: string;
+  version?: string;
+  icon?: string;
   infoPlist?: AppInfoPlist;
   resources?: DoofIOSAppResourceConfig[];
   minimumDeploymentTarget?: string;
@@ -44,7 +44,7 @@ export interface ResolvedDoofMacOSAppConfig {
   bundleId: string;
   displayName: string;
   version: string;
-  iconPath: string;
+  iconPath?: string;
   infoPlist?: AppInfoPlist;
   resources: ResolvedDoofMacOSAppResource[];
   category: string;
@@ -60,7 +60,7 @@ export interface ResolvedDoofIOSAppConfig {
   bundleId: string;
   displayName: string;
   version: string;
-  iconPath: string;
+  iconPath?: string;
   infoPlist?: AppInfoPlist;
   resources: ResolvedDoofIOSAppResource[];
   minimumDeploymentTarget: string;

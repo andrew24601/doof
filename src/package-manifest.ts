@@ -22,7 +22,6 @@ import {
   normalizeIOSAppResourceDestination,
   type DoofBuildTarget,
   type DoofIOSAppConfig,
-  type DoofIOSAppResourceConfig,
   type DoofMacOSAppConfig,
   type DoofMacOSAppResourceConfig,
   type ResolvedDoofBuildTarget,
@@ -259,6 +258,15 @@ interface MutableLoadedPackage {
   buildTarget: ResolvedDoofBuildTarget | null;
   externalDependencySentinelPaths: string[];
   externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
+}
+
+interface CompactAppConfig {
+  target?: DoofBuildTarget;
+  executable?: string;
+  id?: string;
+  title?: string;
+  icon?: string;
+  resources?: DoofMacOSAppResourceConfig[];
 }
 
 type DiscoveredDependency =
@@ -997,58 +1005,192 @@ function parseDoofManifest(rawManifest: string, manifestPath: string): DoofManif
   const name = readOptionalString(parsed.name, manifestPath, "name");
   const version = readOptionalString(parsed.version, manifestPath, "version");
   const license = readOptionalString(parsed.license, manifestPath, "license");
-  const build = parseBuildConfig(parsed.build, manifestPath);
+  const build = parseBuildConfig(parsed.build, parsed, manifestPath, name, version);
   const dependencies = parseDependencies(parsed.dependencies, manifestPath);
   const externalDependencies = parseExternalDependencies(parsed.externalDependencies, manifestPath);
 
   return { name, version, license, build, dependencies, externalDependencies };
 }
 
-function parseBuildConfig(value: unknown, manifestPath: string): DoofBuildConfig | undefined {
-  if (value === undefined) {
+function parseBuildConfig(
+  value: unknown,
+  rootValue: Record<string, unknown>,
+  manifestPath: string,
+  packageName: string | undefined,
+  packageVersion: string | undefined,
+): DoofBuildConfig | undefined {
+  const rootCompact = parseCompactAppConfig(rootValue, manifestPath, "");
+  const hasRootCompact = hasCompactAppConfig(rootCompact);
+
+  if (value === undefined && !hasRootCompact) {
     return undefined;
   }
 
-  if (!isRecord(value)) {
+  if (value !== undefined && !isRecord(value)) {
     throw new Error(`Invalid doof.json at ${manifestPath}: build must be an object`);
   }
+  const buildValue = value === undefined ? {} : value;
 
-  const entry = readOptionalString(value.entry, manifestPath, "build.entry");
-  const buildDir = readOptionalString(value.buildDir, manifestPath, "build.buildDir");
-  const targetValue = readOptionalString(value.target, manifestPath, "build.target");
-  if (targetValue !== undefined && !isDoofBuildTarget(targetValue)) {
-    throw new Error(`Invalid doof.json at ${manifestPath}: build.target must be one of \"macos-app\", \"ios-app\"`);
-  }
+  const entry = readOptionalString(buildValue.entry, manifestPath, "build.entry");
+  const buildDir = readOptionalString(buildValue.buildDir, manifestPath, "build.buildDir");
+  const buildCompact = parseCompactAppConfig(buildValue, manifestPath, "build");
+  const targetValue = rootCompact.target ?? buildCompact.target;
 
-  const targetExecutableName = readOptionalString(value.targetExecutableName, manifestPath, "build.targetExecutableName");
-  if (targetExecutableName !== undefined && !isValidExecutableName(targetExecutableName)) {
+  const legacyTargetExecutableName = readOptionalString(
+    buildValue.targetExecutableName,
+    manifestPath,
+    "build.targetExecutableName",
+  );
+  if (legacyTargetExecutableName !== undefined && !isValidExecutableName(legacyTargetExecutableName)) {
     throw new Error(
       `Invalid doof.json at ${manifestPath}: build.targetExecutableName must be a file name without path separators`,
     );
   }
 
-  const macosApp = parseMacOSAppConfig(value.macosApp, manifestPath);
-  const iosApp = parseIOSAppConfig(value.iosApp, manifestPath);
-  if (targetValue === "macos-app") {
-    if (!macosApp) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.macosApp is required when build.target is \"macos-app\"`);
-    }
-    if (!targetExecutableName) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.targetExecutableName is required when build.target is \"macos-app\"`);
-    }
-  }
-  if (targetValue === "ios-app") {
-    if (!iosApp) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp is required when build.target is \"ios-app\"`);
-    }
-    if (!targetExecutableName) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.targetExecutableName is required when build.target is \"ios-app\"`);
-    }
+  const targetExecutableName = resolveTargetExecutableName(
+    rootCompact.executable ?? buildCompact.executable ?? legacyTargetExecutableName,
+    targetValue,
+    packageName,
+    manifestPath,
+  );
+  if (targetExecutableName !== undefined && !isValidExecutableName(targetExecutableName)) {
+    throw new Error(
+      `Invalid doof.json at ${manifestPath}: executable must be a file name without path separators`,
+    );
   }
 
-  const native = parseNativeBuildConfig(value.native, manifestPath);
+  const parsedMacOSApp = parseMacOSAppConfig(buildValue.macosApp, manifestPath);
+  const parsedIOSApp = parseIOSAppConfig(buildValue.iosApp, manifestPath);
+  const shouldCreateAppDefaults = targetValue !== undefined
+    || parsedMacOSApp !== undefined
+    || parsedIOSApp !== undefined
+    || hasCompactAppMetadata(rootCompact)
+    || hasCompactAppMetadata(buildCompact);
+  const macosApp = shouldCreateAppDefaults
+    ? resolveMacOSAppConfig(parsedMacOSApp, rootCompact, buildCompact, packageName, packageVersion, manifestPath)
+    : undefined;
+  const iosApp = shouldCreateAppDefaults
+    ? resolveIOSAppConfig(parsedIOSApp, rootCompact, buildCompact, packageName, packageVersion, manifestPath)
+    : undefined;
+
+  if (targetValue && !targetExecutableName) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: executable requires either executable or package name`);
+  }
+
+  const native = parseNativeBuildConfig(buildValue.native, manifestPath);
 
   return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, iosApp, native };
+}
+
+function parseCompactAppConfig(
+  value: Record<string, unknown>,
+  manifestPath: string,
+  prefix: string,
+): CompactAppConfig {
+  const field = (name: string) => prefix.length > 0 ? `${prefix}.${name}` : name;
+  const targetValue = readOptionalString(value.target, manifestPath, field("target"));
+  if (targetValue !== undefined && !isDoofBuildTarget(targetValue)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${field("target")} must be one of \"macos-app\", \"ios-app\"`);
+  }
+
+  return {
+    target: targetValue,
+    executable: readOptionalString(value.executable, manifestPath, field("executable")),
+    id: readOptionalString(value.id, manifestPath, field("id")),
+    title: readOptionalString(value.title, manifestPath, field("title")),
+    icon: readOptionalString(value.icon, manifestPath, field("icon")),
+    resources: readOptionalAppResources(value.resources, manifestPath, field("resources")),
+  };
+}
+
+function hasCompactAppConfig(config: CompactAppConfig): boolean {
+  return config.target !== undefined
+    || config.executable !== undefined
+    || config.id !== undefined
+    || config.title !== undefined
+    || config.icon !== undefined
+    || config.resources !== undefined;
+}
+
+function hasCompactAppMetadata(config: CompactAppConfig): boolean {
+  return config.id !== undefined
+    || config.title !== undefined
+    || config.icon !== undefined
+    || config.resources !== undefined;
+}
+
+function resolveTargetExecutableName(
+  explicitExecutable: string | undefined,
+  target: DoofBuildTarget | undefined,
+  packageName: string | undefined,
+  manifestPath: string,
+): string | undefined {
+  const executable = explicitExecutable ?? (target !== undefined ? packageName : undefined);
+  if (executable === undefined) {
+    return undefined;
+  }
+  if (!isValidExecutableName(executable)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: executable must be a file name without path separators`);
+  }
+  return executable;
+}
+
+function resolveMacOSAppConfig(
+  app: DoofMacOSAppConfig | undefined,
+  rootCompact: CompactAppConfig,
+  buildCompact: CompactAppConfig,
+  packageName: string | undefined,
+  packageVersion: string | undefined,
+  manifestPath: string,
+): DoofMacOSAppConfig {
+  return {
+    bundleId: rootCompact.id ?? app?.bundleId ?? buildCompact.id ?? defaultBundleId(packageName, manifestPath),
+    displayName: rootCompact.title ?? app?.displayName ?? buildCompact.title ?? defaultAppTitle(packageName, manifestPath),
+    version: app?.version ?? packageVersion ?? "1.0",
+    icon: rootCompact.icon ?? app?.icon ?? buildCompact.icon,
+    infoPlist: app?.infoPlist,
+    resources: rootCompact.resources ?? app?.resources ?? buildCompact.resources,
+    category: app?.category,
+    minimumSystemVersion: app?.minimumSystemVersion,
+  };
+}
+
+function resolveIOSAppConfig(
+  app: DoofIOSAppConfig | undefined,
+  rootCompact: CompactAppConfig,
+  buildCompact: CompactAppConfig,
+  packageName: string | undefined,
+  packageVersion: string | undefined,
+  manifestPath: string,
+): DoofIOSAppConfig {
+  return {
+    bundleId: rootCompact.id ?? app?.bundleId ?? buildCompact.id ?? defaultBundleId(packageName, manifestPath),
+    displayName: rootCompact.title ?? app?.displayName ?? buildCompact.title ?? defaultAppTitle(packageName, manifestPath),
+    version: app?.version ?? packageVersion ?? "1.0",
+    icon: rootCompact.icon ?? app?.icon ?? buildCompact.icon,
+    infoPlist: app?.infoPlist,
+    resources: rootCompact.resources ?? app?.resources ?? buildCompact.resources,
+    minimumDeploymentTarget: app?.minimumDeploymentTarget,
+  };
+}
+
+function defaultAppTitle(packageName: string | undefined, manifestPath: string): string {
+  if (packageName === undefined) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: app title requires either title or package name`);
+  }
+  return packageName;
+}
+
+function defaultBundleId(packageName: string | undefined, manifestPath: string): string {
+  if (packageName === undefined) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: bundle id requires either id or package name`);
+  }
+
+  const sanitized = packageName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `dev.doof.${sanitized.length > 0 ? sanitized : "app"}`;
 }
 
 function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSAppConfig | undefined {
@@ -1061,12 +1203,12 @@ function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSApp
   }
 
   return {
-    bundleId: readRequiredString(value.bundleId, manifestPath, "build.macosApp.bundleId"),
-    displayName: readRequiredString(value.displayName, manifestPath, "build.macosApp.displayName"),
-    version: readRequiredString(value.version, manifestPath, "build.macosApp.version"),
-    icon: readRequiredString(value.icon, manifestPath, "build.macosApp.icon"),
+    bundleId: readOptionalString(value.bundleId, manifestPath, "build.macosApp.bundleId"),
+    displayName: readOptionalString(value.displayName, manifestPath, "build.macosApp.displayName"),
+    version: readOptionalString(value.version, manifestPath, "build.macosApp.version"),
+    icon: readOptionalString(value.icon, manifestPath, "build.macosApp.icon"),
     infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.macosApp.infoPlist"),
-    resources: readOptionalMacOSAppResources(value.resources, manifestPath),
+    resources: readOptionalAppResources(value.resources, manifestPath, "build.macosApp.resources"),
     category: readOptionalString(value.category, manifestPath, "build.macosApp.category"),
     minimumSystemVersion: readOptionalString(
       value.minimumSystemVersion,
@@ -1086,12 +1228,12 @@ function parseIOSAppConfig(value: unknown, manifestPath: string): DoofIOSAppConf
   }
 
   return {
-    bundleId: readRequiredString(value.bundleId, manifestPath, "build.iosApp.bundleId"),
-    displayName: readRequiredString(value.displayName, manifestPath, "build.iosApp.displayName"),
-    version: readRequiredString(value.version, manifestPath, "build.iosApp.version"),
-    icon: readRequiredString(value.icon, manifestPath, "build.iosApp.icon"),
+    bundleId: readOptionalString(value.bundleId, manifestPath, "build.iosApp.bundleId"),
+    displayName: readOptionalString(value.displayName, manifestPath, "build.iosApp.displayName"),
+    version: readOptionalString(value.version, manifestPath, "build.iosApp.version"),
+    icon: readOptionalString(value.icon, manifestPath, "build.iosApp.icon"),
     infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.iosApp.infoPlist"),
-    resources: readOptionalIOSAppResources(value.resources, manifestPath),
+    resources: readOptionalAppResources(value.resources, manifestPath, "build.iosApp.resources"),
     minimumDeploymentTarget: readOptionalString(
       value.minimumDeploymentTarget,
       manifestPath,
@@ -1100,44 +1242,34 @@ function parseIOSAppConfig(value: unknown, manifestPath: string): DoofIOSAppConf
   };
 }
 
-function readOptionalMacOSAppResources(value: unknown, manifestPath: string): DoofMacOSAppResourceConfig[] | undefined {
+function readOptionalAppResources(
+  value: unknown,
+  manifestPath: string,
+  fieldPath: string,
+): DoofMacOSAppResourceConfig[] | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   if (!Array.isArray(value)) {
-    throw new Error(`Invalid doof.json at ${manifestPath}: build.macosApp.resources must be an array`);
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an array`);
   }
 
   return value.map((entry, index) => {
+    if (typeof entry === "string") {
+      if (entry.length === 0) {
+        throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must not be empty`);
+      }
+      return { from: `${entry.replace(/\/+$/g, "")}/*`, to: entry };
+    }
+
     if (!isRecord(entry)) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.macosApp.resources[${index}] must be an object`);
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must be a string or object`);
     }
 
     return {
-      from: readRequiredString(entry.from, manifestPath, `build.macosApp.resources[${index}].from`),
-      to: readRequiredString(entry.to, manifestPath, `build.macosApp.resources[${index}].to`),
-    };
-  });
-}
-
-function readOptionalIOSAppResources(value: unknown, manifestPath: string): DoofIOSAppResourceConfig[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!Array.isArray(value)) {
-    throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp.resources must be an array`);
-  }
-
-  return value.map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`Invalid doof.json at ${manifestPath}: build.iosApp.resources[${index}] must be an object`);
-    }
-
-    return {
-      from: readRequiredString(entry.from, manifestPath, `build.iosApp.resources[${index}].from`),
-      to: readRequiredString(entry.to, manifestPath, `build.iosApp.resources[${index}].to`),
+      from: readRequiredString(entry.from, manifestPath, `${fieldPath}[${index}].from`),
+      to: readRequiredString(entry.to, manifestPath, `${fieldPath}[${index}].to`),
     };
   });
 }
@@ -1645,8 +1777,12 @@ function normalizeMacOSAppBuildConfig(
   rootDir: string,
   manifestPath: string,
 ): ResolvedDoofMacOSAppConfig {
-  const iconPath = normalizePackagePath(macosApp.icon, rootDir, manifestPath, "build.macosApp.icon");
-  validatePngAppIconPath(iconPath, manifestPath, "build.macosApp.icon");
+  const iconPath = macosApp.icon === undefined
+    ? undefined
+    : normalizePackagePath(macosApp.icon, rootDir, manifestPath, "build.macosApp.icon");
+  if (iconPath !== undefined) {
+    validatePngAppIconPath(iconPath, manifestPath, "build.macosApp.icon");
+  }
   validateCustomInfoPlistKeys(
     macosApp.infoPlist,
     MACOS_MANAGED_INFO_PLIST_KEYS,
@@ -1654,9 +1790,9 @@ function normalizeMacOSAppBuildConfig(
     "build.macosApp.infoPlist",
   );
   return {
-    bundleId: macosApp.bundleId,
-    displayName: macosApp.displayName,
-    version: macosApp.version,
+    bundleId: readResolvedAppString(macosApp.bundleId, manifestPath, "build.macosApp.bundleId"),
+    displayName: readResolvedAppString(macosApp.displayName, manifestPath, "build.macosApp.displayName"),
+    version: readResolvedAppString(macosApp.version, manifestPath, "build.macosApp.version"),
     iconPath,
     infoPlist: macosApp.infoPlist,
     resources: (macosApp.resources ?? []).map((resource, index) => ({
@@ -1688,8 +1824,12 @@ function normalizeIOSAppBuildConfig(
   rootDir: string,
   manifestPath: string,
 ): ResolvedDoofIOSAppConfig {
-  const iconPath = normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon");
-  validatePngAppIconPath(iconPath, manifestPath, "build.iosApp.icon");
+  const iconPath = iosApp.icon === undefined
+    ? undefined
+    : normalizePackagePath(iosApp.icon, rootDir, manifestPath, "build.iosApp.icon");
+  if (iconPath !== undefined) {
+    validatePngAppIconPath(iconPath, manifestPath, "build.iosApp.icon");
+  }
   validateCustomInfoPlistKeys(
     iosApp.infoPlist,
     IOS_MANAGED_INFO_PLIST_KEYS,
@@ -1697,9 +1837,9 @@ function normalizeIOSAppBuildConfig(
     "build.iosApp.infoPlist",
   );
   return {
-    bundleId: iosApp.bundleId,
-    displayName: iosApp.displayName,
-    version: iosApp.version,
+    bundleId: readResolvedAppString(iosApp.bundleId, manifestPath, "build.iosApp.bundleId"),
+    displayName: readResolvedAppString(iosApp.displayName, manifestPath, "build.iosApp.displayName"),
+    version: readResolvedAppString(iosApp.version, manifestPath, "build.iosApp.version"),
     iconPath,
     infoPlist: iosApp.infoPlist,
     resources: (iosApp.resources ?? []).map((resource, index) => ({
@@ -1713,6 +1853,13 @@ function normalizeIOSAppBuildConfig(
     })),
     minimumDeploymentTarget: iosApp.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
   };
+}
+
+function readResolvedAppString(value: string | undefined, manifestPath: string, fieldPath: string): string {
+  if (value === undefined) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} requires either compact app metadata or package defaults`);
+  }
+  return value;
 }
 
 function validatePngAppIconPath(iconPath: string, manifestPath: string, fieldName: string): void {

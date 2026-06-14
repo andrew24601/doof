@@ -29,6 +29,21 @@ describe("ios-app support files", () => {
     expect(supportFiles[2]?.content).toContain("UIApplicationMain");
   });
 
+  it("omits asset catalog support files when no iOS app icon is configured", () => {
+    const supportFiles = createIOSAppSupportFiles({
+      bundleId: "dev.doof.demo",
+      displayName: "Doof Demo",
+      version: "1.0",
+      resources: [],
+      minimumDeploymentTarget: "16.0",
+    }, "DoofDemo");
+
+    expect(supportFiles.map((file) => file.relativePath)).toEqual([
+      "Info.plist",
+      "ios-main.mm",
+    ]);
+  });
+
   it("renders an iOS Info.plist with app metadata", () => {
     const plist = renderIOSAppInfoPlist(config, "DoofDemo");
 
