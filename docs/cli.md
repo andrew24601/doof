@@ -35,6 +35,7 @@ node dist/cli.js --help
 
 ```text
 doof <command> [options] [entry.do | package-dir]
+doof run [options] [entry.do | package-dir] -- [program args...]
 ```
 
 ## Commands
@@ -52,7 +53,7 @@ doof <command> [options] [entry.do | package-dir]
 - `check` — runs parsing, module analysis, and type checking; no output written
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
 - `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
-- `run` — same as `build`, then executes the produced binary; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
+- `run` — same as `build`, then executes the produced binary; for native binaries, arguments after `--` are passed to the program; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
 - `test` — discovers exported test functions in `.test.do` files, builds a harness per test file through the same incremental Reckon graph used by `build`/`run`, and runs each discovered test in its own process
 
 ### Line Coverage
@@ -236,6 +237,12 @@ Run a program end to end:
 
 ```bash
 npx doof run samples/hello.do
+```
+
+Pass arguments to the program after `--`:
+
+```bash
+npx doof run game/samples/jigsaw-server -- --listen 127.0.0.1:8080 --state state.json --no-persist --reset
 ```
 
 Use a specific compiler and standard:

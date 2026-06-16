@@ -83,6 +83,52 @@ describe("CLI argument parsing", () => {
     expect(args.entry).toBe("samples/hello.do");
     expect(args.nativeBuild.includePaths).toEqual([]);
     expect(args.nativeBuild.linkLibraries).toEqual([]);
+    expect(args.programArgs).toEqual([]);
+  });
+
+  it("parses program args after -- for run", () => {
+    const args = parseArgs([
+      "node",
+      "doof",
+      "run",
+      "game/samples/jigsaw-server",
+      "--",
+      "--listen",
+      "127.0.0.1:8080",
+      "--state",
+      "state.json",
+      "--no-persist",
+      "--reset",
+    ]);
+
+    expect(args.command).toBe("run");
+    expect(args.entry).toBe("game/samples/jigsaw-server");
+    expect(args.programArgs).toEqual([
+      "--listen",
+      "127.0.0.1:8080",
+      "--state",
+      "state.json",
+      "--no-persist",
+      "--reset",
+    ]);
+  });
+
+  it("keeps program args separate from doof options", () => {
+    const args = parseArgs([
+      "node",
+      "doof",
+      "run",
+      "--outdir",
+      "build/server",
+      "game/samples/jigsaw-server",
+      "--",
+      "--outdir",
+      "program-output",
+    ]);
+
+    expect(args.outDir).toBe("build/server");
+    expect(args.entry).toBe("game/samples/jigsaw-server");
+    expect(args.programArgs).toEqual(["--outdir", "program-output"]);
   });
 
   it("parses test command flags", () => {

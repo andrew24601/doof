@@ -76,6 +76,7 @@ export interface CliArgs {
   listTests: boolean;
   coverage: boolean;
   coverageOutput: string;
+  programArgs: string[];
   nativeBuild: NativeBuildOptions;
 }
 
@@ -84,6 +85,7 @@ doof — Doof-to-C++ transpiler
 
 Usage:
   doof <command> [options] [entry.do | package-dir]
+  doof run [options] [entry.do | package-dir] -- [program args...]
 
 Commands:
   emit   [path]        Emit C++ source files to an output directory
@@ -121,12 +123,14 @@ Options:
   -v, --verbose        Print detailed progress information
   -h, --help           Show this help message
   --version            Show version
+  --                   Stop parsing Doof options; pass remaining args to doof run program
 
 Environment:
   DOOF_RUN_TIMEOUT_MS  Max runtime in ms for doof run (default: unlimited)
 
 Examples:
   doof run samples/hello.do
+  doof run game/samples/jigsaw-server -- --listen 127.0.0.1:8080 --state state.json --no-persist
   doof build -o dist samples/fibonacci.do
   doof build samples/solitaire
   doof build --target ios-app samples/solitaire
@@ -176,6 +180,7 @@ export function parseArgs(argv: string[]): CliArgs {
     listTests: false,
     coverage: false,
     coverageOutput: "",
+    programArgs: [],
     nativeBuild: createEmptyNativeBuildOptions(),
   };
 
@@ -201,6 +206,10 @@ export function parseArgs(argv: string[]): CliArgs {
   while (i < rest.length) {
     const arg = rest[i];
     switch (arg) {
+      case "--":
+        args.programArgs = rest.slice(i + 1);
+        i = rest.length;
+        break;
       case "-o": case "--outdir":
         args.outDir = rest[++i] ?? fatal("Missing value for --outdir");
         args.outDirExplicit = true;
@@ -456,10 +465,13 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
     return;
   }
 
-  if (args.verbose) log(`Running: ${runBinaryPath}`);
+  if (args.verbose) {
+    const suffix = args.programArgs.length > 0 ? ` ${args.programArgs.join(" ")}` : "";
+    log(`Running: ${runBinaryPath}${suffix}`);
+  }
   const runTimeout = resolveRunTimeoutMs(process.env);
   try {
-    execFileSync(runBinaryPath, [], {
+    execFileSync(runBinaryPath, args.programArgs, {
       stdio: "inherit",
       timeout: runTimeout,
       env: toolchain.env ?? process.env,
