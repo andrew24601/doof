@@ -1403,6 +1403,15 @@ describe("e2e — type aliases", () => {
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
 
+  it("compiles a Result-returning function type alias", () => {
+    const { success, error, code } = ctx.compileOnly(`
+      type Handler = (params: JsonValue): Result<JsonValue, string>
+
+      function main(): int => 0
+    `);
+    expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
+  });
+
   it("compiles intrinsic JsonObject alias", () => {
     const { success, error, code } = ctx.compileOnly(`
       import { formatJsonValue } from "std/json"

@@ -621,6 +621,11 @@ export function emitTypeAnnotation(
       if (typeAnn.name === "JsonValue") {
         return "doof::JsonValue";
       }
+      if (typeAnn.name === "Result" && typeAnn.typeArgs.length === 2) {
+        const successType = emitTypeAnnotation(typeAnn.typeArgs[0], ctx);
+        const errorType = emitTypeAnnotation(typeAnn.typeArgs[1], ctx);
+        return `doof::Result<${successType}, ${errorType}>`;
+      }
 
       // If analyzer resolved this, look at the symbol kind
       if (typeAnn.resolvedSymbol) {

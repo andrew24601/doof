@@ -612,6 +612,13 @@ describe("emitter — type aliases", () => {
     expect(cpp).toContain("using Predicate = doof::callback<bool(int32_t)>;");
   });
 
+  it("qualifies Result returned by a function type alias", () => {
+    const cpp = emit(`type Handler = (params: JsonValue): Result<JsonValue, string>`);
+    expect(cpp).toContain(
+      "using Handler = doof::callback<doof::Result<doof::JsonValue, std::string>(doof::JsonValue)>;",
+    );
+  });
+
   it("emits using for JsonValue type alias", () => {
     const cpp = emit(`type Payload = JsonValue`);
     expect(cpp).toContain("using Payload = doof::JsonValue;");
