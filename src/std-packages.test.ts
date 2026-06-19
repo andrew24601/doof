@@ -74,6 +74,7 @@ describe("std package metadata", () => {
       "std/http",
       "std/http-router",
       "std/http-server",
+      "std/image",
       "std/js",
       "std/json",
       "std/log",
@@ -87,7 +88,9 @@ describe("std package metadata", () => {
       "std/sqlite",
       "std/stream",
       "std/time",
+      "std/ts",
       "std/url",
+      "std/webshell",
       "std/zstd",
     ]);
   });

@@ -11,6 +11,7 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   json: "0.1",
   game: "0.1",
   gzip: "0.1",
+  image: "0.1",
   log: "0.1",
   math: "0.1",
   multiplayer: "0.1",
@@ -22,7 +23,9 @@ export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
   sqlite: "0.1",
   stream: "0.1",
   time: "0.1",
+  ts: "0.1",
   url: "0.1",
+  webshell: "0.1",
   zstd: "0.1",
 });
 
