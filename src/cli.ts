@@ -426,6 +426,7 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
       executablePath: binary,
       executableName: outputBinaryName,
       config: buildTarget.config,
+      destination: args.iosDestination,
       log: args.verbose ? log : undefined,
     });
     builtArtifactPath = bundle.appPath;

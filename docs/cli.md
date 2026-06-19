@@ -116,7 +116,7 @@ Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` 
 
 When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that local checkout root instead of fetching the compiler's default GitHub-backed std packages. For example, `DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib` makes `std/fs` resolve from `/Users/andrew/develop/doof-stdlib/fs`.
 
-For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist`. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold. Built-in app targets require PNG icons.
+For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist`. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold. During `doof build` and `doof run`, that catalog is compiled with Xcode's `actool` for the selected simulator or device platform, and the generated icon metadata is merged into the bundled `Info.plist`. Built-in app targets require PNG icons.
 
 `doof build` and `doof run` write generated files without changing mtimes when content is unchanged, compile generated and native sources to cached objects under `<buildDir>/.doof-objects/`, and link only when relevant inputs change. Reckon state lives under `<buildDir>/.reckon/state.json`, so separate output directories have independent caches.
 

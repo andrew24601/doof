@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import plist from "plist";
 import { afterEach, describe, expect, it } from "vitest";
 import { assembleIOSAppBundle } from "./ios-app-target.js";
 
@@ -28,21 +29,32 @@ describe("ios-app target helper", () => {
     fs.chmodSync(executablePath, 0o755);
 
     const infoPlistPath = path.join(outputDir, "Info.plist");
-    fs.writeFileSync(infoPlistPath, "<plist>demo</plist>", "utf8");
+    fs.writeFileSync(infoPlistPath, plist.build({ TestMarker: "demo" }), "utf8");
 
     const assetCatalogDir = path.join(outputDir, "Assets.xcassets", "AppIcon.appiconset");
     fs.mkdirSync(assetCatalogDir, { recursive: true });
-    fs.writeFileSync(path.join(assetCatalogDir, "Contents.json"), "{}", "utf8");
+    fs.writeFileSync(path.join(assetCatalogDir, "Contents.json"), JSON.stringify({
+      images: [{ filename: "iphone_app_60@2x.png", scale: "2x", size: "60x60" }],
+    }), "utf8");
+    fs.writeFileSync(path.join(dir, "app-icon.png"), "icon", "utf8");
 
     const imagesDir = path.join(dir, "images");
     fs.mkdirSync(imagesDir, { recursive: true });
     fs.writeFileSync(path.join(imagesDir, "card.png"), "png", "utf8");
 
+    const compileCalls: Array<{ assetCatalogPath: string; appPath: string; infoPlistPath: string; platform: string }> = [];
     const bundle = assembleIOSAppBundle({
       outputDir,
       executablePath,
       executableName: "DoofDemo",
       platform: "darwin",
+      destination: "device",
+      compileAssetCatalog(options) {
+        compileCalls.push(options);
+        fs.writeFileSync(path.join(options.appPath, "AppIcon60x60@2x.png"), "compiled icon", "utf8");
+        const info = plist.parse(fs.readFileSync(options.infoPlistPath, "utf8")) as Record<string, unknown>;
+        fs.writeFileSync(options.infoPlistPath, plist.build({ ...info, CFBundleIcons: {} }), "utf8");
+      },
       config: {
         bundleId: "dev.doof.demo",
         displayName: "Doof Demo",
@@ -55,12 +67,19 @@ describe("ios-app target helper", () => {
 
     expect(bundle.appPath).toBe(path.join(outputDir, "DoofDemo.app"));
     expect(fs.readFileSync(bundle.binaryPath, "utf8")).toBe("binary");
-    expect(fs.readFileSync(path.join(bundle.appPath, "Info.plist"), "utf8")).toBe("<plist>demo</plist>");
+    expect(plist.parse(fs.readFileSync(path.join(bundle.appPath, "Info.plist"), "utf8")))
+      .toMatchObject({ TestMarker: "demo", CFBundleIcons: {} });
     expect(
       fs.readFileSync(path.join(bundle.appPath, "samples", "solitaire", "images", "card.png"), "utf8"),
     ).toBe("png");
-    expect(
-      fs.readFileSync(path.join(bundle.appPath, "Assets.xcassets", "AppIcon.appiconset", "Contents.json"), "utf8"),
-    ).toBe("{}");
+    expect(fs.readFileSync(path.join(bundle.appPath, "AppIcon60x60@2x.png"), "utf8")).toBe("compiled icon");
+    expect(fs.readFileSync(path.join(bundle.appPath, "Info.plist"), "utf8")).toContain("CFBundleIcons");
+    expect(fs.existsSync(path.join(bundle.appPath, "Assets.xcassets"))).toBe(false);
+    expect(compileCalls).toEqual([expect.objectContaining({
+      assetCatalogPath: path.join(outputDir, "Assets.xcassets"),
+      appPath: bundle.appPath,
+      infoPlistPath: path.join(bundle.appPath, "Info.plist"),
+      platform: "iphoneos",
+    })]);
   });
 });

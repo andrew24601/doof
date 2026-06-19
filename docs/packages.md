@@ -147,7 +147,7 @@ Root-level compact fields win when the same value is also declared under `build`
 
 `build.targetExecutableName` remains accepted as the legacy spelling for `executable`. For `macos-app`, `title` / `build.macosApp.displayName` is UI metadata, while `executable` / `build.targetExecutableName` controls the bundle executable name and the `.app` directory name.
 
-Built-in app target icons are optional. When provided, they must be PNG files; SVG icon conversion is not part of the Doof build pipeline. When omitted, Doof emits a buildable bundle without Doof-managed app icon metadata or generated icon assets.
+Built-in app target icons are optional. When provided, they must be PNG files; SVG icon conversion is not part of the Doof build pipeline. For `ios-app`, `doof build` and `doof run` resize the PNG for the generated asset-catalog slots, compile the catalog for the selected simulator or device platform, and merge its icon metadata into `Info.plist`. When omitted, Doof emits a buildable bundle without Doof-managed app icon metadata or generated icon assets.
 
 Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `target` / `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
 
