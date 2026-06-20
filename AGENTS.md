@@ -197,6 +197,10 @@ src/
   emitter-defaults.ts           # Default value emission helpers
   app-info-plist.ts             # Shared app Info.plist value types and rendering
   macos-app-support.ts          # Browser-safe macOS app support file generation helpers
+  package-artifacts.ts          # Release defaults, artifact naming, and executable staging
+  package-command.ts            # Release pipeline orchestration and artifact dispatch
+  macos-package.ts              # macOS signing, entitlements, verification, and archive creation
+  ios-package.ts                # iOS Ad Hoc signing validation and IPA creation
   stdlib-constants.ts           # Browser-safe stdlib constants shared by emitters and loaders
   emitter-expr.ts               # Expression emission dispatcher
   emitter-expr-literals.ts      # Literal formatting and identifier sanitisation

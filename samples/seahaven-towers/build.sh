@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUT_DIR="$SCRIPT_DIR/build"
+OUT_DIR="$SCRIPT_DIR/build/debug"
 BUILD_DIR="$ROOT_DIR/build-seahaven-towers-sdl"
 RUN_AFTER_BUILD="${1:-}"
 
@@ -16,7 +16,7 @@ if [[ ! -f "$ROOT_DIR/dist/cli.js" ]]; then
     )
 fi
 
-rm -rf "$OUT_DIR"
+rm -rf "$SCRIPT_DIR/build"
 
 if [[ "$(uname)" == "Darwin" ]]; then
     node "$ROOT_DIR/dist/cli.js" build \

@@ -6,11 +6,13 @@
  * Usage:
  *   doof emit [entry.do|dir]   — Emit C++ source files to an output directory
  *   doof build [entry.do|dir]  — Emit + compile with an auto-detected native C++ compiler
+ *   doof package [entry.do|dir] — Create a signed release artifact
  *   doof run [entry.do|dir]    — Emit + compile + run the program
  *   doof check [entry.do|dir]  — Type-check only (no C++ output)
  *
  * Options:
- *   -o, --outdir <dir>         — Output directory (default: package build/ or build.buildDir)
+ *   -o, --outdir <dir>         — Build-state root (default: package build/ or build.buildDir)
+ *   --distdir <dir>            — Release artifact directory (default: package dist/)
  *   --compiler <path>          — C++ compiler to use (default: auto-detect)
  *   --std <standard>           — C++ standard (default: c++17)
  *   -v, --verbose              — Print detailed progress information
@@ -24,7 +26,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isDoofBuildTarget, type DoofBuildTarget, type IOSAppDestination } from "./build-targets.js";
 import type { NativeBuildOptions } from "./emitter-module.js";
-import { findDoofManifestPath, resolvePackageBuildContext } from "./package-manifest.js";
+import {
+  findDoofManifestPath,
+  resolvePackageBuildContext,
+  resolvePackageReleaseConfig,
+  type MacOSPackageSigning,
+  type ResolvedDoofPackageConfig,
+} from "./package-manifest.js";
 import { joinFsPath, resolveFsPath, resolveFsPathFrom } from "./path-utils.js";
 import type { FileSystem } from "./resolver.js";
 import { assembleIOSAppBundle } from "./ios-app-target.js";
@@ -51,24 +59,31 @@ import {
   writeProject,
 } from "./cli-core.js";
 import { runTestCommand } from "./test-runner.js";
+import { runPackageCommand } from "./package-command.js";
 
 // ============================================================================
 // CLI argument parsing
 // ============================================================================
 
-type Command = "emit" | "build" | "run" | "check" | "test" | "help" | "version";
-type PipelineCommand = "emit" | "build" | "run" | "check";
+type Command = "emit" | "build" | "run" | "package" | "check" | "test" | "help" | "version";
+type PipelineCommand = "emit" | "build" | "run" | "package" | "check";
 
 export interface CliArgs {
   command: Command;
   entry: string;
   outDir: string;
   outDirExplicit: boolean;
+  distDir: string;
+  distDirExplicit: boolean;
   targetOverride: DoofBuildTarget | null;
   iosDestination: IOSAppDestination;
   iosDevice: string | null;
   iosSignIdentity: string | null;
   iosProvisioningProfile: string | null;
+  macosSigning: MacOSPackageSigning | null;
+  macosSignIdentity: string | null;
+  macosSandbox: boolean | null;
+  macosEntitlements: string | null;
   compiler: string | null;
   cppStd: string;
   verbose: boolean;
@@ -90,12 +105,14 @@ Usage:
 Commands:
   emit   [path]        Emit C++ source files to an output directory
   build  [path]        Emit and compile to a native binary
+  package [path]       Create an optimized, signed release artifact in dist/
   run    [path]        Emit, compile, and run the program
   check  [path]        Type-check only (no C++ output)
   test   <path>        Discover and run exported Doof tests
 
 Options:
-  -o, --outdir <dir>   Output directory (default: package build/ or build.buildDir)
+  -o, --outdir <dir>   Build-state root (default: package build/ or build.buildDir)
+  --distdir <dir>      Packaged artifact directory (default: package dist/)
   --compiler <path>    C++ compiler (default: auto-detect clang++/g++, or Visual Studio cl.exe on Windows)
   --target <kind>      Override the manifest build target (macos-app or ios-app)
   --ios-destination <kind>
@@ -105,6 +122,13 @@ Options:
                        Code signing identity for ios-app device builds
   --ios-provisioning-profile <path>
                        Provisioning profile for ios-app device builds
+  --macos-signing <kind>
+                       macOS package signing (developer-id or ad-hoc)
+  --macos-sign-identity <name>
+                       Developer ID Application identity for macOS packaging
+  --macos-sandbox      Enable App Sandbox for a packaged macOS app
+  --macos-entitlements <path>
+                       Additional macOS package entitlements plist
   --std <standard>     C++ standard (default: c++17)
   --include-path <dir> Additional header search path (repeatable)
   --lib-path <dir>     Additional library search path (repeatable)
@@ -133,6 +157,7 @@ Examples:
   doof run game/samples/jigsaw-server -- --listen 127.0.0.1:8080 --state state.json --no-persist
   doof build -o dist samples/fibonacci.do
   doof build samples/solitaire
+  doof package samples/solitaire
   doof build --target ios-app samples/solitaire
   doof run --target ios-app --ios-destination device samples/solitaire
   doof run --target ios-app --ios-destination device --ios-device <udid> --ios-sign-identity "Apple Development: Name (TEAMID)" --ios-provisioning-profile ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision samples/solitaire
@@ -143,7 +168,7 @@ Examples:
   doof build --include-path ./vendor/include --lib-path ./vendor/lib --link-lib curl samples/http.do
 `.trimStart();
 
-const COMMANDS = new Set<Command>(["emit", "build", "run", "check", "test"]);
+const COMMANDS = new Set<Command>(["emit", "build", "run", "package", "check", "test"]);
 const FALLBACK_VERSION = "0.0.0";
 
 function createEmptyNativeBuildOptions(cppStd = "c++17"): NativeBuildOptions {
@@ -168,11 +193,17 @@ export function parseArgs(argv: string[]): CliArgs {
     entry: "",
     outDir: "./build",
     outDirExplicit: false,
+    distDir: "./dist",
+    distDirExplicit: false,
     targetOverride: null,
     iosDestination: "simulator",
     iosDevice: null,
     iosSignIdentity: null,
     iosProvisioningProfile: null,
+    macosSigning: null,
+    macosSignIdentity: null,
+    macosSandbox: null,
+    macosEntitlements: null,
     compiler: null,
     cppStd: "c++17",
     verbose: false,
@@ -214,6 +245,10 @@ export function parseArgs(argv: string[]): CliArgs {
         args.outDir = rest[++i] ?? fatal("Missing value for --outdir");
         args.outDirExplicit = true;
         break;
+      case "--distdir":
+        args.distDir = rest[++i] ?? fatal("Missing value for --distdir");
+        args.distDirExplicit = true;
+        break;
       case "--compiler":
         args.compiler = rest[++i] ?? fatal("Missing value for --compiler");
         break;
@@ -241,6 +276,21 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case "--ios-provisioning-profile":
         args.iosProvisioningProfile = rest[++i] ?? fatal("Missing value for --ios-provisioning-profile");
+        break;
+      case "--macos-signing": {
+        const value = rest[++i] ?? fatal("Missing value for --macos-signing");
+        if (value !== "developer-id" && value !== "ad-hoc") fatal(`Invalid value for --macos-signing: ${value}`);
+        args.macosSigning = value;
+        break;
+      }
+      case "--macos-sign-identity":
+        args.macosSignIdentity = rest[++i] ?? fatal("Missing value for --macos-sign-identity");
+        break;
+      case "--macos-sandbox":
+        args.macosSandbox = true;
+        break;
+      case "--macos-entitlements":
+        args.macosEntitlements = rest[++i] ?? fatal("Missing value for --macos-entitlements");
         break;
       case "--std":
         args.cppStd = rest[++i] ?? fatal("Missing value for --std");
@@ -307,16 +357,49 @@ export function resolveCliPipelineInputs(fileSystem: FileSystem, cwd: string, ar
   if (packageContext) {
     return {
       entry: packageContext.entryPath,
-      outDir: args.outDirExplicit ? args.outDir : packageContext.buildDir,
+      outDir: joinFsPath(args.outDirExplicit ? resolveFsPathFrom(cwd, args.outDir) : packageContext.buildDir, "debug"),
     };
   }
 
   const manifestPath = findDoofManifestPath(fileSystem, requestedPath);
   return {
     entry: requestedPath,
-    outDir: !args.outDirExplicit && manifestPath
-      ? resolvePackageBuildContext(fileSystem, requestedPath).buildDir
-      : args.outDir,
+    outDir: joinFsPath(
+      !args.outDirExplicit && manifestPath
+        ? resolvePackageBuildContext(fileSystem, requestedPath).buildDir
+        : resolveFsPathFrom(cwd, args.outDir),
+      "debug",
+    ),
+  };
+}
+
+interface ResolvedPackageCliInputs {
+  entry: string;
+  outDir: string;
+  distDir: string;
+  version: string;
+  packageConfig: ResolvedDoofPackageConfig;
+}
+
+export function resolveCliPackageInputs(fileSystem: FileSystem, cwd: string, args: CliArgs): ResolvedPackageCliInputs {
+  const requestedPath = args.entry ? resolveFsPathFrom(cwd, args.entry) : resolveFsPath(cwd);
+  const context = resolveRequestedPackageContext(fileSystem, requestedPath, args.entry);
+  if (context) {
+    const packageConfig = resolvePackageReleaseConfig(context);
+    return {
+      entry: context.entryPath,
+      outDir: joinFsPath(args.outDirExplicit ? resolveFsPathFrom(cwd, args.outDir) : context.buildDir, "release"),
+      distDir: args.distDirExplicit ? resolveFsPathFrom(cwd, args.distDir) : packageConfig.distDir,
+      version: context.manifest.version ?? "0.0.0",
+      packageConfig,
+    };
+  }
+  return {
+    entry: requestedPath,
+    outDir: joinFsPath(resolveFsPathFrom(cwd, args.outDir), "release"),
+    distDir: resolveFsPathFrom(cwd, args.distDir),
+    version: "0.0.0",
+    packageConfig: { distDir: resolveFsPathFrom(cwd, args.distDir), macos: {}, ios: {} },
   };
 }
 
@@ -486,6 +569,52 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
   }
 }
 
+async function cmdPackage(args: CliArgs & ResolvedPackageCliInputs): Promise<void> {
+  const signingOverrides = resolvePackageSigningOverrides(args, args.packageConfig);
+  const artifactPath = await runPackageCommand({
+    entry: args.entry,
+    outDir: args.outDir,
+    distDir: args.distDir,
+    version: args.version,
+    compiler: args.compiler,
+    nativeBuild: args.nativeBuild,
+    targetOverride: args.targetOverride,
+    verbose: args.verbose,
+    macosSigning: signingOverrides.macos,
+    iosSigning: signingOverrides.ios,
+  }, { log });
+  log(`Package complete: ${artifactPath}`);
+}
+
+export function resolvePackageSigningOverrides(
+  args: CliArgs,
+  config: ResolvedDoofPackageConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): {
+  macos: { signing: MacOSPackageSigning; identity?: string; sandbox: boolean; entitlementsPath?: string };
+  ios: { identity?: string; provisioningProfilePath?: string };
+} {
+  return {
+    macos: {
+      signing: args.macosSigning ?? config.macos.signing ?? "developer-id",
+      identity: args.macosSignIdentity ?? env.DOOF_MACOS_SIGN_IDENTITY ?? config.macos.identity,
+      sandbox: args.macosSandbox ?? config.macos.sandbox ?? false,
+      entitlementsPath: args.macosEntitlements
+        ? resolveFsPathFrom(cwd, args.macosEntitlements)
+        : config.macos.entitlements,
+    },
+    ios: {
+      identity: args.iosSignIdentity ?? env.DOOF_IOS_SIGN_IDENTITY ?? config.ios.identity,
+      provisioningProfilePath: args.iosProvisioningProfile
+        ? resolveFsPathFrom(cwd, args.iosProvisioningProfile)
+        : env.DOOF_IOS_PROVISIONING_PROFILE
+          ? resolveFsPathFrom(cwd, env.DOOF_IOS_PROVISIONING_PROFILE)
+          : config.ios.provisioningProfile,
+    },
+  };
+}
+
 async function cmdTest(args: CliArgs): Promise<void> {
   const compiler = args.compiler ? resolveCompilerToolchain(args.compiler) : findCompilerToolchain();
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
@@ -598,7 +727,7 @@ export function formatRunTimeoutMessage(timeoutMs: number): string {
 }
 
 function isPipelineCommand(command: Command): command is PipelineCommand {
-  return command === "emit" || command === "build" || command === "run" || command === "check";
+  return command === "emit" || command === "build" || command === "run" || command === "package" || command === "check";
 }
 
 function resolveRequestedPackageContext(fileSystem: FileSystem, requestedPath: string, rawEntry: string) {
@@ -636,9 +765,11 @@ function isManifestPath(pathValue: string): boolean {
 export async function main(argv = process.argv): Promise<void> {
   try {
     const args = parseArgs(argv);
-    const resolvedArgs = isPipelineCommand(args.command)
-      ? { ...args, ...resolveCliPipelineInputs(new RealFS(), process.cwd(), args) }
-      : args;
+    const resolvedArgs = args.command === "package"
+      ? { ...args, ...resolveCliPackageInputs(new RealFS(), process.cwd(), args) }
+      : isPipelineCommand(args.command)
+        ? { ...args, ...resolveCliPipelineInputs(new RealFS(), process.cwd(), args) }
+        : args;
 
     switch (resolvedArgs.command) {
       case "help":
@@ -666,6 +797,9 @@ export async function main(argv = process.argv): Promise<void> {
         break;
       case "build":
         await cmdBuildOrRun(resolvedArgs, false);
+        break;
+      case "package":
+        await cmdPackage(resolvedArgs as CliArgs & ResolvedPackageCliInputs);
         break;
       case "run":
         await cmdBuildOrRun(resolvedArgs, true);

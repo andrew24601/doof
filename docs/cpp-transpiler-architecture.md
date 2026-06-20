@@ -180,7 +180,7 @@ At a high level, emission follows this sequence:
 4. Generate runtime and feature support files required by the emitted program.
 5. Return generated source plus the native-build handoff information consumed by the CLI.
 
-The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler. `doof build` and `doof run` materialize those files through Reckon, cache task state in `<buildDir>/.reckon/state.json`, compile generated/native sources to `<buildDir>/.doof-objects/`, and link from those object files. For `ios-app`, bundle assembly also compiles the emitted app-icon catalog with `actool` for the selected destination and merges the resulting icon keys into the bundled `Info.plist`; the source `.xcassets` directory is not copied into the app.
+The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler. `doof build` and `doof run` materialize debug-profile files through Reckon under `<buildDir>/debug`; `doof package` uses an independent release graph under `<buildDir>/release` and stages its final artifact in `dist/`. Each profile keeps task state in `.reckon/state.json`, compiles generated/native sources to `.doof-objects/`, and links from those object files. App packaging then signs and verifies macOS bundles or validates an iOS Ad Hoc profile, signs the device bundle, and creates its distributable archive. For `ios-app`, bundle assembly also compiles the emitted app-icon catalog with `actool` for the selected destination and merges the resulting icon keys into the bundled `Info.plist`; the source `.xcassets` directory is not copied into the app.
 
 ## Design Constraints
 

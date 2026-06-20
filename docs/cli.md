@@ -45,6 +45,7 @@ doof run [options] [entry.do | package-dir] -- [program args...]
 | `emit [path]` | Emit C++ source files to an output directory |
 | `build [path]` | Emit and compile to a native binary |
 | `run [path]` | Emit, compile, and run the program |
+| `package [path]` | Create an optimized, signed release artifact |
 | `check [path]` | Type-check only without writing C++ output |
 | `test <path>` | Discover and run Doof tests from a file or directory |
 
@@ -52,8 +53,9 @@ doof run [options] [entry.do | package-dir] -- [program args...]
 
 - `check` — runs parsing, module analysis, and type checking; no output written
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
-- `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
+- `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/debug/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
 - `run` — same as `build`, then executes the produced binary; for native binaries, arguments after `--` are passed to the program; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
+- `package` — compiles with release defaults into `<buildDir>/release`, signs app targets, and writes the finished executable, macOS zip, or iOS IPA to `dist/`
 - `test` — discovers exported test functions in `.test.do` files, builds a harness per test file through the same incremental Reckon graph used by `build`/`run`, and runs each discovered test in its own process
 
 ### Line Coverage
@@ -118,7 +120,7 @@ When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that l
 
 For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist`. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold. During `doof build` and `doof run`, that catalog is compiled with Xcode's `actool` for the selected simulator or device platform, and the generated icon metadata is merged into the bundled `Info.plist`. Built-in app targets require PNG icons.
 
-`doof build` and `doof run` write generated files without changing mtimes when content is unchanged, compile generated and native sources to cached objects under `<buildDir>/.doof-objects/`, and link only when relevant inputs change. Reckon state lives under `<buildDir>/.reckon/state.json`, so separate output directories have independent caches.
+`doof emit`, `doof build`, and `doof run` use `<buildDir>/debug`. `doof package` uses `<buildDir>/release`; each profile keeps its own generated files, cached objects under `.doof-objects/`, and Reckon state under `.reckon/`. Release builds add `-O2`/`NDEBUG` (or `/O2`/`NDEBUG` with MSVC) before package and command-line native flags, so an explicit later flag can override optimization.
 
 `doof test` writes each test harness under the owning package's `build/.doof-tests/<module>/` directory. Those harness builds also use `<harnessBuildDir>/.reckon/state.json` and `<harnessBuildDir>/.doof-objects/`, so repeated test runs skip unchanged harness compilation while still rerunning the selected tests.
 
@@ -144,19 +146,24 @@ Root package references appear as `"."` in `referencedFrom`. Transitive remote r
 
 When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
 
-For `emit`, `build`, `run`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the output directory to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` still overrides the manifest/default output directory.
+For `emit`, `build`, `run`, `package`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the build-state root to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` overrides that root; the command still selects its `debug/` or `release/` profile beneath it.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `-o, --outdir <dir>` | Output directory. Default: the package `build/` directory or `build.buildDir` from `doof.json` |
+| `-o, --outdir <dir>` | Build-state root. Default: the package `build/` directory or `build.buildDir` from `doof.json` |
+| `--distdir <dir>` | Packaged artifact directory. Default: package-root `dist/` |
 | `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
 | `--target <kind>` | Override the manifest build target for this invocation. Supported values: `macos-app`, `ios-app` |
 | `--ios-destination <kind>` | iOS destination for `ios-app`. Supported values: `simulator`, `device`. Default: `simulator` |
 | `--ios-device <id>` | Connected iOS device identifier or name for `ios-app` runs when `--ios-destination device` is used |
 | `--ios-sign-identity <name>` | Code signing identity for `ios-app` device builds |
 | `--ios-provisioning-profile <path>` | Provisioning profile for `ios-app` device builds |
+| `--macos-signing <kind>` | macOS package signing mode: `developer-id` or `ad-hoc` |
+| `--macos-sign-identity <name>` | Developer ID Application identity for macOS packaging |
+| `--macos-sandbox` | Enable App Sandbox for a packaged macOS app |
+| `--macos-entitlements <path>` | Additional macOS package entitlements plist |
 | `--std <standard>` | C++ standard. Default: `c++17` |
 | `--include-path <dir>` | Additional header search path. Repeatable |
 | `--lib-path <dir>` | Additional library search path. Repeatable |
@@ -201,6 +208,16 @@ Build a native binary:
 ```bash
 npx doof build samples/hello.do
 ```
+
+Create a release artifact:
+
+```bash
+npx doof package samples/solitaire
+```
+
+Plain programs are copied to `dist/` using the executable name. macOS apps produce `<Executable>-<version>-macos.zip`; iOS apps produce `<Executable>-<version>-ios.ipa` with the standard `Payload/<Executable>.app` layout.
+
+macOS packaging defaults to a uniquely discoverable Developer ID Application identity, hardened runtime, timestamping, and signature verification. Pass `--macos-signing ad-hoc` for local ad-hoc signing. iOS packaging always targets physical devices and requires an unexpired Ad Hoc distribution profile; simulator apps remain a `build`/`run` concern. Signing overrides resolve in CLI, environment, manifest, then automatic-discovery order. Supported environment variables are `DOOF_MACOS_SIGN_IDENTITY`, `DOOF_IOS_SIGN_IDENTITY`, and `DOOF_IOS_PROVISIONING_PROFILE`.
 
 Build a macOS app bundle from manifest metadata:
 

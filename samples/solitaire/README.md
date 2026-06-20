@@ -160,7 +160,7 @@ rm -rf samples/solitaire/build
 node dist/cli.js build samples/solitaire
 
 # Launch the app bundle
-open samples/solitaire/build/DoofSolitaire.app
+open samples/solitaire/build/debug/DoofSolitaire.app
 ```
 
 On the iOS simulator:
@@ -235,7 +235,7 @@ On Windows, the sample builds as a normal `.exe` and stages the `images/` direct
 
 ## Apple Platform Notes
 
-- Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to build the sample directly with `doof build` and copy the finished bundle to `build/DoofSolitaire.app`.
+- Run [scripts/build-solitaire-macos.sh](/Users/andrew/develop/doof/scripts/build-solitaire-macos.sh) to build the sample directly with `doof build` from `samples/solitaire/build/debug` and copy the finished bundle to `build/DoofSolitaire.app`.
 - Run [scripts/build-solitaire-ios-simulator.sh](/Users/andrew/develop/doof/scripts/build-solitaire-ios-simulator.sh) to build and launch the sample on a booted iOS simulator using the shared UIKit and Metal host from [samples/lib/cardgame/doof.json](../lib/cardgame/doof.json).
 - Run [scripts/build-solitaire-ios-device.sh](/Users/andrew/develop/doof/scripts/build-solitaire-ios-device.sh) to build, sign, install, and launch the sample on a connected development device using `DOOF_IOS_SIGN_IDENTITY`, `DOOF_IOS_PROVISIONING_PROFILE`, and a device identifier.
 - The macOS bundle identity, plist metadata, icon path, staged resources, shared host sources, and SDL3 discovery now come from manifest-driven build metadata rooted in [samples/solitaire/doof.json](samples/solitaire/doof.json) and [samples/lib/cardgame/doof.json](samples/lib/cardgame/doof.json).

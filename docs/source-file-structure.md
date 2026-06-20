@@ -113,6 +113,10 @@ Feature-specific helpers:
 - `bin.ts` — executable entrypoint
 - `build-targets.ts` — resolved build target definitions
 - `app-info-plist.ts` — shared app `Info.plist` value types, managed-key validation, and plist rendering
+- `package-artifacts.ts` — release compiler defaults, artifact naming, and plain executable staging
+- `package-command.ts` — release pipeline orchestration and target-specific artifact dispatch
+- `macos-package.ts` — Developer ID/ad-hoc signing, sandbox entitlements, verification, and zip creation
+- `ios-package.ts` — Ad Hoc profile validation, distribution signing, verification, and IPA creation
 - `e2e-test-helpers.ts` — compiler-plus-native-build test helpers
 
 Associated surfaces nearby include native target helpers such as `macos-app-support.ts`, `ios-app-support.ts`, `stdlib-constants.ts`, and the package/build-manifest modules imported by the CLI and emitter.

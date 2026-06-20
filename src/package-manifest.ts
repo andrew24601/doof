@@ -82,7 +82,34 @@ export interface DoofBuildConfig {
   targetExecutableName?: string;
   macosApp?: DoofMacOSAppConfig;
   iosApp?: DoofIOSAppConfig;
+  package?: DoofPackageConfig;
   native?: DoofNativeBuildConfig;
+}
+
+export type MacOSPackageSigning = "developer-id" | "ad-hoc";
+
+export interface DoofMacOSPackageConfig {
+  signing?: MacOSPackageSigning;
+  identity?: string;
+  sandbox?: boolean;
+  entitlements?: string;
+}
+
+export interface DoofIOSPackageConfig {
+  identity?: string;
+  provisioningProfile?: string;
+}
+
+export interface DoofPackageConfig {
+  distDir?: string;
+  macos?: DoofMacOSPackageConfig;
+  ios?: DoofIOSPackageConfig;
+}
+
+export interface ResolvedDoofPackageConfig {
+  distDir: string;
+  macos: DoofMacOSPackageConfig & { entitlements?: string };
+  ios: DoofIOSPackageConfig & { provisioningProfile?: string };
 }
 
 export interface ResolvedPackageBuildConfig {
@@ -94,6 +121,35 @@ export interface ResolvedPackageBuildContext extends ResolvedPackageBuildConfig 
   rootDir: string;
   manifestPath: string;
   manifest: DoofManifest;
+}
+
+export function resolvePackageReleaseConfig(context: ResolvedPackageBuildContext): ResolvedDoofPackageConfig {
+  const config = context.manifest.build?.package;
+  return {
+    distDir: normalizePackagePath(config?.distDir ?? "dist", context.rootDir, context.manifestPath, "build.package.distDir"),
+    macos: {
+      ...config?.macos,
+      entitlements: config?.macos?.entitlements === undefined
+        ? undefined
+        : normalizePackagePath(
+          config.macos.entitlements,
+          context.rootDir,
+          context.manifestPath,
+          "build.package.macos.entitlements",
+        ),
+    },
+    ios: {
+      ...config?.ios,
+      provisioningProfile: config?.ios?.provisioningProfile === undefined
+        ? undefined
+        : normalizePackagePath(
+          config.ios.provisioningProfile,
+          context.rootDir,
+          context.manifestPath,
+          "build.package.ios.provisioningProfile",
+        ),
+    },
+  };
 }
 
 export interface DoofLocalDependencyConfig {
@@ -1078,8 +1134,62 @@ function parseBuildConfig(
   }
 
   const native = parseNativeBuildConfig(buildValue.native, manifestPath);
+  const packageConfig = parsePackageConfig(buildValue.package, manifestPath);
 
-  return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, iosApp, native };
+  return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, iosApp, package: packageConfig, native };
+}
+
+function parsePackageConfig(value: unknown, manifestPath: string): DoofPackageConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.package must be an object`);
+  }
+
+  const macos = parseMacOSPackageConfig(value.macos, manifestPath);
+  const ios = parseIOSPackageConfig(value.ios, manifestPath);
+  return {
+    distDir: readOptionalString(value.distDir, manifestPath, "build.package.distDir"),
+    macos,
+    ios,
+  };
+}
+
+function parseMacOSPackageConfig(value: unknown, manifestPath: string): DoofMacOSPackageConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.package.macos must be an object`);
+  }
+  const signing = readOptionalString(value.signing, manifestPath, "build.package.macos.signing");
+  if (signing !== undefined && signing !== "developer-id" && signing !== "ad-hoc") {
+    throw new Error(
+      `Invalid doof.json at ${manifestPath}: build.package.macos.signing must be one of "developer-id", "ad-hoc"`,
+    );
+  }
+  const sandbox = value.sandbox;
+  if (sandbox !== undefined && typeof sandbox !== "boolean") {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.package.macos.sandbox must be a boolean`);
+  }
+  return {
+    signing,
+    identity: readOptionalString(value.identity, manifestPath, "build.package.macos.identity"),
+    sandbox,
+    entitlements: readOptionalString(value.entitlements, manifestPath, "build.package.macos.entitlements"),
+  };
+}
+
+function parseIOSPackageConfig(value: unknown, manifestPath: string): DoofIOSPackageConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: build.package.ios must be an object`);
+  }
+  return {
+    identity: readOptionalString(value.identity, manifestPath, "build.package.ios.identity"),
+    provisioningProfile: readOptionalString(
+      value.provisioningProfile,
+      manifestPath,
+      "build.package.ios.provisioningProfile",
+    ),
+  };
 }
 
 function parseCompactAppConfig(

@@ -13,6 +13,7 @@ import {
   mergePackageNativeBuild,
   narrowPackageGraphForBuild,
   resolvePackageBuildContext,
+  resolvePackageReleaseConfig,
 } from "./package-manifest.js";
 import { DEFAULT_STD_VERSIONS, DOOF_STDLIB_ROOT_ENV } from "./std-packages.js";
 import { VirtualFS } from "./test-helpers.js";
@@ -117,6 +118,37 @@ describe("manifest build defaults", () => {
 
     expect(() => resolvePackageBuildContext(fs, "/app"))
       .toThrow("build.buildDir must stay within the package root");
+  });
+
+  it("parses and resolves release package settings", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          package: {
+            distDir: "artifacts",
+            macos: { signing: "ad-hoc", sandbox: true, entitlements: "release.entitlements" },
+            ios: { identity: "Apple Distribution: Example", provisioningProfile: "profiles/app.mobileprovision" },
+          },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+    const context = resolvePackageBuildContext(fs, "/app");
+
+    expect(resolvePackageReleaseConfig(context)).toEqual({
+      distDir: "/app/artifacts",
+      macos: { signing: "ad-hoc", sandbox: true, entitlements: "/app/release.entitlements" },
+      ios: { identity: "Apple Distribution: Example", provisioningProfile: "/app/profiles/app.mobileprovision" },
+    });
+  });
+
+  it("rejects invalid package signing settings", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({ name: "app", build: { package: { macos: { signing: "mystery" } } } }),
+      "/app/main.do": "function main(): void {}",
+    });
+    expect(() => resolvePackageBuildContext(fs, "/app")).toThrow("build.package.macos.signing");
   });
 });
 

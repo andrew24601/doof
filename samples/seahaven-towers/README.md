@@ -39,7 +39,7 @@ node dist/cli.js build samples/seahaven-towers
 On macOS, launch the bundle with:
 
 ```bash
-open samples/seahaven-towers/build/DoofSeahavenTowers.app
+open samples/seahaven-towers/build/debug/DoofSeahavenTowers.app
 ```
 
 On Windows PowerShell, install the prerequisites once:

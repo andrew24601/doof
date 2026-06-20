@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EMIT_DIR="$REPO_ROOT/samples/seahaven-towers/build"
+EMIT_DIR="$REPO_ROOT/samples/seahaven-towers/build/debug"
 
 if [[ "$(uname)" != "Darwin" ]]; then
   echo "Error: this script is intended for macOS." >&2
@@ -17,7 +17,7 @@ echo "1/3: Building TypeScript (dist/cli.js)"
 npm run build
 
 echo "2/3: Building DoofSeahavenTowers.app with doof build"
-rm -rf "$EMIT_DIR"
+rm -rf "$REPO_ROOT/samples/seahaven-towers/build"
 node dist/cli.js build samples/seahaven-towers
 
 BUNDLED_APP="$EMIT_DIR/DoofSeahavenTowers.app"

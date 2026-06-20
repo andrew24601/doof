@@ -8,6 +8,8 @@ import {
   formatRunTimeoutMessage,
   getCliVersion,
   parseArgs,
+  resolveCliPackageInputs,
+  resolvePackageSigningOverrides,
   resolveCliPipelineInputs,
   resolveRunTimeoutMs,
 } from "./cli.js";
@@ -213,6 +215,56 @@ describe("CLI argument parsing", () => {
     expect(args.iosSignIdentity).toBe("Apple Development: Jane Doe (TEAMID)");
     expect(args.iosProvisioningProfile).toBe("./profiles/dev.mobileprovision");
   });
+
+  it("parses release packaging options", () => {
+    const args = parseArgs([
+      "node", "doof", "package",
+      "--distdir", "artifacts",
+      "--macos-signing", "ad-hoc",
+      "--macos-sign-identity", "Developer ID Application: Example",
+      "--macos-sandbox",
+      "--macos-entitlements", "release.entitlements",
+      "samples/solitaire",
+    ]);
+
+    expect(args.command).toBe("package");
+    expect(args.distDir).toBe("artifacts");
+    expect(args.macosSigning).toBe("ad-hoc");
+    expect(args.macosSignIdentity).toBe("Developer ID Application: Example");
+    expect(args.macosSandbox).toBe(true);
+    expect(args.macosEntitlements).toBe("release.entitlements");
+  });
+
+  it("resolves signing settings in CLI, environment, manifest order", () => {
+    const args = parseArgs([
+      "node", "doof", "package",
+      "--macos-sign-identity", "CLI Mac",
+      "--ios-provisioning-profile", "cli.mobileprovision",
+      "demo",
+    ]);
+    const resolved = resolvePackageSigningOverrides(args, {
+      distDir: "/workspace/dist",
+      macos: { signing: "ad-hoc", identity: "Manifest Mac", sandbox: true, entitlements: "/workspace/app.entitlements" },
+      ios: { identity: "Manifest iOS", provisioningProfile: "/workspace/manifest.mobileprovision" },
+    }, {
+      DOOF_MACOS_SIGN_IDENTITY: "Environment Mac",
+      DOOF_IOS_SIGN_IDENTITY: "Environment iOS",
+      DOOF_IOS_PROVISIONING_PROFILE: "environment.mobileprovision",
+    }, "/workspace");
+
+    expect(resolved).toEqual({
+      macos: {
+        signing: "ad-hoc",
+        identity: "CLI Mac",
+        sandbox: true,
+        entitlementsPath: "/workspace/app.entitlements",
+      },
+      ios: {
+        identity: "Environment iOS",
+        provisioningProfilePath: "/workspace/cli.mobileprovision",
+      },
+    });
+  });
 });
 
 describe("CLI package resolution", () => {
@@ -225,7 +277,7 @@ describe("CLI package resolution", () => {
 
     expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
       entry: "/workspace/main.do",
-      outDir: "/workspace/build",
+      outDir: "/workspace/build/debug",
     });
   });
 
@@ -244,7 +296,7 @@ describe("CLI package resolution", () => {
 
     expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
       entry: "/workspace/demo/src/app.do",
-      outDir: "/workspace/demo/out/native",
+      outDir: "/workspace/demo/out/native/debug",
     });
   });
 
@@ -262,7 +314,7 @@ describe("CLI package resolution", () => {
 
     expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
       entry: "/workspace/src/app.do",
-      outDir: "/workspace/dist/generated",
+      outDir: "/workspace/dist/generated/debug",
     });
   });
 
@@ -280,7 +332,26 @@ describe("CLI package resolution", () => {
 
     expect(resolveCliPipelineInputs(fs, "/workspace", args)).toEqual({
       entry: "/workspace/demo/main.do",
-      outDir: "custom-out",
+      outDir: "/workspace/custom-out/debug",
+    });
+  });
+
+  it("resolves package release state and dist directories", () => {
+    const fs = new VirtualFS({
+      "/workspace/demo/doof.json": JSON.stringify({
+        name: "demo",
+        version: "2.3.4",
+        build: { buildDir: "state", package: { distDir: "artifacts" } },
+      }),
+      "/workspace/demo/main.do": "function main(): void {}",
+    });
+    const args = parseArgs(["node", "doof", "package", "demo"]);
+
+    expect(resolveCliPackageInputs(fs, "/workspace", args)).toMatchObject({
+      entry: "/workspace/demo/main.do",
+      outDir: "/workspace/demo/state/release",
+      distDir: "/workspace/demo/artifacts",
+      version: "2.3.4",
     });
   });
 });

@@ -82,7 +82,7 @@ The local development override also affects `npm run sync:stdlib`: when `DOOF_ST
 
 ## Build Defaults
 
-Packages can declare a default entrypoint and output directory for `doof emit`, `doof build`, `doof run`, and `doof check`:
+Packages can declare a default entrypoint and build-state root for `doof emit`, `doof build`, `doof run`, `doof package`, and `doof check`:
 
 ```json
 {
@@ -94,6 +94,8 @@ Packages can declare a default entrypoint and output directory for `doof emit`, 
 ```
 
 If omitted, `build.entry` defaults to `main.do` and `build.buildDir` defaults to `build`. Both paths are resolved relative to the package root and must stay within that package.
+
+`build.buildDir` is the build-state root. Normal emission and builds use its `debug/` child, while `doof package` uses `release/`. Finished release artifacts are separate from build state and default to package-root `dist/`.
 
 That means all of these forms are equivalent for a conventional package:
 
@@ -158,6 +160,32 @@ For string resources, `"images"` is shorthand for `{ "from": "images/*", "to": "
 For `ios-app`, `resources[].to` and `build.iosApp.resources[].to` are rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
 
 `build.macosApp.infoPlist` and `build.iosApp.infoPlist` add app-declared keys to the generated `Info.plist`. Values may be strings, numbers, booleans, arrays, or nested objects. Doof-managed bundle keys such as `CFBundleIdentifier`, `CFBundleExecutable`, and `MinimumOSVersion` cannot be overridden through `infoPlist`.
+
+## Release Packaging
+
+Durable release settings live under `build.package`:
+
+```json
+{
+  "build": {
+    "package": {
+      "distDir": "dist",
+      "macos": {
+        "signing": "developer-id",
+        "identity": "Developer ID Application: Example (TEAMID)",
+        "sandbox": false,
+        "entitlements": "macos.entitlements"
+      },
+      "ios": {
+        "identity": "Apple Distribution: Example (TEAMID)",
+        "provisioningProfile": "profiles/app.mobileprovision"
+      }
+    }
+  }
+}
+```
+
+All paths are package-root-relative and must stay inside the package. macOS defaults to Developer ID signing; `ad-hoc` is available for local distribution experiments. App Sandbox is opt-in and, when enabled, is merged into the supplied entitlements without allowing a conflicting false value. iOS release packaging accepts only an unexpired Ad Hoc distribution profile with provisioned devices, a matching bundle identifier, disabled `get-task-allow`, and an installed matching Apple Distribution identity. macOS notarization is not yet performed.
 
 If omitted, `macos-app` currently defaults to:
 
