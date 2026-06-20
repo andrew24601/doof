@@ -557,7 +557,7 @@ void NativeBoardgameHost::close() {
 
 - (void)tick:(CADisplayLink*)displayLink {
     (void)displayLink;
-    doof_boardgame_host::pushEvent({NativeBoardgameEventKind::RenderRequested});
+    doof_boardgame_host::pushEvent({doof_boardgame_host::NativeBoardgameEventKind::RenderRequested});
 }
 
 @end
@@ -581,20 +581,20 @@ void NativeBoardgameHost::close() {
 - (void)layoutSubviews {
     [super layoutSubviews];
     doof_boardgame_host::updateMetricsFromView(self);
-    doof_boardgame_host::pushEvent({NativeBoardgameEventKind::RenderRequested});
+    doof_boardgame_host::pushEvent({doof_boardgame_host::NativeBoardgameEventKind::RenderRequested});
 }
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
     doof_boardgame_host::updateMetricsFromView(self);
-    doof_boardgame_host::pushEvent({NativeBoardgameEventKind::RenderRequested});
+    doof_boardgame_host::pushEvent({doof_boardgame_host::NativeBoardgameEventKind::RenderRequested});
 }
 
 - (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
     (void)event;
     const CGPoint point = doof_boardgame_host::touchLocationInView(self, touches);
     doof_boardgame_host::pushEvent({
-        NativeBoardgameEventKind::MouseDown,
+        doof_boardgame_host::NativeBoardgameEventKind::MouseDown,
         static_cast<float>(point.x),
         static_cast<float>(point.y),
     });
@@ -604,7 +604,7 @@ void NativeBoardgameHost::close() {
     (void)event;
     const CGPoint point = doof_boardgame_host::touchLocationInView(self, touches);
     doof_boardgame_host::pushEvent({
-        NativeBoardgameEventKind::MouseMove,
+        doof_boardgame_host::NativeBoardgameEventKind::MouseMove,
         static_cast<float>(point.x),
         static_cast<float>(point.y),
     });
@@ -614,7 +614,7 @@ void NativeBoardgameHost::close() {
     (void)event;
     const CGPoint point = doof_boardgame_host::touchLocationInView(self, touches);
     doof_boardgame_host::pushEvent({
-        NativeBoardgameEventKind::MouseUp,
+        doof_boardgame_host::NativeBoardgameEventKind::MouseUp,
         static_cast<float>(point.x),
         static_cast<float>(point.y),
     });
