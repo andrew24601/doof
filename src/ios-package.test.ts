@@ -60,6 +60,9 @@ describe("iOS Ad Hoc package signing", () => {
     const appPath = path.join(root, "Demo.app");
     const profilePath = path.join(root, "adhoc.mobileprovision");
     fs.mkdirSync(appPath);
+    const nestedLibrary = path.join(appPath, "Frameworks", "libFoo.dylib");
+    fs.mkdirSync(path.dirname(nestedLibrary), { recursive: true });
+    fs.writeFileSync(nestedLibrary, "library");
     fs.writeFileSync(profilePath, "profile");
     const certificate = Buffer.from([1, 2, 3, 4]);
     const fingerprint = createHash("sha1").update(certificate).digest("hex").toUpperCase();
@@ -77,6 +80,8 @@ describe("iOS Ad Hoc package signing", () => {
     signAndArchiveIOSApp(appPath, archivePath, "dev.doof.demo", { provisioningProfilePath: profilePath }, host);
 
     expect(calls.some((call) => call.command === "codesign" && call.args[0] === "--verify")).toBe(true);
+    expect(calls.findIndex((call) => call.args.at(-1) === nestedLibrary))
+      .toBeLessThan(calls.findIndex((call) => call.args.at(-1) === appPath));
     const archiveCall = calls.find((call) => call.command === "ditto" && call.args.includes("-c"));
     expect(archiveCall?.args).toEqual([
       "-c", "-k", "--sequesterRsrc", "--keepParent", expect.stringMatching(/Payload$/), archivePath,

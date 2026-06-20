@@ -32,6 +32,9 @@ describe("macOS release signing", () => {
     const appPath = path.join(root, "Demo.app");
     fs.mkdirSync(path.join(appPath, "Contents", "MacOS"), { recursive: true });
     fs.writeFileSync(path.join(appPath, "Contents", "MacOS", "Demo"), "binary");
+    const nestedLibrary = path.join(appPath, "Contents", "Frameworks", "libFoo.dylib");
+    fs.mkdirSync(path.dirname(nestedLibrary), { recursive: true });
+    fs.writeFileSync(nestedLibrary, "library");
     const entitlementsPath = path.join(root, "custom.plist");
     fs.writeFileSync(entitlementsPath, plist.build({ "com.apple.security.network.client": true }));
     const calls: Array<{ command: string; args: string[] }> = [];
@@ -56,6 +59,8 @@ describe("macOS release signing", () => {
     expect(calls.at(-1)).toEqual({
       command: "codesign", args: ["--verify", "--deep", "--strict", "--verbose=2", appPath],
     });
+    expect(calls.findIndex((call) => call.args.at(-1) === nestedLibrary))
+      .toBeLessThan(calls.findIndex((call) => call.args.at(-1) === appPath));
     expect(calls.some((call) => call.args.includes("--timestamp=none"))).toBe(true);
   });
 

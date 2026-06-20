@@ -128,6 +128,9 @@ describe("ios-app device node helper", () => {
     const appPath = path.join(tempDir, "DoofDemo.app");
     const profilePath = path.join(tempDir, "dev.mobileprovision");
     fs.mkdirSync(appPath, { recursive: true });
+    const nestedLibrary = path.join(appPath, "Frameworks", "libFoo.dylib");
+    fs.mkdirSync(path.dirname(nestedLibrary), { recursive: true });
+    fs.writeFileSync(nestedLibrary, "library");
     fs.writeFileSync(profilePath, "profile");
 
     const calls: Array<{ command: string; args: string[] }> = [];
@@ -159,6 +162,12 @@ describe("ios-app device node helper", () => {
         {
           command: "plutil",
           args: ["-extract", "Entitlements", "xml1", "-o", expect.any(String) as unknown as string, expect.any(String) as unknown as string],
+        },
+        {
+          command: "codesign",
+          args: [
+            "--force", "--sign", "Apple Development: Jane Doe (TEAMID)", "--timestamp=none", nestedLibrary,
+          ],
         },
         {
           command: "codesign",

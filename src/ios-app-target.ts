@@ -10,6 +10,7 @@ import {
   renderIOSAppInfoPlist,
 } from "./ios-app-support.js";
 import { toPortablePath } from "./path-utils.js";
+import { embedAppleLibraries, type AppleEmbeddedLibraryHost } from "./apple-embedded-libraries.js";
 
 export interface IOSAppBundleResult {
   appPath: string;
@@ -25,6 +26,8 @@ export interface AssembleIOSAppBundleOptions {
   platform?: NodeJS.Platform;
   destination?: IOSAppDestination;
   compileAssetCatalog?: (options: IOSAppAssetCatalogCompileOptions) => void;
+  libraryPaths?: readonly string[];
+  embeddedLibraryHost?: AppleEmbeddedLibraryHost;
 }
 
 export interface IOSAppAssetCatalogCompileOptions {
@@ -96,6 +99,16 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
       nodeFs.copyFileSync(matchedFile, destinationPath);
     }
   }
+
+  embedAppleLibraries({
+    executablePath: bundleBinaryPath,
+    frameworksDir: nodePath.join(appPath, "Frameworks"),
+    executableFrameworkRPath: "@executable_path/Frameworks",
+    embeddedLibraries: config.embeddedLibraries ?? [],
+    libraryPaths: options.libraryPaths ?? [],
+    platform: options.destination === "device" ? "ios" : "ios-simulator",
+    host: options.embeddedLibraryHost,
+  });
 
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };

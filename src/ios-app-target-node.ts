@@ -194,6 +194,11 @@ export function signIOSDeviceApp(
 
     host.execFile("plutil", ["-extract", "Entitlements", "xml1", "-o", entitlementsPath, decodedProfilePath]);
     nodeFs.copyFileSync(options.provisioningProfilePath, nodePath.join(appPath, "embedded.mobileprovision"));
+    for (const nestedPath of collectIOSNestedCodePaths(appPath)) {
+      host.execFile("codesign", [
+        "--force", "--sign", options.signIdentity, "--timestamp=none", nestedPath,
+      ]);
+    }
     host.execFile("codesign", [
       "--force",
       "--sign",
@@ -207,6 +212,26 @@ export function signIOSDeviceApp(
   } finally {
     nodeFs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+function collectIOSNestedCodePaths(appPath: string): string[] {
+  const roots = [nodePath.join(appPath, "Frameworks"), nodePath.join(appPath, "PlugIns")];
+  const matches: string[] = [];
+  const walk = (currentPath: string) => {
+    if (!nodeFs.existsSync(currentPath)) return;
+    const stat = nodeFs.statSync(currentPath);
+    if (stat.isFile()) {
+      if ([".dylib", ".so"].includes(nodePath.extname(currentPath))) matches.push(currentPath);
+      return;
+    }
+    if ([".framework", ".appex"].includes(nodePath.extname(currentPath))) {
+      matches.push(currentPath);
+      return;
+    }
+    for (const entry of nodeFs.readdirSync(currentPath)) walk(nodePath.join(currentPath, entry));
+  };
+  for (const root of roots) walk(root);
+  return matches.sort((left, right) => right.split(nodePath.sep).length - left.split(nodePath.sep).length);
 }
 
 export function resolveIOSDeviceSigningOptionsForBundle(

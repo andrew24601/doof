@@ -11,6 +11,9 @@
       "bundleId": "dev.doof.solitaire",
       "version": "1.0",
       "category": "public.app-category.games",
+      "embeddedLibraries": [
+        { "library": "SDL3" }
+      ],
       "resources": [
         { "from": "images/*", "to": "images" }
       ]

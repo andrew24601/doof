@@ -58,6 +58,51 @@ describe("doof manifest discovery", () => {
 });
 
 describe("manifest build defaults", () => {
+  it("normalizes app-owned embedded libraries for each Apple target", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "macos-app",
+          macosApp: {
+            embeddedLibraries: [{ library: "SDL3" }, { path: "vendor/Foo.framework" }],
+          },
+          iosApp: {
+            embeddedLibraries: [{ path: "vendor/Bar.framework" }],
+          },
+        },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(loadPackageGraph(fs, "/app/main.do").rootPackage.buildTarget?.config.embeddedLibraries).toEqual([
+      { library: "SDL3" },
+      { path: "/app/vendor/Foo.framework" },
+    ]);
+    expect(loadPackageGraph(fs, "/app/main.do", { buildTargetOverride: "ios-app" })
+      .rootPackage.buildTarget?.config.embeddedLibraries).toEqual([
+      { path: "/app/vendor/Bar.framework" },
+    ]);
+  });
+
+  it("rejects malformed or escaping embedded library declarations", () => {
+    const manifest = (embeddedLibraries: unknown) => new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: { target: "macos-app", macosApp: { embeddedLibraries } },
+      }),
+      "/app/main.do": "function main(): void {}",
+    });
+
+    expect(() => loadPackageGraph(manifest([{}]), "/app/main.do")).toThrow("exactly one of library or path");
+    expect(() => loadPackageGraph(
+      manifest([{ library: "SDL3", path: "vendor/libSDL3.dylib" }]),
+      "/app/main.do",
+    )).toThrow("exactly one of library or path");
+    expect(() => loadPackageGraph(manifest([{ path: "../libBad.dylib" }]), "/app/main.do"))
+      .toThrow("must stay within the package root");
+  });
+
   it("defaults package entry and build output under the package root", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({ name: "app" }),

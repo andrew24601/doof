@@ -78,6 +78,7 @@ export async function runPackageCommand(
       executablePath: binary,
       executableName: outputBinaryName,
       config: buildTarget.config,
+      libraryPaths: effectiveNativeBuild.libraryPaths,
       log: options.verbose ? reporter.log : undefined,
     });
     signMacOSApp(bundle.appPath, options.macosSigning);
@@ -95,6 +96,7 @@ export async function runPackageCommand(
       executablePath: binary,
       executableName: outputBinaryName,
       config: buildTarget.config,
+      libraryPaths: effectiveNativeBuild.libraryPaths,
       destination: "device",
       log: options.verbose ? reporter.log : undefined,
     });

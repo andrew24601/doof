@@ -10,6 +10,7 @@ import {
   type ProjectSupportFile,
 } from "./macos-app-support.js";
 import { toPortablePath } from "./path-utils.js";
+import { embedAppleLibraries, type AppleEmbeddedLibraryHost } from "./apple-embedded-libraries.js";
 
 export { createMacOSAppSupportFiles, getMacOSAppInfoPlistPath, type ProjectSupportFile };
 
@@ -26,6 +27,8 @@ export interface AssembleMacOSAppBundleOptions {
   log?: (message: string) => void;
   platform?: NodeJS.Platform;
   generateIcon?: (iconPath: string, outputPath: string) => void;
+  libraryPaths?: readonly string[];
+  embeddedLibraryHost?: AppleEmbeddedLibraryHost;
 }
 
 export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): MacOSAppBundleResult {
@@ -46,8 +49,7 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
     ? undefined
     : nodePath.join(resourcesDir, `${executableName}.icns`);
 
-  nodeFs.mkdirSync(appPath, { recursive: true });
-  nodeFs.rmSync(contentsDir, { recursive: true, force: true });
+  nodeFs.rmSync(appPath, { recursive: true, force: true });
   nodeFs.mkdirSync(macosDir, { recursive: true });
   nodeFs.mkdirSync(resourcesDir, { recursive: true });
 
@@ -94,6 +96,16 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
       nodeFs.copyFileSync(matchedFile, destinationPath);
     }
   }
+
+  embedAppleLibraries({
+    executablePath: bundleBinaryPath,
+    frameworksDir: nodePath.join(contentsDir, "Frameworks"),
+    executableFrameworkRPath: "@executable_path/../Frameworks",
+    embeddedLibraries: config.embeddedLibraries ?? [],
+    libraryPaths: options.libraryPaths ?? [],
+    platform: "macos",
+    host: options.embeddedLibraryHost,
+  });
 
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };

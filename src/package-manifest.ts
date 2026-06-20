@@ -24,6 +24,8 @@ import {
   type DoofIOSAppConfig,
   type DoofMacOSAppConfig,
   type DoofMacOSAppResourceConfig,
+  type DoofEmbeddedLibraryConfig,
+  type ResolvedDoofEmbeddedLibrary,
   type ResolvedDoofBuildTarget,
   type ResolvedDoofIOSAppConfig,
   type ResolvedDoofMacOSAppConfig,
@@ -1260,6 +1262,7 @@ function resolveMacOSAppConfig(
     icon: rootCompact.icon ?? app?.icon ?? buildCompact.icon,
     infoPlist: app?.infoPlist,
     resources: rootCompact.resources ?? app?.resources ?? buildCompact.resources,
+    embeddedLibraries: app?.embeddedLibraries,
     category: app?.category,
     minimumSystemVersion: app?.minimumSystemVersion,
   };
@@ -1280,6 +1283,7 @@ function resolveIOSAppConfig(
     icon: rootCompact.icon ?? app?.icon ?? buildCompact.icon,
     infoPlist: app?.infoPlist,
     resources: rootCompact.resources ?? app?.resources ?? buildCompact.resources,
+    embeddedLibraries: app?.embeddedLibraries,
     minimumDeploymentTarget: app?.minimumDeploymentTarget,
   };
 }
@@ -1319,6 +1323,11 @@ function parseMacOSAppConfig(value: unknown, manifestPath: string): DoofMacOSApp
     icon: readOptionalString(value.icon, manifestPath, "build.macosApp.icon"),
     infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.macosApp.infoPlist"),
     resources: readOptionalAppResources(value.resources, manifestPath, "build.macosApp.resources"),
+    embeddedLibraries: readOptionalEmbeddedLibraries(
+      value.embeddedLibraries,
+      manifestPath,
+      "build.macosApp.embeddedLibraries",
+    ),
     category: readOptionalString(value.category, manifestPath, "build.macosApp.category"),
     minimumSystemVersion: readOptionalString(
       value.minimumSystemVersion,
@@ -1344,6 +1353,11 @@ function parseIOSAppConfig(value: unknown, manifestPath: string): DoofIOSAppConf
     icon: readOptionalString(value.icon, manifestPath, "build.iosApp.icon"),
     infoPlist: readOptionalInfoPlist(value.infoPlist, manifestPath, "build.iosApp.infoPlist"),
     resources: readOptionalAppResources(value.resources, manifestPath, "build.iosApp.resources"),
+    embeddedLibraries: readOptionalEmbeddedLibraries(
+      value.embeddedLibraries,
+      manifestPath,
+      "build.iosApp.embeddedLibraries",
+    ),
     minimumDeploymentTarget: readOptionalString(
       value.minimumDeploymentTarget,
       manifestPath,
@@ -1381,6 +1395,31 @@ function readOptionalAppResources(
       from: readRequiredString(entry.from, manifestPath, `${fieldPath}[${index}].from`),
       to: readRequiredString(entry.to, manifestPath, `${fieldPath}[${index}].to`),
     };
+  });
+}
+
+function readOptionalEmbeddedLibraries(
+  value: unknown,
+  manifestPath: string,
+  fieldPath: string,
+): DoofEmbeddedLibraryConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath} must be an array`);
+  }
+
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must be an object`);
+    }
+    const library = readOptionalString(entry.library, manifestPath, `${fieldPath}[${index}].library`);
+    const path = readOptionalString(entry.path, manifestPath, `${fieldPath}[${index}].path`);
+    if ((library === undefined) === (path === undefined)) {
+      throw new Error(
+        `Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must declare exactly one of library or path`,
+      );
+    }
+    return library === undefined ? { path: path! } : { library };
   });
 }
 
@@ -1899,12 +1938,18 @@ function normalizeMacOSAppBuildConfig(
     manifestPath,
     "build.macosApp.infoPlist",
   );
+  const embeddedLibraries = normalizeEmbeddedLibraries(
+    macosApp.embeddedLibraries,
+    rootDir,
+    manifestPath,
+    "build.macosApp.embeddedLibraries",
+  );
   return {
     bundleId: readResolvedAppString(macosApp.bundleId, manifestPath, "build.macosApp.bundleId"),
     displayName: readResolvedAppString(macosApp.displayName, manifestPath, "build.macosApp.displayName"),
     version: readResolvedAppString(macosApp.version, manifestPath, "build.macosApp.version"),
-    iconPath,
-    infoPlist: macosApp.infoPlist,
+    ...(iconPath === undefined ? {} : { iconPath }),
+    ...(macosApp.infoPlist === undefined ? {} : { infoPlist: macosApp.infoPlist }),
     resources: (macosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,
@@ -1914,6 +1959,7 @@ function normalizeMacOSAppBuildConfig(
       ),
       destination: normalizeMacOSAppResourceDestinationOrThrow(resource.to, manifestPath, index),
     })),
+    ...(embeddedLibraries.length === 0 ? {} : { embeddedLibraries }),
     category: macosApp.category ?? DEFAULT_MACOS_APP_CATEGORY,
     minimumSystemVersion: macosApp.minimumSystemVersion ?? DEFAULT_MACOS_MINIMUM_SYSTEM_VERSION,
   };
@@ -1946,12 +1992,18 @@ function normalizeIOSAppBuildConfig(
     manifestPath,
     "build.iosApp.infoPlist",
   );
+  const embeddedLibraries = normalizeEmbeddedLibraries(
+    iosApp.embeddedLibraries,
+    rootDir,
+    manifestPath,
+    "build.iosApp.embeddedLibraries",
+  );
   return {
     bundleId: readResolvedAppString(iosApp.bundleId, manifestPath, "build.iosApp.bundleId"),
     displayName: readResolvedAppString(iosApp.displayName, manifestPath, "build.iosApp.displayName"),
     version: readResolvedAppString(iosApp.version, manifestPath, "build.iosApp.version"),
-    iconPath,
-    infoPlist: iosApp.infoPlist,
+    ...(iconPath === undefined ? {} : { iconPath }),
+    ...(iosApp.infoPlist === undefined ? {} : { infoPlist: iosApp.infoPlist }),
     resources: (iosApp.resources ?? []).map((resource, index) => ({
       fromPattern: normalizePackagePath(
         resource.from,
@@ -1961,6 +2013,7 @@ function normalizeIOSAppBuildConfig(
       ),
       destination: normalizeIOSAppResourceDestinationOrThrow(resource.to, manifestPath, index),
     })),
+    ...(embeddedLibraries.length === 0 ? {} : { embeddedLibraries }),
     minimumDeploymentTarget: iosApp.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
   };
 }
@@ -1986,6 +2039,19 @@ function normalizeIOSAppResourceDestinationOrThrow(value: string, manifestPath: 
       `Invalid doof.json at ${manifestPath}: build.iosApp.resources[${index}].to ${error?.message ?? String(error)}`,
     );
   }
+}
+
+function normalizeEmbeddedLibraries(
+  entries: DoofEmbeddedLibraryConfig[] | undefined,
+  rootDir: string,
+  manifestPath: string,
+  fieldPath: string,
+): ResolvedDoofEmbeddedLibrary[] {
+  return (entries ?? []).map((entry, index) => "library" in entry && entry.library !== undefined
+    ? { library: entry.library }
+    : {
+      path: normalizePackagePath(entry.path!, rootDir, manifestPath, `${fieldPath}[${index}].path`),
+    });
 }
 
 function normalizePackagePaths(

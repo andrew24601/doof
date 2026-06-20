@@ -497,6 +497,7 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
       executablePath: binary,
       executableName: outputBinaryName,
       config: buildTarget.config,
+      libraryPaths: effectiveNativeBuild.libraryPaths,
       log: args.verbose ? log : undefined,
     });
     builtArtifactPath = bundle.appPath;
@@ -509,6 +510,7 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
       executablePath: binary,
       executableName: outputBinaryName,
       config: buildTarget.config,
+      libraryPaths: effectiveNativeBuild.libraryPaths,
       destination: args.iosDestination,
       log: args.verbose ? log : undefined,
     });

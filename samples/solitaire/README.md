@@ -212,7 +212,7 @@ cmake --build build-solitaire-sdl --config Release
 
 If you previously configured an older SDL sample build, remove `build-solitaire-sdl/` and re-run the two CMake commands above so you are not reusing a stale cache.
 
-On macOS, the sample builds as a real `.app` bundle directly through `doof build`, with staged resources, a Dock/Finder icon, and bundle metadata declared in [samples/solitaire/doof.json](samples/solitaire/doof.json).
+On macOS, the sample builds as a real `.app` bundle directly through `doof build`, with staged resources, a Dock/Finder icon, and bundle metadata declared in [samples/solitaire/doof.json](samples/solitaire/doof.json). The manifest explicitly embeds SDL3; Doof resolves it from the `pkg-config` library paths, copies it into `Contents/Frameworks`, and rewrites the executable to use the bundled copy.
 On Windows, the sample builds as a normal `.exe` and stages the `images/` directory next to the executable.
 
 ## Game Rules (Klondike Solitaire)

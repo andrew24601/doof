@@ -115,6 +115,7 @@ Feature-specific helpers:
 - `app-info-plist.ts` — shared app `Info.plist` value types, managed-key validation, and plist rendering
 - `package-artifacts.ts` — release compiler defaults, artifact naming, and plain executable staging
 - `package-command.ts` — release pipeline orchestration and target-specific artifact dispatch
+- `apple-embedded-libraries.ts` — explicit Apple dylib/framework resolution, bundle copying, Mach-O rewriting, and dependency validation
 - `macos-package.ts` — Developer ID/ad-hoc signing, sandbox entitlements, verification, and zip creation
 - `ios-package.ts` — Ad Hoc profile validation, distribution signing, verification, and IPA creation
 - `e2e-test-helpers.ts` — compiler-plus-native-build test helpers

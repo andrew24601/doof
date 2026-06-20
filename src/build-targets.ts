@@ -9,6 +9,14 @@ export interface DoofMacOSAppResourceConfig {
   to: string;
 }
 
+export type DoofEmbeddedLibraryConfig =
+  | { library: string; path?: never }
+  | { library?: never; path: string };
+
+export type ResolvedDoofEmbeddedLibrary =
+  | { library: string; path?: never }
+  | { library?: never; path: string };
+
 export interface DoofMacOSAppConfig {
   bundleId?: string;
   displayName?: string;
@@ -16,6 +24,7 @@ export interface DoofMacOSAppConfig {
   icon?: string;
   infoPlist?: AppInfoPlist;
   resources?: DoofMacOSAppResourceConfig[];
+  embeddedLibraries?: DoofEmbeddedLibraryConfig[];
   category?: string;
   minimumSystemVersion?: string;
 }
@@ -32,6 +41,7 @@ export interface DoofIOSAppConfig {
   icon?: string;
   infoPlist?: AppInfoPlist;
   resources?: DoofIOSAppResourceConfig[];
+  embeddedLibraries?: DoofEmbeddedLibraryConfig[];
   minimumDeploymentTarget?: string;
 }
 
@@ -47,6 +57,7 @@ export interface ResolvedDoofMacOSAppConfig {
   iconPath?: string;
   infoPlist?: AppInfoPlist;
   resources: ResolvedDoofMacOSAppResource[];
+  embeddedLibraries?: ResolvedDoofEmbeddedLibrary[];
   category: string;
   minimumSystemVersion: string;
 }
@@ -63,6 +74,7 @@ export interface ResolvedDoofIOSAppConfig {
   iconPath?: string;
   infoPlist?: AppInfoPlist;
   resources: ResolvedDoofIOSAppResource[];
+  embeddedLibraries?: ResolvedDoofEmbeddedLibrary[];
   minimumDeploymentTarget: string;
 }
 

@@ -85,6 +85,9 @@ describe("macos-app target helper", () => {
     const executablePath = path.join(outputDir, "DoofDemo");
     fs.writeFileSync(executablePath, "binary", "utf8");
     fs.chmodSync(executablePath, 0o755);
+    const staleBundleFile = path.join(outputDir, "DoofDemo.app", "stale-ios-file");
+    fs.mkdirSync(path.dirname(staleBundleFile), { recursive: true });
+    fs.writeFileSync(staleBundleFile, "stale", "utf8");
 
     const iconPath = path.join(dir, "app-icon.png");
     fs.writeFileSync(iconPath, "png", "utf8");
@@ -132,6 +135,7 @@ describe("macos-app target helper", () => {
 
     expect(bundle.appPath).toBe(path.join(outputDir, "DoofDemo.app"));
     expect(fs.readFileSync(bundle.binaryPath, "utf8")).toBe("binary");
+    expect(fs.existsSync(staleBundleFile)).toBe(false);
     expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Info.plist"), "utf8"))
       .toContain("dev.doof.demo");
     expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Resources", "DoofDemo.icns"), "utf8"))

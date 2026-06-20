@@ -124,6 +124,10 @@ Packages can opt into target-specific build behavior under `build.target`. The b
   "build": {
     "macosApp": {
       "category": "public.app-category.games",
+      "embeddedLibraries": [
+        { "library": "SDL3" },
+        { "path": "vendor/Foo.framework" }
+      ],
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Doof Solitaire uses the local network to find nearby players.",
         "NSBonjourServices": ["_doof-solitaire._tcp"]
@@ -160,6 +164,10 @@ For string resources, `"images"` is shorthand for `{ "from": "images/*", "to": "
 For `ios-app`, `resources[].to` and `build.iosApp.resources[].to` are rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
 
 `build.macosApp.infoPlist` and `build.iosApp.infoPlist` add app-declared keys to the generated `Info.plist`. Values may be strings, numbers, booleans, arrays, or nested objects. Doof-managed bundle keys such as `CFBundleIdentifier`, `CFBundleExecutable`, and `MinimumOSVersion` cannot be overridden through `infoPlist`.
+
+`build.macosApp.embeddedLibraries` and `build.iosApp.embeddedLibraries` are explicit app-owned allowlists for non-system dynamic code. `{ "library": "SDL3" }` resolves `libSDL3.dylib` from the final native library paths, including paths contributed by `pkg-config`. `{ "path": "vendor/Foo.framework" }` embeds a package-relative `.dylib`, `.so`, or `.framework`; paths must stay within the root app package. macOS places these items in `Contents/Frameworks`, while iOS places them in `Frameworks` at the bundle root.
+
+Bundle assembly copies only listed items, rewrites their Mach-O install names and references to `@rpath`, removes matching external library rpaths, and rejects undeclared non-system dependencies. It never follows and bundles a dynamic dependency implicitly. Embedded code must contain every architecture required by the app and target the active Apple platform. Apple bundle signing signs embedded code before signing the outer app.
 
 ## Release Packaging
 
