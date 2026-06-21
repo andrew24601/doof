@@ -10,11 +10,11 @@
 import { Suit, Rank, PlayingCard, Card, createDeck, cardId, cardBackId, foundationSuit } from "cardgame/cards"
 
 import {
-  Pile, SolitaireState, Random, shuffle,
+  Pile, SolitaireState, shuffle,
   initializeGame, updateCardPositions, isAnimating, CARD_VERTICAL_OFFSET
 } from "./game"
 export {
-  Pile, SolitaireState, Random, shuffle,
+  Pile, SolitaireState, shuffle,
   initializeGame, updateCardPositions, isAnimating, CARD_VERTICAL_OFFSET
 } from "./game"
 

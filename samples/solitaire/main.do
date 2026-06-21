@@ -23,7 +23,7 @@ function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppS
         needsRender = hostCancelInteraction(input, app) || needsRender
       }
       .NewGameRequested -> {
-        appNewGame(app, host.ticks())
+        appNewGame(app)
         needsRender = true
       }
       .AutoCompleteRequested -> {
@@ -48,7 +48,7 @@ function handleHostEvents(host: NativeBoardgameHost, input: HostInput, app: AppS
         )
 
         if result == 2 {
-          appNewGame(app, host.ticks())
+          appNewGame(app)
         }
       }
       .MouseMove -> {
@@ -94,7 +94,7 @@ function runSolitaire(): Result<void, string> {
   buttonTextureId := host.createSolidColorTexture(60, 60, 70, 255)
   whiteTextureId := host.createSolidColorTexture(255, 255, 255, 255)
 
-  app := createApp(host.ticks())
+  app := createApp()
   loadPlayingCardLibrary(app.cardLibrary)
 
   input := HostInput {}

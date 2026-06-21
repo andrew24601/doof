@@ -1,6 +1,7 @@
 // Solitaire game state, initialization, pile management, and position updates
 
 import { Suit, Rank, PlayingCard, Card, createDeck, cardId, cardBackId } from "cardgame/cards"
+import { randomInt } from "std/random"
 
 // A pile of cards — holds indices into the main cards array
 export class Pile {
@@ -39,29 +40,10 @@ export class Pile {
   }
 }
 
-// Simple pseudo-random number generator (32-bit LCG)
-export class Random {
-  state: long = 0L
-
-  // Returns a pseudo-random int in [0, bound)
-  nextInt(bound: int): int {
-    if bound <= 0 { return 0 }
-
-    // Keep the LCG in 64-bit space so Release builds do not hit signed-int UB
-    // in the generated C++ shuffle logic.
-    state = (state * 1103515245L + 12345L) % 2147483648L
-    if state < 0L {
-      state = state + 2147483648L
-    }
-
-    return int(state % long(bound))
-  }
-}
-
 // Shuffle an array of ints in place using Fisher-Yates
-export function shuffle(arr: int[], rng: Random): void {
+export function shuffle(arr: int[]): void {
   for let i = arr.length - 1; i > 0; i -= 1 {
-    j := rng.nextInt(i + 1)
+    j := randomInt(i + 1)
     // Swap arr[i] and arr[j]
     temp := arr[i]
     arr[i] = arr[j]
@@ -155,7 +137,7 @@ export const CARD_VERTICAL_OFFSET: float = 20.0f
 const FACE_DOWN_OFFSET: float = 10.0f
 
 // Initialize a new solitaire game with a shuffled deck
-export function initializeGame(state: SolitaireState, seed: int): void {
+export function initializeGame(state: SolitaireState): void {
   // Create deck info
   state.cardInfo = createDeck()
 
@@ -174,8 +156,7 @@ export function initializeGame(state: SolitaireState, seed: int): void {
   for i of 0..51 {
     deck.push(i)
   }
-  rng := Random { state: seed }
-  shuffle(deck, rng)
+  shuffle(deck)
 
   // Deal to tableau: pile i gets i+1 cards, last is face-up
   let deckIndex = 0

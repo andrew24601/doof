@@ -49,7 +49,9 @@ function createFsPackageWorkspace(appName: string, mainSource: string): string {
 
 function loadSolitaireLogicSample(overrides: Record<string, string> = {}): Record<string, string> {
   const sampleDir = path.join(process.cwd(), "samples", "solitaire");
+  const randomDir = path.join(process.cwd(), "stdlib", "random");
   return {
+    "/__doof_stdlib__/std/random/index.do": fs.readFileSync(path.join(randomDir, "index.do"), "utf8"),
     "/solitaire/doof.json": fs.readFileSync(path.join(sampleDir, "doof.json"), "utf8"),
     "/solitaire/game.do": fs.readFileSync(path.join(sampleDir, "game.do"), "utf8"),
     "/solitaire/input.do": fs.readFileSync(path.join(sampleDir, "input.do"), "utf8"),
@@ -65,10 +67,28 @@ describe("e2e — solitaire sample logic", () => {
       loadSolitaireLogicSample({
         "/solitaire/main.do": [
           `import { Suit, Rank, PlayingCard, Card } from "cardgame/cards"`,
-          `import { SolitaireState, updateCardPositions } from "./game"`,
+          `import { SolitaireState, shuffle, updateCardPositions } from "./game"`,
           `import { handleDragStart, handleDragMove, handleDragEnd } from "./input"`,
           ``,
           `function main(): void {`,
+          `  deck := [0, 1, 2, 3]`,
+          `  shuffle(deck)`,
+          `  let seen0 = false`,
+          `  let seen1 = false`,
+          `  let seen2 = false`,
+          `  let seen3 = false`,
+          `  for card of deck {`,
+          `    case card {`,
+          `      0 -> { seen0 = true }`,
+          `      1 -> { seen1 = true }`,
+          `      2 -> { seen2 = true }`,
+          `      3 -> { seen3 = true }`,
+          `      _ -> { assert(false, "shuffle introduced an unknown card") }`,
+          `    }`,
+          `  }`,
+          `  assert(deck.length == 4, "shuffle changed the deck length")`,
+          `  assert(seen0 && seen1 && seen2 && seen3, "shuffle lost a card")`,
+          ``,
           `  state := SolitaireState {}`,
           `  state.cardInfo = [`,
           `    PlayingCard { suit: .Hearts, rank: .Five },`,
@@ -104,6 +124,7 @@ describe("e2e — solitaire sample logic", () => {
         ].join("\n"),
       }),
       "/solitaire/main.do",
+      { includePaths: [path.join(process.cwd(), "stdlib", "random")] },
     );
 
     if (result.exitCode === -1) {

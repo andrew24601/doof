@@ -18,9 +18,9 @@ export class AppState {
 }
 
 // Create a fully initialized application.
-export function createApp(seed: int): AppState {
+export function createApp(): AppState {
   state := SolitaireState {}
-  initializeGame(state, seed)
+  initializeGame(state)
 
   camera := Camera {}
   cardLibrary := createPlayingCardLibrary()
@@ -35,9 +35,9 @@ export function createApp(seed: int): AppState {
 }
 
 // Start a new game, preserving camera and card library.
-export function appNewGame(app: AppState, seed: int): void {
+export function appNewGame(app: AppState): void {
   app.state = SolitaireState {}
-  initializeGame(app.state, seed)
+  initializeGame(app.state)
 }
 
 // Advance animations. Returns true if still animating.
