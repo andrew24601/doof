@@ -21,6 +21,7 @@ import {
   mergePackageNativeBuild,
   type ResolvedPackageNativeBuild,
 } from "./package-manifest.js";
+import type { ResolvedDoofResource } from "./resource-patterns.js";
 import { createNodeBundledModuleResolver, withNodeBundledStdlib } from "./stdlib-node.js";
 
 export class RealFS implements FileSystem {
@@ -56,6 +57,7 @@ export interface PipelineResult {
   provenance: BuildProvenance;
   buildManifest: BuildManifestTemplate;
   buildTarget: ResolvedDoofBuildTarget | null;
+  resources: ResolvedDoofResource[];
 }
 
 interface BuildManifestTemplate {
@@ -78,6 +80,7 @@ interface BuildManifestTemplate {
   compilerFlags: string[];
   linkerFlags: string[];
   packageRoots: string[];
+  resources: ResolvedDoofResource[];
   remoteDependencies: BuildProvenance["dependencies"];
   externalDependencies: BuildProvenance["externalDependencies"];
 }
@@ -100,6 +103,7 @@ export interface DoofBuildManifest {
   compilerFlags: string[];
   linkerFlags: string[];
   packageRoots: string[];
+  resources: ResolvedDoofResource[];
   remoteDependencies: BuildProvenance["dependencies"];
   externalDependencies: BuildProvenance["externalDependencies"];
 }
@@ -395,10 +399,12 @@ export function runPipelineWithFs(
     outputBinaryName,
     provenance,
     buildTarget,
+    resources: packageGraph.rootPackage.resources,
     buildManifest: createBuildManifestTemplate(
       normalizedEntryPath,
       outputBinaryName,
       buildTarget,
+      packageGraph.rootPackage.resources,
       project,
       hostResolvedNativeBuild,
       buildPackageGraph.packages.map((pkg) => pkg.rootDir),
@@ -763,6 +769,7 @@ function createBuildManifestTemplate(
   entryPath: string,
   outputBinaryName: string,
   buildTarget: ResolvedDoofBuildTarget | null,
+  resources: ResolvedDoofResource[],
   project: ProjectEmitResult,
   nativeBuild: NativeBuildOptions,
   packageRoots: string[],
@@ -788,6 +795,7 @@ function createBuildManifestTemplate(
     compilerFlags: [...nativeBuild.compilerFlags],
     linkerFlags: [...nativeBuild.linkerFlags],
     packageRoots: [...packageRoots],
+    resources: [...resources],
     remoteDependencies: provenance.dependencies,
     externalDependencies: provenance.externalDependencies,
   };
@@ -824,6 +832,7 @@ function finalizeBuildManifest(template: BuildManifestTemplate, outDir: string):
     compilerFlags: [...template.compilerFlags],
     linkerFlags: [...template.linkerFlags],
     packageRoots: [...template.packageRoots],
+    resources: [...template.resources],
     remoteDependencies: template.remoteDependencies,
     externalDependencies: template.externalDependencies,
   };

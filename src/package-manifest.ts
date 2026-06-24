@@ -30,6 +30,7 @@ import {
   type ResolvedDoofIOSAppConfig,
   type ResolvedDoofMacOSAppConfig,
 } from "./build-targets.js";
+import type { ResolvedDoofResource } from "./resource-patterns.js";
 import {
   dirnameFsPath,
   isAbsoluteFsPath,
@@ -82,6 +83,7 @@ export interface DoofBuildConfig {
   buildDir?: string;
   target?: DoofBuildTarget;
   targetExecutableName?: string;
+  resources?: DoofMacOSAppResourceConfig[];
   macosApp?: DoofMacOSAppConfig;
   iosApp?: DoofIOSAppConfig;
   package?: DoofPackageConfig;
@@ -217,6 +219,7 @@ export interface LoadedPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  resources: ResolvedDoofResource[];
   externalDependencySentinelPaths: readonly string[];
   externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
@@ -314,6 +317,7 @@ interface MutableLoadedPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  resources: ResolvedDoofResource[];
   externalDependencySentinelPaths: string[];
   externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
@@ -349,6 +353,7 @@ interface DiscoveredPackage {
   remotePackage: ResolvedRemotePackage | null;
   nativeBuild: ResolvedPackageNativeBuild;
   buildTarget: ResolvedDoofBuildTarget | null;
+  resources: ResolvedDoofResource[];
   externalDependencySentinelPaths: string[];
   externalDependencyNativeTargetContext: ExternalDependencyNativeTargetContext;
 }
@@ -783,6 +788,7 @@ function discoverPackageFromManifest(
       context.effectiveIOSDestination,
     ),
     buildTarget: normalizeBuildTargetConfig(manifest.build, rootDir, normalizedManifestPath, buildTargetOverride),
+    resources: normalizePackageResources(manifest.build?.resources, rootDir, normalizedManifestPath),
     externalDependencySentinelPaths,
     externalDependencyNativeTargetContext,
   };
@@ -991,6 +997,7 @@ function finalizeLoadedPackage(
     remotePackage: discovered.remotePackage,
     nativeBuild: discovered.nativeBuild,
     buildTarget: discovered.buildTarget,
+    resources: [...discovered.resources],
     externalDependencySentinelPaths: [...discovered.externalDependencySentinelPaths],
     externalDependencyNativeTargetContext: discovered.externalDependencyNativeTargetContext,
   };
@@ -1138,7 +1145,9 @@ function parseBuildConfig(
   const native = parseNativeBuildConfig(buildValue.native, manifestPath);
   const packageConfig = parsePackageConfig(buildValue.package, manifestPath);
 
-  return { entry, buildDir, target: targetValue, targetExecutableName, macosApp, iosApp, package: packageConfig, native };
+  const resources = rootCompact.resources ?? buildCompact.resources;
+
+  return { entry, buildDir, target: targetValue, targetExecutableName, resources, macosApp, iosApp, package: packageConfig, native };
 }
 
 function parsePackageConfig(value: unknown, manifestPath: string): DoofPackageConfig | undefined {
@@ -1227,8 +1236,7 @@ function hasCompactAppConfig(config: CompactAppConfig): boolean {
 function hasCompactAppMetadata(config: CompactAppConfig): boolean {
   return config.id !== undefined
     || config.title !== undefined
-    || config.icon !== undefined
-    || config.resources !== undefined;
+    || config.icon !== undefined;
 }
 
 function resolveTargetExecutableName(
@@ -2016,6 +2024,41 @@ function normalizeIOSAppBuildConfig(
     ...(embeddedLibraries.length === 0 ? {} : { embeddedLibraries }),
     minimumDeploymentTarget: iosApp.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET,
   };
+}
+
+function normalizePackageResources(
+  resources: DoofMacOSAppResourceConfig[] | undefined,
+  rootDir: string,
+  manifestPath: string,
+): ResolvedDoofResource[] {
+  return (resources ?? []).map((resource, index) => ({
+    fromPattern: normalizePackagePath(resource.from, rootDir, manifestPath, `resources[${index}].from`),
+    destination: normalizePackageResourceDestinationOrThrow(resource.to, manifestPath, index),
+  }));
+}
+
+function normalizePackageResourceDestinationOrThrow(value: string, manifestPath: string, index: number): string {
+  try {
+    return normalizePackageResourceDestination(value);
+  } catch (error: any) {
+    throw new Error(
+      `Invalid doof.json at ${manifestPath}: resources[${index}].to ${error?.message ?? String(error)}`,
+    );
+  }
+}
+
+function normalizePackageResourceDestination(destination: string): string {
+  const portableDestination = destination.replace(/\\/g, "/");
+  if (portableDestination.startsWith("/") || portableDestination.match(/^[A-Za-z]:\//)) {
+    throw new Error("resource destinations must be relative");
+  }
+
+  const normalized = nodePath.posix.normalize(portableDestination || ".");
+  if (normalized === ".." || normalized.startsWith("../")) {
+    throw new Error("resource destinations must stay within the executable resource directory");
+  }
+
+  return normalized === "." ? "" : normalized;
 }
 
 function readResolvedAppString(value: string | undefined, manifestPath: string, fieldPath: string): string {

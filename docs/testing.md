@@ -188,6 +188,8 @@ Run all tests under a directory:
 npx doof test src
 ```
 
+Directory discovery skips nested Doof packages. If the runner encounters a subdirectory containing its own `doof.json`, it ignores that subdirectory; run `doof test` against that package directly when you want its tests.
+
 List discovered tests without running them:
 
 ```bash

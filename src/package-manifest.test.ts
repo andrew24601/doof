@@ -2067,6 +2067,52 @@ describe("local package graphs", () => {
     expect(graph.rootPackage.manifest.build?.targetExecutableName).toBe("compact-demo");
     expect(graph.rootPackage.buildTarget).toBeNull();
   });
+
+  it("resolves compact resources for command-line executable builds", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        resources: ["images"],
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/images/card.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget).toBeNull();
+    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images/*", destination: "images" }]);
+  });
+
+  it("allows command-line executable resources without app metadata defaults", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        resources: ["images"],
+      }),
+      "/app/main.do": "function main(): int => 0",
+      "/app/images/card.png": "png",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget).toBeNull();
+    expect(graph.rootPackage.manifest.build?.macosApp).toBeUndefined();
+    expect(graph.rootPackage.manifest.build?.iosApp).toBeUndefined();
+    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images/*", destination: "images" }]);
+  });
+
+  it("rejects command-line resource destinations that escape the executable resource directory", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        resources: [{ from: "images/*", to: "../oops" }],
+      }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    expect(() => loadPackageGraph(fs, "/app/main.do"))
+      .toThrow("resources[0].to resource destinations must stay within the executable resource directory");
+  });
 });
 
 describe("manifest-derived pipeline metadata", () => {
@@ -2127,11 +2173,13 @@ describe("manifest-derived pipeline metadata", () => {
             linkLibraries: ["sqlite3"],
           },
         },
+        resources: ["assets"],
         dependencies: {
           foo: { path: "../deps/foo" },
         },
       }),
       "/app/main.do": 'import { value } from "foo"\nfunction main(): int => value',
+      "/app/assets/config.json": "{}",
       "/deps/foo/doof.json": JSON.stringify({
         name: "foo",
         build: {
@@ -2177,6 +2225,7 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.buildManifest.compilerFlags).toEqual(["-O2"]);
     expect(result.buildManifest.linkerFlags).toEqual(["-pthread"]);
     expect(result.buildManifest.packageRoots).toEqual(["/app", "/deps/foo"]);
+    expect(result.buildManifest.resources).toEqual([{ fromPattern: "/app/assets/*", destination: "assets" }]);
   });
 
   it("writes doof-build.json for external build tools using copied package-native paths", () => {

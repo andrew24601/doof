@@ -341,6 +341,9 @@ function collectTestFiles(dirPath: string, results: string[]): void {
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
+      if (fs.existsSync(path.join(entryPath, "doof.json"))) {
+        continue;
+      }
       collectTestFiles(entryPath, results);
       continue;
     }

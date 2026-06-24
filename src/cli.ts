@@ -60,6 +60,7 @@ import {
 } from "./cli-core.js";
 import { runTestCommand } from "./test-runner.js";
 import { runPackageCommand } from "./package-command.js";
+import { copyExecutableResources } from "./package-artifacts.js";
 
 // ============================================================================
 // CLI argument parsing
@@ -458,7 +459,7 @@ function cmdEmit(
 async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
   const toolchain = resolveCompilerToolchain(args.compiler);
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
-  const { project, nativeBuild: resolvedNativeBuild, outputBinaryName, provenance, buildManifest, buildTarget } = runPipeline(
+  const { project, nativeBuild: resolvedNativeBuild, outputBinaryName, provenance, buildManifest, buildTarget, resources } = runPipeline(
     args.entry,
     args.verbose,
     nativeBuild,
@@ -490,6 +491,10 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
   );
   let builtArtifactPath = binary;
   let runBinaryPath = binary;
+
+  if (buildTarget === null) {
+    copyExecutableResources(resources, args.outDir, [binary]);
+  }
 
   if (buildTarget?.kind === "macos-app") {
     const bundle = assembleMacOSAppBundle({

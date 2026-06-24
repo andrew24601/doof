@@ -47,6 +47,22 @@ describe("test runner discovery", () => {
     ]);
   });
 
+  it("skips nested Doof package directories during recursive discovery", () => {
+    const dir = createTempDir();
+    writeFile(dir, "alpha.test.do", "export function testAlpha(): void {}\n");
+    writeFile(dir, "packages/widget/doof.json", JSON.stringify({ name: "widget" }));
+    writeFile(dir, "packages/widget/widget.test.do", "export function testWidget(): void {}\n");
+    writeFile(dir, "packages/widget/src/deep.test.do", "export function testDeep(): void {}\n");
+    writeFile(dir, "packages/loose/beta.test.do", "export function testBeta(): void {}\n");
+
+    const files = findTestFiles(dir);
+
+    expect(files.map((file) => path.relative(dir, file).replace(/\\/g, "/"))).toEqual([
+      "alpha.test.do",
+      "packages/loose/beta.test.do",
+    ]);
+  });
+
   it("discovers exported zero-argument void tests", () => {
     const dir = createTempDir();
     writeFile(dir, "doof.json", JSON.stringify({ name: "tests" }));

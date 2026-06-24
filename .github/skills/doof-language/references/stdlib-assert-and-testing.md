@@ -68,6 +68,7 @@ Runner behavior:
 - Each exported test runs in its own process.
 - One failing test does not stop later tests from running.
 - `--filter` matches ids of the form `<relative-path>::<functionName>`.
+- Recursive directory discovery skips subdirectories that contain their own `doof.json`; run `doof test` against that package directly to test it.
 
 ## Mocking
 

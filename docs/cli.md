@@ -124,7 +124,7 @@ For `build.target = "macos-app"`, `doof emit` also writes bundle support files s
 
 `doof test` writes each test harness under the owning package's `build/.doof-tests/<module>/` directory. Those harness builds also use `<harnessBuildDir>/.reckon/state.json` and `<harnessBuildDir>/.doof-objects/`, so repeated test runs skip unchanged harness compilation while still rerunning the selected tests.
 
-`doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, and flags. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
+`doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, flags, and resource mappings. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
 
 `provenance.json` records the finalized remote dependency graph using resolved git metadata:
 
@@ -144,7 +144,7 @@ For `build.target = "macos-app"`, `doof emit` also writes bundle support files s
 
 Root package references appear as `"."` in `referencedFrom`. Transitive remote references use the referencer package URL.
 
-When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings.
+When a manifest declares `resources`, `doof build` and `doof run` copy those resources next to the command-line executable, and `doof package` copies them into the dist artifact directory. When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings for the app bundle.
 
 For `emit`, `build`, `run`, `package`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the build-state root to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` overrides that root; the command still selects its `debug/` or `release/` profile beneath it.
 

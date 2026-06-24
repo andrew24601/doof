@@ -42,7 +42,7 @@ export async function runPackageCommand(
 ): Promise<string> {
   const toolchain = resolveCompilerToolchain(options.compiler);
   const requestedNativeBuild = resolveNativeBuildOptions(options.nativeBuild);
-  const { project, nativeBuild, outputBinaryName, provenance, buildManifest, buildTarget } = runPipelineWithFs(
+  const { project, nativeBuild, outputBinaryName, provenance, buildManifest, buildTarget, resources } = runPipelineWithFs(
     new RealFS(),
     options.entry,
     options.verbose,
@@ -108,5 +108,5 @@ export async function runPackageCommand(
     return artifactPath;
   }
 
-  return copyPackagedExecutable(binary, options.distDir);
+  return copyPackagedExecutable(binary, options.distDir, resources);
 }

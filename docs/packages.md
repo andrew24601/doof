@@ -147,7 +147,7 @@ App-target metadata can be declared either as compact top-level fields or under 
 - `id`: bundle identifier
 - `title`: UI display name
 - `icon`: optional PNG app icon
-- `resources`: bundle resources, either strings such as `"images"` or explicit `{ "from": "...", "to": "..." }` objects
+- `resources`: build resources, either strings such as `"images"` or explicit `{ "from": "...", "to": "..." }` objects
 
 Root-level compact fields win when the same value is also declared under `build` or target-specific app metadata. If `executable` is omitted for an app target, it defaults to the package `name`. If `title` is omitted, it defaults to the package `name`. If `id` is omitted, it defaults to `dev.doof.<sanitized-package-name>`. App metadata `version` defaults to the package `version`, then `"1.0"`.
 
@@ -159,7 +159,9 @@ Packages may declare both `build.macosApp` and `build.iosApp` metadata in the sa
 
 For string resources, `"images"` is shorthand for `{ "from": "images/*", "to": "images" }`.
 
-`resources[].to` and `build.macosApp.resources[].to` are rooted under `Contents/Resources`.
+For command-line executable builds, top-level `resources[].to` destinations are rooted next to the built or packaged executable. `doof build` and `doof run` copy them into the build output directory, and `doof package` copies them into the dist directory.
+
+For `macos-app`, `resources[].to` and `build.macosApp.resources[].to` are rooted under `Contents/Resources`.
 
 For `ios-app`, `resources[].to` and `build.iosApp.resources[].to` are rooted under the app bundle itself. This is useful when the Doof program expects assets at a stable relative path such as `samples/solitaire/images/card_atlas.png`.
 
@@ -317,6 +319,6 @@ Each active target writes a separate `.doof-external-native-<target>.json` marke
 
 ## doof-build.json
 
-`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, and any resolved target metadata such as `build.target = "macos-app"` or `build.target = "ios-app"`.
+`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, resource mappings, and any resolved target metadata such as `build.target = "macos-app"` or `build.target = "ios-app"`.
 
 External CMake or Xcode integrations should consume `doof-build.json` rather than re-implementing package resolution.

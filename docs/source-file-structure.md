@@ -113,6 +113,7 @@ Feature-specific helpers:
 - `bin.ts` — executable entrypoint
 - `build-targets.ts` — resolved build target definitions
 - `app-info-plist.ts` — shared app `Info.plist` value types, managed-key validation, and plist rendering
+- `resource-patterns.ts` — shared resource glob expansion and resolved resource shape for app bundles and executable artifacts
 - `package-artifacts.ts` — release compiler defaults, artifact naming, and plain executable staging
 - `package-command.ts` — release pipeline orchestration and target-specific artifact dispatch
 - `apple-embedded-libraries.ts` — explicit Apple dylib/framework resolution, bundle copying, Mach-O rewriting, and dependency validation
@@ -153,7 +154,7 @@ Emitter tests are organized by concept rather than implementation file. Start wi
 - Wrong inferred type or narrowing behavior: `checker.ts`, nearby `checker-*` helper, and checker tests for that feature
 - Wrong generated C++ shape: `emitter-module.ts`, then the smallest relevant emitter helper and emitter concept tests
 - Wrong generated runtime helper or metadata surface: `emitter-runtime.ts`, `emitter-json.ts`, `emitter-schema.ts`, or `emitter-metadata.ts`
-- CLI or build-handoff issue: `cli-core.ts`, `cli.ts`, and `build-targets.ts`
+- CLI or build-handoff issue: `cli-core.ts`, `cli.ts`, `build-targets.ts`, and `resource-patterns.ts` for resource copying
 
 ## Keeping This Map Current
 
