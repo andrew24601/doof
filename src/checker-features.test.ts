@@ -1841,6 +1841,24 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("infers enum shorthand in positional Failure from Result error type", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          enum IoError {
+            InvalidPath,
+          }
+
+          function resolveResourcePath(path: string): Result<string, IoError> {
+            return Failure(.InvalidPath)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
   it("errors on positional Success(value) without contextual Result type", () => {
     const cr = check(
       {

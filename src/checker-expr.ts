@@ -1571,7 +1571,12 @@ function inferExprTypeInner(
         const resultContext = resolveExpectedResultContext(host, scope, expectedType);
         const argTypes: ResolvedType[] = [];
         for (const arg of expr.args) {
-          argTypes.push(inferExprType(host, arg.value, scope, table, info));
+          const expectedArgType = resultContext
+            ? expr.callee.name === "Success"
+              ? resultContext.successType
+              : resultContext.errorType
+            : undefined;
+          argTypes.push(inferExprType(host, arg.value, scope, table, info, expectedArgType));
         }
         if (expr.callee.name === "Failure" && argTypes.length !== 1) {
           info.diagnostics.push({
