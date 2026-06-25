@@ -1859,6 +1859,24 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("rejects unknown enum shorthand variants in positional Failure", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          enum IoError {
+            InvalidPath,
+          }
+
+          function resolveResourcePath(path: string): Result<string, IoError> {
+            return Failure(.InvalidPaths)
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics.some(d => d.message.includes('Enum "IoError" does not have a variant "InvalidPaths"'))).toBe(true);
+  });
+
   it("errors on positional Success(value) without contextual Result type", () => {
     const cr = check(
       {

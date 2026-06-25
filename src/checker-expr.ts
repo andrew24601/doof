@@ -893,6 +893,23 @@ function validatePositionalFunctionArgs(
   }
 }
 
+function validateEnumVariant(
+  enumType: Extract<ResolvedType, { kind: "enum" }>,
+  variantName: string,
+  span: SourceSpan,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  if (enumType.symbol.declaration.variants.some((variant) => variant.name === variantName)) return;
+
+  info.diagnostics.push({
+    severity: "error",
+    message: `Enum "${enumType.symbol.name}" does not have a variant "${variantName}"`,
+    span,
+    module: table.path,
+  });
+}
+
 function resolveNamedFunctionArgs(
   params: FunctionResolvedParam[],
   args: NamedCallInput[],
@@ -2538,7 +2555,11 @@ function inferExprTypeInner(
     case "enum-access": {
       if (expr.enumName) {
         const sym = table.symbols.get(expr.enumName);
-        if (sym?.symbolKind === "enum") return { kind: "enum", symbol: sym };
+        if (sym?.symbolKind === "enum") {
+          const enumType = { kind: "enum" as const, symbol: sym };
+          validateEnumVariant(enumType, expr.variant, expr.span, table, info);
+          return enumType;
+        }
       }
       return UNKNOWN_TYPE;
     }
@@ -2549,6 +2570,7 @@ function inferExprTypeInner(
 
       const enumType = resolveExpectedEnumType(expectedType);
       if (enumType) {
+        validateEnumVariant(enumType, expr.name, expr.span, table, info);
         expr.resolvedShorthandOwnerType = enumType;
         return enumType;
       }
