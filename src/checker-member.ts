@@ -951,6 +951,13 @@ export function inferMemberType(
     }
   }
 
+  if (objectType.kind === "range") {
+    if (property === "lowerBound") return INT_TYPE;
+    if (property === "upperBound") return INT_TYPE;
+    reportMemberDiagnostic(info, table, span, `Property "${property}" does not exist on type "${typeToString(objectType)}"`);
+    return UNKNOWN_TYPE;
+  }
+
   if (objectType.kind === "array" && property === "length") return INT_TYPE;
   if (objectType.kind === "array") {
     const elem = objectType.elementType;

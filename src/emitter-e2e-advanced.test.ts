@@ -545,6 +545,31 @@ describe("e2e — try statement", () => {
     expect(result.stdout.trim()).toBe("42");
   });
 
+  it("runs generic failure helper inferred from return context", () => {
+    const result = ctx.compileAndRun(`
+      function fail<T>(message: string): Result<T, string> {
+        return Failure { error: message }
+      }
+
+      function parseNumber(text: string): Result<int, string> {
+        if text == "" {
+          return fail("empty")
+        }
+        return Success(1)
+      }
+
+      function main(): int {
+        result := parseNumber("")
+        assert(result.isFailure(), "expected failure")
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+  });
+
 // ============================================================================
 // Result helper methods
 // ============================================================================

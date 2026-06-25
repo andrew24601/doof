@@ -19,7 +19,10 @@
 `Range` is the built-in finite integer range type created by `a..b` and
 `a..<b`. It can be stored, passed to functions, returned, and iterated with
 `for of`; iteration yields `int`. Open-ended forms such as `5..` and `..<10`
-are case-pattern-only.
+are case-pattern-only. Range values expose `lowerBound` and exclusive
+`upperBound` accessors, so `1..9` and `1..<10` both have `upperBound == 10`.
+Ranges do not iterate downward; if `lowerBound > upperBound`, iteration
+produces no values.
 
 ### Numeric Literals and Conversions
 

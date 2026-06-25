@@ -215,6 +215,33 @@ describe("Checker — generic functions", () => {
     expect(readOnceCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int"]);
   });
 
+  it("infers generic call type args from contextual return type", () => {
+    const cr = check({
+      "/main.do": `
+        function fail<T>(message: string): Result<T, string> {
+          return Failure { error: message }
+        }
+
+        function parseNumber(text: string): Result<int, string> {
+          if text == "" {
+            return fail("empty")
+          }
+          return Success(1)
+        }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const failCall = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").CallExpression => expr.kind === "call-expression"
+        && expr.callee.kind === "identifier"
+        && expr.callee.name === "fail");
+
+    expect(failCall).toBeDefined();
+    expect(failCall?.resolvedGenericTypeArgs?.map(typeToString)).toEqual(["int"]);
+    expect(typeToString(failCall!.resolvedType!)).toBe("Result<int, string>");
+  });
+
   it("decorates generic function with typeParams in resolvedType", () => {
     const cr = check({
       "/main.do": `

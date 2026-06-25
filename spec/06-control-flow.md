@@ -244,7 +244,8 @@ Set iteration follows first-insertion order. Re-adding an existing value keeps i
 
 `a..b` and `a..<b` create finite `Range` values. A range can be stored in a
 binding, passed to a function, or used directly in `for of`. Range iteration
-yields `int`.
+yields `int`. Ranges only iterate upward; a range whose lower bound is greater
+than its upper bound is empty.
 
 ### Inclusive Range (`..`)
 
@@ -276,31 +277,31 @@ for i of 0..<items.length {
 Open-ended ranges are not iterable `Range` values; they are only valid in
 `case` range patterns.
 
-### Range with Step and Reverse
+### Range Accessors
 
 ```javascript
-for i of (0..<10).step(2) {
-    print(i)   // 0, 2, 4, 6, 8
-}
-for i of (10..2).step(-2) {
-    print(i)   // 10, 8, 6, 4, 2
-}
+inclusive := 1..9
+exclusive := 1..<10
 
-for i of (0..<items.length).reversed() {
-    print(items[i])  // Reverse iteration
-}
+inclusive.lowerBound // 1
+inclusive.upperBound // 10
+
+exclusive.lowerBound // 1
+exclusive.upperBound // 10
 ```
+
+The `upperBound` accessor is always exclusive. For `1..9`, the upper bound is
+adjusted to `10`; for `1..<10`, it is already `10`.
 
 ### Practical Range Example
 
 ```javascript
-// Process items in batches
 items := loadItems()
-readonly batchSize = 100
+indices := 0..<items.length
+print("last valid index is ${indices.upperBound - 1}")
 
-for start of (0..<items.length).step(batchSize) {
-    end := min(start + batchSize, items.length)
-    processBatch(items[start..<end])
+for i of indices {
+    print("${i}: ${items[i]}")
 }
 ```
 

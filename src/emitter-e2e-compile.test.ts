@@ -630,6 +630,43 @@ describe("e2e — for-of with range", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
   });
+
+  it("runs range bound accessors with exclusive upper bounds", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        inclusive := 1..9
+        exclusive := 1..<10
+        let score = 0
+        if inclusive.lowerBound == 1 { score = score + 1 }
+        if inclusive.upperBound == 10 { score = score + 1 }
+        if exclusive.lowerBound == 1 { score = score + 1 }
+        if exclusive.upperBound == 10 { score = score + 1 }
+        return score
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(4);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs descending ranges as empty ranges", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        let count = 0
+        for i of 9..1 {
+          count = count + 1
+        }
+        return count
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(0);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
 });
 
 // ============================================================================

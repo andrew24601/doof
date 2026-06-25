@@ -852,6 +852,28 @@ describe("checker — for-of ranges", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
+  it("types Range bound accessors", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function main(): void {
+            inclusive := 1..9
+            exclusive := 1..<10
+            lower := inclusive.lowerBound
+            upper := exclusive.upperBound
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const members = collectExprs(cr.program)
+      .filter((expr): expr is import("./ast.js").MemberExpression => expr.kind === "member-expression");
+    expect(typeToString(members.find((expr) => expr.property === "lowerBound")!.resolvedType!)).toBe("int");
+    expect(typeToString(members.find((expr) => expr.property === "upperBound")!.resolvedType!)).toBe("int");
+  });
+
   it("rejects non-integer and non-int-compatible range bounds", () => {
     const cr = check(
       {

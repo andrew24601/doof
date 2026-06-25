@@ -1009,6 +1009,19 @@ describe("emitter — for-of with range", () => {
     expect(cpp).toContain("doof::Range r = doof::range(1, 3);");
     expect(cpp).toContain("for (const auto& i : r)");
   });
+
+  it("emits range bound accessors", () => {
+    const cpp = emit(`
+      function main(): void {
+        inclusive := 1..9
+        exclusive := 1..<10
+        lower := inclusive.lowerBound
+        upper := exclusive.upperBound
+      }
+    `);
+    expect(cpp).toContain("const auto lower = inclusive.lowerBound;");
+    expect(cpp).toContain("const auto upper = exclusive.upperBound;");
+  });
 });
 
 // ============================================================================

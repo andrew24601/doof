@@ -223,7 +223,9 @@ Validation anchors:
 Finite `a..b` and `a..<b` expressions resolve to the builtin `Range` type, while
 open-ended range forms remain `case` pattern syntax only. The checker should use
 the `Range` type, not raw syntax shape, when deciding whether a `for of` source
-is range-iterable; the loop binding type is always `int`.
+is range-iterable; the loop binding type is always `int`. `Range` exposes
+`lowerBound` and exclusive `upperBound` accessors. Descending ranges are
+representable but iterate as empty ranges.
 
 Primary modules:
 

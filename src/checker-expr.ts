@@ -561,6 +561,28 @@ function applyResultMethodGenericDefaults(
   }
 }
 
+function applyExpectedReturnGenericInference(
+  host: CheckerHost,
+  typeParams: string[],
+  returnType: ResolvedType,
+  expectedType: ResolvedType | undefined,
+  paramMap: Map<string, ResolvedType>,
+): void {
+  if (!expectedType) return;
+
+  const expectedMap = host.inferTypeArgs(
+    typeParams,
+    [{ name: "$return", type: returnType }],
+    [expectedType],
+  );
+  for (const [typeParam, inferredType] of expectedMap) {
+    const currentType = paramMap.get(typeParam);
+    if (!currentType || currentType.kind === "unknown") {
+      paramMap.set(typeParam, inferredType);
+    }
+  }
+}
+
 function applyTypeSubstitutionToExpression(
   expr: Expression,
   paramMap: Map<string, ResolvedType>,
@@ -1643,6 +1665,13 @@ function inferExprTypeInner(
               providedArgTypes.push(orderedArgs[i]!.type);
             }
             const paramMap = host.inferTypeArgs(calleeType.typeParams, providedParams, providedArgTypes);
+            applyExpectedReturnGenericInference(
+              host,
+              calleeType.typeParams,
+              calleeType.returnType,
+              expectedType,
+              paramMap,
+            );
             validateInferredTypeArgsAgainstConstraints(
               calleeType.typeParams,
               calleeType.typeParamConstraints,
@@ -1688,6 +1717,13 @@ function inferExprTypeInner(
             effectiveCalleeType = substituteTypeParams(effectiveCalleeType, staticOwnerInference.paramMap) as typeof calleeType;
           }
           const paramMap = host.inferTypeArgs(calleeType.typeParams, calleeType.params, argTypes);
+          applyExpectedReturnGenericInference(
+            host,
+            calleeType.typeParams,
+            calleeType.returnType,
+            expectedType,
+            paramMap,
+          );
           validateInferredTypeArgsAgainstConstraints(
             calleeType.typeParams,
             calleeType.typeParamConstraints,

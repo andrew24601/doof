@@ -215,6 +215,7 @@ for item of items { println(item) }
 for i of 0..<10 { println(i) }
 for i of 1..5 { println(i) }
 window: Range := 1..<5
+lastExcluded := window.upperBound
 for i of window { println(i) }
 
 for suit, pile of foundations {

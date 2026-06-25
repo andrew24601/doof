@@ -522,6 +522,13 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     return `(int32_t)${object}->size()`;
   }
 
+  // Range bound metadata
+  if (objType && objType.kind === "range") {
+    const object = emitExpression(expr.object, ctx);
+    if (expr.property === "lowerBound") return `${object}.lowerBound`;
+    if (expr.property === "upperBound") return `${object}.upperBound`;
+  }
+
   // Map .size → .size()
   if (objType && objType.kind === "map" && expr.property === "size") {
     const object = emitExpression(expr.object, ctx);

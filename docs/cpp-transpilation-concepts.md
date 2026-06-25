@@ -38,6 +38,8 @@ Strategy:
   bodiless extern declarations; raw `std::function` remains only for runtime
   internals
 - arrays, maps, and sets lower to shared runtime container wrappers
+- `Range` lowers to `doof::Range`, preserving the lower bound and normalizing
+  the upper bound to an exclusive value for member accessors
 
 Primary modules:
 

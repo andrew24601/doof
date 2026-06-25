@@ -1713,19 +1713,15 @@ inline void print(const T& val) {
 // ============================================================================
 
 struct Range {
-    int32_t start_;
-    int32_t end_;
-    bool inclusive_;
+    int32_t lowerBound;
+    int32_t upperBound;
 
     struct Iterator {
         int32_t current;
-        int32_t end_;
-        bool inclusive_;
-        bool reverse_;
 
         int32_t operator*() const { return current; }
         Iterator& operator++() {
-            if (reverse_) { --current; } else { ++current; }
+            ++current;
             return *this;
         }
         bool operator!=(const Iterator& other) const {
@@ -1734,24 +1730,23 @@ struct Range {
     };
 
     Iterator begin() const {
-        bool rev = start_ > end_;
-        // For reversed ranges, produce zero iterations
-        if (rev) return Iterator{start_, end_, inclusive_, rev};
-        return Iterator{start_, end_, inclusive_, rev};
+        bool rev = lowerBound > upperBound;
+        if (rev) return Iterator{lowerBound};
+        return Iterator{lowerBound};
     }
     Iterator end() const {
-        bool rev = start_ > end_;
-        if (rev) return Iterator{start_, end_, inclusive_, rev};  // begin == end → zero iterations
-        return Iterator{inclusive_ ? end_ + 1 : end_, end_, inclusive_, rev};
+        bool rev = lowerBound > upperBound;
+        if (rev) return Iterator{lowerBound};
+        return Iterator{upperBound};
     }
 };
 
 inline Range range(int32_t start, int32_t end) {
-    return Range{start, end, true};
+    return Range{start, end + 1};
 }
 
 inline Range range_exclusive(int32_t start, int32_t end) {
-    return Range{start, end, false};
+    return Range{start, end};
 }
 
 // ============================================================================
