@@ -441,6 +441,24 @@ describe("emitter-module — non-exported symbols", () => {
     expect(cppCode).toContain("static int32_t helper(int32_t x)");
   });
 
+  it("does not leak non-exported function linkage into for-loop locals", () => {
+    const { cppCode } = emitSplit(`
+      function collect(maxDepth: int): int[] {
+        values: int[] := []
+        for let depth = 0; depth < maxDepth; depth += 1 {
+          values.push(depth)
+        }
+        return values
+      }
+
+      export function run(): int => collect(3).length
+    `);
+
+    expect(cppCode).toContain("static std::shared_ptr<std::vector<int32_t>> collect(int32_t maxDepth)");
+    expect(cppCode).toContain("for (auto depth = 0; depth < maxDepth; depth += 1)");
+    expect(cppCode).not.toContain("for (static auto depth = 0;");
+  });
+
   it("emits static forward declarations for non-exported helpers", () => {
     const { cppCode } = emitSplit(`
       function first(): int => second()

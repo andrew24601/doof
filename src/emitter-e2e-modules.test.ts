@@ -412,6 +412,35 @@ describe("e2e — module splitting", () => {
     expect(result.exitCode).toBe(42);
   });
 
+  it("reinitializes C-style for locals in non-exported functions on each call", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/main.do": [
+          `function collect(maxDepth: int): int[] {`,
+          `  values: int[] := []`,
+          `  for let d = 0; d < maxDepth; d += 1 {`,
+          `    values.push(d)`,
+          `  }`,
+          `  return values`,
+          `}`,
+          ``,
+          `function main(): int {`,
+          `  first := collect(3)`,
+          `  second := collect(3)`,
+          `  println("\${first.length},\${second.length}")`,
+          `  return 0`,
+          `}`,
+        ].join("\n"),
+      },
+      "/main.do",
+    );
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("3,3");
+  });
+
   it("compiles duplicate private Helper classes across imported modules", () => {
     const result = ctx.compileAndRunProject(
       {

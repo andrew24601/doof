@@ -149,6 +149,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
     emitBlockStatements(decl.body, {
       ...ctx,
       indent: ctx.indent + 1,
+      internalLinkage: false,
       currentCallableName,
       currentFunctionReturnType: fnRetType,
       capturedMutables: capturedMutables.size > 0 ? capturedMutables : undefined,
@@ -161,6 +162,7 @@ export function emitFunctionDecl(decl: FunctionDeclaration, ctx: EmitContext): v
       : undefined;
     const body = emitExpression(decl.body as Expression, {
       ...ctx,
+      internalLinkage: false,
       currentCallableName: ctx.currentCallableName ?? decl.name,
     }, fnRetType);
     ctx.sourceLines.push(`${ind}${inlinePrefix}${linkagePrefix}${staticPrefix}${retType} ${name}(${params}) {`);
