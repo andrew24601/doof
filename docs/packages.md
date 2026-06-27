@@ -157,7 +157,7 @@ Built-in app target icons are optional. When provided, they must be PNG files; S
 
 Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `target` / `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
 
-For string resources, `"images"` is shorthand for `{ "from": "images/*", "to": "images" }`.
+For string resources, `"images"` is shorthand for `{ "from": "images", "to": "images" }`. Directory resources are copied recursively while preserving their relative paths. Explicit glob resources keep glob semantics; use `**` when you want a glob to include nested files.
 
 For command-line executable builds, top-level `resources[].to` destinations are rooted next to the built or packaged executable. `doof build` and `doof run` copy them into the build output directory, and `doof package` copies them into the dist directory.
 

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CompilerToolchainKind } from "./cli-core.js";
 import type { NativeBuildOptions } from "./emitter-module.js";
-import { expandResourcePattern, type ResolvedDoofResource } from "./resource-patterns.js";
+import { expandResourceFiles, type ResolvedDoofResource } from "./resource-patterns.js";
 
 export function withReleaseBuildDefaults(
   nativeBuild: NativeBuildOptions,
@@ -38,7 +38,7 @@ export function copyExecutableResources(
 ): void {
   const seenDestinations = new Set(reservedPaths.map((reservedPath) => path.resolve(reservedPath)));
   for (const resource of resources) {
-    const matchedFiles = expandResourcePattern(resource.fromPattern);
+    const matchedFiles = expandResourceFiles(resource.fromPattern);
     if (matchedFiles.length === 0) {
       throw new Error(`No files matched resource pattern: ${resource.fromPattern}`);
     }
@@ -46,16 +46,16 @@ export function copyExecutableResources(
     const destinationDir = resource.destination.length > 0
       ? path.join(resourceRootDir, resource.destination)
       : resourceRootDir;
-    fs.mkdirSync(destinationDir, { recursive: true });
 
     for (const matchedFile of matchedFiles) {
-      const destinationPath = path.join(destinationDir, path.basename(matchedFile));
+      const destinationPath = path.join(destinationDir, matchedFile.relativePath);
       const resolvedDestinationPath = path.resolve(destinationPath);
       if (seenDestinations.has(resolvedDestinationPath)) {
         throw new Error(`Duplicate executable resource destination: ${destinationPath}`);
       }
       seenDestinations.add(resolvedDestinationPath);
-      fs.copyFileSync(matchedFile, destinationPath);
+      fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+      fs.copyFileSync(matchedFile.sourcePath, destinationPath);
     }
   }
 }

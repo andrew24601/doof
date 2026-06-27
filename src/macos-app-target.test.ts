@@ -93,15 +93,16 @@ describe("macos-app target helper", () => {
     fs.writeFileSync(iconPath, "png", "utf8");
 
     const imagesDir = path.join(dir, "images");
-    fs.mkdirSync(imagesDir, { recursive: true });
+    fs.mkdirSync(path.join(imagesDir, "cards"), { recursive: true });
     fs.writeFileSync(path.join(imagesDir, "card.png"), "png", "utf8");
+    fs.writeFileSync(path.join(imagesDir, "cards", "ace.png"), "ace", "utf8");
 
     const supportFiles = createMacOSAppSupportFiles({
       bundleId: "dev.doof.demo",
       displayName: "Doof Demo",
       version: "1.0",
       iconPath,
-      resources: [{ fromPattern: path.join(imagesDir, "*"), destination: "images" }],
+      resources: [{ fromPattern: imagesDir, destination: "images" }],
       category: "public.app-category.developer-tools",
       minimumSystemVersion: "11.0",
     }, "DoofDemo");
@@ -124,7 +125,7 @@ describe("macos-app target helper", () => {
         displayName: "Doof Demo",
         version: "1.0",
         iconPath,
-        resources: [{ fromPattern: path.join(imagesDir, "*"), destination: "images" }],
+        resources: [{ fromPattern: imagesDir, destination: "images" }],
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
       },
@@ -142,6 +143,8 @@ describe("macos-app target helper", () => {
       .toBe("icns");
     expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Resources", "images", "card.png"), "utf8"))
       .toBe("png");
+    expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Resources", "images", "cards", "ace.png"), "utf8"))
+      .toBe("ace");
   });
 
   it("uses the configured PNG icon generator through the default bundle path", () => {

@@ -1613,7 +1613,7 @@ describe("local package graphs", () => {
         displayName: "Doof UI",
         version: "0.1.0",
         iconPath: "/app/app-icon.png",
-        resources: [{ fromPattern: "/app/fonts/*", destination: "fonts" }],
+        resources: [{ fromPattern: "/app/fonts", destination: "fonts" }],
         category: "public.app-category.developer-tools",
         minimumSystemVersion: "11.0",
       },
@@ -1651,7 +1651,7 @@ describe("local package graphs", () => {
         displayName: "Demo App",
         version: "1.0",
         iconPath: "/app/app-icon.png",
-        resources: [{ fromPattern: "/app/assets/*", destination: "assets" }],
+        resources: [{ fromPattern: "/app/assets", destination: "assets" }],
         category: "public.app-category.games",
         minimumSystemVersion: "11.0",
       },
@@ -1693,7 +1693,7 @@ describe("local package graphs", () => {
         bundleId: "dev.example.root",
         displayName: "Root Demo",
         version: "1.0",
-        resources: [{ fromPattern: "/app/root-assets/*", destination: "root-assets" }],
+        resources: [{ fromPattern: "/app/root-assets", destination: "root-assets" }],
         category: "public.app-category.games",
         minimumSystemVersion: "11.0",
       },
@@ -2081,7 +2081,7 @@ describe("local package graphs", () => {
     const graph = loadPackageGraph(fs, "/app/main.do");
 
     expect(graph.rootPackage.buildTarget).toBeNull();
-    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images/*", destination: "images" }]);
+    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images", destination: "images" }]);
   });
 
   it("allows command-line executable resources without app metadata defaults", () => {
@@ -2098,7 +2098,7 @@ describe("local package graphs", () => {
     expect(graph.rootPackage.buildTarget).toBeNull();
     expect(graph.rootPackage.manifest.build?.macosApp).toBeUndefined();
     expect(graph.rootPackage.manifest.build?.iosApp).toBeUndefined();
-    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images/*", destination: "images" }]);
+    expect(graph.rootPackage.resources).toEqual([{ fromPattern: "/app/images", destination: "images" }]);
   });
 
   it("rejects command-line resource destinations that escape the executable resource directory", () => {
@@ -2225,7 +2225,7 @@ describe("manifest-derived pipeline metadata", () => {
     expect(result.buildManifest.compilerFlags).toEqual(["-O2"]);
     expect(result.buildManifest.linkerFlags).toEqual(["-pthread"]);
     expect(result.buildManifest.packageRoots).toEqual(["/app", "/deps/foo"]);
-    expect(result.buildManifest.resources).toEqual([{ fromPattern: "/app/assets/*", destination: "assets" }]);
+    expect(result.buildManifest.resources).toEqual([{ fromPattern: "/app/assets", destination: "assets" }]);
   });
 
   it("writes doof-build.json for external build tools using copied package-native paths", () => {

@@ -1392,7 +1392,7 @@ function readOptionalAppResources(
       if (entry.length === 0) {
         throw new Error(`Invalid doof.json at ${manifestPath}: ${fieldPath}[${index}] must not be empty`);
       }
-      return { from: `${entry.replace(/\/+$/g, "")}/*`, to: entry };
+      return { from: entry.replace(/\/+$/g, ""), to: entry };
     }
 
     if (!isRecord(entry)) {

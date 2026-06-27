@@ -51,14 +51,29 @@ describe("release package artifacts", () => {
   it("copies executable resources into the build output", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "doof-build-resource-"));
     tempDirs.push(root);
-    fs.mkdirSync(path.join(root, "images"), { recursive: true });
+    fs.mkdirSync(path.join(root, "images", "cards"), { recursive: true });
     fs.writeFileSync(path.join(root, "images", "card.txt"), "card", "utf8");
+    fs.writeFileSync(path.join(root, "images", "cards", "ace.txt"), "ace", "utf8");
 
     copyExecutableResources([
-      { fromPattern: path.join(root, "images", "*"), destination: "images" },
+      { fromPattern: path.join(root, "images"), destination: "images" },
     ], path.join(root, "build"));
 
     expect(fs.readFileSync(path.join(root, "build", "images", "card.txt"), "utf8")).toBe("card");
+    expect(fs.readFileSync(path.join(root, "build", "images", "cards", "ace.txt"), "utf8")).toBe("ace");
+  });
+
+  it("preserves recursive glob resource paths", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "doof-build-resource-"));
+    tempDirs.push(root);
+    fs.mkdirSync(path.join(root, "images", "cards"), { recursive: true });
+    fs.writeFileSync(path.join(root, "images", "cards", "ace.txt"), "ace", "utf8");
+
+    copyExecutableResources([
+      { fromPattern: path.join(root, "images", "**"), destination: "assets" },
+    ], path.join(root, "build"));
+
+    expect(fs.readFileSync(path.join(root, "build", "assets", "cards", "ace.txt"), "utf8")).toBe("ace");
   });
 
   it("rejects duplicate executable resource destinations", () => {

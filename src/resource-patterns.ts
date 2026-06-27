@@ -7,12 +7,36 @@ export interface ResolvedDoofResource {
   destination: string;
 }
 
+export interface ExpandedResourceFile {
+  sourcePath: string;
+  relativePath: string;
+}
+
 export function expandResourcePattern(pattern: string): string[] {
+  return expandResourceFiles(pattern).map((file) => file.sourcePath);
+}
+
+export function expandResourceFiles(pattern: string): ExpandedResourceFile[] {
   if (!hasWildcard(pattern)) {
-    if (!nodeFs.existsSync(pattern) || !nodeFs.statSync(pattern).isFile()) {
+    if (!nodeFs.existsSync(pattern)) {
       return [];
     }
-    return [pattern];
+    const stat = nodeFs.statSync(pattern);
+    if (stat.isFile()) {
+      return [{ sourcePath: pattern, relativePath: nodePath.basename(pattern) }];
+    }
+    if (!stat.isDirectory()) {
+      return [];
+    }
+
+    const matches: ExpandedResourceFile[] = [];
+    walkFiles(pattern, (filePath) => {
+      matches.push({
+        sourcePath: filePath,
+        relativePath: toPortablePath(nodePath.relative(pattern, filePath)),
+      });
+    });
+    return matches.sort(compareExpandedResourceFiles);
   }
 
   const baseDir = getGlobBaseDir(pattern);
@@ -22,15 +46,20 @@ export function expandResourcePattern(pattern: string): string[] {
 
   const relativePattern = toPortablePath(nodePath.relative(baseDir, pattern));
   const matcher = globToRegExp(relativePattern);
-  const matches: string[] = [];
+  const matches: ExpandedResourceFile[] = [];
   walkFiles(baseDir, (filePath) => {
     const relativePath = toPortablePath(nodePath.relative(baseDir, filePath));
     if (matcher.test(relativePath)) {
-      matches.push(filePath);
+      matches.push({ sourcePath: filePath, relativePath });
     }
   });
 
-  return matches.sort((left, right) => left.localeCompare(right));
+  return matches.sort(compareExpandedResourceFiles);
+}
+
+function compareExpandedResourceFiles(left: ExpandedResourceFile, right: ExpandedResourceFile): number {
+  return left.relativePath.localeCompare(right.relativePath)
+    || left.sourcePath.localeCompare(right.sourcePath);
 }
 
 function walkFiles(dirPath: string, visit: (filePath: string) => void): void {

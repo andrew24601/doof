@@ -10,7 +10,7 @@ import {
   renderIOSAppInfoPlist,
 } from "./ios-app-support.js";
 import { embedAppleLibraries, type AppleEmbeddedLibraryHost } from "./apple-embedded-libraries.js";
-import { expandResourcePattern } from "./resource-patterns.js";
+import { expandResourceFiles } from "./resource-patterns.js";
 
 export interface IOSAppBundleResult {
   appPath: string;
@@ -80,7 +80,7 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
 
   const seenDestinations = new Set<string>();
   for (const resource of config.resources) {
-    const matchedFiles = expandResourcePattern(resource.fromPattern);
+    const matchedFiles = expandResourceFiles(resource.fromPattern);
     if (matchedFiles.length === 0) {
       throw new Error(`No files matched resource pattern: ${resource.fromPattern}`);
     }
@@ -88,15 +88,15 @@ export function assembleIOSAppBundle(options: AssembleIOSAppBundleOptions): IOSA
     const destinationDir = resource.destination.length > 0
       ? nodePath.join(appPath, resource.destination)
       : appPath;
-    nodeFs.mkdirSync(destinationDir, { recursive: true });
 
     for (const matchedFile of matchedFiles) {
-      const destinationPath = nodePath.join(destinationDir, nodePath.basename(matchedFile));
+      const destinationPath = nodePath.join(destinationDir, matchedFile.relativePath);
       if (seenDestinations.has(destinationPath)) {
         throw new Error(`Duplicate iOS app resource destination: ${destinationPath}`);
       }
       seenDestinations.add(destinationPath);
-      nodeFs.copyFileSync(matchedFile, destinationPath);
+      nodeFs.mkdirSync(nodePath.dirname(destinationPath), { recursive: true });
+      nodeFs.copyFileSync(matchedFile.sourcePath, destinationPath);
     }
   }
 

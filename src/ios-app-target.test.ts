@@ -39,8 +39,9 @@ describe("ios-app target helper", () => {
     fs.writeFileSync(path.join(dir, "app-icon.png"), "icon", "utf8");
 
     const imagesDir = path.join(dir, "images");
-    fs.mkdirSync(imagesDir, { recursive: true });
+    fs.mkdirSync(path.join(imagesDir, "cards"), { recursive: true });
     fs.writeFileSync(path.join(imagesDir, "card.png"), "png", "utf8");
+    fs.writeFileSync(path.join(imagesDir, "cards", "ace.png"), "ace", "utf8");
 
     const compileCalls: Array<{ assetCatalogPath: string; appPath: string; infoPlistPath: string; platform: string }> = [];
     const bundle = assembleIOSAppBundle({
@@ -60,7 +61,7 @@ describe("ios-app target helper", () => {
         displayName: "Doof Demo",
         version: "1.0",
         iconPath: path.join(dir, "app-icon.png"),
-        resources: [{ fromPattern: path.join(imagesDir, "*"), destination: "samples/solitaire/images" }],
+        resources: [{ fromPattern: imagesDir, destination: "samples/solitaire/images" }],
         minimumDeploymentTarget: "16.0",
       },
     });
@@ -72,6 +73,9 @@ describe("ios-app target helper", () => {
     expect(
       fs.readFileSync(path.join(bundle.appPath, "samples", "solitaire", "images", "card.png"), "utf8"),
     ).toBe("png");
+    expect(
+      fs.readFileSync(path.join(bundle.appPath, "samples", "solitaire", "images", "cards", "ace.png"), "utf8"),
+    ).toBe("ace");
     expect(fs.readFileSync(path.join(bundle.appPath, "AppIcon60x60@2x.png"), "utf8")).toBe("compiled icon");
     expect(fs.readFileSync(path.join(bundle.appPath, "Info.plist"), "utf8")).toContain("CFBundleIcons");
     expect(fs.existsSync(path.join(bundle.appPath, "Assets.xcassets"))).toBe(false);

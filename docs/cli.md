@@ -144,7 +144,7 @@ For `build.target = "macos-app"`, `doof emit` also writes bundle support files s
 
 Root package references appear as `"."` in `referencedFrom`. Transitive remote references use the referencer package URL.
 
-When a manifest declares `resources`, `doof build` and `doof run` copy those resources next to the command-line executable, and `doof package` copies them into the dist artifact directory. When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings for the app bundle.
+When a manifest declares `resources`, `doof build` and `doof run` copy those resources next to the command-line executable, and `doof package` copies them into the dist artifact directory. Directory resources are copied recursively with relative paths preserved. When a manifest declares `build.target = "macos-app"` or `build.target = "ios-app"`, the emitted handoff also includes resolved bundle metadata, icon input, and resource mappings for the app bundle.
 
 For `emit`, `build`, `run`, `package`, and `check`, the path is optional when the current working directory is already inside a Doof package. The CLI will walk upward to the nearest `doof.json`, default the entrypoint to `build.entry` or `main.do`, and default the build-state root to `build.buildDir` or `build/`. Passing a package directory such as `samples/solitaire` uses that package's manifest the same way. `-o` overrides that root; the command still selects its `debug/` or `release/` profile beneath it.
 
