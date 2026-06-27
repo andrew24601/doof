@@ -184,4 +184,80 @@ describe("macos-app target helper", () => {
     expect(fs.readFileSync(path.join(bundle.appPath, "Contents", "Resources", "DoofDemo.icns"), "utf8"))
       .toBe("generated:png");
   });
+
+  it("ad-hoc signs embedded Mach-O libraries before signing the app bundle", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-macos-app-sign-"));
+    tmpDirs.push(dir);
+
+    const outputDir = path.join(dir, "build");
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const executablePath = path.join(outputDir, "DoofDemo");
+    writeMachOFixture(executablePath);
+    fs.chmodSync(executablePath, 0o755);
+
+    const libraryDir = path.join(dir, "lib");
+    const sourceLibrary = path.join(libraryDir, "libDemo.dylib");
+    writeMachOFixture(sourceLibrary);
+
+    const calls: string[][] = [];
+    const bundledLibraryPath = path.join(outputDir, "DoofDemo.app", "Contents", "Frameworks", "libDemo.dylib");
+    const dependencyByPath = new Map<string, string[]>([
+      [executablePath, [sourceLibrary]],
+      [path.join(outputDir, "DoofDemo.app", "Contents", "MacOS", "DoofDemo"), [sourceLibrary]],
+      [bundledLibraryPath, []],
+    ]);
+    const fakeMachOHost = {
+      execFile(command: string, args: string[]) {
+        calls.push([command, ...args]);
+        const targetPath = args[args.length - 1];
+        if (command === "lipo") return "arm64";
+        if (command === "otool" && args[0] === "-D") return `${targetPath}:\n${sourceLibrary}\n`;
+        if (command === "otool" && args[0] === "-L") {
+          const deps = dependencyByPath.get(targetPath) ?? [];
+          return `${targetPath}:\n${deps.map((dep) => `\t${dep} (compatibility version 0.0.0, current version 0.0.0)`).join("\n")}\n`;
+        }
+        if (command === "otool" && args[0] === "-l") return "    platform 1\n";
+        if (command === "install_name_tool" && args[0] === "-change") {
+          dependencyByPath.set(targetPath, (dependencyByPath.get(targetPath) ?? []).map((dep) =>
+            dep === args[1] ? args[2] : dep));
+        }
+        return "";
+      },
+    };
+    const signingCalls: string[][] = [];
+
+    const bundle = assembleMacOSAppBundle({
+      outputDir,
+      executablePath,
+      executableName: "DoofDemo",
+      platform: "darwin",
+      config: {
+        bundleId: "dev.doof.demo",
+        displayName: "Doof Demo",
+        version: "1.0",
+        resources: [],
+        category: "public.app-category.developer-tools",
+        minimumSystemVersion: "11.0",
+        embeddedLibraries: [{ path: sourceLibrary }],
+      },
+      embeddedLibraryHost: fakeMachOHost,
+      codeSigningHost: {
+        execFile(command, args) {
+          signingCalls.push([command, ...args]);
+          return "";
+        },
+      },
+    });
+
+    expect(signingCalls).toEqual([
+      ["codesign", "--force", "--sign", "-", "--timestamp=none", path.join(bundle.appPath, "Contents", "Frameworks", "libDemo.dylib")],
+      ["codesign", "--force", "--sign", "-", "--timestamp=none", bundle.appPath],
+    ]);
+  });
 });
+
+function writeMachOFixture(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]));
+}

@@ -29,6 +29,7 @@ export interface AssembleMacOSAppBundleOptions {
   generateIcon?: (iconPath: string, outputPath: string) => void;
   libraryPaths?: readonly string[];
   embeddedLibraryHost?: AppleEmbeddedLibraryHost;
+  codeSigningHost?: AppleEmbeddedLibraryHost;
 }
 
 export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): MacOSAppBundleResult {
@@ -107,6 +108,8 @@ export function assembleMacOSAppBundle(options: AssembleMacOSAppBundleOptions): 
     host: options.embeddedLibraryHost,
   });
 
+  signAdHocMacOSAppBundle(appPath, bundleBinaryPath, options.codeSigningHost);
+
   log?.(`App bundle: ${appPath}`);
   return { appPath, binaryPath: bundleBinaryPath };
 }
@@ -155,4 +158,61 @@ function formatProcessFailure(prefix: string, error: any): string {
   return details.length > 0
     ? `${prefix}:\n${details.join("\n")}`
     : `${prefix}:\n${error?.message ?? String(error)}`;
+}
+
+function signAdHocMacOSAppBundle(
+  appPath: string,
+  bundleBinaryPath: string,
+  host: AppleEmbeddedLibraryHost | undefined,
+): void {
+  if (!isMachOFile(bundleBinaryPath)) return;
+  const signingHost = host ?? {
+    execFile(command: string, args: string[]) {
+      return String(execFileSync(command, args, { encoding: "utf8", stdio: "pipe" })).trim();
+    },
+  };
+  const codesign = (targetPath: string) => {
+    signingHost.execFile("codesign", ["--force", "--sign", "-", "--timestamp=none", targetPath]);
+  };
+  for (const nestedPath of collectNestedMachOFiles(nodePath.join(appPath, "Contents", "Frameworks"))) {
+    codesign(nestedPath);
+  }
+  codesign(appPath);
+}
+
+function collectNestedMachOFiles(rootDir: string): string[] {
+  if (!nodeFs.existsSync(rootDir)) return [];
+  const results: string[] = [];
+  const visit = (currentPath: string) => {
+    const stat = nodeFs.statSync(currentPath);
+    if (stat.isDirectory()) {
+      for (const child of nodeFs.readdirSync(currentPath)) {
+        visit(nodePath.join(currentPath, child));
+      }
+      return;
+    }
+    if (stat.isFile() && isMachOFile(currentPath)) {
+      results.push(currentPath);
+    }
+  };
+  visit(rootDir);
+  return results.sort();
+}
+
+function isMachOFile(filePath: string): boolean {
+  if (!nodeFs.existsSync(filePath) || !nodeFs.statSync(filePath).isFile()) return false;
+  const fd = nodeFs.openSync(filePath, "r");
+  try {
+    const header = Buffer.alloc(4);
+    if (nodeFs.readSync(fd, header, 0, header.length, 0) !== header.length) return false;
+    const magic = header.readUInt32BE(0);
+    return magic === 0xfeedface
+      || magic === 0xcefaedfe
+      || magic === 0xfeedfacf
+      || magic === 0xcffaedfe
+      || magic === 0xcafebabe
+      || magic === 0xbebafeca;
+  } finally {
+    nodeFs.closeSync(fd);
+  }
 }
