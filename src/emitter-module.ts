@@ -34,7 +34,7 @@ import type {
 import type { ModuleSymbolTable, ClassSymbol, ModuleSymbol } from "./types.js";
 import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
-import { emitStatement, emitBlockStatements } from "./emitter-stmt.js";
+import { emitStatement, emitBlockStatements, isConstexprValue } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
 import { emitClassCppName, emitClassForwardDeclName, emitClassSharedPtrType, emitLocalClassCppName, emitPrivateClassCppName, emitType, emitInnerType, mangleTypeForCppName } from "./emitter-types.js";
 import { assignModuleNamespaces, emitModuleNamespace, emitQualifiedHelperName, emitQualifiedSymbolName } from "./emitter-names.js";
@@ -426,7 +426,7 @@ function buildHeaderPlan(
       (fn) => !fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length > 0 && !functionDeclIsStreamSensitive(fn.decl),
     ),
     exportedVariables: classified.variables.filter((v) => v.exported),
-    hasInitDeclaration: hasReadonlyGlobals(classified),
+    hasInitDeclaration: hasRuntimeModuleValueInitializers(classified),
   };
 }
 
@@ -1525,7 +1525,7 @@ function emitHpp(
 
   // Exported variable declarations (extern)
   for (const v of plan.exportedVariables) {
-    const externDecl = emitExternVariableDecl(v.stmt);
+    const externDecl = emitExternVariableDecl(v.stmt, table.path);
     if (externDecl) {
       lines.push(externDecl);
     }
@@ -1534,9 +1534,9 @@ function emitHpp(
     lines.push("");
   }
 
-  // Module init function declaration (for modules with readonly globals)
+  // Module init function declaration (for modules with runtime-initialized values)
   if (plan.hasInitDeclaration) {
-    const initName = modulePathToInitName(table.path, baseDir);
+    const initName = modulePathToInitName(table.path);
     lines.push(`void ${initName}();`);
     lines.push("");
   }
@@ -1669,6 +1669,11 @@ function emitCppFile(
   const nonExportedVars = classified.variables.filter((v) => !v.exported);
   if (nonExportedVars.length > 0) {
     for (const v of nonExportedVars) {
+      if (moduleValueNeedsRuntimeInit(v.stmt)) {
+        lines.push(...emitRuntimeModuleValueStorageDecl(v.stmt, table.path, true));
+        lines.push("");
+        continue;
+      }
       const ctx = {
         ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
         ...covCtx,
@@ -1760,15 +1765,20 @@ function emitCppFile(
   // Exported variable definitions
   const exportedVars = classified.variables.filter((v) => v.exported);
   for (const v of exportedVars) {
+    if (moduleValueNeedsRuntimeInit(v.stmt)) {
+      lines.push(...emitRuntimeModuleValueStorageDecl(v.stmt, table.path, false));
+      lines.push("");
+      continue;
+    }
     const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
     emitStatement(v.stmt, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
   }
 
-  // Module init function (for readonly globals)
-  if (hasReadonlyGlobals(classified)) {
-    emitInitFunction(table, analysisResult, classified, interfaceImpls, monomorphizedFunctions, lines, baseDir);
+  // Module init function (for runtime-initialized module values)
+  if (hasRuntimeModuleValueInitializers(classified)) {
+    emitInitFunction(table, analysisResult, classified, interfaceImpls, monomorphizedFunctions, lines);
   }
 
   // main() wrapper
@@ -1990,8 +2000,12 @@ function emitExternCMainEntryWrapper(
   // Module initialization calls
   const initCalls = buildInitOrder(table, analysisResult);
   for (const modPath of initCalls) {
-    const initName = modulePathToInitName(modPath, baseDir);
+    const initName = modulePathToInitName(modPath);
     lines.push(`    ${emitQualifiedHelperName(modPath, initName, analysisResult.modules)}();`);
+  }
+  if (moduleHasRuntimeValueInitializers(table)) {
+    const initName = modulePathToInitName(table.path);
+    lines.push(`    ${emitQualifiedHelperName(table.path, initName, analysisResult.modules)}();`);
   }
 
   if (hasArgs) {
@@ -2129,12 +2143,75 @@ function emitMockCaptureStruct(lines: string[], captureType: MockCaptureType): v
 }
 
 /**
- * Check if a module has any readonly globals that need runtime initialization.
+ * Check if a module has any module values that need runtime initialization.
  */
-function hasReadonlyGlobals(classified: ClassifiedStatements): boolean {
+function hasRuntimeModuleValueInitializers(classified: ClassifiedStatements): boolean {
   return classified.variables.some(
-    (v) => v.stmt.kind === "readonly-declaration",
+    (v) => moduleValueNeedsRuntimeInit(v.stmt),
   );
+}
+
+function moduleHasRuntimeValueInitializers(table: ModuleSymbolTable): boolean {
+  return table.program.statements.some((stmt) => {
+    const inner = stmt.kind === "export-declaration"
+      ? (stmt as any).declaration as Statement
+      : stmt;
+    return moduleValueNeedsRuntimeInit(inner);
+  });
+}
+
+function moduleValueNeedsRuntimeInit(stmt: Statement): boolean {
+  return (stmt.kind === "readonly-declaration" || stmt.kind === "immutable-binding")
+    && !isConstexprValue(stmt.value);
+}
+
+function emitRuntimeModuleValueType(stmt: Statement, modulePath: string): string | null {
+  if (stmt.kind === "readonly-declaration") {
+    if (stmt.resolvedType?.kind === "class") {
+      return `std::shared_ptr<const ${emitClassCppName(stmt.resolvedType.symbol, modulePath)}>`;
+    }
+    return stmt.resolvedType ? emitType(stmt.resolvedType, modulePath) : null;
+  }
+
+  if (stmt.kind === "immutable-binding") {
+    return stmt.resolvedType ? emitType(stmt.resolvedType, modulePath) : null;
+  }
+
+  return null;
+}
+
+function emitRuntimeModuleValueStorageDecl(
+  stmt: Statement,
+  modulePath: string,
+  internalLinkage: boolean,
+): string[] {
+  if (!moduleValueNeedsRuntimeInit(stmt)) return [];
+  if (stmt.kind !== "readonly-declaration" && stmt.kind !== "immutable-binding") return [];
+
+  const type = emitRuntimeModuleValueType(stmt, modulePath);
+  if (!type) return [];
+
+  const lines: string[] = [];
+  if (stmt.description) {
+    lines.push(`// ${stmt.description}`);
+  }
+  const linkagePrefix = internalLinkage ? "static " : "";
+  lines.push(`${linkagePrefix}${type} ${emitIdentifierSafe(stmt.name)}{};`);
+  return lines;
+}
+
+function emitRuntimeModuleValueAssignment(
+  stmt: Statement,
+  ctx: EmitContext,
+): void {
+  if (!moduleValueNeedsRuntimeInit(stmt)) return;
+  if (stmt.kind !== "readonly-declaration" && stmt.kind !== "immutable-binding") return;
+
+  const type = emitRuntimeModuleValueType(stmt, ctx.module.path);
+  if (!type) return;
+
+  const val = emitExpression(stmt.value, ctx, stmt.resolvedType);
+  ctx.sourceLines.push(`${indent(ctx)}${emitIdentifierSafe(stmt.name)} = ${val};`);
 }
 
 // ============================================================================
@@ -2244,7 +2321,14 @@ function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | 
 // Extern variable declarations (for .hpp)
 // ============================================================================
 
-function emitExternVariableDecl(stmt: Statement): string | null {
+function emitExternVariableDecl(stmt: Statement, modulePath: string): string | null {
+  if (moduleValueNeedsRuntimeInit(stmt)) {
+    const type = emitRuntimeModuleValueType(stmt, modulePath);
+    if (!type) return null;
+    if (stmt.kind !== "readonly-declaration" && stmt.kind !== "immutable-binding") return null;
+    return `extern ${type} ${emitIdentifierSafe(stmt.name)};`;
+  }
+
   switch (stmt.kind) {
     case "const-declaration": {
       const s = stmt as ConstDeclaration;
@@ -2417,7 +2501,7 @@ function findStreamHelperOwnerModule(
 // ============================================================================
 
 /**
- * Emit the _init_module() function that initializes readonly globals.
+ * Emit the _init_module() function that initializes runtime module values.
  * Uses a static bool guard to prevent double initialization.
  * Dependencies are initialized first by calling their init functions.
  */
@@ -2428,9 +2512,8 @@ function emitInitFunction(
   interfaceImpls: Map<string, ClassSymbol[]>,
   monomorphizedFunctions: Map<string, GenericFunctionInstantiation>,
   lines: string[],
-  baseDir: string,
 ): void {
-  const initName = modulePathToInitName(table.path, baseDir);
+  const initName = modulePathToInitName(table.path);
 
   lines.push(`void ${initName}() {`);
   lines.push("    static bool _initialized = false;");
@@ -2442,18 +2525,18 @@ function emitInitFunction(
   for (const depPath of depOrder) {
     // Don't call our own init recursively
     if (depPath === table.path) continue;
-    const depInitName = modulePathToInitName(depPath, baseDir);
+    const depInitName = modulePathToInitName(depPath);
     lines.push(`    ${emitQualifiedHelperName(depPath, depInitName, analysisResult.modules)}();`);
   }
 
-  // Initialize readonly globals
-  const readonlyVars = classified.variables.filter(
-    (v) => v.stmt.kind === "readonly-declaration",
+  // Initialize runtime module values.
+  const runtimeVars = classified.variables.filter(
+    (v) => moduleValueNeedsRuntimeInit(v.stmt),
   );
-  for (const v of readonlyVars) {
+  for (const v of runtimeVars) {
     const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
     ctx.indent = 1;
-    emitStatement(v.stmt, ctx);
+    emitRuntimeModuleValueAssignment(v.stmt, ctx);
     lines.push(...ctx.sourceLines);
   }
 
@@ -2484,15 +2567,10 @@ function buildInitOrder(
       visit(dependencyModule);
     }
 
-    // Only add if the module has readonly globals that need initialization
-    const hasReadonlyGlobals = table.program.statements.some((stmt) => {
-      const inner = stmt.kind === "export-declaration"
-        ? (stmt as any).declaration
-        : stmt;
-      return inner.kind === "readonly-declaration";
-    });
+    // Only add if the module has values that need runtime initialization.
+    const hasRuntimeModuleValues = moduleHasRuntimeValueInitializers(table);
 
-    if (hasReadonlyGlobals) {
+    if (hasRuntimeModuleValues) {
       order.push(path);
     }
   }
@@ -2536,6 +2614,11 @@ function collectCppReferencedModulePaths(
   interfaceImpls: Map<string, ClassSymbol[]>,
 ): string[] {
   const dependencies = new Set(collectReferencedModulePaths(table));
+  for (const initModule of buildInitOrder(table, analysisResult)) {
+    if (initModule !== table.path) {
+      dependencies.add(initModule);
+    }
+  }
   for (const dependencyModule of collectMemberAccessModulePaths(table, interfaceImpls)) {
     dependencies.add(dependencyModule);
   }
@@ -2956,9 +3039,15 @@ function resolvePackageModuleOutputPath(
 }
 
 /** Convert a module path to an init function name. */
-function modulePathToInitName(modulePath: string, baseDir: string): string {
-  const base = relativeModulePath(modulePath, baseDir).replace(/\.do$/, "").replace(/\//g, "_");
-  return `_init_${base}`;
+function modulePathToInitName(modulePath: string): string {
+  const base = nodePath.posix.basename(modulePath, ".do");
+  const sanitized = base.replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  const identifier = sanitized.length === 0
+    ? "module"
+    : /^[0-9]/.test(sanitized)
+      ? `_${sanitized}`
+      : sanitized;
+  return `_init_${identifier}`;
 }
 
 /** Extract base name from a module path (for project name). */

@@ -517,16 +517,16 @@ function routeKey(request: HttpRequest): string {
 
 ### Discriminated Unions
 
-Use `const` fields to create discriminated unions:
+Use literal-valued fields to create discriminated unions:
 
 ```javascript
 class Success {
-    const kind = "Success"
+    kind: "Success"
     value: int
 }
 
 class Failure {
-    const kind = "Failure"
+    kind: "Failure"
     error: string
 }
 
@@ -690,23 +690,23 @@ HttpStatus.OK < HttpStatus.NoContent  // true (200 < 204)
 
 ### Enums as Union Discriminators
 
-Enum values can be used as `const` field values to discriminate unions, providing a type-safe alternative to string-based `const kind` fields:
+Enum values can be used as literal-valued fields to discriminate unions, providing a type-safe alternative to string-based discriminator fields:
 
 ```javascript
 enum ShapeKind { Circle, Rectangle, Triangle }
 
 class CircleShape {
-    const kind = ShapeKind.Circle
+    kind: ShapeKind.Circle
     radius: float
 }
 
 class RectangleShape {
-    const kind = ShapeKind.Rectangle
+    kind: ShapeKind.Rectangle
     width, height: float
 }
 
 class TriangleShape {
-    const kind = ShapeKind.Triangle
+    kind: ShapeKind.Triangle
     a, b, c: float
 }
 
@@ -730,12 +730,12 @@ Use **discriminated unions** when variants carry different data:
 
 ```javascript
 class TextMessage {
-    const kind = "Text"
+    kind: "Text"
     content: string
 }
 
 class ImageMessage {
-    const kind = "Image"
+    kind: "Image"
     url: string
     width, height: int
 }
@@ -830,18 +830,18 @@ let p: Positioned = Point { x: 1.0, y: 2.0 }
 let v: Positioned = Vector { x: 1.0, y: 2.0 }
 ```
 
-### Const Fields Aid Variant Identification
+### Literal-Valued Fields Aid Variant Identification
 
 ```javascript
 enum OutcomeKind { Success, Failure }
 
 class SuccessOutcome {
-    const kind = OutcomeKind.Success
+    kind: OutcomeKind.Success
     value: int
 }
 
 class FailureOutcome {
-    const kind = OutcomeKind.Failure
+    kind: OutcomeKind.Failure
     error: string
 }
 
@@ -1411,12 +1411,12 @@ For everything beyond the simple null-check rule above, use an explicit narrowin
 
 ```javascript
 class Success {
-    const kind = "Success"
+    kind: "Success"
     value: int
 }
 
 class Failure {
-    const kind = "Failure"
+    kind: "Failure"
     error: string
 }
 

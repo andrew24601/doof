@@ -12,8 +12,8 @@ Doof has no exceptions.
 ```doof
 type Result<T, E> = Success<T> | Failure<E>
 
-class Success<T> { const kind = "Success"; value: T }
-class Failure<E> { const kind = "Failure"; error: E }
+class Success<T> { kind: "Success"; value: T }
+class Failure<E> { kind: "Failure"; error: E }
 ```
 
 ### Returning Results
@@ -62,7 +62,6 @@ Supported binding forms include declarations, typed declarations, destructuring,
 ```doof
 try x := expr
 try x: Type := expr
-try const x = expr
 try readonly x = expr
 try let x = expr
 try (a, b) := expr
@@ -195,7 +194,7 @@ When `foo()` returns `Result<MyObj, E1>` and `bar()` returns `Result<int, E2>`, 
 `catch` captures fallible work locally instead of propagating it.
 
 ```doof
-const err = catch {
+err := catch {
     try a()
     try b()
 }

@@ -12,6 +12,54 @@ import { check, findId, findTypes } from "./checker-test-helpers.js";
 // ============================================================================
 
 describe("Assignment validation", () => {
+  it("warns that const declarations are deprecated", () => {
+    const info = check(
+      {
+        "/main.do": `
+          const MAX = 42
+          function test(): int => MAX
+        `,
+      },
+      "/main.do",
+      { includeDeprecationWarnings: true },
+    );
+    expect(info.diagnostics).toContainEqual(expect.objectContaining({
+      severity: "warning",
+      message: expect.stringContaining("deprecated"),
+    }));
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
+  it("warns that class const field syntax is deprecated", () => {
+    const oldSyntax = check(
+      {
+        "/main.do": `
+          class Circle {
+            const kind = "circle"
+          }
+        `,
+      },
+      "/main.do",
+      { includeDeprecationWarnings: true },
+    );
+    expect(oldSyntax.diagnostics).toContainEqual(expect.objectContaining({
+      severity: "warning",
+      message: expect.stringContaining("literal-valued field syntax"),
+    }));
+
+    const newSyntax = check(
+      {
+        "/main.do": `
+          class Circle {
+            kind: "circle"
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(newSyntax.diagnostics).toHaveLength(0);
+  });
+
   it("accepts assignment to mutable variable", () => {
     const info = check(
       {
@@ -39,9 +87,9 @@ describe("Assignment validation", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("Cannot assign");
-    expect(info.diagnostics[0].message).toContain("constant");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("Cannot assign");
+    expect(error?.message).toContain("constant");
   });
 
   it("rejects assignment to immutable binding", () => {
@@ -56,8 +104,8 @@ describe("Assignment validation", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("Cannot assign");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("Cannot assign");
   });
 
   it("rejects assignment to function parameter", () => {
@@ -65,8 +113,8 @@ describe("Assignment validation", () => {
       { "/main.do": `function test(x: int): void { x = 42 }` },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("Cannot assign");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("Cannot assign");
   });
 
   it("rejects type-incompatible assignment", () => {
@@ -117,8 +165,8 @@ describe("Assignment validation", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("Cannot assign");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("Cannot assign");
   });
 
   it("rejects yielding block reassignment to a parameter", () => {
@@ -291,14 +339,14 @@ describe("Assignment validation", () => {
             readonly claims: readonly Map<string, JsonValue>
           }
 
-          const jwt = Jwt {
+          readonly jwt = Jwt {
             claims: { "ok": true }
           }
         `,
       },
       "/main.do",
     );
-    expect(info.diagnostics).toHaveLength(0);
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
   it("rejects readonly fields that reference mutable classes transitively", () => {
@@ -518,6 +566,69 @@ describe("Declaration validation", () => {
       "/main.do",
     );
     expect(info.diagnostics.some((d) => d.message.includes("already declared"))).toBe(true);
+  });
+
+  it("rejects reassignment of module-level immutable bindings", () => {
+    const info = check(
+      {
+        "/main.do": `
+          value := 1
+
+          function test(): void {
+            value = 2
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes("an immutable binding"))).toBe(true);
+  });
+
+  it("allows mutable contents through module-level immutable bindings", () => {
+    const info = check(
+      {
+        "/main.do": `
+          values := [1, 2]
+
+          function test(): void {
+            values.push(3)
+            values[0] = 4
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
+  it("rejects module-level immutable bindings that reference later module values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          first := second
+          second := 2
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('cannot reference "second" before its declaration'))).toBe(true);
+  });
+
+  it("rejects module-level readonly declarations that reference later module values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          readonly first = second
+          readonly second = 2
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics.some((d) => d.message.includes('cannot reference "second" before its declaration'))).toBe(true);
   });
 
   it("allows nested scopes to shadow bindings", () => {
@@ -1097,7 +1208,7 @@ describe("Tuple field access", () => {
 describe("Lambda type validation", () => {
   it("accepts compatible lambda return type", () => {
     const info = check(
-      { "/main.do": `const fn = (x: int): int => x * 2` },
+      { "/main.do": `fn := (x: int): int => x * 2` },
       "/main.do",
     );
     expect(info.diagnostics).toHaveLength(0);
@@ -1105,26 +1216,26 @@ describe("Lambda type validation", () => {
 
   it("rejects incompatible lambda return type", () => {
     const info = check(
-      { "/main.do": `const fn = (x: int): string => x * 2` },
+      { "/main.do": `fn := (x: int): string => x * 2` },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("not assignable to return type");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("not assignable to return type");
   });
 
   it("validates return statement in lambda block body", () => {
     const info = check(
       {
         "/main.do": `
-          const fn = (x: int): int {
+          fn := (x: int): int {
             return "not an int"
           }
         `,
       },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("not assignable to return type");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("not assignable to return type");
   });
 });
 
@@ -1483,7 +1594,7 @@ describe("Cross-module type checking", () => {
       {
         "/main.do": `
           import { createUser } from "./user"
-          const u = createUser("Alice", 30)
+          u := createUser("Alice", 30)
         `,
         "/user.do": `
           export class User { name: string; age: int }
@@ -1494,7 +1605,7 @@ describe("Cross-module type checking", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics).toHaveLength(0);
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
   it("rejects wrong argument types for imported functions", () => {
@@ -1502,7 +1613,7 @@ describe("Cross-module type checking", () => {
       {
         "/main.do": `
           import { createUser } from "./user"
-          const u = createUser(42, "not an age")
+          u := createUser(42, "not an age")
         `,
         "/user.do": `
           export class User { name: string; age: int }
@@ -1513,8 +1624,8 @@ describe("Cross-module type checking", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
-    expect(info.diagnostics[0].message).toContain("not assignable to parameter");
+    const error = info.diagnostics.find((d) => d.severity === "error");
+    expect(error?.message).toContain("not assignable to parameter");
   });
 
   it("validates field access types on imported classes", () => {
@@ -1616,7 +1727,7 @@ describe("End-to-end type checking scenario", () => {
       },
       "/main.do",
     );
-    expect(info.diagnostics).toHaveLength(0);
+    expect(info.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
   it("catches multiple errors in a module", () => {

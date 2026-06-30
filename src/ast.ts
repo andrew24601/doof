@@ -508,8 +508,10 @@ export interface ReadonlyDeclaration extends Typed {
 export interface ImmutableBinding extends Typed {
   kind: "immutable-binding";
   name: string;
+  description?: string;
   type: TypeAnnotation | null;
   value: Expression;
+  exported?: boolean;
   span: SourceSpan;
 }
 
@@ -683,6 +685,7 @@ export interface ClassField extends Typed {
   static_: boolean;
   readonly_: boolean;
   const_: boolean;
+  deprecatedConstSyntax?: boolean;
   weak_: boolean;
   private_: boolean;
   span: SourceSpan;

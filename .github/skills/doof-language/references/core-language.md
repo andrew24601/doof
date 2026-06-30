@@ -30,19 +30,18 @@ function main(args: string[]): int
 
 | Form | Reassignable | Notes |
 | --- | --- | --- |
-| `const` | no | compile-time constant; allowed globally or locally |
 | `readonly` | no | deeply immutable value; allowed globally or locally |
-| `:=` | no | immutable binding, value may still have mutable interior |
+| `:=` | no | immutable binding, value may still have mutable interior; allowed globally or locally |
 | `let` | yes | mutable local binding |
 
 ```doof
-const MAX = 100
+readonly MAX = 100
 readonly config = loadConfig()
 items := [1, 2, 3]
 let total = 0
 ```
 
-Global scope allows only `const`, `readonly`, and `function`. `const` and `function` hoist. `readonly` does not.
+Prefer `readonly` for deeply immutable values and `:=` for immutable bindings with mutable interiors. `const` is deprecated and remains accepted temporarily with a warning. Global scope allows `readonly`, `:=`, deprecated `const`, and `function`. Functions hoist. `readonly` and `:=` do not.
 
 ### `with` Scoped Bindings
 
@@ -128,7 +127,7 @@ class Failure {
 ### Lambdas
 
 ```doof
-const square = (x: int): int => x * 2
+square := (x: int): int => x * 2
 
 type Transform = (x: int): int
 transform: Transform := (x) => x * 2
@@ -298,8 +297,8 @@ Line 2: ${value}`
 ### Discriminated Unions
 
 ```doof
-class TextMsg { const kind = "text"; content: string }
-class ImageMsg { const kind = "image"; url: string; width, height: int }
+class TextMsg { kind: "text"; content: string }
+class ImageMsg { kind: "image"; url: string; width, height: int }
 type Message = TextMsg | ImageMsg
 ```
 
@@ -327,7 +326,7 @@ function process(): Result<Output, Error> {
 ## Key Differences from TypeScript and JavaScript
 
 - No `var`, no `undefined`
-- `:=` is the default immutable local binding; `const` is compile-time only
+- `:=` is the default immutable local binding; deprecated `const` remains accepted temporarily
 - `let` is mutable
 - No exceptions; use `Result` and `panic`
 - No implicit coercion

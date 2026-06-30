@@ -14,8 +14,8 @@ Export declarations directly:
 
 ```javascript
 // math.do
-export const PI = 3.14159
-export const E = 2.71828
+export readonly PI = 3.14159
+export readonly E = 2.71828
 
 export class Vector {
     x, y, z: float
@@ -263,7 +263,7 @@ import { Parser, Config } from "mylib"
 Items not exported are module-private:
 
 ```javascript
-const INTERNAL_PRECISION = 1e-10  // Private
+readonly INTERNAL_PRECISION = 1e-10  // Private
 
 function internalHelper(): void { ... }  // Private
 
@@ -277,7 +277,7 @@ export function calculate(): float {
 
 ## Circular Imports
 
-Doof handles circular imports cleanly because module-level declarations (`const` and `readonly`) are immutable and functions hoist at global scope:
+Doof handles circular imports cleanly because module-level `readonly` declarations are immutable and functions hoist at global scope:
 
 ```javascript
 // a.do
@@ -293,7 +293,7 @@ export class B {
 }
 ```
 
-`const` declarations are compile-time constants and hoist. `readonly` declarations are runtime-computed but follow strict declaration order. Functions hoist. No mutable state exists at module scope, preventing initialization order issues.
+`readonly` and `:=` declarations follow strict declaration order. Functions hoist. Module bindings are not reassignable, preventing initialization order issues while still allowing `:=` to reference values with mutable interiors. Deprecated `const` declarations remain accepted temporarily with a warning.
 
 ---
 
@@ -490,7 +490,7 @@ function main(): void {
 
 **Initialization order:**
 1. All imported modules are initialized depth-first
-2. Module-level `const` and `readonly` bindings are evaluated in declaration order
+2. Module-level `readonly` and `:=` bindings are evaluated in declaration order
 3. Once all modules are initialized, `main()` is invoked
 
 ### Error Handling in `main()`

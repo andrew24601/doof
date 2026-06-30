@@ -2,7 +2,7 @@
 
 ## Overview
 
-Doof treats functions as first-class values. `function <name>` declarations are syntactic sugar for `const` lambda declarations, providing a unified mental model where all callables follow the same rules for closures, scope, and typing.
+Doof treats functions as first-class values. Use `function <name>` for named callables and `:=` for local lambda bindings.
 
 ---
 
@@ -186,19 +186,19 @@ Lambdas are anonymous function values with the same expression and block forms.
 
 ```javascript
 // Expression body
-const double = (x: int): int => x * 2
+double := (x: int): int => x * 2
 
 // Block body
-const triple = (x: int): int { return x * 3 }
+triple := (x: int): int { return x * 3 }
 ```
 
 ### Inferred Return Type
 
 ```javascript
-const double = (x: int) => x * 2
+double := (x: int) => x * 2
 
-const compute = (x: int) => {
-    const y = 3
+compute := (x: int) => {
+    y := 3
     return x * y
 }
 ```
@@ -246,7 +246,7 @@ nums.map((index, it) => it + index)  // Both reversed — names disambiguate
 ### Inline Usage
 
 ```javascript
-const c = [1, 2, 3].map((item: int): int => item * 2)
+c := [1, 2, 3].map((item: int): int => item * 2)
 ```
 
 ### Enum Types in Function Signatures
@@ -321,7 +321,7 @@ items.forEach() { print(it) }
 
 // Multi-statement trailing lambda
 items.forEach() {
-    const label = "Item: " + it.name
+    label := "Item: " + it.name
     print(label)
 }
 
@@ -370,7 +370,7 @@ items.forEach() { return }       // ✗ compile error
 
 // OK — return inside a regular lambda nested within
 items.forEach() {
-    const fn = (x: int): int => { return x + 1 }
+    fn := (x: int): int => { return x + 1 }
     print(fn(it))
 }
 ```
@@ -416,20 +416,18 @@ type BinaryOp = (left: int, right: int): int
 
 ---
 
-## Functions as `const` Sugar
+## Named Functions and Lambda Bindings
 
-`function <name>` declarations are syntactic sugar for `const` lambda declarations:
+Named functions and local lambda bindings share the same function type model:
 
 ```javascript
-// These are equivalent:
 function bar(x: int): int => x * 12
-const bar = (x: int): int => x * 12
+barLambda := (x: int): int => x * 12
 ```
 
 This means:
-- Functions follow the same scoping rules as `const`
 - Global functions hoist; nested functions do not
-- Functions are immutable bindings — cannot be reassigned
+- Function declarations and `:=` lambda bindings are immutable — they cannot be reassigned
 - Functions close over their lexical scope like any lambda
 
 First-class function values are actor-affine callbacks. Normal Doof call syntax

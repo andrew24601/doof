@@ -2,7 +2,7 @@
 
 ## Overview
 
-Doof provides three binding mechanisms with distinct semantics for compile-time constants, immutable bindings, and mutable bindings. The binding keyword also influences type inference for collections.
+Doof provides binding mechanisms with distinct semantics for deep immutability, shallow immutable bindings, and mutable bindings. The binding keyword also influences type inference for collections.
 
 ---
 
@@ -10,14 +10,14 @@ Doof provides three binding mechanisms with distinct semantics for compile-time 
 
 | Syntax | Binding | Immutability | Scope |
 |--------|---------|--------------|-------|
-| `const` | Compile-time constant | N/A | Global or nested |
 | `readonly` | Runtime constant | Deep immutable | Global or nested |
-| `:=` | Immutable binding | Shallow (content mutable) | Nested only |
+| `:=` | Immutable binding | Shallow (content mutable) | Global or nested |
 | `let` | Mutable | Mutable | Nested only |
 | `with` | Scoped immutable binding | Shallow (content mutable) | Block only |
+| `const` | Deprecated immutable declaration | Legacy | Global or nested |
 
 ```javascript
-const MAX_SIZE = 100                // Compile-time constant
+readonly MAX_SIZE = 100             // Deep immutable module constant
 readonly CONFIG = loadConfig()      // Runtime constant, deeply immutable
 timestamp := getCurrentTime()       // Immutable binding, shallow
 let counter = 0                     // Mutable binding
@@ -25,7 +25,7 @@ let counter = 0                     // Mutable binding
 
 ### Yield-Block Initializers with `<-`
 
-Local `let`, local `const`, and local `readonly` declarations can use `<-` when the initializer needs imperative work before producing its final value:
+Local `let` and local `readonly` declarations can use `<-` when the initializer needs imperative work before producing its final value:
 
 ```javascript
 let x <- {
@@ -35,7 +35,7 @@ let x <- {
     yield 5
 }
 
-const label <- {
+readonly label <- {
     log("computing label")
     yield "ready"
 }
@@ -63,21 +63,22 @@ count <- {
 
 ---
 
-## `const` — Compile-Time Constants
+## `const` — Deprecated Legacy Syntax
 
-`const` declares values that are fully known at compile time. These are the **only** declarations allowed at global (module) scope.
+`const` declarations are deprecated. The parser and checker still accept them temporarily and emit a warning. Use `readonly` for deeply immutable values, and use `:=` for immutable bindings with mutable interiors.
 
 ```javascript
-const PI = 3.14159
-const MAX_USERS = 1000
-const GREETING = "Hello"
+readonly PI = 3.14159
+readonly MAX_USERS = 1000
+readonly GREETING = "Hello"
+
+label := "immutable value with mutable interior"
 ```
 
 **Rules:**
-- Value must be compile-time evaluable
-- Available at both global and nested scope
-- Hoists at global scope (available anywhere in file)
-- Does **not** hoist in nested scope
+- Legacy `const` remains accepted temporarily with a warning
+- New code should not use `const`
+- Module-level `readonly` and `:=` literal values may still lower to compile-time C++ constants as an implementation detail
 
 ---
 
@@ -175,12 +176,11 @@ frozen = [4, 5, 6]        // ✅ OK: binding is mutable
 `readonly` is permitted at global scope for runtime-computed immutable values:
 
 ```javascript
-const MAX_SIZE = 100                    // Compile-time constant
+readonly MAX_SIZE = 100                 // Module constant
 readonly CONFIG = loadConfig()          // Runtime-computed, deeply immutable
 readonly PRIMES = readonly [2, 3, 5, 7] // Deeply immutable array
 
 // CONFIG is computed at runtime but immutable thereafter
-// Unlike const, readonly allows runtime initialization
 ```
 
 ### Local Scope
@@ -224,11 +224,11 @@ e.name = "Gadget"       // ✅ OK
 
 ```javascript
 // Explicit readonly modifier
-const ITEMS := readonly [1, 2, 3]     // readonly int[]
+items := readonly [1, 2, 3]           // readonly int[]
 let data = readonly ["a", "b"]        // readonly string[]
 
 // Without modifier - mutable collection
-const BUFFER := [1, 2, 3]             // int[] (mutable)
+buffer := [1, 2, 3]                   // int[] (mutable)
 
 // Comparison
 readonly x = [1, 2]          // readonly int[] (deep readonly binding)
@@ -242,20 +242,23 @@ z := [1, 2]                  // int[] (mutable content, immutable binding)
 
 ### Global Scope
 
-- **Allowed: `const`, `readonly`, and `function` declarations**
-- `const` and `function` declarations **hoist** (available anywhere in file)
-- `readonly` does **not** hoist (strict declaration order)
+- **Allowed: `readonly`, `:=`, deprecated `const`, and `function` declarations**
+- `function` declarations **hoist** (available anywhere in file)
+- `readonly` and `:=` do **not** hoist (strict declaration order)
 - `<-` yield-block initializers are **not** allowed at global scope
-- No `let` or `:=` at global scope
+- No `let` at global scope
 
 ```javascript
-// ✅ Valid — compile-time constant
-const PI = 3.14159
-const MAX_USERS = 1000
+// ✅ Valid — module constants
+readonly PI = 3.14159
+readonly MAX_USERS = 1000
 
 // ✅ Valid — runtime-computed readonly
 readonly CONFIG = loadConfig()        // Runtime initialization
 readonly PRIMES = readonly [2, 3, 5]
+
+// ✅ Valid — shallow immutable module binding
+config := loadConfig()                // Binding is immutable; value interior may be mutable
 
 // ✅ Valid — functions hoist
 bar(5)  // Works — functions hoist
@@ -263,18 +266,18 @@ function greet(name: string): void => print("Hello, " + name)
 function bar(x: int): int => x * 12
 
 // ❌ Invalid at global scope
-config := loadConfig()     // Error: := not allowed globally
 let counter = 0            // Error: let not allowed globally
-const value <- { yield 1 } // Error: <- blocks are local-only
+readonly value <- { yield 1 } // Error: <- blocks are local-only
 
-// ❌ Hoisting error for readonly
+// ❌ Hoisting error for readonly and :=
 let x = CONFIG             // Error: CONFIG used before declaration
 readonly CONFIG = load()   // readonly doesn't hoist
 ```
 
 ### Nested (Local) Scope
 
-- All binding keywords available (`const`, `:=`, `let`)
+- `readonly`, `:=`, and `let` bindings are available
+- Deprecated `const` remains accepted temporarily with a warning
 - **Nothing hoists** — strict declaration order
 - Re-declaring the same binding name in the **same local scope** is a compile-time error
 - Nested scopes may still shadow an outer binding with a new local binding
@@ -284,7 +287,7 @@ readonly CONFIG = load()   // readonly doesn't hoist
 function outer() {
     helper(5)  // ❌ Error: used before declaration
     
-    const LIMIT = 100
+    readonly LIMIT = 100
     config := load()
     let counter = 0
     
@@ -312,11 +315,10 @@ function scopes() {
 | Context | Declaration Type | Hoists? |
 |---------|-----------------|---------|
 | Global | `function` | ✅ Yes |
-| Global | `const` | ✅ Yes |
 | Global | `readonly` | ❌ No |
-| Global | `:=` / `let` | ❌ Not allowed |
+| Global | `:=` | ❌ No |
+| Global | `let` | ❌ Not allowed |
 | Nested | `function` | ❌ No |
-| Nested | `const` | ❌ No |
 | Nested | `readonly` | ❌ No |
 | Nested | `:=` | ❌ No |
 | Nested | `let` | ❌ No |
@@ -324,25 +326,25 @@ function scopes() {
 
 ### Design Rationale
 
-**Why allow both `const` and `readonly` at global scope?**
-1. `const` for compile-time constants — enables hoisting and aggressive optimization
-2. `readonly` for runtime-computed values — still immutable but computed at module initialization
-3. Clear distinction: `const` = compile-time, `readonly` = runtime
-4. Future: `readonly` may support deferred initialization patterns
+**Why deprecate `const` declarations?**
+1. `readonly` communicates the user-facing immutability guarantee directly
+2. Literal-valued `readonly` module declarations can still be optimized by the emitter
+3. `:=` is clearer for shallow immutable bindings
+4. Removing `const` avoids a second spelling for immutable values
 
-**Why not hoist `readonly`?**
+**Why not hoist `readonly` or `:=`?**
 1. Runtime initialization requires strict declaration order
 2. Prevents initialization order issues
 3. Consistent with local scope semantics
 
-**Why not allow `:=` and `let` globally?**
-1. `:=` provides shallow immutability — use `readonly` for deep immutability at global scope
-2. `let` would introduce global mutable state — use classes or modules for stateful patterns
-3. Simpler mental model — globals are constants (compile-time or runtime)
+**Why not allow `let` globally?**
+1. `let` would introduce reassignable global state — use classes or modules for stateful patterns
+2. Module-level `:=` covers immutable references to values with mutable interiors
+3. Simpler mental model — module bindings are not reassignable
 
 **Why not hoist nested declarations?**
 1. Prevents access to uninitialized variables
-2. Simpler mental model — only top-level `const` and `function` are special
+2. Simpler mental model — only top-level `function` declarations are special
 3. Clear syntactic rules, no complex analysis needed
 
 ---

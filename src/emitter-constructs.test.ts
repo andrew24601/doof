@@ -1177,7 +1177,8 @@ describe("emitter — for-of with arrays", () => {
         return total
       }
     `);
-    expect(cpp).toContain("for (const auto& item : *items)");
+    expect(cpp).toContain("const auto& _iterable_");
+    expect(cpp).toContain("for (const auto& item : *_iterable_");
   });
 
   it("emits for-of with inline array literal", () => {
@@ -1190,7 +1191,8 @@ describe("emitter — for-of with arrays", () => {
         return sum
       }
     `);
-    expect(cpp).toContain("for (const auto&");
+    expect(cpp).toContain("const auto& _iterable_");
+    expect(cpp).toContain("for (const auto& n : *_iterable_");
     expect(cpp).toContain("std::vector");
   });
 });

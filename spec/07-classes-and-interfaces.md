@@ -56,20 +56,20 @@ class Model {
 |----------|-----------|
 | (none) | Mutable field |
 | `readonly` | Set once at construction, cannot be reassigned |
-| `const` | Compile-time constant, must match on initialisation |
+| literal value after `:` | Compile-time constant, must match on initialisation |
 
-### Const Fields
+### Literal-Valued Fields
 
-`const` fields enable discriminated unions and structural typing:
+Literal-valued fields enable discriminated unions and structural typing. The older `kind := "Success"` spelling is deprecated and remains accepted temporarily with a warning:
 
 ```javascript
 class Success {
-    const kind = "Success"
+    kind: "Success"
     value: int
 }
 
 class Failure {
-    const kind = "Failure"
+    kind: "Failure"
     error: string
 }
 
@@ -287,8 +287,8 @@ From another file:
 
 ```doof
 import { User } from "./user"
-const u = User { name: "Alice" }
-const h = u.passwordHash   // ❌ Error: "passwordHash" is private
+u := User { name: "Alice" }
+h := u.passwordHash   // ❌ Error: "passwordHash" is private
 ```
 
 #### Private Methods
@@ -305,7 +305,7 @@ From another file:
 
 ```doof
 import { Parser } from "./parser"
-const p = Parser { source: "hello" }
+p := Parser { source: "hello" }
 p.advance()   // ❌ Error: "advance" is private
 ```
 
@@ -343,8 +343,8 @@ export function makeConfig(name: string): Config {
 ```doof
 // main.do
 import { Config, makeConfig } from "./lib"
-const c1 = makeConfig("prod")                     // ✅ use factory
-const c2 = Config { secret: "x", name: "test" }   // ❌ cannot construct
+c1 := makeConfig("prod")                     // ✅ use factory
+c2 := Config { secret: "x", name: "test" }   // ❌ cannot construct
 ```
 
 If all private fields have defaults, external construction is allowed (the private fields simply use their defaults):
@@ -572,16 +572,16 @@ Point { x: 1.0, y: "hello" }  // ❌ Error: string is not assignable to float
 Point { x: 1.0, y: 2.0 }      // ✅ OK
 ```
 
-### Const Fields in Initialisation
+### Literal-Valued Fields in Initialisation
 
-**Nominal construction** — const fields are auto-filled:
+**Nominal construction** — literal-valued fields are auto-filled:
 
 ```javascript
 let r1 = Success { value: 42 }     // kind auto-filled to "Success"
 let r2 = Success(42)               // Positional — kind auto-filled
 ```
 
-**Structural construction** — const fields must be specified:
+**Structural construction** — literal-valued fields must be specified:
 
 ```javascript
 let r1: Result = { kind: "Success", value: 42 }

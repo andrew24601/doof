@@ -177,8 +177,9 @@ export function validateEmitReadyDeclarations(
         for (const part of expr.parts) {
           if (typeof part !== "string") {
             visitExpression(part);
-          }
-        }
+  }
+}
+
         break;
 
       case "binary-expression":
@@ -490,6 +491,132 @@ export function validateEmitReadyDeclarations(
   visitStatements(table.program.statements);
 }
 
+function validateModuleValueDeclarationOrder(
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+): void {
+  const valueStatements = table.program.statements
+    .map((stmt) => stmt.kind === "export-declaration" ? stmt.declaration : stmt)
+    .filter((stmt): stmt is Extract<Statement,
+      | { kind: "readonly-declaration" }
+      | { kind: "immutable-binding" }
+    > => stmt.kind === "readonly-declaration" || stmt.kind === "immutable-binding");
+
+  const reportLaterModuleValueUse = (expr: Expression, current: typeof valueStatements[number]): void => {
+    if (expr.kind === "identifier") {
+      const binding = expr.resolvedBinding;
+      if (binding
+        && binding.module === table.path
+        && (binding.kind === "readonly" || binding.kind === "immutable-binding")
+        && binding.span.start.offset > current.span.start.offset
+      ) {
+        info.diagnostics.push({
+          severity: "error",
+          message: `Module-level "${current.name}" cannot reference "${expr.name}" before its declaration`,
+          span: expr.span,
+          module: table.path,
+        });
+      }
+      return;
+    }
+
+    switch (expr.kind) {
+      case "string-literal":
+        for (const part of expr.parts) if (typeof part !== "string") reportLaterModuleValueUse(part, current);
+        break;
+      case "binary-expression":
+        reportLaterModuleValueUse(expr.left, current);
+        reportLaterModuleValueUse(expr.right, current);
+        break;
+      case "unary-expression":
+        reportLaterModuleValueUse(expr.operand, current);
+        break;
+      case "assignment-expression":
+        reportLaterModuleValueUse(expr.target, current);
+        reportLaterModuleValueUse(expr.value, current);
+        break;
+      case "member-expression":
+      case "qualified-member-expression":
+        reportLaterModuleValueUse(expr.object, current);
+        break;
+      case "index-expression":
+        reportLaterModuleValueUse(expr.object, current);
+        reportLaterModuleValueUse(expr.index, current);
+        break;
+      case "call-expression":
+        reportLaterModuleValueUse(expr.callee, current);
+        for (const arg of expr.args) reportLaterModuleValueUse(arg.value, current);
+        break;
+      case "array-literal":
+      case "tuple-literal":
+        for (const element of expr.elements) reportLaterModuleValueUse(element, current);
+        break;
+      case "object-literal":
+        for (const property of expr.properties) if (property.value) reportLaterModuleValueUse(property.value, current);
+        break;
+      case "map-literal":
+        for (const entry of expr.entries) {
+          reportLaterModuleValueUse(entry.key, current);
+          reportLaterModuleValueUse(entry.value, current);
+        }
+        break;
+      case "if-expression":
+        reportLaterModuleValueUse(expr.condition, current);
+        reportLaterModuleValueUse(expr.then, current);
+        reportLaterModuleValueUse(expr.else_, current);
+        break;
+      case "case-expression":
+        reportLaterModuleValueUse(expr.subject, current);
+        for (const arm of expr.arms) {
+          if (arm.body.kind !== "block") reportLaterModuleValueUse(arm.body, current);
+        }
+        break;
+      case "construct-expression":
+        if (expr.named) {
+          for (const property of expr.args as import("./ast.js").ObjectProperty[]) {
+            if (property.value) reportLaterModuleValueUse(property.value, current);
+          }
+        } else {
+          for (const arg of expr.args as Expression[]) reportLaterModuleValueUse(arg, current);
+        }
+        break;
+      case "async-expression":
+        if (expr.expression.kind !== "block") reportLaterModuleValueUse(expr.expression, current);
+        break;
+      case "retire-expression":
+        reportLaterModuleValueUse(expr.actor, current);
+        break;
+      case "actor-creation-expression":
+        for (const arg of expr.args) reportLaterModuleValueUse(arg, current);
+        break;
+      case "non-null-assertion":
+        reportLaterModuleValueUse(expr.expression, current);
+        break;
+      case "as-expression":
+        reportLaterModuleValueUse(expr.expression, current);
+        break;
+      case "lambda-expression":
+      case "catch-expression":
+      case "int-literal":
+      case "long-literal":
+      case "float-literal":
+      case "double-literal":
+      case "char-literal":
+      case "bool-literal":
+      case "null-literal":
+      case "this-expression":
+      case "caller-expression":
+      case "enum-access":
+      case "dot-shorthand":
+        break;
+    }
+  };
+
+  for (const stmt of valueStatements) {
+    reportLaterModuleValueUse(stmt.value, stmt);
+  }
+}
+
 // ============================================================================
 // TypeChecker
 // ============================================================================
@@ -598,6 +725,7 @@ export class TypeChecker {
 
     const moduleScope = this.buildModuleScope(table);
     this.checkStatements(table.program.statements, moduleScope, table, info);
+    validateModuleValueDeclarationOrder(table, info);
     this.validateTypeDeclarations(table, info);
     validateEmitReadyDeclarations(table, info);
     this.validateInterfacesHaveImplementors(table, info);
@@ -1028,7 +1156,7 @@ export class TypeChecker {
         case "enum": kind = "enum"; break;
         case "type-alias": kind = "type-alias"; break;
         case "function": kind = "function"; break;
-        case "const": kind = "const"; break;
+        case "const": kind = sym.declaration.kind === "immutable-binding" ? "immutable-binding" : "const"; break;
         case "readonly": kind = "readonly"; break;
       }
     }

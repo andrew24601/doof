@@ -20,7 +20,7 @@ Use this base file as the entry point. Load only the reference file that matches
 - Use `Result` plus `case`, `try`, declaration-`else`, `as`, or `!` for fallible flows. Use `panic(...)` only for programmer errors.
 - Plain `if` null checks do **not** narrow static types. Use explicit narrowing forms.
 - Classes are nominal. Interfaces are structural.
-- Global scope allows `const`, `readonly`, and `function`. Mutable bindings are local-only.
+- Prefer `readonly` for deeply immutable values and `:=` for immutable bindings with mutable interiors. `const` is deprecated and remains accepted temporarily with a warning.
 - Prefer `std/<name>` packages before inventing utility modules.
 
 ## Quick Syntax
@@ -33,7 +33,7 @@ function main(): void {
 count := 1
 let total = 0
 readonly config = load()
-const VERSION = "0.1"
+readonly VERSION = "0.1"
 
 result := try! loadConfig()
 value := source as string else { return "" }

@@ -15,7 +15,7 @@ Doof is a statically-typed, compiled programming language designed around safety
 ## Key Language Features
 
 - **Strong static typing** with bidirectional type inference
-- **Immutability control** via `:=` (shallow), `readonly` (deep), and `const` (compile-time)
+- **Immutability control** via `:=` (shallow) and `readonly` (deep)
 - **No null by default** — nullability is explicit via union types (`T | null`)
 - **No exceptions** — error handling via `Result` types with `try`/`try!`/`try?`/`??` operators, and `panic` for bugs
 - **Pattern matching** via `case` expressions with type capture
@@ -40,7 +40,7 @@ This specification is organised into the following sections:
 | Document | Contents |
 |----------|----------|
 | [02-type-system.md](02-type-system.md) | Primitive types, type inference, nullability, unions, generics, readonly |
-| [03-variables-and-bindings.md](03-variables-and-bindings.md) | `const`, `:=`, `let`, scope rules, hoisting, destructuring |
+| [03-variables-and-bindings.md](03-variables-and-bindings.md) | `readonly`, `:=`, `let`, scope rules, hoisting, destructuring |
 | [04-functions-and-lambdas.md](04-functions-and-lambdas.md) | Function declarations, lambdas, closures, parameter inference |
 | [05-operators.md](05-operators.md) | Arithmetic, comparison, logical, bitwise, null-coalescing, ranges |
 | [06-control-flow.md](06-control-flow.md) | If/else, loops, break/continue, early return |

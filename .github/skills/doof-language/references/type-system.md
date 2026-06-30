@@ -132,11 +132,11 @@ type Value = int | string | bool
 type Optional<T> = T | null
 ```
 
-Discriminated unions usually use shared `const` fields.
+Discriminated unions usually use shared literal-valued fields.
 
 ```doof
-class Success { const kind = "Success"; value: int }
-class Failure { const kind = "Failure"; error: string }
+class Success { kind: "Success"; value: int }
+class Failure { kind: "Failure"; error: string }
 type ParseResult = Success | Failure
 ```
 

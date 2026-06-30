@@ -571,7 +571,7 @@ namespace geo = geometry;
 
 ### 9.4 Module Initialization
 
-`readonly` module-level bindings execute at load time. Emit as function-local statics inside a per-module `init()` function, called in dependency order from `main()`:
+Runtime-initialized module-level `readonly` and `:=` bindings execute through a per-module `init()` function, called in dependency order from `main()`. Emit module-scope storage and assign it from the guarded init function:
 
 ```cpp
 // geometry.cpp
@@ -581,7 +581,7 @@ void _init_geometry() {
     _initialized = true;
     // init dependencies first
     _init_math();
-    // then this module's readonly globals
+    // then this module's runtime-initialized values
     ...
 }
 ```
@@ -962,7 +962,7 @@ Walk expression nodes, emit C++ text. Key cases:
 - [x] Tests: multi-module programs, import resolution ✅ 23 unit tests + 10 e2e tests
 - [x] `emitModuleSplit()` — single module → `.hpp`/`.cpp` pair ✅ IMPLEMENTED
 - [x] `emitProject()` — all modules + runtime + CMake ✅ IMPLEMENTED
-- [x] Module initialization runtime (`_init_module()` functions for `readonly` globals) ✅ IMPLEMENTED
+- [x] Module initialization runtime (`_init_module()` functions for runtime `readonly` and `:=` module values) ✅ IMPLEMENTED
 - [x] Namespace-qualified imports (`import * as ns from "mod"`) ✅ IMPLEMENTED (checker + emitter)
 
 ### Phase 8: Extern C++ Interop — **COMPLETE**

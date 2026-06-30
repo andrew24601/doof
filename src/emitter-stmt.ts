@@ -431,6 +431,8 @@ function emitReadonlyDecl(
     ctx.sourceLines.push(`${ind}${linkagePrefix}const std::shared_ptr<const ${innerType}> ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
+  } else if (isConstexprValue(stmt.value)) {
+    ctx.sourceLines.push(`${ind}${linkagePrefix}constexpr auto ${name} = ${val};`);
   } else {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const auto ${name} = ${val};`);
   }
@@ -1213,9 +1215,15 @@ function emitForOfStatement(
     return;
   }
 
-  // Arrays and maps are shared_ptr<container>, need dereference to iterate
+  // Shared collection temporaries must be named before dereferencing so inline
+  // literals/results live for the whole range-for loop.
   const needsDeref = iterableType && (iterableType.kind === "array" || iterableType.kind === "map" || iterableType.kind === "set");
-  const iterExpr = needsDeref ? `*${iterable}` : iterable;
+  let iterExpr = iterable;
+  if (needsDeref) {
+    const iterableVar = `_iterable_${ctx.tempCounter++}`;
+    ctx.sourceLines.push(`${ind}const auto& ${iterableVar} = ${iterable};`);
+    iterExpr = `*${iterableVar}`;
+  }
   const loopCtx = {
     ...ctx,
     indent: ctx.indent + 1,
@@ -1468,7 +1476,7 @@ export function emitBlockStatements(block: Block, ctx: EmitContext): void {
 // ============================================================================
 
 /** Check if an expression is a compile-time constant (for constexpr). */
-function isConstexprValue(expr: Expression): boolean {
+export function isConstexprValue(expr: Expression): boolean {
   switch (expr.kind) {
     case "int-literal":
     case "long-literal":

@@ -295,6 +295,18 @@ export class ModuleAnalyzer {
         if (stmt.exported) table.exports.set(stmt.name, sym);
         break;
       }
+      case "immutable-binding": {
+        const sym: ModuleSymbol = {
+          symbolKind: "const",
+          name: stmt.name,
+          declaration: stmt,
+          exported: stmt.exported ?? false,
+          module: table.path,
+        };
+        table.symbols.set(stmt.name, sym);
+        if (stmt.exported) table.exports.set(stmt.name, sym);
+        break;
+      }
       case "extern-class-declaration": {
         // Synthesize a ClassDeclaration from the extern class for the type system.
         const synthDecl = synthesizeClassDecl(stmt);

@@ -13,8 +13,8 @@ An optional string literal may appear after the name in any of the following dec
 ```
 class Name "description" { ... }
 function name "description"(params): ReturnType { ... }
-const name "description": Type = value
 readonly name "description": Type = value
+fieldName "description": "literal"
 interface Name "description" { ... }
 enum Name "description" { ... }
 type Name "description" = Type
@@ -77,8 +77,8 @@ enum Status "Current status." {
 | `enum` | After enum name, before `{` |
 | Enum variant | After variant name, before `=` or `,` |
 | `type` alias | After type name, before `<` or `=` |
-| `const` | After const name, before `:` or `=` |
 | `readonly` | After readonly name, before `:` or `=` |
+| Literal-valued field | After field name, before `:` |
 
 ## Not Supported
 
@@ -138,7 +138,7 @@ class Calculator "A simple calculator." {
     }
 }
 
-const meta = Calculator.metadata
+meta := Calculator.metadata
 println(meta.name)          // "Calculator"
 println(meta.description)   // "A simple calculator."
 ```
@@ -160,9 +160,9 @@ Each entry in `.methods` is a `MethodReflection` with:
 The metadata object itself also exposes an `.invoke` helper for name-based dispatch:
 
 ```doof
-const meta = Calculator.metadata
-const calc = Calculator { }
-const result = meta.invoke(calc, "add", { a: 1, b: 2 })
+meta := Calculator.metadata
+calc := Calculator { }
+result := meta.invoke(calc, "add", { a: 1, b: 2 })
 if result.isSuccess() {
     println(result.value)  // 3
 }
@@ -181,10 +181,10 @@ if result.isSuccess() {
 Each method reflection has an `.invoke` member that dispatches a method call using `JsonValue` parameters, returning a `Result<JsonValue, JsonValue>`:
 
 ```doof
-const meta = Calculator.metadata
-const method = meta.methods[0]
-const calc = Calculator { }
-const result = method.invoke(calc, { a: 1, b: 2 })
+meta := Calculator.metadata
+method := meta.methods[0]
+calc := Calculator { }
+result := method.invoke(calc, { a: 1, b: 2 })
 if result.isSuccess() {
     println(result.value)  // 3
 }

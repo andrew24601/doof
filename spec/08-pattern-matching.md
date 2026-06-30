@@ -169,12 +169,12 @@ Type patterns create immutable bindings with narrowed types:
 
 ```javascript
 class Success<T> {
-    const kind = "Success"
+    kind: "Success"
     value: T
 }
 
 class Failure<E> {
-    const kind = "Failure"
+    kind: "Failure"
     error: E
 }
 
@@ -278,7 +278,7 @@ to a value.  Using `return` inside such an arm is a **compile error**.
 ```javascript
 // ❌ Error: 'return' cannot be used inside a case-expression arm
 function main(): int {
-    const x = case tryOp() {
+    x := case tryOp() {
         s: Success -> s.value,
         f: Failure -> { return 1 }   // ← compile error
     }

@@ -8,7 +8,7 @@ ESM-style. Each `.do` file is a module. All imports/exports resolved at compile 
 
 ```doof
 // Inline exports
-export const PI = 3.14159
+export readonly PI = 3.14159
 export class Vector { x, y: float }
 export function add(a: int, b: int): int => a + b
 export enum Direction { North, South, East, West }
@@ -56,12 +56,11 @@ File extensions optional (`.do` inferred).
 
 ### Global Scope
 
-Only `const`, `readonly`, and `function` allowed.
+Only `readonly`, deprecated `const`, and `function` declarations are allowed. Prefer `readonly` for module constants; `const` remains accepted temporarily with a warning.
 
 | Declaration | Hoists? |
 |-------------|---------|
 | `function` | Yes |
-| `const` | Yes |
 | `readonly` | No |
 | `:=` / `let` | Not allowed globally |
 
@@ -84,7 +83,7 @@ function main(args: string[]): int { /* ... */ }
 
 ### Module Initialization
 
-`const` and `readonly` at module scope execute during initialization, before `main()`. Imported modules initialize depth-first.
+Module-scope `readonly` values initialize before `main()`. Imported modules initialize depth-first.
 
 ## Extern C++ Interop
 

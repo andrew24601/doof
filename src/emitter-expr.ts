@@ -130,6 +130,13 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
         if (targetEmitType?.kind === "function") {
           return `${emitType(targetEmitType, ctx.module.path)}(${baseExpr})`;
         }
+        const targetClassType = nullableClassTargetType(targetEmitType);
+        if (expr.resolvedBinding?.kind === "readonly"
+          && resolvedExprType?.kind === "class"
+          && targetClassType
+          && typesEqual(resolvedExprType, targetClassType)) {
+          return `std::const_pointer_cast<${emitClassCppName(targetClassType.symbol, ctx.module.path)}>(${baseExpr})`;
+        }
         return baseExpr;
       }
 
@@ -251,6 +258,16 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
     default:
       throw new Error(`Unhandled expression kind in emitter: ${(expr as Expression).kind}`);
   }
+}
+
+function nullableClassTargetType(type: ResolvedType | undefined): Extract<ResolvedType, { kind: "class" }> | null {
+  if (!type) return null;
+  if (type.kind === "class") return type;
+  if (type.kind !== "union") return null;
+  const nonNullTypes = type.types.filter((member) => member.kind !== "null");
+  if (nonNullTypes.length !== 1) return null;
+  const [nonNullType] = nonNullTypes;
+  return nonNullType.kind === "class" ? nonNullType : null;
 }
 
 // ============================================================================

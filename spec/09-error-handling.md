@@ -17,12 +17,12 @@ Result types represent operations that can fail in expected ways:
 type Result<T, E> = Success<T> | Failure<E>
 
 class Success<T> {
-    const kind = "Success"
+    kind: "Success"
     value: T
 }
 
 class Failure<E> {
-    const kind = "Failure"
+    kind: "Failure"
     error: E
 }
 ```
@@ -118,7 +118,7 @@ function readFile(path: string): Result<string, IOError> { ... }
 readFile("config.json")
 
 // ✅ Capture in a variable
-const result = readFile("config.json")
+result := readFile("config.json")
 
 // ✅ Unwrap with try (early return on Failure)
 try content := readFile("config.json")
@@ -210,7 +210,6 @@ function loadConfig(): Result<Config, Error> {
 ```javascript
 try x := expr             // immutable binding
 try x: Type := expr       // typed immutable binding
-try const x = expr        // const declaration
 try readonly x = expr     // readonly declaration
 try let x = expr          // let declaration
 try (a, b) := expr        // positional destructuring
@@ -347,7 +346,7 @@ return Failure { error: ParseError { message: "Invalid" } }
 
 // try statement (early return — statement-level)
 try value := expr        // T (or early return Failure<E>)
-try const value = expr   // T (or early return Failure<E>)
+try readonly value = expr // T (or early return Failure<E>)
 try let value = expr     // T (or early return Failure<E>)
 try (a, b) := expr       // destructured T (or early return)
 try {a, b} := expr       // destructured T (or early return)
@@ -419,7 +418,7 @@ s := value as string else { return "default" }
 s := try! value as string
 
 // Pattern match:
-const len = case value as string {
+len := case value as string {
     ok: Success -> ok.value.length,
     _: Failure -> 0
 }
@@ -436,7 +435,7 @@ The `catch` expression groups fallible operations and captures any error locally
 ### Basic Usage
 
 ```javascript
-const err = catch {
+err := catch {
     try a()
     try b()
 }
@@ -448,7 +447,7 @@ The inferred type of `err` is the **union of all error types** from `try` statem
 ```javascript
 // a(): Result<void, IOError>
 // b(): Result<void, ParseError>
-const err = catch {
+err := catch {
     try a()
     try b()
 }
@@ -478,7 +477,7 @@ The wildcard arm handles the `null` case (no error).
 
 ### Interaction with `return`
 
-- **Binding form** (`const err = catch { ... }`): `return` inside the body returns from the **enclosing function**, because the block is emitted at statement level
+- **Binding form** (`err := catch { ... }`): `return` inside the body returns from the **enclosing function**, because the block is emitted at statement level
 - **Expression form** (`case catch { ... } { ... }`): `return` inside the body is **banned**, same as inside `case` expression arms, because the block is wrapped in an IIFE for evaluation
 
 ### Nesting
@@ -486,8 +485,8 @@ The wildcard arm handles the `null` case (no error).
 `catch` blocks can be nested. Each block captures errors independently:
 
 ```javascript
-const outer = catch {
-    const inner = catch {
+outer := catch {
+    inner := catch {
         try a()   // captured by inner
     }
     try b()       // captured by outer
@@ -530,7 +529,7 @@ function catchPanic<T>(f: () => T): Result<T, string>
 If the callback completes normally, `catchPanic` returns `Success<T>`.
 
 ```javascript
-const result = catchPanic(=> {
+result := catchPanic(=> {
     initializePlugin()
     return "ready"
 })

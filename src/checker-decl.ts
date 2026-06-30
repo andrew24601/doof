@@ -382,6 +382,16 @@ export function checkClass(
     : UNKNOWN_TYPE;
 
   for (const field of decl.fields) {
+    if (field.deprecatedConstSyntax) {
+      const fieldName = field.names[0] ?? "<field>";
+      info.diagnostics.push({
+        severity: "warning",
+        message: `Class const field syntax is deprecated; use literal-valued field syntax like ${fieldName}: <literal>`,
+        span: field.span,
+        module: table.path,
+      });
+    }
+
     if (!field.type && !field.defaultValue) {
       const quotedNames = field.names.map((name) => `"${name}"`).join(", ");
       info.diagnostics.push({

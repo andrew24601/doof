@@ -37,6 +37,18 @@ describe("Parser — variable declarations", () => {
     });
   });
 
+  it("parses exported readonly module constants", () => {
+    const stmt = firstStmt("export readonly ZIP_UTF8_FLAG = 1 << 11");
+    expect(stmt).toMatchObject({
+      kind: "export-declaration",
+      declaration: {
+        kind: "readonly-declaration",
+        name: "ZIP_UTF8_FLAG",
+        exported: true,
+      },
+    });
+  });
+
   it("parses let declaration", () => {
     const stmt = firstStmt("let counter = 0");
     expect(stmt).toMatchObject({
@@ -59,9 +71,37 @@ describe("Parser — variable declarations", () => {
     expect(stmt).toMatchObject({
       kind: "immutable-binding",
       name: "x",
+      exported: false,
     });
     if (stmt.kind === "immutable-binding") {
       expect(stmt.type).toMatchObject({ kind: "named-type", name: "int" });
+    }
+  });
+
+  it("parses exported immutable module bindings", () => {
+    const stmt = firstStmt("export config := loadConfig()");
+    expect(stmt).toMatchObject({
+      kind: "export-declaration",
+      declaration: {
+        kind: "immutable-binding",
+        name: "config",
+        exported: true,
+      },
+    });
+  });
+
+  it("parses exported typed immutable module bindings", () => {
+    const stmt = firstStmt("export config: string := loadConfig()");
+    expect(stmt).toMatchObject({
+      kind: "export-declaration",
+      declaration: {
+        kind: "immutable-binding",
+        name: "config",
+        exported: true,
+      },
+    });
+    if (stmt.kind === "export-declaration" && stmt.declaration.kind === "immutable-binding") {
+      expect(stmt.declaration.type).toMatchObject({ kind: "named-type", name: "string" });
     }
   });
 
@@ -288,7 +328,58 @@ describe("Parser — class declarations", () => {
     }`);
     if (stmt.kind === "class-declaration") {
       expect(stmt.fields[0].const_).toBe(true);
+      expect(stmt.fields[0].deprecatedConstSyntax).toBe(true);
       expect(stmt.fields[0].names).toEqual(["kind"]);
+    }
+  });
+
+  it("parses literal-valued class fields as const fields", () => {
+    const stmt = firstStmt(`class Circle {
+      kind: "circle"
+      version: 1
+      radius: double
+    }`);
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.fields[0]).toMatchObject({
+        names: ["kind"],
+        const_: true,
+        readonly_: false,
+        deprecatedConstSyntax: undefined,
+        type: null,
+        defaultValue: { kind: "string-literal" },
+      });
+      expect(stmt.fields[1]).toMatchObject({
+        names: ["version"],
+        const_: true,
+        readonly_: false,
+        type: null,
+        defaultValue: { kind: "int-literal", value: 1 },
+      });
+      expect(stmt.fields[2]).toMatchObject({
+        names: ["radius"],
+        const_: false,
+        type: { kind: "named-type", name: "double" },
+        defaultValue: null,
+      });
+    }
+  });
+
+  it("parses enum-valued class fields as const fields", () => {
+    const stmt = firstStmt(`class Circle {
+      kind: ShapeKind.Circle
+      shorthand: .Circle
+    }`);
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.fields[0]).toMatchObject({
+        names: ["kind"],
+        const_: true,
+        defaultValue: { kind: "member-expression" },
+      });
+      expect(stmt.fields[1]).toMatchObject({
+        names: ["shorthand"],
+        const_: true,
+        defaultValue: { kind: "dot-shorthand" },
+      });
     }
   });
 

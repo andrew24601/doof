@@ -29,7 +29,7 @@ class Counter {
     }
 }
 
-const counter = Actor<Counter>(0)
+counter := Actor<Counter>(0)
 ```
 
 Each actor processes method calls sequentially.
@@ -42,7 +42,7 @@ Actor calls are synchronous by default:
 
 ```doof
 counter.increment(5)
-const n = counter.get()
+n := counter.get()
 ```
 
 The caller blocks until the actor method completes.
@@ -50,7 +50,7 @@ The caller blocks until the actor method completes.
 Actor calls may be asynchronous:
 
 ```doof
-const p = async counter.increment(10)
+p := async counter.increment(10)
 try! p.get()
 ```
 
@@ -95,8 +95,8 @@ passed into another actor method.
 `retire actor` stops an actor and returns its inner state:
 
 ```doof
-const job = Actor<Job>()
-const state: Job = retire job
+job := Actor<Job>()
+state: Job := retire job
 ```
 
 The type transformation is:
@@ -108,8 +108,8 @@ Actor<T> -> T
 Retirement is queue ordered:
 
 ```doof
-const p = async job.run()
-const state = retire job
+p := async job.run()
+state := retire job
 ```
 
 The actor observes:

@@ -76,6 +76,33 @@ describe("e2e — module splitting", () => {
     expect(success, `Compile error: ${error}\n${codes}`).toBe(true);
   });
 
+  it("runs imported runtime-initialized immutable and readonly module values", () => {
+    const result = ctx.compileAndRunProject(
+      {
+        "/config.do": `
+          function loadPort(): int => 40
+          function loadOffset(): int => 2
+
+          export port: int := loadPort()
+          export readonly OFFSET: int = loadOffset()
+        `,
+        "/main.do": `
+          import { port, OFFSET } from "./config"
+
+          function main(): int {
+            return port + OFFSET
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(42);
+  });
+
   it("compiles generated JSON for imported nested class fields", () => {
     const { success, error, codes } = ctx.compileOnlyProject(
       {

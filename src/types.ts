@@ -16,6 +16,7 @@ import type {
   TypeAliasDeclaration,
   FunctionDeclaration,
   ConstDeclaration,
+  ImmutableBinding,
   ReadonlyDeclaration,
   Program,
   MockImportDirective,
@@ -127,7 +128,7 @@ export interface FunctionSymbol {
 export interface ConstSymbol {
   symbolKind: "const";
   name: string;
-  declaration: ConstDeclaration;
+  declaration: ConstDeclaration | ImmutableBinding;
   exported: boolean;
   module: string;
   /** Logical generated C++ namespace assigned during emission planning. */

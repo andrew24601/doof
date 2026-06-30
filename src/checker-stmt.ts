@@ -746,6 +746,15 @@ function checkValueBindingStatement(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): void {
+  if (stmt.kind === "const-declaration") {
+    info.diagnostics.push({
+      severity: "warning",
+      message: '`const` declarations are deprecated; use `readonly` for deep immutable bindings or `:=` for local immutable bindings',
+      span: stmt.span,
+      module: table.path,
+    });
+  }
+
   if (stmt.kind !== "immutable-binding"
     && stmt.value.kind === "yield-block-expression"
     && scope.kind === "module") {

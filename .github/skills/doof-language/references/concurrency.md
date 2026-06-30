@@ -30,9 +30,9 @@ class Counter {
     }
 }
 
-const counter = Actor<Counter>(0)
+counter := Actor<Counter>(0)
 counter.increment(5)
-const now = counter.get()
+now := counter.get()
 ```
 
 Each actor processes one method call at a time. A caller that does not use
@@ -43,8 +43,8 @@ Each actor processes one method call at a time. A caller that does not use
 `async` enqueues an actor method call and returns `Promise<T>`:
 
 ```doof
-const worker = Actor<Counter>(0)
-const p = async worker.increment(10)
+worker := Actor<Counter>(0)
+p := async worker.increment(10)
 try! p.get()
 ```
 
@@ -67,11 +67,11 @@ not create worker-pool execution and does not make non-actor calls eligible for
 `retire actor` enqueues a retirement request after already accepted work:
 
 ```doof
-const job = Actor<Counter>(0)
-const p = async job.increment(10)
+job := Actor<Counter>(0)
+p := async job.increment(10)
 try! p.get()
 
-const state: Counter = retire job
+state: Counter := retire job
 ```
 
 Retirement behavior:
@@ -156,8 +156,8 @@ class Computation {
     }
 }
 
-const job = Actor<Computation>(42)
-const p = async job.run()
-const answer = try! p.get()
+job := Actor<Computation>(42)
+p := async job.run()
+answer := try! p.get()
 retire job
 ```

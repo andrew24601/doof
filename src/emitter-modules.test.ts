@@ -1323,6 +1323,44 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.cppCode).toContain("::doof_fs::runtime::readText");
   });
 
+  it("includes package module headers needed only by generated readonly init calls", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": [
+          'import { currentKind } from "../deps/std-game/index"',
+          `function main(): int {
+            return currentKind()
+          }`,
+        ].join("\n"),
+        "/workspace/deps/std-game/index.do": [
+          'export { currentKind } from "./events"',
+        ].join("\n"),
+        "/workspace/deps/std-game/events.do": [
+          "function loadKind(): int => 12",
+          "readonly KIND_CONTROLLER_DISCONNECTED = loadKind()",
+          "export function currentKind(): int => KIND_CONTROLLER_DISCONNECTED",
+        ].join("\n"),
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/deps/std-game", ".packages/std/game"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", "demo-app"],
+            ["/workspace/deps/std-game", "std/game"],
+          ]),
+        },
+      },
+    );
+
+    const mainModule = result.modules.find((mod) => mod.modulePath === "/workspace/app/main.do");
+    expect(mainModule?.cppCode).toContain('#include ".packages/std/game/events.hpp"');
+    expect(mainModule?.cppCode).toContain("::std_::game::events::_init_events();");
+  });
+
   it("emits dependency diagnostic paths through normalized package output roots", () => {
     const result = emitProjectHelper(
       {
@@ -1694,12 +1732,42 @@ describe("emitter-module — function signature with defaults", () => {
 });
 
 describe("emitter-module — module init functions", () => {
-  it("emits init function declaration in hpp for module with readonly globals", () => {
+  it("does not emit init function declaration for constexpr readonly globals", () => {
     const { hppCode } = emitSplit(`
       export readonly PI: float = 3.14159f
       export function area(r: float): float => PI * r * r
     `);
+    expect(hppCode).not.toContain("_init_");
+  });
+
+  it("emits init function declaration in hpp for runtime readonly globals", () => {
+    const { hppCode } = emitSplit(`
+      function loadPi(): float => 3.14159f
+      export readonly PI: float = loadPi()
+      export function area(r: float): float => PI * r * r
+    `);
     expect(hppCode).toContain("void _init_main();");
+  });
+
+  it("emits init function declaration in hpp for runtime immutable module bindings", () => {
+    const { hppCode } = emitSplit(`
+      function loadPort(): int => 8080
+      export port: int := loadPort()
+    `);
+    expect(hppCode).toContain("extern int32_t port;");
+    expect(hppCode).toContain("void _init_main();");
+  });
+
+  it("sanitizes init function names for dotted test module basenames", () => {
+    const { hppCode, cppCode } = emitSplit(`
+      function loadLabel(): string => "ok"
+      export readonly LABEL: string = loadLabel()
+    `, "/text.test.do");
+
+    expect(hppCode).toContain("void _init_text_test();");
+    expect(hppCode).not.toContain("_init_text.test");
+    expect(cppCode).toContain("void _init_text_test()");
+    expect(cppCode).not.toContain("_init_text.test");
   });
 
   it("does not emit init function for module without readonly globals", () => {
@@ -1711,7 +1779,8 @@ describe("emitter-module — module init functions", () => {
 
   it("emits init function body in cpp with guard", () => {
     const { cppCode } = emitSplit(`
-      export readonly PI: float = 3.14159f
+      function loadPi(): float => 3.14159f
+      export readonly PI: float = loadPi()
       export function area(r: float): float => PI * r * r
     `);
     expect(cppCode).toContain("void _init_main()");
@@ -1728,7 +1797,8 @@ describe("emitter-module — module init functions", () => {
           function main(): int => 0
         `,
         "/constants.do": `
-          export readonly PI: float = 3.14159f
+          function loadPi(): float => 3.14159f
+          export readonly PI: float = loadPi()
         `,
       },
       "/main.do",
@@ -1740,11 +1810,39 @@ describe("emitter-module — module init functions", () => {
 
   it("init function initializes readonly globals", () => {
     const { cppCode } = emitSplit(`
-      export readonly PI: float = 3.14159f
+      function loadPi(): float => 3.14159f
+      export readonly PI: float = loadPi()
       export function area(r: float): float => PI * r * r
     `);
     expect(cppCode).toContain("void _init_main()");
-    expect(cppCode).toContain("PI");
+    expect(cppCode).toContain("float PI{};");
+    expect(cppCode).toContain("PI = loadPi();");
+    expect(cppCode).not.toContain("const float PI = loadPi();");
+  });
+
+  it("init function initializes immutable module bindings", () => {
+    const { cppCode } = emitSplit(`
+      function loadPort(): int => 8080
+      export port: int := loadPort()
+      export function readPort(): int => port
+    `);
+    expect(cppCode).toContain("void _init_main()");
+    expect(cppCode).toContain("int32_t port{};");
+    expect(cppCode).toContain("port = loadPort();");
+    expect(cppCode).not.toContain("const int32_t port = loadPort();");
+  });
+
+  it("entry wrapper calls the entry module init function", () => {
+    const { cppCode } = emitSplit(`
+      function loadPort(): int => 42
+      port: int := loadPort()
+      function main(): int => port
+    `);
+
+    expect(cppCode).toContain("void _init_main()");
+    expect(cppCode).toContain("_init_main();");
+    expect(cppCode).toContain("return static_cast<int>(");
+    expect(cppCode).toContain("::doof_main());");
   });
 });
 

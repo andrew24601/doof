@@ -152,7 +152,11 @@ export interface CheckResult {
 }
 
 /** Run the full analysis + type-checking pipeline on a file map. */
-export function check(files: Record<string, string>, entry: string): CheckResult {
+export function check(
+  files: Record<string, string>,
+  entry: string,
+  options: { includeDeprecationWarnings?: boolean } = {},
+): CheckResult {
   const fs = new VirtualFS(files);
   const resolver = createBundledModuleResolver(fs);
   const analyzer = new ModuleAnalyzer(withBundledStdlib(fs), resolver);
@@ -164,7 +168,10 @@ export function check(files: Record<string, string>, entry: string): CheckResult
     const messages = result.diagnostics.map((diagnostic) => diagnostic.message).join("; ");
     throw new Error(messages.length > 0 ? messages : `Module not analyzed: ${entry}`);
   }
-  return { program: table.program, diagnostics: [...result.diagnostics, ...info.diagnostics], result };
+  const diagnostics = [...result.diagnostics, ...info.diagnostics].filter((diagnostic) =>
+    options.includeDeprecationWarnings || !diagnostic.message.includes("deprecated"),
+  );
+  return { program: table.program, diagnostics, result };
 }
 
 /** Get all identifier bindings whose name matches, by walking the decorated AST. */

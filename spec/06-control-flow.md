@@ -99,7 +99,7 @@ result := case n {
 
 ### `<-` Value-Yield Blocks
 
-Local `let`, local `const`, local `readonly`, and statement-only local reassignment can use `<-` followed by a block:
+Local `let`, local `readonly`, and statement-only local reassignment can use `<-` followed by a block:
 
 ```javascript
 let x <- {

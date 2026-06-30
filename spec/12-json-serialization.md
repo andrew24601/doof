@@ -9,9 +9,9 @@ class Point {
   x, y: float
 }
 
-const p = Point { x: 1.5, y: 2.5 }
-const json = p.toJsonObject()               // JsonObject
-const result = Point.fromJsonValue(json)    // Result<Point, string>
+p := Point { x: 1.5, y: 2.5 }
+json := p.toJsonObject()               // JsonObject
+result := Point.fromJsonValue(json)    // Result<Point, string>
 ```
 
 When you need text rather than structured JSON, use the standard JSON helpers:
@@ -19,8 +19,8 @@ When you need text rather than structured JSON, use the standard JSON helpers:
 ```doof
 import { parseJsonValue, formatJsonValue } from "std/json"
 
-const text = formatJsonValue(p.toJsonObject())
-const parsed = parseJsonValue(text)         // Result<JsonValue, string>
+text := formatJsonValue(p.toJsonObject())
+parsed := parseJsonValue(text)         // Result<JsonValue, string>
 ```
 
 `JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonObject()` methods emit class fields in declaration order.
@@ -35,7 +35,7 @@ Generation is transitive: if class `A` has a field of type `B` and you call `A.t
 class Inner { value: int }
 class Outer { inner: Inner }
 
-const json = Outer { inner: Inner { value: 42 } }.toJsonObject()
+json := Outer { inner: Inner { value: 42 } }.toJsonObject()
 ```
 
 ## Serialization — `.toJsonObject()`
@@ -49,7 +49,7 @@ class User {
   private email: string
 }
 
-const u = User { name: "Alice", age: 30, email: "alice@example.com" }
+u := User { name: "Alice", age: 30, email: "alice@example.com" }
 println(formatJsonValue(u.toJsonObject()))
 // {"name":"Alice","age":30,"email":"alice@example.com"}
 ```
@@ -57,7 +57,7 @@ println(formatJsonValue(u.toJsonObject()))
 ### Rules
 
 - All fields are serialized, including `private` and `readonly` fields.
-- `const` fields are serialized with their compile-time values.
+- Literal-valued fields are serialized with their compile-time values.
 - Serialization is deep: nested class instances, arrays of classes, and tuples are serialized recursively.
 - Multi-name fields (`x, y, z: float`) produce separate JSON object keys.
 - Field order follows declaration order.
@@ -96,7 +96,7 @@ class Bad {
   callback: (int) → void
 }
 
-const b = Bad { callback: (x) => println(x) }
+b := Bad { callback: (x) => println(x) }
 b.toJsonObject()  // compile error
 ```
 
@@ -109,7 +109,7 @@ deserializer cannot safely recreate.
 Every eligible class has a `.fromJsonValue(json: JsonValue, lenient: bool = false)` method accessible on the class name that returns `Result<ClassName, string>`.
 
 ```doof
-const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })
+result := Point.fromJsonValue({ x: 1.5, y: 2.5 })
 
 case result {
   p: Success -> println("Got point: ${p.value.x}, ${p.value.y}")
@@ -125,8 +125,8 @@ function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
   return T.fromJsonValue(json)
 }
 
-const payload: JsonValue = { name: "Ada" }
-const user = decode<User>{ json: payload }
+payload: JsonValue := { name: "Ada" }
+user := decode<User>{ json: payload }
 ```
 
 `JsonSerializable` is a constraint-only intrinsic. It is not a normal value type,
@@ -140,13 +140,13 @@ Deserialization follows the same rules as object construction:
 
 - Fields without a default initializer are required.
 - Fields with a default initializer are optional; the default is used when absent.
-- `const` fields are auto-filled; if present in the JSON object, their value must match the compile-time value.
+- Literal-valued fields are auto-filled; if present in the JSON object, their value must match the compile-time value.
 
 ```doof
 class Config {
   host: string
   port: int = 8080
-  const version = "1.0"
+  version: "1.0"
 }
 
 Config.fromJsonValue({ host: "localhost" })
@@ -213,7 +213,7 @@ Lenient mode does not relax structural requirements: objects must still be objec
 
 ## Interface Deserialization
 
-Interfaces can be deserialized using a shared `const` discriminator field. All implementing classes must share a `const` field with the same name and distinct string values.
+Interfaces can be deserialized using a shared literal-valued discriminator field. All implementing classes must share a literal-valued field with the same name and distinct string values.
 
 ```doof
 interface Shape {
@@ -221,25 +221,25 @@ interface Shape {
 }
 
 class Circle implements Shape {
-  const kind = "circle"
+  kind: "circle"
   radius: float
 
   function area(): float => 3.14159 * radius * radius
 }
 
 class Rect implements Shape {
-  const kind = "rect"
+  kind: "rect"
   width, height: float
 
   function area(): float => width * height
 }
 
-const result = Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
+result := Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
 ```
 
 ### Discriminator Requirements
 
-- All implementing classes must share a `const` field with the same name, such as `kind`.
+- All implementing classes must share a literal-valued field with the same name, such as `kind`.
 - Each implementing class must use a distinct string discriminator value.
 - If these requirements are not met, using `.fromJsonValue()` on the interface is a compile-time error.
 
@@ -255,7 +255,7 @@ class Cat implements Animal {
 }
 
 Animal.fromJsonValue({})
-// compile error: implementing classes must share a const string discriminator
+// compile error: implementing classes must share a literal string discriminator
 ```
 
 ### Unknown Discriminator Values
@@ -271,18 +271,18 @@ Named union aliases over classes can also be deserialized when they follow the s
 
 ```doof
 class Circle {
-  const kind = "circle"
+  kind: "circle"
   radius: double
 }
 
 class Rect {
-  const kind = "rect"
+  kind: "rect"
   width, height: double
 }
 
 type Shape = Circle | Rect
 
-const result = Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
+result := Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
 ```
 
 ### Alias Requirements
@@ -290,7 +290,7 @@ const result = Shape.fromJsonValue({ kind: "circle", radius: 5.0 })
 - `.fromJsonValue()` is available only on named type aliases, not on bare union expressions.
 - The alias must resolve to a union of classes.
 - All member classes must be JSON-serializable.
-- All member classes must share a `const` string discriminator field with distinct values, the same as interface deserialization.
+- All member classes must share a literal string discriminator field with distinct values, the same as interface deserialization.
 
 If these requirements are not met, using `.fromJsonValue()` on the alias is a compile-time error.
 
@@ -303,13 +303,13 @@ class Line {
   start, end: Point
 }
 
-const line = Line {
+line := Line {
   start: Point { x: 0.0, y: 0.0 },
   end: Point { x: 1.0, y: 1.0 }
 }
 
-const json = line.toJsonObject()
-const restored = Line.fromJsonValue(json)
+json := line.toJsonObject()
+restored := Line.fromJsonValue(json)
 ```
 
 ## Arrays and Tuples
@@ -319,7 +319,7 @@ class Polygon {
   vertices: Point[]
 }
 
-const poly = Polygon {
+poly := Polygon {
   vertices: [Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }]
 }
 

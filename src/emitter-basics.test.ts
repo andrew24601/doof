@@ -89,9 +89,9 @@ describe("emitter — const declarations", () => {
 });
 
 describe("emitter — readonly declarations", () => {
-  it("emits const auto for readonly", () => {
+  it("emits constexpr for readonly literal values", () => {
     const cpp = emit(`readonly X = 42`);
-    expect(cpp).toContain("const auto X = 42;");
+    expect(cpp).toContain("constexpr auto X = 42;");
   });
 });
 
@@ -658,6 +658,18 @@ describe("emitter — classes", () => {
     expect(cpp).toContain("Circle(float radius)");
     expect(cpp).not.toContain("static inline const std::string kind");
     expect(cpp).toContain('"circle"');
+  });
+
+  it("emits literal-valued class fields as instance const members", () => {
+    const cpp = emit(`
+      class Circle {
+        radius: float
+        kind: "circle"
+      }
+    `);
+    expect(cpp).toContain("const std::string kind = std::string(\"circle\")");
+    expect(cpp).toContain("Circle(float radius)");
+    expect(cpp).not.toContain("static inline const std::string kind");
   });
 
   it("emits construction with make_shared", () => {

@@ -386,6 +386,7 @@ export class Parser {
         name: expr.name,
         type: null,
         value,
+        exported: false,
         span: this.span(startLoc),
       };
     }
@@ -517,6 +518,7 @@ export class Parser {
       name,
       type,
       value,
+      exported: false,
       span: this.span(startLoc),
     };
   }
@@ -645,6 +647,31 @@ export class Parser {
 
     return {
       kind: "readonly-declaration",
+      name,
+      description,
+      type,
+      value,
+      exported,
+      span: this.span(startLoc),
+    };
+  }
+
+  private parseModuleImmutableBinding(exported: boolean): Statement {
+    const startLoc = this.loc();
+    const name = this.expect(TokenType.Identifier).value;
+    const description = this.parseDescription();
+
+    let type: TypeAnnotation | null = null;
+    if (this.match(TokenType.Colon)) {
+      type = this.parseTypeAnnotation();
+    }
+
+    this.expect(TokenType.ColonEqual);
+    const value = this.parseExpression();
+    this.consumeOptionalSemicolon();
+
+    return {
+      kind: "immutable-binding",
       name,
       description,
       type,
@@ -950,6 +977,27 @@ export class Parser {
     };
   }
 
+  private startsConstFieldValue(): boolean {
+    const current = this.current().type;
+    if (current === TokenType.Identifier && this.peek(1).type === TokenType.Dot) {
+      return true;
+    }
+    switch (current) {
+      case TokenType.Dot:
+      case TokenType.StringLiteral:
+      case TokenType.IntLiteral:
+      case TokenType.LongLiteral:
+      case TokenType.FloatLiteral:
+      case TokenType.DoubleLiteral:
+      case TokenType.CharLiteral:
+      case TokenType.True:
+      case TokenType.False:
+        return true;
+      default:
+        return false;
+    }
+  }
+
   private looksLikeMethod(): boolean {
     return this.looksLikeMethodAt(0);
   }
@@ -1076,6 +1124,7 @@ export class Parser {
     let static_ = false;
     let readonly_ = false;
     let const_ = false;
+    let deprecatedConstSyntax = false;
     let weak_ = false;
 
     if (this.check(TokenType.Static)) {
@@ -1088,6 +1137,7 @@ export class Parser {
       this.advance();
     } else if (this.check(TokenType.Const)) {
       const_ = true;
+      deprecatedConstSyntax = true;
       this.advance();
     }
 
@@ -1106,12 +1156,17 @@ export class Parser {
       descriptions.push(this.parseDescription());
     }
 
+    let defaultValue: Expression | null = null;
     let type: TypeAnnotation | null = null;
     if (this.match(TokenType.Colon)) {
-      type = this.parseTypeAnnotation();
+      if (!readonly_ && !const_ && names.length === 1 && this.startsConstFieldValue()) {
+        const_ = true;
+        defaultValue = this.parseExpression();
+      } else {
+        type = this.parseTypeAnnotation();
+      }
     }
 
-    let defaultValue: Expression | null = null;
     if (this.match(TokenType.Equal)) {
       defaultValue = this.parseExpression();
     }
@@ -1127,6 +1182,7 @@ export class Parser {
       static_,
       readonly_,
       const_,
+      deprecatedConstSyntax: deprecatedConstSyntax || undefined,
       weak_,
       private_: private__,
       span: this.span(startLoc),
@@ -1651,6 +1707,12 @@ export class Parser {
       case TokenType.Readonly:
         declaration = this.parseReadonlyDeclaration(true);
         break;
+      case TokenType.Identifier:
+        if (this.peek(1).type === TokenType.ColonEqual || this.looksLikeTypedBinding()) {
+          declaration = this.parseModuleImmutableBinding(true);
+          break;
+        }
+        throw this.error(`Unexpected token after export: ${this.current().type}`);
       case TokenType.Function:
         declaration = this.parseFunctionDeclaration(true, false);
         break;
@@ -1889,6 +1951,7 @@ export class Parser {
         name: expr.name,
         type: null,
         value,
+        exported: false,
         span: this.span(startLoc),
       };
     }

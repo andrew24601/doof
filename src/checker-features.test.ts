@@ -3873,6 +3873,18 @@ describe("checker — constructor validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("excludes literal-valued const fields from positional constructor params", () => {
+    const info = check({ "/main.do": `
+      class FileFormat {
+        kind: "zip"
+        version: 1
+        name: string
+      }
+      a := FileFormat("archive")
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("allows positional construction for a user-defined Success class", () => {
     const info = check({ "/main.do": `
       class Success {

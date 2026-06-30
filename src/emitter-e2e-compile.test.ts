@@ -541,6 +541,34 @@ describe("e2e — readonly class bindings", () => {
     `);
     expect(success, `Compile error:\n${error}\n\nGenerated:\n${code}`).toBe(true);
   });
+
+  it("returns a readonly class singleton from a nullable class function", () => {
+    const result = ctx.compileAndRun(`
+      class Encoding {
+        readonly name: string
+      }
+
+      readonly GZIP = Encoding { name: "gzip" }
+
+      function selected(enabled: bool): Encoding | null {
+        if !enabled {
+          return null
+        }
+        return GZIP
+      }
+
+      function main(): int {
+        encoding := selected(true) else {
+          return 1
+        }
+        if encoding.name != "gzip" {
+          return 2
+        }
+        return 0
+      }
+    `);
+    expect(result.exitCode, `Compile/run error:\n${result.stderr}`).toBe(0);
+  });
 });
 
 // ============================================================================
@@ -1559,6 +1587,22 @@ describe("e2e — array literals", () => {
     `);
     if (result.exitCode !== -1) {
       expect(result.exitCode).toBe(60);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("runs for-of directly over an inline float array literal", () => {
+    const result = ctx.compileAndRun(`
+      function main(): void {
+        for x of [-4.0, 4.0] {
+          println("x=" + x)
+        }
+        println("done")
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.stdout.trim()).toBe("x=-4\nx=4\ndone");
     } else {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }

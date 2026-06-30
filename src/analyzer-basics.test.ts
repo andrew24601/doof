@@ -279,6 +279,31 @@ describe("Symbol table — single module", () => {
     expect(table.symbols.get("config")!.symbolKind).toBe("readonly");
   });
 
+  it("collects an exported immutable module binding", () => {
+    const table = getTable(
+      { "/main.do": `export config := loadConfig()` },
+      "/main.do",
+    );
+
+    expect(table.symbols.has("config")).toBe(true);
+    expect(table.exports.has("config")).toBe(true);
+    expect(table.symbols.get("config")!.symbolKind).toBe("const");
+    expect(table.symbols.get("config")!.declaration.kind).toBe("immutable-binding");
+  });
+
+  it("resolves imports of immutable module bindings", () => {
+    const table = getTable(
+      {
+        "/main.do": `import { config } from "./config"`,
+        "/config.do": `export config := "prod"`,
+      },
+      "/main.do",
+    );
+
+    expect(table.imports[0].localName).toBe("config");
+    expect(table.imports[0].symbol?.declaration.kind).toBe("immutable-binding");
+  });
+
   it("collects multiple declarations from a full module", () => {
     const table = getTable(
       {

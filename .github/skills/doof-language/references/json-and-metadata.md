@@ -22,7 +22,7 @@ println(formatJsonValue(User("Alice", 30, "a@b.com").toJsonObject()))
 ```
 
 Rules:
-- All fields serialized (including `private`, `readonly`, `const`)
+- All fields serialized, including `private`, `readonly`, and literal-valued fields
 - Serialization is deep / recursive
 - Field order matches declaration order
 
@@ -48,8 +48,8 @@ Rules:
 ### `.fromJsonValue()` — Static Method
 
 ```doof
-const result = Point.fromJsonValue({ x: 1.5, y: 2.5 })  // Result<Point, string>
-const lenient = Point.fromJsonValue({ x: 1, y: null }, true)
+result := Point.fromJsonValue({ x: 1.5, y: 2.5 })  // Result<Point, string>
+lenient := Point.fromJsonValue({ x: 1, y: null }, true)
 ```
 
 Generic helpers can deserialize through a type parameter when it is explicitly
@@ -60,8 +60,8 @@ function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
     return T.fromJsonValue(json)
 }
 
-const payload: JsonValue = { name: "Ada" }
-const user = decode<User>{ json: payload }
+payload: JsonValue := { name: "Ada" }
+user := decode<User>{ json: payload }
 ```
 
 `JsonSerializable` is constraint-only, not a normal value type. Concrete
@@ -70,7 +70,7 @@ instantiations must use JSON-serializable classes.
 Rules:
 - Fields without defaults are **required**
 - Fields with defaults are **optional** (use default if absent)
-- `const` fields are auto-filled; if present in JSON, value must match
+- Literal-valued fields are auto-filled; if present in JSON, value must match
 - Extra JSON fields are silently ignored
 - Type mismatches produce `Failure`
 - Non-object JsonValue input produces `Failure`
@@ -83,19 +83,19 @@ When `lenient` is `true`:
 
 ### Interface Deserialization
 
-Requires a shared `const` discriminator field with distinct string values across all implementing classes:
+Requires a shared literal-valued discriminator field with distinct string values across all implementing classes:
 
 ```doof
 interface Shape { area(): float }
 
 class Circle implements Shape {
-    const kind = "circle"
+    kind: "circle"
     radius: float
     function area(): float => 3.14159 * radius * radius
 }
 
 class Rect implements Shape {
-    const kind = "rect"
+    kind: "rect"
     width, height: float
     function area(): float => width * height
 }
@@ -104,7 +104,7 @@ Shape.fromJsonValue({ kind: "circle", radius: 5.0 })  // Result<Shape, string>
 Shape.fromJsonValue({ kind: "circle", radius: 5.0 }, true)
 ```
 
-Compile error if implementing classes lack a shared const discriminator.
+Compile error if implementing classes lack a shared literal-valued discriminator.
 
 ### Reserved Names
 
@@ -127,7 +127,7 @@ class DevAssistant "AI assistant for development." {
 }
 ```
 
-Supported on: `class`, fields, `function`, methods, parameters, `interface`, interface fields/methods, `enum`, enum variants, `type` alias, `const`, `readonly`.
+Supported on: `class`, fields, `function`, methods, parameters, `interface`, interface fields/methods, `enum`, enum variants, `type` alias, and `readonly`.
 
 Not supported on: `let`, `:=`, imports/exports.
 
@@ -136,7 +136,7 @@ Not supported on: `let`, `:=`, imports/exports.
 Classes with descriptions can expose structured metadata (generated on-demand):
 
 ```doof
-const meta = Calculator.metadata
+meta := Calculator.metadata
 
 meta.name               // "Calculator"
 meta.description        // "A simple calculator."

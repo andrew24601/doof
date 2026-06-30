@@ -8,7 +8,7 @@ class User {
     name: string
     email: string | null = null
     role: string = "user"
-    const version = 1
+    version: 1
 
     greet(): string => "Hi, ${name}"
 
@@ -28,7 +28,7 @@ When the expected type is a class, `.member` may shorthand a static field or met
 | --- | --- |
 | none | mutable field |
 | `readonly` | set once at construction |
-| `const` | compile-time constant |
+| literal value after `:` | compile-time constant, for example `kind: "circle"` or `version: 1` |
 | `private` | file-scoped visibility |
 
 ## Construction
@@ -57,9 +57,9 @@ Rules:
 - Name-value shorthand such as `{ name }` expands to `{ name: name }`.
 - Spread fields work in named construction.
 
-### Const Fields in Construction
+### Literal-Valued Fields in Construction
 
-Nominal construction auto-fills `const` fields, while structural construction requires them explicitly.
+Nominal construction auto-fills literal-valued fields, while structural construction requires them explicitly. The older `const kind = "Success"` spelling is deprecated and remains accepted temporarily with a warning.
 
 ```doof
 result1 := Success { value: 42 }
