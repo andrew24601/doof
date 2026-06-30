@@ -260,8 +260,8 @@ Rules:
 
 - `case` matches values, ranges, and types.
 - Open-ended ranges such as `90..` and `..<18` are valid only as `case` patterns.
-- Expression-form arms are comma-separated.
-- Statement-form arms are newline-separated, not comma-separated.
+- Arms are separated by commas or line endings.
+- Commas may appear before line endings, and the final arm may have a trailing comma.
 - Multiple patterns for one arm use `|`.
 - No destructuring or guard clauses in `case` arms.
 - `return` and statement-level `try` are forbidden inside `case` expression arms.

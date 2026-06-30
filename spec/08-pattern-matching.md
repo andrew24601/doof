@@ -4,7 +4,7 @@
 
 Doof's `case` forms provide pattern matching with value matching, range matching, and type patterns with capture.
 
-Expression-form `case` arms are separated by commas. Statement-form `case` arms are not comma-separated. Multiple patterns in a single arm use `|`. When an expression-form arm uses a block body, the block must produce its value with `yield`.
+`case` arms are separated by either commas or line endings. Commas may appear before a line ending, and the final arm may have a trailing comma. Multiple patterns in a single arm use `|`. When an expression-form arm uses a block body, the block must produce its value with `yield`.
 
 ---
 

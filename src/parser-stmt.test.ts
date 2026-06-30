@@ -2056,8 +2056,24 @@ describe("Parser — case statement forms", () => {
     }
   });
 
-  it("rejects commas between statement case arms", () => {
-    expect(() => firstStmt(`case direction { .North -> "up", .South -> "down" }`)).toThrow();
+  it("uses commas as same-line statement case arm separators", () => {
+    const stmt = firstStmt(`case direction { .North -> "up", .South -> "down", _ -> "sideways" }`);
+    expect(stmt.kind).toBe("case-statement");
+    if (stmt.kind === "case-statement") {
+      expect(stmt.arms).toHaveLength(3);
+    }
+  });
+
+  it("allows statement case arm commas before line breaks and after the last arm", () => {
+    const stmt = firstStmt(`case direction {
+      .North -> "up",
+      .South -> "down",
+      _ -> "sideways",
+    }`);
+    expect(stmt.kind).toBe("case-statement");
+    if (stmt.kind === "case-statement") {
+      expect(stmt.arms).toHaveLength(3);
+    }
   });
 });
 

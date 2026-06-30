@@ -130,6 +130,11 @@ export class Parser {
     return !!prev && prev.line === this.current().line;
   }
 
+  private isCurrentTokenAfterLineBreakFromPrevious(): boolean {
+    const prev = this.tokens[this.pos - 1];
+    return !!prev && this.current().line > prev.line;
+  }
+
   private isCurrentTokenImmediatelyAfterPrevious(): boolean {
     const prev = this.tokens[this.pos - 1];
     return !!prev && prev.offset + prev.value.length === this.current().offset;
@@ -3718,17 +3723,13 @@ export class Parser {
     while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
       arms.push(this.parseCaseArm(form));
 
-      if (form === "expression") {
-        if (this.match(TokenType.Comma)) {
-          if (this.check(TokenType.RightBrace)) break;
-          continue;
-        }
+      if (this.match(TokenType.Comma)) {
+        if (this.check(TokenType.RightBrace)) break;
+        continue;
+      }
 
-        if (!this.check(TokenType.RightBrace)) {
-          throw this.error("Expected ',' between case expression arms");
-        }
-      } else if (this.check(TokenType.Comma)) {
-        throw this.error("Commas are not allowed between case statement arms");
+      if (!this.check(TokenType.RightBrace) && !this.isCurrentTokenAfterLineBreakFromPrevious()) {
+        throw this.error("Expected ',' or line break between case arms");
       }
     }
 

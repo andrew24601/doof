@@ -535,11 +535,42 @@ describe("Parser — case expression", () => {
     }
   });
 
-  it("requires commas between case expression arms", () => {
-    expect(() => parseExprInInitializer(`case x {
+  it("uses line breaks as implicit case expression arm separators", () => {
+    const expr = parseExprInInitializer(`case x {
       0 -> "zero"
       1 -> "one"
-    }`)).toThrow();
+      _ -> "other"
+    }`);
+    expect(expr.kind).toBe("case-expression");
+    if (expr.kind === "case-expression") {
+      expect(expr.arms).toHaveLength(3);
+    }
+  });
+
+  it("uses commas as same-line case expression arm separators", () => {
+    const expr = parseExprInInitializer(`case x { 0 -> "zero", 1 -> "one", _ -> "other" }`);
+    expect(expr.kind).toBe("case-expression");
+    if (expr.kind === "case-expression") {
+      expect(expr.arms).toHaveLength(3);
+    }
+  });
+
+  it("allows case expression arm commas before line breaks and after the last arm", () => {
+    const expr = parseExprInInitializer(`case x {
+      0 -> "zero",
+      1 -> "one",
+      _ -> "other",
+    }`);
+    expect(expr.kind).toBe("case-expression");
+    if (expr.kind === "case-expression") {
+      expect(expr.arms).toHaveLength(3);
+    }
+  });
+
+  it("requires commas between same-line case arms", () => {
+    expect(() => parseExprInInitializer(`case x { 0 -> "zero" 1 -> "one" }`)).toThrow(
+      "Expected ',' or line break between case arms",
+    );
   });
 
   it("rejects comma-separated grouped patterns in case expressions", () => {
