@@ -407,7 +407,8 @@ describe("emitter — control flow", () => {
         return s
       }
     `);
-    expect(cpp).toContain("for (const auto& x : *items)");
+    expect(cpp).toContain("const auto& _iterable_0 = items;");
+    expect(cpp).toContain("for (const auto& x : *_iterable_0)");
   });
 
   it("emits return statement", () => {
@@ -899,7 +900,8 @@ describe("emitter — for-of loops", () => {
         return s
       }
     `);
-    expect(cpp).toContain("for (const auto& x : *items)");
+    expect(cpp).toContain("const auto& _iterable_0 = items;");
+    expect(cpp).toContain("for (const auto& x : *_iterable_0)");
   });
 
   it("emits stream aliases and next() dispatch", () => {
