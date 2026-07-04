@@ -491,6 +491,81 @@ describe("CLI compile args", () => {
     expect(graph.target.fingerprint).toEqual(expect.any(String));
   });
 
+  it("plans mixed native C, C++, Objective-C++, and Swift sources with a swiftc link", () => {
+    const project = createProjectEmitResult();
+    const materializePlan = createProjectMaterializePlan(project, "/tmp/doof-build");
+    const graph = createNativeBuildGraphPlan(
+      "/tmp/doof-build",
+      project,
+      { kind: "gcc-like", command: "clang++" },
+      {
+        cppStd: "c++20",
+        includePaths: ["/opt/vendor/include"],
+        libraryPaths: ["/opt/vendor/lib"],
+        linkLibraries: ["sqlite3"],
+        frameworks: ["Foundation"],
+        pkgConfigPackages: [],
+        sourceFiles: [
+          "/tmp/native/plain.c",
+          "/tmp/native/bridge.cpp",
+          "/tmp/native/view.mm",
+          "/tmp/native/model.swift",
+        ],
+        objectFiles: ["/tmp/native/prebuilt.o"],
+        compilerFlags: ["-O2"],
+        linkerFlags: ["-Wl,-rpath,/opt/vendor/lib"],
+        defines: ["DEBUG"],
+      },
+      materializePlan,
+      "demo",
+      { platform: "darwin" },
+    );
+
+    expect(graph.tasks.map((task) => task.label)).toEqual(expect.arrayContaining([
+      "compile /tmp/doof-build/main.cpp",
+      "compile /tmp/native/plain.c",
+      "compile /tmp/native/bridge.cpp",
+      "compile /tmp/native/view.mm",
+      "compile /tmp/native/model.swift",
+      "executable /tmp/doof-build/demo",
+    ]));
+    expect(graph.target.taskDependencies.map((task) => task.outputs[0])).toEqual(expect.arrayContaining([
+      "/tmp/doof-build/.doof-objects/main.cpp.o",
+      "/tmp/doof-build/.doof-objects/external/__doof_native_1_plain.c.o",
+      "/tmp/doof-build/.doof-objects/external/__doof_native_2_bridge.cpp.o",
+      "/tmp/doof-build/.doof-objects/external/__doof_native_3_view.mm.o",
+      "/tmp/doof-build/.doof-objects/external/__doof_native_4_model.swift.o",
+    ]));
+    expect(graph.target.fingerprint).toEqual(expect.any(String));
+  });
+
+  it("rejects Swift sources with an MSVC build graph", () => {
+    const project = createProjectEmitResult();
+    const materializePlan = createProjectMaterializePlan(project, "C:\\doof-build");
+
+    expect(() => createNativeBuildGraphPlan(
+      "C:\\doof-build",
+      project,
+      { kind: "msvc", command: "cl.exe" },
+      {
+        cppStd: "c++20",
+        includePaths: [],
+        libraryPaths: [],
+        linkLibraries: [],
+        frameworks: [],
+        pkgConfigPackages: [],
+        sourceFiles: ["C:\\native\\bridge.swift"],
+        objectFiles: [],
+        compilerFlags: [],
+        linkerFlags: [],
+        defines: [],
+      },
+      materializePlan,
+      "demo",
+      { platform: "win32" },
+    )).toThrow("Native Swift sources are only supported with gcc-like toolchains");
+  });
+
   it("makes object compilation wait for copied native package files", () => {
     const outDir = createTempDir();
     const nativeDir = createTempDir();

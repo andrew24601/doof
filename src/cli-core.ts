@@ -167,6 +167,12 @@ interface BuildCompileInputs {
   effectiveNativeBuild: NativeBuildOptions;
 }
 
+interface NativeSourceGroups {
+  cSourceFiles: string[];
+  swiftSourceFiles: string[];
+  otherSourceFiles: string[];
+}
+
 interface WindowsEnvScript {
   filePath: string;
   args: string[];
@@ -524,7 +530,10 @@ export function buildCompilePlan(
   const platform = options.platform ?? process.platform;
   const inputs = resolveBuildCompileInputs(outDir, project, nativeBuild, options);
 
+  const sourceGroups = splitNativeSourceFiles(inputs.effectiveNativeBuild.sourceFiles);
+
   if (toolchain.kind !== "gcc-like") {
+    assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
     return {
       outBinary: inputs.outBinary,
       commands: [{
@@ -540,14 +549,12 @@ export function buildCompilePlan(
     };
   }
 
-  const cSourceFiles = inputs.effectiveNativeBuild.sourceFiles.filter(isNativeCSource);
-  const otherSourceFiles = inputs.effectiveNativeBuild.sourceFiles.filter((sourceFile) => !isNativeCSource(sourceFile));
   const generatedObjectFiles: string[] = [];
   const commands: CompileCommandStep[] = [];
 
   if (mode === "build") {
     const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
-    cSourceFiles.forEach((sourceFile, index) => {
+    sourceGroups.cSourceFiles.forEach((sourceFile, index) => {
       const objectFile = buildNativeObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
       fs.mkdirSync(path.dirname(objectFile), { recursive: true });
       generatedObjectFiles.push(objectFile);
@@ -556,27 +563,77 @@ export function buildCompilePlan(
         args: buildGccLikeCCompileArgs(objectFile, sourceFile, inputs.includePaths, inputs.effectiveNativeBuild),
       });
     });
+    sourceGroups.swiftSourceFiles.forEach((sourceFile, index) => {
+      const objectFile = buildNativeObjectFilePath(
+        inputs.absOutDir,
+        sourceFile,
+        sourceGroups.cSourceFiles.length + index,
+        platform,
+      );
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      generatedObjectFiles.push(objectFile);
+      commands.push({
+        command: "swiftc",
+        args: buildSwiftObjectArgs(objectFile, sourceFile),
+      });
+    });
   }
 
   if (mode === "syntax-only") {
     const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
-    cSourceFiles.forEach((sourceFile) => {
+    sourceGroups.cSourceFiles.forEach((sourceFile) => {
       commands.push({
         command: cCompiler,
         args: buildGccLikeCSyntaxArgs(sourceFile, inputs.includePaths, inputs.effectiveNativeBuild),
+      });
+    });
+    sourceGroups.swiftSourceFiles.forEach((sourceFile) => {
+      commands.push({
+        command: "swiftc",
+        args: buildSwiftSyntaxArgs(sourceFile),
+      });
+    });
+  }
+
+  const linkWithSwift = mode === "build" && sourceGroups.swiftSourceFiles.length > 0;
+  if (linkWithSwift) {
+    const cxxSourceFiles = [...inputs.moduleCppFiles, ...sourceGroups.otherSourceFiles];
+    cxxSourceFiles.forEach((sourceFile, index) => {
+      const objectFile = buildNativeObjectFilePath(
+        inputs.absOutDir,
+        sourceFile,
+        sourceGroups.cSourceFiles.length + sourceGroups.swiftSourceFiles.length + index,
+        platform,
+      );
+      const dependencyFile = `${objectFile}.d`;
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      generatedObjectFiles.push(objectFile);
+      commands.push({
+        command: toolchain.command,
+        args: buildGccLikeCxxObjectArgs(
+          objectFile,
+          dependencyFile,
+          sourceFile,
+          inputs.includePaths,
+          inputs.effectiveNativeBuild,
+        ),
       });
     });
   }
 
   const finalNativeBuild: NativeBuildOptions = {
     ...inputs.effectiveNativeBuild,
-    sourceFiles: otherSourceFiles,
+    sourceFiles: linkWithSwift ? [] : sourceGroups.otherSourceFiles,
     objectFiles: [...inputs.effectiveNativeBuild.objectFiles, ...generatedObjectFiles],
   };
 
   commands.push({
-    command: toolchain.command,
-    args: buildGccLikeCompileArgs(
+    command: linkWithSwift ? "swiftc" : toolchain.command,
+    args: linkWithSwift ? buildSwiftLinkArgs(
+      inputs.outBinary,
+      finalNativeBuild,
+      platform,
+    ) : buildGccLikeCompileArgs(
       inputs.outBinary,
       inputs.moduleCppFiles,
       inputs.includePaths,
@@ -619,6 +676,10 @@ export function createNativeBuildGraphPlan(
     ...outputNativeCopyTasks,
   ]);
   const compileSources = uniqueStrings([...inputs.moduleCppFiles, ...inputs.effectiveNativeBuild.sourceFiles]);
+  const sourceGroups = splitNativeSourceFiles(inputs.effectiveNativeBuild.sourceFiles);
+  if (toolchain.kind === "msvc") {
+    assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
+  }
   const externalDependencyTasks = project.externalDependencySentinelPaths.map(externalDependencySentinelTask);
   const objectTasks = compileSources.map((sourceFile, index) => {
     const sourceTask = materializePlan.taskByOutputPath.get(sourceFile);
@@ -628,13 +689,23 @@ export function createNativeBuildGraphPlan(
       ...externalDependencyTasks,
     ]);
     const objectFile = buildIncrementalObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
-    return toolchain.kind === "msvc"
+    return isNativeSwiftSource(sourceFile)
+      ? swiftObjectTask(sourceFile, objectFile, dependencies)
+      : toolchain.kind === "msvc"
       ? msvcObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies)
       : gccLikeObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies);
   });
   const linkTask = toolchain.kind === "msvc"
     ? msvcLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild, externalDependencyTasks)
-    : gccLikeLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild, externalDependencyTasks);
+    : gccLikeLinkTask(
+      toolchain,
+      inputs.outBinary,
+      objectTasks,
+      inputs.effectiveNativeBuild,
+      externalDependencyTasks,
+      sourceGroups.swiftSourceFiles.length > 0,
+      platform,
+    );
 
   return {
     outBinary: inputs.outBinary,
@@ -1124,24 +1195,50 @@ function gccLikeObjectTask(
   };
 }
 
+function swiftObjectTask(
+  sourceFile: string,
+  objectFile: string,
+  dependencies: readonly Task[],
+): Task {
+  const args = buildSwiftObjectArgs(objectFile, sourceFile);
+
+  return {
+    id: `doof:object:${objectFile}`,
+    label: `compile ${sourceFile}`,
+    outputs: [objectFile],
+    fileDependencies: dependencies.length > 0 ? [] : [sourceFile],
+    taskDependencies: [...dependencies],
+    fingerprint: stableFingerprint({ kind: "doof-swift-object", compiler: "swiftc", args }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      await runBuildCommand(context, "swiftc", args, undefined);
+    },
+  };
+}
+
 function gccLikeLinkTask(
   toolchain: CompilerToolchain,
   outBinary: string,
   objectTasks: readonly Task[],
   nativeBuild: NativeBuildOptions,
   dependencies: readonly Task[] = [],
+  useSwiftLinker = false,
+  platform: NodeJS.Platform = process.platform,
 ): Task {
   const objectFiles = objectTasks.flatMap((task) => task.outputs);
-  const args = [
-    "-o",
-    outBinary,
-    ...objectFiles,
-    ...nativeBuild.objectFiles,
-    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
-    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
-    ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
-    ...nativeBuild.linkerFlags,
-  ];
+  const compiler = useSwiftLinker ? "swiftc" : toolchain.command;
+  const args = useSwiftLinker
+    ? buildSwiftLinkArgs(outBinary, { ...nativeBuild, objectFiles: [...objectFiles, ...nativeBuild.objectFiles] }, platform)
+    : [
+      "-o",
+      outBinary,
+      ...objectFiles,
+      ...nativeBuild.objectFiles,
+      ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
+      ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+      ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
+      ...nativeBuild.linkerFlags,
+    ];
 
   return {
     id: `doof:link:${outBinary}`,
@@ -1149,10 +1246,10 @@ function gccLikeLinkTask(
     outputs: [outBinary],
     fileDependencies: [...nativeBuild.objectFiles],
     taskDependencies: uniqueTasks([...objectTasks, ...dependencies]),
-    fingerprint: stableFingerprint({ kind: "doof-gcc-like-link", compiler: toolchain.command, args, env: toolchain.env }),
+    fingerprint: stableFingerprint({ kind: "doof-gcc-like-link", compiler, args, env: useSwiftLinker ? undefined : toolchain.env }),
     async execute(context) {
       fs.mkdirSync(path.dirname(outBinary), { recursive: true });
-      await runBuildCommand(context, toolchain.command, args, toolchain.env);
+      await runBuildCommand(context, compiler, args, useSwiftLinker ? undefined : toolchain.env);
     },
   };
 }
@@ -1785,8 +1882,77 @@ function buildGccLikeCSyntaxArgs(
   ];
 }
 
+function buildSwiftObjectArgs(
+  objectFile: string,
+  sourceFile: string,
+): string[] {
+  return [
+    "-parse-as-library",
+    "-emit-object",
+    sourceFile,
+    "-o",
+    objectFile,
+  ];
+}
+
+function buildSwiftSyntaxArgs(sourceFile: string): string[] {
+  return [
+    "-parse",
+    sourceFile,
+  ];
+}
+
+function buildSwiftLinkArgs(
+  outBinary: string,
+  nativeBuild: NativeBuildOptions,
+  platform: NodeJS.Platform,
+): string[] {
+  return [
+    "-o",
+    outBinary,
+    ...nativeBuild.objectFiles,
+    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
+    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+    ...nativeBuild.frameworks.flatMap((framework) => ["-framework", framework]),
+    ...(platform === "darwin" ? ["-Xlinker", "-lc++"] : []),
+    ...nativeBuild.linkerFlags,
+  ];
+}
+
 function isNativeCSource(sourceFile: string): boolean {
   return path.extname(sourceFile).toLowerCase() === ".c";
+}
+
+function isNativeSwiftSource(sourceFile: string): boolean {
+  return path.extname(sourceFile).toLowerCase() === ".swift";
+}
+
+function splitNativeSourceFiles(sourceFiles: string[]): NativeSourceGroups {
+  const cSourceFiles: string[] = [];
+  const swiftSourceFiles: string[] = [];
+  const otherSourceFiles: string[] = [];
+
+  for (const sourceFile of sourceFiles) {
+    if (isNativeCSource(sourceFile)) {
+      cSourceFiles.push(sourceFile);
+    } else if (isNativeSwiftSource(sourceFile)) {
+      swiftSourceFiles.push(sourceFile);
+    } else {
+      otherSourceFiles.push(sourceFile);
+    }
+  }
+
+  return { cSourceFiles, swiftSourceFiles, otherSourceFiles };
+}
+
+function assertNoSwiftSources(swiftSourceFiles: string[], toolchain: CompilerToolchain): void {
+  if (swiftSourceFiles.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Native Swift sources are only supported with gcc-like toolchains; ${toolchain.kind} cannot compile ${swiftSourceFiles[0]}`,
+  );
 }
 
 function buildIncrementalObjectFilePath(

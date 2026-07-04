@@ -1389,7 +1389,7 @@ describe("local package graphs", () => {
           native: {
             includePaths: ["./shared"],
             macos: {
-              sourceFiles: ["./native.mm"],
+              sourceFiles: ["./native.mm", "./native.swift"],
               pkgConfigPackages: ["sdl3"],
               frameworks: ["Cocoa"],
             },
@@ -1399,13 +1399,14 @@ describe("local package graphs", () => {
       "/app/main.do": "function main(): int => 0",
       "/app/shared/dummy.hpp": "",
       "/app/native.mm": "",
+      "/app/native.swift": "",
     });
 
     const graph = loadPackageGraph(fs, "/app/main.do");
 
     expect(graph.rootPackage.nativeBuild.includePaths).toEqual(["/app/shared"]);
     if (process.platform === "darwin") {
-      expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native.mm"]);
+      expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native.mm", "/app/native.swift"]);
       expect(graph.rootPackage.nativeBuild.pkgConfigPackages).toEqual(["sdl3"]);
       expect(graph.rootPackage.nativeBuild.frameworks).toEqual(["Cocoa"]);
     } else {
@@ -2246,13 +2247,14 @@ describe("manifest-derived pipeline metadata", () => {
       build: {
         native: {
           includePaths: ["./include"],
-          sourceFiles: ["./bridge.cpp"],
+          sourceFiles: ["./bridge.cpp", "./bridge.swift"],
         },
       },
     }, null, 2));
     fs.writeFileSync(path.join(depDir, "index.do"), "export const value = 1\n");
     fs.writeFileSync(path.join(depDir, "include", "foo.hpp"), "#pragma once\n", "utf8");
     fs.writeFileSync(path.join(depDir, "bridge.cpp"), "int doof_bridge() { return 0; }\n", "utf8");
+    fs.writeFileSync(path.join(depDir, "bridge.swift"), "@_cdecl(\"doof_swift_bridge\")\npublic func doofSwiftBridge() {}\n", "utf8");
 
     const result = runPipelineWithFs(
       new RealFS(),
@@ -2285,11 +2287,15 @@ describe("manifest-derived pipeline metadata", () => {
       ]);
       expect(buildManifest.generatedSources).toContain("main.cpp");
       expect(buildManifest.generatedHeaders).toContain("main.hpp");
-      expect(buildManifest.nativeSourceFiles).toEqual([path.join(outDir, "deps", "foo", "bridge.cpp")]);
+      expect(buildManifest.nativeSourceFiles).toEqual([
+        path.join(outDir, "deps", "foo", "bridge.cpp"),
+        path.join(outDir, "deps", "foo", "bridge.swift"),
+      ]);
       expect(fs.readFileSync(path.join(outDir, "deps", "foo", "include", "foo.hpp"), "utf8")).toBe("#pragma once\n");
       expect(fs.readFileSync(path.join(outDir, "deps", "foo", "bridge.cpp"), "utf8")).toBe(
         "int doof_bridge() { return 0; }\n",
       );
+      expect(fs.readFileSync(path.join(outDir, "deps", "foo", "bridge.swift"), "utf8")).toContain("doofSwiftBridge");
       expect(fs.existsSync(path.join(outDir, "CMakeLists.txt"))).toBe(false);
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });

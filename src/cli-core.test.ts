@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCompilePlan,
   getDefaultOutputBinaryName,
   normalizeOutputBinaryName,
   resolvePkgConfigNativeBuild,
   resolveCompilerToolchain,
   tryFindCompilerToolchain,
 } from "./cli-core.js";
+import type { NativeBuildOptions, ProjectEmitResult } from "./emitter-module.js";
 
 describe("CLI compiler toolchains", () => {
   it("detects Visual Studio cl.exe on Windows via vswhere", () => {
@@ -223,4 +225,100 @@ describe("CLI pkg-config native build resolution", () => {
     expect(resolved.linkerFlags).toEqual(["-Wl,-rpath,/opt/homebrew/lib"]);
   });
 });
+
+describe("CLI Swift native build planning", () => {
+  it("compiles Swift sources to objects and links with swiftc", () => {
+    const plan = buildCompilePlan(
+      "/tmp/doof-build",
+      createProjectEmitResult(),
+      {
+        ...emptyNativeBuildOptions(),
+        frameworks: ["Foundation"],
+        sourceFiles: ["/tmp/native/bridge.swift"],
+        linkerFlags: ["-Wl,-rpath,/tmp/lib"],
+      },
+      {
+        toolchain: { kind: "gcc-like", command: "clang++" },
+        outputBinaryName: "demo",
+        platform: "darwin",
+      },
+    );
+
+    expect(plan.commands.map((command) => command.command)).toEqual(["swiftc", "clang++", "swiftc"]);
+    expect(plan.commands[0].args).toEqual(expect.arrayContaining([
+      "-parse-as-library",
+      "-emit-object",
+      "/tmp/native/bridge.swift",
+    ]));
+    expect(plan.commands[1].args).toEqual(expect.arrayContaining([
+      "-std=c++17",
+      "-c",
+      "/tmp/doof-build/main.cpp",
+    ]));
+    expect(plan.commands[2].args).toEqual(expect.arrayContaining([
+      "-o",
+      "/tmp/doof-build/demo",
+      "-framework",
+      "Foundation",
+      "-Xlinker",
+      "-lc++",
+      "-Wl,-rpath,/tmp/lib",
+    ]));
+    expect(plan.commands[2].args.some((arg) => arg.endsWith("bridge.swift.o"))).toBe(true);
+    expect(plan.commands[2].args.some((arg) => arg.endsWith("main.cpp.o"))).toBe(true);
+  });
+
+  it("rejects Swift sources for MSVC command plans", () => {
+    expect(() => buildCompilePlan(
+      "C:\\doof-build",
+      createProjectEmitResult(),
+      {
+        ...emptyNativeBuildOptions(),
+        sourceFiles: ["C:\\native\\bridge.swift"],
+      },
+      {
+        toolchain: { kind: "msvc", command: "cl.exe" },
+        outputBinaryName: "demo",
+        platform: "win32",
+      },
+    )).toThrow("Native Swift sources are only supported with gcc-like toolchains");
+  });
+});
+
+function emptyNativeBuildOptions(): NativeBuildOptions {
+  return {
+    cppStd: "c++17",
+    includePaths: [],
+    libraryPaths: [],
+    linkLibraries: [],
+    frameworks: [],
+    pkgConfigPackages: [],
+    sourceFiles: [],
+    objectFiles: [],
+    compilerFlags: [],
+    linkerFlags: [],
+    defines: [],
+  };
+}
+
+function createProjectEmitResult(): ProjectEmitResult {
+  return {
+    modules: [
+      {
+        modulePath: "/main.do",
+        hppPath: "main.hpp",
+        cppPath: "main.cpp",
+        hppCode: "",
+        cppCode: "",
+      },
+    ],
+    runtime: "",
+    supportFiles: [],
+    outputNativeCopies: [],
+    outputNativeIncludePaths: [],
+    outputNativeSourceFiles: [],
+    outputNativeLibraryPaths: [],
+    externalDependencySentinelPaths: [],
+  };
+}
 
