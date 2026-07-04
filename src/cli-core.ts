@@ -296,6 +296,7 @@ export function runPipelineWithFs(
     buildTargetOverride?: DoofBuildTarget;
     iosDestinationOverride?: IOSAppDestination;
     coverage?: boolean;
+    metricsClassLifecycle?: boolean;
     materializeExternalDependencies?: boolean;
   } = {},
 ): PipelineResult {
@@ -374,6 +375,7 @@ export function runPipelineWithFs(
     buildTarget,
     packageOutputPaths,
     coverage: options.coverage,
+    metricsClassLifecycle: options.metricsClassLifecycle,
   });
   const project: ProjectEmitResult = nativeCopyPlan
     ? {

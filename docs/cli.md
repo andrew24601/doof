@@ -107,6 +107,15 @@ The HTML summary links to separate per-file HTML pages in a sibling directory (f
 
 Coverage is **line-level** and counts executable statements only (declarations, imports, and block nodes are excluded). Imported C++ code and the test files themselves are not included.
 
+### Runtime Metrics
+
+Doof programs can increment process-local counters with `metricsIncrement(name: string, value: long)` and render a thread-safe Prometheus text snapshot with `metricsSnapshotPrometheus()`.
+
+Pass `--metrics-class-lifecycle` to `doof emit`, `doof build`, `doof run`, or `doof package` to instrument generated Doof classes with create/dispose counters. The initial counters are:
+
+- `doof_class_created_total{module="...",class="..."}`
+- `doof_class_disposed_total{module="...",class="..."}`
+
 `doof emit` writes:
 
 - generated `.hpp` / `.cpp` files
@@ -178,6 +187,7 @@ For `emit`, `build`, `run`, `package`, and `check`, the path is optional when th
 | `--list` | List discovered tests without compiling or running them |
 | `--coverage` | Collect line coverage for non-test Doof source files |
 | `--coverage-output <path>` | Write coverage JSON report to `<path>` (default: `build/coverage/doof-test-coverage.json`) |
+| `--metrics-class-lifecycle` | Emit class create/dispose counters through the runtime metrics API |
 | `-v, --verbose` | Print detailed progress information |
 | `-h, --help` | Show help |
 | `--version` | Show CLI version |

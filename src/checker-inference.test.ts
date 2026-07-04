@@ -83,6 +83,24 @@ describe("Variable type inference", () => {
 // ============================================================================
 
 describe("Identifier resolution", () => {
+  it("resolves metrics builtins", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function test(): void {
+            metricsIncrement("requests_total", 1L)
+            snapshot := metricsSnapshotPrometheus()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+    const snapshotTypes = findTypes(info, (t) => t.kind === "primitive" && t.name === "string");
+    expect(snapshotTypes.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("resolves identifier to const binding", () => {
     const info = check(
       {

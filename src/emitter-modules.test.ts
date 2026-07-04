@@ -1367,6 +1367,42 @@ describe("emitter-module — emitProject", () => {
     expect(result.supportFiles).toEqual([]);
   });
 
+  it("does not emit class lifecycle metrics by default", () => {
+    const result = emitProjectHelper(
+      {
+        "/main.do": `
+          class Box { value: int }
+          function main(): void { box := Box { value: 1 } }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(result.modules[0].hppCode).not.toContain("doof_class_created_total");
+    expect(result.modules[0].hppCode).not.toContain("doof_class_disposed_total");
+  });
+
+  it("emits class lifecycle metrics when requested", () => {
+    const result = emitProjectHelper(
+      {
+        "/main.do": `
+          class Box { value: int }
+          class Empty {}
+          function main(): void { box := Box { value: 1 } }
+        `,
+      },
+      "/main.do",
+      { metricsClassLifecycle: true },
+    );
+
+    const code = `${result.modules[0].hppCode}\n${result.modules[0].cppCode}`;
+    expect(code).toContain('doof_class_created_total{module=\\"main.do\\",class=\\"Box\\"}');
+    expect(code).toContain('doof_class_disposed_total{module=\\"main.do\\",class=\\"Box\\"}');
+    expect(code).toContain('doof_class_created_total{module=\\"main.do\\",class=\\"Empty\\"}');
+    expect(code).toContain("Empty() {");
+    expect(code).toContain("~Empty() {");
+  });
+
   it("anchors imported sibling modules under the output directory", () => {
     const result = emitProjectHelper(
       {

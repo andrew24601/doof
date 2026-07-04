@@ -537,6 +537,17 @@ result := catchPanic(=> {
 
 Use `catchPanic` sparingly at controlled boundaries such as plugin hosts, test harnesses, or request/process adapters. It is not a general exception system, and expected failures should still be modeled as `Result<T, E>`.
 
+### Runtime Metrics
+
+Doof provides process-local runtime counters for lightweight instrumentation:
+
+```javascript
+function metricsIncrement(name: string, value: long): void
+function metricsSnapshotPrometheus(): string
+```
+
+Counters are keyed by their full metric identity string, including any Prometheus labels. Increments and snapshots are thread-safe. `metricsSnapshotPrometheus()` returns sorted Prometheus text lines in the form `name value`.
+
 ### Assertions
 
 ```javascript

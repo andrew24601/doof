@@ -52,6 +52,7 @@ import {
   JSON_VALUE_TYPE,
   JSON_OBJECT_TYPE,
   JSON_SERIALIZABLE_CONSTRAINT_TYPE,
+  LONG_TYPE,
   VOID_TYPE,
   NULL_TYPE,
   RANGE_TYPE,
@@ -1122,6 +1123,10 @@ export class TypeChecker {
       { name: "to_string", params: [{ name: "value", type: UNKNOWN_TYPE }], returnType: STRING_TYPE },
       // concat(...args): string — concatenate values into a string
       { name: "concat", params: [{ name: "value", type: UNKNOWN_TYPE }], returnType: STRING_TYPE },
+      // metricsIncrement(name: string, value: long): void — increment a process-local counter
+      { name: "metricsIncrement", params: [{ name: "name", type: STRING_TYPE }, { name: "value", type: LONG_TYPE }], returnType: VOID_TYPE },
+      // metricsSnapshotPrometheus(): string — render current counters in Prometheus text format
+      { name: "metricsSnapshotPrometheus", params: [], returnType: STRING_TYPE },
     ];
 
     for (const b of builtins) {

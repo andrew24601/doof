@@ -91,6 +91,33 @@ function getClassSymbolForDecl(ctx: EmitContext, decl: ClassDeclaration): Nomina
   return sym?.symbolKind === "class" || sym?.symbolKind === "struct" ? sym : null;
 }
 
+function prometheusClassLifecycleKey(
+  event: "created" | "disposed",
+  decl: ClassDeclaration,
+  ctx: EmitContext,
+): string {
+  const modulePath = ctx.module.emittedDiagnosticPath ?? ctx.module.path;
+  return `doof_class_${event}_total{module="${escapePrometheusLabel(modulePath)}",class="${escapePrometheusLabel(decl.name)}"}`;
+}
+
+function escapePrometheusLabel(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/"/g, '\\"');
+}
+
+function emitClassLifecycleMetricLine(
+  event: "created" | "disposed",
+  decl: ClassDeclaration,
+  ctx: EmitContext,
+  ind: string,
+): void {
+  if (!ctx.metricsClassLifecycle) return;
+  const key = prometheusClassLifecycleKey(event, decl, ctx);
+  ctx.sourceLines.push(`${ind}doof::metrics::increment_counter(${JSON.stringify(key)}, 1);`);
+}
+
 function shouldDeferStaticFieldDefinition(
   field: ClassField,
   ownerSymbol: NominalObjectSymbol | null,
@@ -316,9 +343,20 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     const initList = constructorFields
       .map((cf) => `${emitIdentifierSafe(cf.name)}(${emitIdentifierSafe(cf.name)})`)
       .join(", ");
-    ctx.sourceLines.push(
-      `${memberInd}${name}(${ctorParams}) : ${initList} {}`,
-    );
+    if (ctx.metricsClassLifecycle) {
+      ctx.sourceLines.push(`${memberInd}${name}(${ctorParams}) : ${initList} {`);
+      emitClassLifecycleMetricLine("created", decl, ctx, `${memberInd}    `);
+      ctx.sourceLines.push(`${memberInd}}`);
+    } else {
+      ctx.sourceLines.push(
+        `${memberInd}${name}(${ctorParams}) : ${initList} {}`,
+      );
+    }
+  } else if (ctx.metricsClassLifecycle && ownerSymbol?.symbolKind === "class") {
+    ctx.sourceLines.push("");
+    ctx.sourceLines.push(`${memberInd}${name}() {`);
+    emitClassLifecycleMetricLine("created", decl, ctx, `${memberInd}    `);
+    ctx.sourceLines.push(`${memberInd}}`);
   }
 
   // Methods
@@ -345,7 +383,13 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   if (decl.destructor) {
     ctx.sourceLines.push("");
     ctx.sourceLines.push(`${memberInd}~${name}() {`);
+    emitClassLifecycleMetricLine("disposed", decl, ctx, `${memberInd}    `);
     emitBlockStatements(decl.destructor, { ...ctx, indent: ctx.indent + 2 });
+    ctx.sourceLines.push(`${memberInd}}`);
+  } else if (ctx.metricsClassLifecycle && ownerSymbol?.symbolKind === "class") {
+    ctx.sourceLines.push("");
+    ctx.sourceLines.push(`${memberInd}~${name}() {`);
+    emitClassLifecycleMetricLine("disposed", decl, ctx, `${memberInd}    `);
     ctx.sourceLines.push(`${memberInd}}`);
   }
 

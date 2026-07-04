@@ -30,6 +30,7 @@ export interface PackageCommandOptions {
   verbose: boolean;
   macosSigning: MacOSPackageSigningOptions;
   iosSigning: IOSAdHocSigningOverrides;
+  metricsClassLifecycle?: boolean;
 }
 
 export interface PackageCommandReporter {
@@ -49,7 +50,11 @@ export async function runPackageCommand(
     requestedNativeBuild,
     reporter.log,
     printDiagnostic,
-    { buildTargetOverride: options.targetOverride ?? undefined, iosDestinationOverride: "device" },
+    {
+      buildTargetOverride: options.targetOverride ?? undefined,
+      iosDestinationOverride: "device",
+      metricsClassLifecycle: options.metricsClassLifecycle,
+    },
   );
   const releaseNativeBuild = withReleaseBuildDefaults(nativeBuild, toolchain.kind);
   buildManifest.compilerFlags = [...releaseNativeBuild.compilerFlags];

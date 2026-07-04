@@ -120,6 +120,8 @@ export interface ProjectBuildMetadata {
   packageOutputPaths?: PackageOutputPaths;
   /** When true, emit doof::coverage::cov_mark() calls and populate coverageModules in the result. */
   coverage?: boolean;
+  /** When true, emit class create/dispose counter increments. */
+  metricsClassLifecycle?: boolean;
 }
 
 export interface NativeBuildOptions {
@@ -225,6 +227,7 @@ export function emitModuleSplit(
   packageOutputPaths?: PackageOutputPaths,
   buildTarget?: ResolvedDoofBuildTarget | null,
   coverageModuleId?: number,
+  metricsClassLifecycle = false,
 ): ModuleEmitResult {
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
@@ -245,7 +248,17 @@ export function emitModuleSplit(
   markAllHeaderVisiblePrivateClassNames(analysisResult, interfaceImpls);
   const { hppName, cppName } = modulePathToCppNames(modulePath, baseDir, packageOutputPaths);
 
-  const hppCode = emitHpp(table, analysisResult, interfaceImpls, monomorphizedFunctions, monomorphizedClasses, monomorphizedMethods, baseDir, packageOutputPaths);
+  const hppCode = emitHpp(
+    table,
+    analysisResult,
+    interfaceImpls,
+    monomorphizedFunctions,
+    monomorphizedClasses,
+    monomorphizedMethods,
+    baseDir,
+    packageOutputPaths,
+    metricsClassLifecycle,
+  );
   const { code: cppCode, instrumentedLines } = emitCppFile(
     table,
     analysisResult,
@@ -256,6 +269,7 @@ export function emitModuleSplit(
     packageOutputPaths,
     buildTarget,
     coverageModuleId,
+    metricsClassLifecycle,
   );
 
   return {
@@ -311,6 +325,7 @@ export function emitProject(
       buildMetadata.packageOutputPaths,
       buildMetadata.buildTarget,
       coverageModuleIdMap.get(modPath),
+      buildMetadata.metricsClassLifecycle ?? false,
     ));
   }
 
@@ -1442,6 +1457,7 @@ function emitHpp(
   monomorphizedMethods: Map<string, GenericMethodInstantiation>,
   baseDir: string,
   packageOutputPaths?: PackageOutputPaths,
+  metricsClassLifecycle = false,
 ): string {
   const plan = buildHeaderPlan(
     table,
@@ -1561,6 +1577,7 @@ function emitHpp(
       const sym = getClassSymbolForDecl(table, cls.decl);
       const ctx = {
         ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+        ...(metricsClassLifecycle ? { metricsClassLifecycle: true as const } : {}),
         classNameOverride: emitLocalClassCppName(sym),
         emitMethodBodiesInline: cls.decl.typeParams.length > 0 ? true : false,
       };
@@ -1593,6 +1610,7 @@ function emitHpp(
     const typeArgs = inst.typeArgs.map((typeArg) => emitType(typeArg, table.path)).join(", ");
     const ctx = {
       ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+      ...(metricsClassLifecycle ? { metricsClassLifecycle: true as const } : {}),
       typeSubstitution,
       classNameOverride: `${emitLocalClassCppName(sym)}<${typeArgs}>`,
       emitExplicitClassSpecialization: true,
@@ -1772,6 +1790,7 @@ function emitCppFile(
   packageOutputPaths?: PackageOutputPaths,
   buildTarget?: ResolvedDoofBuildTarget | null,
   coverageModuleId?: number,
+  metricsClassLifecycle = false,
 ): { code: string; instrumentedLines: Set<number> } {
   const lines: string[] = [];
   const coverageInstrumentedLines = coverageModuleId !== undefined ? new Set<number>() : undefined;
@@ -1779,6 +1798,9 @@ function emitCppFile(
   const covCtx = coverageModuleId !== undefined
     ? { coverageEnabled: true as const, coverageModuleId, coverageInstrumentedLines }
     : {};
+  const instrumentationCtx = metricsClassLifecycle
+    ? { ...covCtx, metricsClassLifecycle: true as const }
+    : covCtx;
   const { hppName } = modulePathToCppNames(table.path, baseDir, packageOutputPaths);
     const streamAliases = buildStreamImplMap(analysisResult, monomorphizedClasses);
 
@@ -1843,7 +1865,7 @@ function emitCppFile(
     interfaceImpls,
     monomorphizedFunctions,
     lines,
-    covCtx,
+    instrumentationCtx,
   );
 
   for (const fn of nonExportedFns) {
@@ -1865,7 +1887,7 @@ function emitCppFile(
       }
       const ctx = {
         ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-        ...covCtx,
+        ...instrumentationCtx,
         internalLinkage: true,
       };
       emitStatement(v.stmt, ctx);
@@ -1882,13 +1904,13 @@ function emitCppFile(
     interfaceImpls,
     monomorphizedFunctions,
     lines,
-    covCtx,
+    instrumentationCtx,
   );
 
   for (const fn of nonExportedFns) {
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-      ...covCtx,
+      ...instrumentationCtx,
       emitParameterDefaults: false,
       internalLinkage: true,
     };
@@ -1904,7 +1926,7 @@ function emitCppFile(
       : inst.decl.resolvedType;
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-      ...covCtx,
+      ...instrumentationCtx,
       emitParameterDefaults: false,
       typeSubstitution,
       functionNameOverride: inst.emittedName,
@@ -1930,7 +1952,7 @@ function emitCppFile(
     const sym = getClassSymbolForDecl(table, cls.decl);
     const ctx = {
       ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-      ...covCtx,
+      ...instrumentationCtx,
       classNameOverride: emitLocalClassCppName(sym),
     };
     emitClassMethodDefinitions(cls.decl, ctx);
@@ -1945,7 +1967,7 @@ function emitCppFile(
     (fn) => fn.exported && fn.decl.name !== "main" && fn.decl.typeParams.length === 0,
   );
   for (const fn of exportedFns) {
-    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx, emitParameterDefaults: false };
+    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...instrumentationCtx, emitParameterDefaults: false };
     emitStatement(fn.decl as Statement, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
@@ -1959,7 +1981,7 @@ function emitCppFile(
       lines.push("");
       continue;
     }
-    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...covCtx };
+    const ctx = { ...makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions), ...instrumentationCtx };
     emitStatement(v.stmt, ctx);
     lines.push(...ctx.sourceLines);
     lines.push("");
@@ -1973,7 +1995,7 @@ function emitCppFile(
   // main() wrapper
   const mainFn = classified.functions.find((fn) => fn.decl.name === "main");
   if (mainFn) {
-    emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, covCtx);
+    emitDoofMainFunction(mainFn.decl, table, analysisResult, interfaceImpls, monomorphizedFunctions, lines, instrumentationCtx);
   }
 
   lines.push(`} // namespace ${moduleNamespace}`);
@@ -1990,7 +2012,7 @@ function emitCppFile(
     monomorphizedFunctions,
     moduleNamespace,
     lines,
-    covCtx,
+    instrumentationCtx,
   );
 
   if (mainFn) {

@@ -298,6 +298,12 @@ function emitIdentifierCallByName(
   if (name === "panic" && panicSpan && isBuiltinRuntimeFunctionBinding(binding)) {
     return `doof::panic_at(${emitPanicLocationArgs(panicSpan, ctx)}, ${joinedArgs})`;
   }
+  if (name === "metricsIncrement" && isBuiltinRuntimeFunctionBinding(binding)) {
+    return `doof::metrics::increment_counter(${joinedArgs})`;
+  }
+  if (name === "metricsSnapshotPrometheus" && isBuiltinRuntimeFunctionBinding(binding)) {
+    return "doof::metrics::snapshot_prometheus()";
+  }
   if (DOOF_RUNTIME_BUILTINS.has(name) && isBuiltinRuntimeFunctionBinding(binding)) {
     return `doof::${name}(${joinedArgs})`;
   }

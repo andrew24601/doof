@@ -57,6 +57,43 @@ const RUNTIME_HEADER = `#pragma once
 namespace doof {
 
 // ============================================================================
+// Metrics — process-local counters
+// ============================================================================
+
+namespace metrics {
+
+inline std::unordered_map<std::string, int64_t> _counters;
+inline std::mutex _counters_mutex;
+
+inline void increment_counter(const std::string& key, int64_t value) {
+    std::lock_guard<std::mutex> lock(_counters_mutex);
+    _counters[key] += value;
+}
+
+inline std::string snapshot_prometheus() {
+    std::vector<std::pair<std::string, int64_t>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_counters_mutex);
+        snapshot.reserve(_counters.size());
+        for (const auto& item : _counters) {
+            snapshot.push_back(item);
+        }
+    }
+
+    std::sort(snapshot.begin(), snapshot.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+
+    std::ostringstream out;
+    for (const auto& item : snapshot) {
+        out << item.first << " " << item.second << "\\n";
+    }
+    return out.str();
+}
+
+} // namespace metrics
+
+// ============================================================================
 // Panic — unrecoverable error
 // ============================================================================
 

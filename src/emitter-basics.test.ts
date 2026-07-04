@@ -1002,6 +1002,9 @@ describe("emitter — runtime header", () => {
     const header = generateRuntimeHeader();
     expect(header).toContain("#pragma once");
     expect(header).toContain("namespace doof");
+    expect(header).toContain("namespace metrics");
+    expect(header).toContain("void increment_counter");
+    expect(header).toContain("std::string snapshot_prometheus");
     expect(header).toContain("struct Result");
     expect(header).toContain("void panic");
     expect(header).toContain("void println");
@@ -1026,6 +1029,18 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("inline std::unordered_set<LineHit, LineHitHash> _coverage_hits;");
     expect(header).toContain("inline std::once_flag _coverage_registration_once;");
     expect(header).toContain("std::call_once(_coverage_registration_once");
+  });
+
+  it("emits metrics builtins", () => {
+    const cpp = emit(`
+      function main(): string {
+        metricsIncrement("requests_total", 1L)
+        return metricsSnapshotPrometheus()
+      }
+    `);
+
+    expect(cpp).toContain('doof::metrics::increment_counter(std::string("requests_total"), 1LL);');
+    expect(cpp).toContain("return doof::metrics::snapshot_prometheus();");
   });
 });
 

@@ -177,6 +177,13 @@ describe("CLI argument parsing", () => {
     expect(args.coverageOutput).toBe("");
   });
 
+  it("parses --metrics-class-lifecycle for pipeline commands", () => {
+    const args = parseArgs(["node", "doof", "build", "--metrics-class-lifecycle", "samples"]);
+
+    expect(args.command).toBe("build");
+    expect(args.metricsClassLifecycle).toBe(true);
+  });
+
   it("parses a build target override", () => {
     const args = parseArgs([
       "node",

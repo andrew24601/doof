@@ -91,4 +91,6 @@ export interface EmitContext {
   coverageModuleId?: number;
   /** Accumulates the set of 1-based Doof source lines that received a coverage mark. */
   coverageInstrumentedLines?: Set<number>;
+  /** When true, emit class create/dispose metrics counters. */
+  metricsClassLifecycle?: boolean;
 }

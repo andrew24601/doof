@@ -92,6 +92,7 @@ export interface CliArgs {
   listTests: boolean;
   coverage: boolean;
   coverageOutput: string;
+  metricsClassLifecycle: boolean;
   programArgs: string[];
   nativeBuild: NativeBuildOptions;
 }
@@ -145,6 +146,8 @@ Options:
   --coverage           Collect and report line coverage for Doof source files
   --coverage-output <path>
                        Path for the JSON coverage report (default: build/coverage/doof-test-coverage.json)
+  --metrics-class-lifecycle
+                       Emit class create/dispose counters through the runtime metrics API
   -v, --verbose        Print detailed progress information
   -h, --help           Show this help message
   --version            Show version
@@ -212,6 +215,7 @@ export function parseArgs(argv: string[]): CliArgs {
     listTests: false,
     coverage: false,
     coverageOutput: "",
+    metricsClassLifecycle: false,
     programArgs: [],
     nativeBuild: createEmptyNativeBuildOptions(),
   };
@@ -336,6 +340,9 @@ export function parseArgs(argv: string[]): CliArgs {
       case "--coverage-output":
         args.coverageOutput = rest[++i] ?? fatal("Missing value for --coverage-output");
         break;
+      case "--metrics-class-lifecycle":
+        args.metricsClassLifecycle = true;
+        break;
       case "-v": case "--verbose":
         args.verbose = true;
         break;
@@ -424,10 +431,12 @@ function runPipeline(
   nativeBuild: NativeBuildOptions,
   targetOverride: DoofBuildTarget | null,
   iosDestination: IOSAppDestination,
+  metricsClassLifecycle: boolean,
 ) {
   return runPipelineWithFs(new RealFS(), entryFile, verbose, nativeBuild, log, printDiagnostic, {
     buildTargetOverride: targetOverride ?? undefined,
     iosDestinationOverride: iosDestination,
+    metricsClassLifecycle,
   });
 }
 
@@ -449,9 +458,10 @@ function cmdEmit(
   nativeBuild: NativeBuildOptions,
   targetOverride: DoofBuildTarget | null,
   iosDestination: IOSAppDestination,
+  metricsClassLifecycle: boolean,
 ): void {
   const resolvedNativeBuild = resolveNativeBuildOptions(nativeBuild);
-  const { project, provenance, buildManifest } = runPipeline(entry, verbose, resolvedNativeBuild, targetOverride, iosDestination);
+  const { project, provenance, buildManifest } = runPipeline(entry, verbose, resolvedNativeBuild, targetOverride, iosDestination, metricsClassLifecycle);
   writeProject(project, outDir, verbose, log, provenance, buildManifest);
   log(`Emitted ${project.modules.length} module(s) to ${outDir}/`);
 }
@@ -465,6 +475,7 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
     nativeBuild,
     args.targetOverride,
     args.iosDestination,
+    args.metricsClassLifecycle,
   );
   const effectiveNativeBuild = buildTarget?.kind === "ios-app"
     ? args.iosDestination === "device"
@@ -589,6 +600,7 @@ async function cmdPackage(args: CliArgs & ResolvedPackageCliInputs): Promise<voi
     verbose: args.verbose,
     macosSigning: signingOverrides.macos,
     iosSigning: signingOverrides.ios,
+    metricsClassLifecycle: args.metricsClassLifecycle,
   }, { log });
   log(`Package complete: ${artifactPath}`);
 }
@@ -800,6 +812,7 @@ export async function main(argv = process.argv): Promise<void> {
           resolveNativeBuildOptions(resolvedArgs.nativeBuild),
           resolvedArgs.targetOverride,
           resolvedArgs.iosDestination,
+          resolvedArgs.metricsClassLifecycle,
         );
         break;
       case "build":
