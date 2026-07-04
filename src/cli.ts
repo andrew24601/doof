@@ -93,6 +93,7 @@ export interface CliArgs {
   coverage: boolean;
   coverageOutput: string;
   metricsClassLifecycle: boolean;
+  observe: boolean;
   programArgs: string[];
   nativeBuild: NativeBuildOptions;
 }
@@ -148,6 +149,7 @@ Options:
                        Path for the JSON coverage report (default: build/coverage/doof-test-coverage.json)
   --metrics-class-lifecycle
                        Emit class create/dispose counters through the runtime metrics API
+  --observe            Run with a local observer UI for runtime metrics
   -v, --verbose        Print detailed progress information
   -h, --help           Show this help message
   --version            Show version
@@ -216,6 +218,7 @@ export function parseArgs(argv: string[]): CliArgs {
     coverage: false,
     coverageOutput: "",
     metricsClassLifecycle: false,
+    observe: false,
     programArgs: [],
     nativeBuild: createEmptyNativeBuildOptions(),
   };
@@ -343,6 +346,9 @@ export function parseArgs(argv: string[]): CliArgs {
       case "--metrics-class-lifecycle":
         args.metricsClassLifecycle = true;
         break;
+      case "--observe":
+        args.observe = true;
+        break;
       case "-v": case "--verbose":
         args.verbose = true;
         break;
@@ -354,6 +360,10 @@ export function parseArgs(argv: string[]): CliArgs {
         args.entry = arg;
     }
     i++;
+  }
+
+  if (args.observe && args.command !== "run") {
+    fatal("--observe is only supported with doof run");
   }
 
   return args;
@@ -432,11 +442,13 @@ function runPipeline(
   targetOverride: DoofBuildTarget | null,
   iosDestination: IOSAppDestination,
   metricsClassLifecycle: boolean,
+  observe = false,
 ) {
   return runPipelineWithFs(new RealFS(), entryFile, verbose, nativeBuild, log, printDiagnostic, {
     buildTargetOverride: targetOverride ?? undefined,
     iosDestinationOverride: iosDestination,
     metricsClassLifecycle,
+    observe,
   });
 }
 
@@ -476,6 +488,7 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
     args.targetOverride,
     args.iosDestination,
     args.metricsClassLifecycle,
+    run && args.observe,
   );
   const effectiveNativeBuild = buildTarget?.kind === "ios-app"
     ? args.iosDestination === "device"
@@ -490,6 +503,9 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
         resolveIOSSimulatorBuildSettings(buildTarget.config),
       )
     : resolvedNativeBuild;
+  if (run && args.observe && buildTarget?.kind === "ios-app") {
+    throw new Error("--observe is not supported for ios-app runs");
+  }
   const { outBinary: binary } = await runNativeBuildGraph(
     args.outDir,
     project,

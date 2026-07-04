@@ -113,7 +113,7 @@ function emitClassLifecycleMetricLine(
   ctx: EmitContext,
   ind: string,
 ): void {
-  if (!ctx.metricsClassLifecycle) return;
+  if (!ctx.metricsClassLifecycle || decl.storage === "value") return;
   const key = prometheusClassLifecycleKey(event, decl, ctx);
   ctx.sourceLines.push(`${ind}doof::metrics::increment_counter(${JSON.stringify(key)}, 1);`);
 }

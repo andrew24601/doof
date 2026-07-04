@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "observer-ui",
     "README.md"
   ],
   "scripts": {

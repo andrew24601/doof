@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { emit, emitMulti } from "./emitter-test-helpers.js";
+import { emit, emitMulti, emitProjectHelper } from "./emitter-test-helpers.js";
 import { emitType } from "./emitter-types.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import type { ResolvedType } from "./checker-types.js";
@@ -1029,6 +1029,38 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("inline std::unordered_set<LineHit, LineHitHash> _coverage_hits;");
     expect(header).toContain("inline std::once_flag _coverage_registration_once;");
     expect(header).toContain("std::call_once(_coverage_registration_once");
+  });
+
+  it("omits observer support by default", () => {
+    const header = generateRuntimeHeader();
+    expect(header).not.toContain("namespace observe");
+    expect(header).not.toContain("Doof Observer");
+  });
+
+  it("generates observer support when requested", () => {
+    const header = generateRuntimeHeader({ observe: true });
+    expect(header).toContain("namespace observe");
+    expect(header).toContain("DOOF_OBSERVE_URL=");
+    expect(header).toContain("http://127.0.0.1:");
+    expect(header).toContain("inline void launch_browser(const std::string& url)");
+    expect(header).toContain("std::thread(launch_browser, url).detach();");
+    expect(header).toContain("Doof Observer");
+    expect(header).toContain("/api/metrics/prometheus");
+  });
+
+  it("starts the observer from the generated entry point when requested", () => {
+    const project = emitProjectHelper({
+      "/main.do": "function main(): void {}",
+    }, "/main.do", { observe: true });
+    const entry = project.modules.find((mod) => mod.modulePath === "/main.do");
+
+    expect(entry?.cppCode).toContain("doof::observe::start_server();");
+  });
+
+  it("does not start the observer from normal generated entry points", () => {
+    const cpp = emit("function main(): void {}");
+
+    expect(cpp).not.toContain("doof::observe::start_server();");
   });
 
   it("emits metrics builtins", () => {

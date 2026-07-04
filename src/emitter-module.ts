@@ -122,6 +122,8 @@ export interface ProjectBuildMetadata {
   coverage?: boolean;
   /** When true, emit class create/dispose counter increments. */
   metricsClassLifecycle?: boolean;
+  /** When true, start the local observer server from the generated entry point. */
+  observe?: boolean;
 }
 
 export interface NativeBuildOptions {
@@ -228,6 +230,7 @@ export function emitModuleSplit(
   buildTarget?: ResolvedDoofBuildTarget | null,
   coverageModuleId?: number,
   metricsClassLifecycle = false,
+  observe = false,
 ): ModuleEmitResult {
   const table = analysisResult.modules.get(modulePath);
   if (!table) {
@@ -270,6 +273,7 @@ export function emitModuleSplit(
     buildTarget,
     coverageModuleId,
     metricsClassLifecycle,
+    observe,
   );
 
   return {
@@ -326,6 +330,7 @@ export function emitProject(
       buildMetadata.buildTarget,
       coverageModuleIdMap.get(modPath),
       buildMetadata.metricsClassLifecycle ?? false,
+      buildMetadata.observe ?? false,
     ));
   }
 
@@ -350,7 +355,7 @@ export function emitProject(
 
   return {
     modules,
-    runtime: generateRuntimeHeader(),
+    runtime: generateRuntimeHeader({ observe: buildMetadata.observe ?? false }),
     supportFiles,
     outputNativeCopies: [],
     outputNativeIncludePaths: [],
@@ -1791,6 +1796,7 @@ function emitCppFile(
   buildTarget?: ResolvedDoofBuildTarget | null,
   coverageModuleId?: number,
   metricsClassLifecycle = false,
+  observe = false,
 ): { code: string; instrumentedLines: Set<number> } {
   const lines: string[] = [];
   const coverageInstrumentedLines = coverageModuleId !== undefined ? new Set<number>() : undefined;
@@ -2016,7 +2022,7 @@ function emitCppFile(
   );
 
   if (mainFn) {
-    emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines);
+    emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines, observe);
     if (buildTarget?.kind !== "ios-app") {
       emitNativeMainWrapper(lines);
     }
@@ -2195,6 +2201,7 @@ function emitExternCMainEntryWrapper(
   analysisResult: AnalysisResult,
   baseDir: string,
   lines: string[],
+  observe = false,
 ): void {
   // Emit a stable exported entry point for native shells and app hosts.
   const retType = mainDecl.resolvedType && mainDecl.resolvedType.kind === "function"
@@ -2207,6 +2214,9 @@ function emitExternCMainEntryWrapper(
   lines.push("    try {");
   lines.push("    auto& __doof_application_domain = doof::detail::ApplicationDomain::shared();");
   lines.push("    doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain);");
+  if (observe) {
+    lines.push("    doof::observe::start_server();");
+  }
 
   // Module initialization calls
   const initCalls = buildInitOrder(table, analysisResult);

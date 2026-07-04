@@ -12,6 +12,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `samples/` — example programs and larger package-style projects used as references and e2e coverage targets
 - `stdlib/` — bundled standard library sources and support assets
 - `scripts/` — helper build and packaging scripts for samples and app targets
+- `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `playground/` — browser-based playground app for trying the compiler interactively
 - `vscode-doof/` — VS Code extension sources
 
@@ -105,6 +106,7 @@ Feature-specific helpers:
 - `emitter-schema.ts` — JSON Schema generation for metadata surfaces
 - `emitter-metadata.ts` — `.metadata` fields and `.invoke()` generation
 - `emitter-runtime.ts` — `doof_runtime.hpp` generation
+- `observer-assets.ts` — Node-side loader for observer UI assets embedded into generated runtime support
 
 ### CLI, Build, and Packaging
 

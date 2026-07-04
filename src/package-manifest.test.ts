@@ -2444,9 +2444,13 @@ describe("manifest-derived pipeline metadata", () => {
       emptyNativeBuildOptions(),
       () => {},
       () => {},
+      { observe: true },
     );
 
     expect(result.buildTarget?.kind).toBe("macos-app");
+    expect(result.project.runtime).toContain("namespace observe");
+    const entryModule = result.project.modules.find((module) => module.modulePath === "/app/main.do");
+    expect(entryModule?.cppCode).toContain("doof::observe::start_server();");
     expect(result.project.supportFiles.map((file) => file.relativePath)).toEqual([
       "Info.plist",
       "PkgInfo",

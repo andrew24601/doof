@@ -116,6 +116,8 @@ Pass `--metrics-class-lifecycle` to `doof emit`, `doof build`, `doof run`, or `d
 - `doof_class_created_total{module="...",class="..."}`
 - `doof_class_disposed_total{module="...",class="..."}`
 
+Pass `--observe` to `doof run` to start a local observer server inside the generated program. The server binds to `127.0.0.1` on a random port, prints `DOOF_OBSERVE_URL=http://127.0.0.1:<port>/`, and the generated program opens that dashboard in a browser when possible. This works for plain native programs and macOS app bundles; iOS app runs do not currently support observer launch. The dashboard currently shows runtime metrics and exposes `/api/metrics` plus `/api/metrics/prometheus`.
+
 `doof emit` writes:
 
 - generated `.hpp` / `.cpp` files
@@ -188,6 +190,7 @@ For `emit`, `build`, `run`, `package`, and `check`, the path is optional when th
 | `--coverage` | Collect line coverage for non-test Doof source files |
 | `--coverage-output <path>` | Write coverage JSON report to `<path>` (default: `build/coverage/doof-test-coverage.json`) |
 | `--metrics-class-lifecycle` | Emit class create/dispose counters through the runtime metrics API |
+| `--observe` | Run with a local observer UI for runtime metrics (`doof run` only) |
 | `-v, --verbose` | Print detailed progress information |
 | `-h, --help` | Show help |
 | `--version` | Show CLI version |

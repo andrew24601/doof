@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { reckon } from "@andrew24601/reckon";
 import type { ProjectEmitResult } from "./emitter-module.js";
 import {
@@ -22,6 +22,7 @@ import { VirtualFS } from "./test-helpers.js";
 const tmpDirs: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   while (tmpDirs.length > 0) {
     const dir = tmpDirs.pop();
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
@@ -182,6 +183,22 @@ describe("CLI argument parsing", () => {
 
     expect(args.command).toBe("build");
     expect(args.metricsClassLifecycle).toBe(true);
+  });
+
+  it("parses --observe for run", () => {
+    const args = parseArgs(["node", "doof", "run", "--observe", "samples"]);
+
+    expect(args.command).toBe("run");
+    expect(args.observe).toBe(true);
+  });
+
+  it("rejects --observe for non-run commands", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+
+    expect(() => parseArgs(["node", "doof", "build", "--observe", "samples"])).toThrow("exit 1");
   });
 
   it("parses a build target override", () => {
