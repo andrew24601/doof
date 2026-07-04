@@ -888,6 +888,45 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(hppCode).toContain("doof::ordered_map<::app::cards::Suit, std::shared_ptr<Pile>>");
   });
 
+  it("hpp includes imported class definitions before inline generated JSON methods", () => {
+    const project = emitProjectHelper(
+      {
+        "/main.do": `
+          import { Event } from "./session"
+
+          function main(): int {
+            result := Event.fromJsonValue({})
+            case result {
+              _: Success -> return 0
+              _: Failure -> return 1
+            }
+          }
+        `,
+        "/session.do": `
+          import { Position } from "./model"
+
+          export class Event {
+            position: Position | null = null
+          }
+        `,
+        "/model.do": `
+          export class Position {
+            x: double
+            y: double
+          }
+        `,
+      },
+      "/main.do",
+    );
+    const session = project.modules.find((module) => module.modulePath === "/session.do");
+    expect(session).toBeTruthy();
+    const hppCode = session!.hppCode;
+
+    expect(hppCode.indexOf('#include "model.hpp"')).toBeGreaterThan(-1);
+    expect(hppCode.indexOf('#include "model.hpp"')).toBeLessThan(hppCode.indexOf("struct Event :"));
+    expect(hppCode).toContain("this->position->toJsonObject()");
+  });
+
   it("hpp includes imported extern class modules for header-visible fields", () => {
     const { hppCode } = emitSplitMulti(
       {

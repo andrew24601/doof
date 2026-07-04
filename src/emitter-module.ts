@@ -1164,6 +1164,7 @@ function classNeedsCompleteExternalValueFields(decl: ClassDeclaration, currentMo
       && !field.weak_
       && (
         typeNeedsCompleteExternalValueType(field.resolvedType, currentModulePath)
+        || (decl.needsJson && typeNeedsCompleteJsonType(field.resolvedType, currentModulePath))
         || typeAnnotationNeedsCompleteExternalValueType(field.type, currentModulePath)
       )
     ) {
@@ -1300,6 +1301,49 @@ function typeNeedsCompleteExternalValueType(type: ResolvedType | null | undefine
     case "class-metadata":
     case "method-reflection":
       return typeNeedsCompleteExternalValueType(type.classType, currentModulePath);
+    default:
+      return false;
+  }
+}
+
+function typeNeedsCompleteJsonType(type: ResolvedType | null | undefined, currentModulePath: string): boolean {
+  if (!type || isJsonValueType(type)) return false;
+  switch (type.kind) {
+    case "class":
+    case "struct":
+    case "interface":
+      return type.symbol.module !== currentModulePath
+        || (type.typeArgs ?? []).some((arg) => typeNeedsCompleteJsonType(arg, currentModulePath));
+    case "enum":
+      return type.symbol.module !== currentModulePath;
+    case "array":
+    case "set":
+    case "stream":
+      return typeNeedsCompleteJsonType(type.elementType, currentModulePath);
+    case "map":
+      return typeNeedsCompleteJsonType(type.keyType, currentModulePath)
+        || typeNeedsCompleteJsonType(type.valueType, currentModulePath);
+    case "union":
+      return type.types.some((inner) => typeNeedsCompleteJsonType(inner, currentModulePath));
+    case "tuple":
+      return type.elements.some((element) => typeNeedsCompleteJsonType(element, currentModulePath));
+    case "function":
+      return type.params.some((param) => typeNeedsCompleteJsonType(param.type, currentModulePath))
+        || typeNeedsCompleteJsonType(type.returnType, currentModulePath);
+    case "weak":
+      return typeNeedsCompleteJsonType(type.inner, currentModulePath);
+    case "actor":
+      return typeNeedsCompleteJsonType(type.innerClass, currentModulePath);
+    case "promise":
+      return typeNeedsCompleteJsonType(type.valueType, currentModulePath);
+    case "result":
+      return typeNeedsCompleteJsonType(type.successType, currentModulePath)
+        || typeNeedsCompleteJsonType(type.errorType, currentModulePath);
+    case "mock-capture":
+      return type.fields.some((field) => typeNeedsCompleteJsonType(field.type, currentModulePath));
+    case "class-metadata":
+    case "method-reflection":
+      return typeNeedsCompleteJsonType(type.classType, currentModulePath);
     default:
       return false;
   }

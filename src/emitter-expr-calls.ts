@@ -767,7 +767,11 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       const method = memberExpr.property;
       const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "get") return `doof::map_get(${obj}, ${args}, ${locationArgs})`;
-      if (method === "set") return `doof::map_set(${obj}, ${expr.args[0] ? emitExpression(expr.args[0].value, ctx) : args}, ${expr.args[1] ? emitExpression(expr.args[1].value, ctx) : ""}, ${locationArgs})`;
+      if (method === "set") {
+        const key = expr.args[0] ? emitExpression(expr.args[0].value, ctx, objType.keyType) : args;
+        const value = expr.args[1] ? emitExpression(expr.args[1].value, ctx, objType.valueType) : "";
+        return `doof::map_set(${obj}, ${key}, ${value}, ${locationArgs})`;
+      }
       if (method === "has") return `(${obj}->count(${args}) > 0)`;
       if (method === "delete") return `${obj}->erase(${args})`;
       if (method === "keys") return `doof::map_keys(${obj}, ${locationArgs})`;

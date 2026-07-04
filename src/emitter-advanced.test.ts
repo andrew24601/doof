@@ -1480,6 +1480,18 @@ describe("emitter — Map methods", () => {
     expect(cpp).toContain('std::string("b"), 2, ');
   });
 
+  it("wraps values passed to JsonObject .set()", () => {
+    const cpp = emit(`
+      function main(): void {
+        payload: JsonObject := {}
+        payload.set("kind", "ready")
+        payload.set("count", 2)
+      }
+    `);
+    expect(cpp).toContain('std::string("kind"), doof::json_value(std::string("ready"))');
+    expect(cpp).toContain('std::string("count"), doof::json_value(2)');
+  });
+
   it("emits .delete() as ->erase()", () => {
     const cpp = emit(`
       function main(): void {
