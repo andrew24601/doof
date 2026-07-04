@@ -110,6 +110,12 @@ h2 {
   white-space: nowrap;
 }
 
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .panel {
   border: 1px solid #d7dce3;
   border-radius: 8px;
@@ -150,6 +156,23 @@ td.name {
   font-variant-numeric: tabular-nums;
 }
 
+.delta {
+  min-width: 72px;
+  color: #8a97a8;
+}
+
+.delta.positive {
+  color: #178246;
+}
+
+.delta.negative {
+  color: #c63838;
+}
+
+.delta.flat {
+  color: #6f7e91;
+}
+
 .empty {
   margin: 0;
   padding: 28px 14px;
@@ -161,18 +184,6 @@ td.name {
   display: none;
 }
 
-.raw-panel {
-  margin-top: 18px;
-}
-
-.raw-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid #edf0f4;
-}
-
 button {
   min-height: 34px;
   padding: 6px 10px;
@@ -182,15 +193,6 @@ button {
   color: inherit;
   font: inherit;
   cursor: pointer;
-}
-
-pre {
-  min-height: 96px;
-  margin: 0;
-  padding: 14px;
-  overflow-x: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -218,8 +220,7 @@ pre {
   }
 
   th,
-  td,
-  .raw-header {
+  td {
     border-color: #2b3542;
   }
 

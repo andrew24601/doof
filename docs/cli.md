@@ -116,7 +116,7 @@ Pass `--metrics-class-lifecycle` to `doof emit`, `doof build`, `doof run`, or `d
 - `doof_class_created_total{module="...",class="..."}`
 - `doof_class_disposed_total{module="...",class="..."}`
 
-Pass `--observe` to `doof run` to start a local observer server inside the generated program. The server binds to `127.0.0.1` on a random port, prints `DOOF_OBSERVE_URL=http://127.0.0.1:<port>/`, and the generated program opens that dashboard in a browser when possible. This works for plain native programs and macOS app bundles; iOS app runs do not currently support observer launch. The dashboard currently shows runtime metrics and exposes `/api/metrics` plus `/api/metrics/prometheus`.
+Pass `--observe` to `doof run` to start a local observer server inside the generated program. The server binds to `127.0.0.1` on a random port, prints `DOOF_OBSERVE_URL=http://127.0.0.1:<port>/`, and the generated program opens that dashboard in a browser when possible. This works for plain native programs and macOS app bundles; iOS app runs do not currently support observer launch. The dashboard shows runtime metrics, consolidates class lifecycle counters into live allocation values with per-refresh deltas, and exposes `/api/metrics` plus `/api/metrics/prometheus`.
 
 `doof emit` writes:
 

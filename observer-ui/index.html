@@ -24,7 +24,10 @@
           <span>Filter</span>
           <input id="filterInput" type="search" placeholder="metric name">
         </label>
-        <div class="updated">Updated <span id="updatedAt">never</span></div>
+        <div class="toolbar-actions">
+          <div class="updated">Updated <span id="updatedAt">never</span></div>
+          <button id="refreshButton" type="button">Refresh</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -34,20 +37,13 @@
               <tr>
                 <th>Name</th>
                 <th class="number">Value</th>
+                <th class="number">Delta</th>
               </tr>
             </thead>
             <tbody id="metricsBody"></tbody>
           </table>
         </div>
         <p id="emptyState" class="empty">No metrics yet.</p>
-      </section>
-
-      <section class="panel raw-panel">
-        <div class="raw-header">
-          <h2>Prometheus</h2>
-          <button id="refreshButton" type="button">Refresh</button>
-        </div>
-        <pre id="rawMetrics"></pre>
       </section>
     </main>
     <script src="/assets/app.js" defer></script>
