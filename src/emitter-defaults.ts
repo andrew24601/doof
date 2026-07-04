@@ -19,14 +19,14 @@ function unsupportedDefault(expr: Expression, contextType?: ResolvedType): never
 }
 
 function getStaticClassMethodDefaultCall(expr: CallExpression): {
-  classType: Extract<ResolvedType, { kind: "class" }>;
+  classType: Extract<ResolvedType, { kind: "class" | "struct" }>;
   methodName: string;
   params: FunctionResolvedParam[];
 } | null {
   if (expr.callee.kind === "dot-shorthand") {
     const callee = expr.callee;
     const ownerType = callee.resolvedShorthandOwnerType;
-    if (!ownerType || ownerType.kind !== "class") return null;
+    if (!ownerType || (ownerType.kind !== "class" && ownerType.kind !== "struct")) return null;
     const method = ownerType.symbol.declaration.methods.find(
       (candidate) => candidate.name === callee.name && candidate.static_,
     );
@@ -45,8 +45,8 @@ function getStaticClassMethodDefaultCall(expr: CallExpression): {
 
   const binding = callee.object.resolvedBinding;
   const objectType = callee.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
-  if (binding?.kind !== "class" && binding?.kind !== "import") return null;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
+  if (binding?.kind !== "class" && binding?.kind !== "struct" && binding?.kind !== "import") return null;
 
   const method = objectType.symbol.declaration.methods.find(
     (candidate) => candidate.name === callee.property && candidate.static_,
@@ -111,7 +111,7 @@ export function canEmitDefaultExpressionInHeader(expr: Expression): boolean {
   switch (expr.kind) {
     case "call-expression":
       if (getStaticClassMethodDefaultCall(expr)) return false;
-      if (expr.callee.kind === "identifier" && expr.resolvedType?.kind === "class") return false;
+      if (expr.callee.kind === "identifier" && (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct")) return false;
       return expr.args.every((arg) => canEmitDefaultExpressionInHeader(arg.value));
 
     case "construct-expression":
@@ -121,14 +121,14 @@ export function canEmitDefaultExpressionInHeader(expr: Expression): boolean {
       return false;
 
     case "tuple-literal":
-      if (expr.resolvedType?.kind === "class") return false;
+      if (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct") return false;
       return expr.elements.every((element) => canEmitDefaultExpressionInHeader(element));
 
     case "array-literal":
       return expr.elements.every((element) => canEmitDefaultExpressionInHeader(element));
 
     case "dot-shorthand":
-      return expr.resolvedShorthandOwnerType?.kind !== "class";
+      return expr.resolvedShorthandOwnerType?.kind !== "class" && expr.resolvedShorthandOwnerType?.kind !== "struct";
 
     case "map-literal":
       return expr.entries.every((entry) =>
@@ -193,7 +193,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (expr.resolvedType?.kind === "enum") {
         return emitEnumVariantAccess(expr.resolvedType, expr.name, currentModulePath);
       }
-      if (expr.resolvedShorthandOwnerType?.kind === "class") {
+      if (expr.resolvedShorthandOwnerType?.kind === "class" || expr.resolvedShorthandOwnerType?.kind === "struct") {
         return `${emitClassCppName(expr.resolvedShorthandOwnerType.symbol, currentModulePath)}::${emitIdentifierSafe(expr.name)}`;
       }
       return unsupportedDefault(expr, contextType);
@@ -238,7 +238,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
         return `std::make_tuple(${elements})`;
       }
 
-      if (tupleType.kind === "class") {
+      if (tupleType.kind === "class" || tupleType.kind === "struct") {
         const className = emitResolvedClassName(tupleType, currentModulePath);
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
         const providedArgs = expr.elements
@@ -259,7 +259,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
       if (staticMethodCall) return staticMethodCall;
 
       const callType = expr.resolvedType ?? contextType;
-      if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
+      if (expr.callee.kind !== "identifier" || !callType || (callType.kind !== "class" && callType.kind !== "struct")) {
         return unsupportedDefault(expr, contextType);
       }
       const className = emitResolvedClassName(callType, currentModulePath);
@@ -276,7 +276,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
 
     case "construct-expression": {
       const ctorType = expr.resolvedType ?? contextType;
-      if (!ctorType || ctorType.kind !== "class") {
+      if (!ctorType || (ctorType.kind !== "class" && ctorType.kind !== "struct")) {
         return unsupportedDefault(expr, contextType);
       }
 
@@ -315,7 +315,7 @@ export function emitDefaultExpression(expr: Expression, contextType?: ResolvedTy
 
     case "object-literal": {
       const objectType = contextType ?? expr.resolvedType;
-      if (objectType?.kind === "class") {
+      if (objectType?.kind === "class" || objectType?.kind === "struct") {
         const className = emitResolvedClassName(objectType, currentModulePath);
         const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));
         const args = buildConstructorFieldInfoList(objectType.symbol)

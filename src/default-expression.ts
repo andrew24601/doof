@@ -43,6 +43,10 @@ function isAllowedIdentifierBinding(binding: Binding | undefined): boolean {
     && binding.type.kind !== "method-reflection";
 }
 
+function isNominalObjectType(type: ResolvedType | undefined): type is Extract<ResolvedType, { kind: "class" | "struct" }> {
+  return type?.kind === "class" || type?.kind === "struct";
+}
+
 function identifierIssue(expr: Identifier): string | null {
   if (isAllowedIdentifierBinding(expr.resolvedBinding)) {
     return null;
@@ -64,7 +68,7 @@ function getStaticClassMethodParams(expr: CallExpression): FunctionResolvedParam
   if (expr.callee.kind === "dot-shorthand") {
     const callee = expr.callee;
     const ownerType = callee.resolvedShorthandOwnerType;
-    if (!ownerType || ownerType.kind !== "class") return null;
+    if (!isNominalObjectType(ownerType)) return null;
     const method = ownerType.symbol.declaration.methods.find(
       (candidate) => candidate.name === callee.name && candidate.static_,
     );
@@ -79,7 +83,7 @@ function getStaticClassMethodParams(expr: CallExpression): FunctionResolvedParam
 
   const binding = callee.object.resolvedBinding;
   const objectType = callee.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
+  if (!isNominalObjectType(objectType)) return null;
   if (binding?.kind !== "class" && binding?.kind !== "import") return null;
 
   const method = objectType.symbol.declaration.methods.find(
@@ -128,7 +132,7 @@ export function getUnsupportedDefaultExpressionReason(
       return null;
 
     case "dot-shorthand":
-      return expr.resolvedType?.kind === "enum" || expr.resolvedShorthandOwnerType?.kind === "class"
+      return expr.resolvedType?.kind === "enum" || isNominalObjectType(expr.resolvedShorthandOwnerType)
         ? null
         : `dot shorthand ".${expr.name}" is unresolved`;
 
@@ -169,7 +173,7 @@ export function getUnsupportedDefaultExpressionReason(
         return null;
       }
 
-      if (tupleType.kind === "class") {
+      if (isNominalObjectType(tupleType)) {
         const fieldTypes = buildFieldTypeList(tupleType.symbol);
         for (let i = 0; i < expr.elements.length; i++) {
           const issue = getUnsupportedDefaultExpressionReason(expr.elements[i], fieldTypes[i]);
@@ -178,7 +182,7 @@ export function getUnsupportedDefaultExpressionReason(
         return null;
       }
 
-      return "tuple defaults require a tuple or class parameter type";
+      return "tuple defaults require a tuple, class, or struct parameter type";
     }
 
     case "call-expression": {
@@ -195,8 +199,8 @@ export function getUnsupportedDefaultExpressionReason(
         return null;
       }
 
-      if (expr.callee.kind !== "identifier" || !callType || callType.kind !== "class") {
-        return "only class constructor calls and static class method calls are supported in parameter defaults";
+      if (expr.callee.kind !== "identifier" || !isNominalObjectType(callType)) {
+        return "only class/struct constructor calls and static class/struct method calls are supported in parameter defaults";
       }
 
       const fieldTypes = buildFieldTypeList(callType.symbol);
@@ -212,8 +216,8 @@ export function getUnsupportedDefaultExpressionReason(
 
     case "construct-expression": {
       const ctorType = expr.resolvedType ?? contextType;
-      if (!ctorType || ctorType.kind !== "class") {
-        return `constructed default "${expr.type}" requires a class parameter type`;
+      if (!isNominalObjectType(ctorType)) {
+        return `constructed default "${expr.type}" requires a class or struct parameter type`;
       }
 
       if (expr.named) {
@@ -248,7 +252,7 @@ export function getUnsupportedDefaultExpressionReason(
       }
 
       const objectType = contextType ?? expr.resolvedType;
-      if (objectType?.kind === "class") {
+      if (isNominalObjectType(objectType)) {
         const props = sortNamedArgsByFieldOrder(expr.properties, objectType.symbol);
         const fieldTypeMap = buildFieldTypeMap(objectType.symbol);
         for (const prop of props) {
@@ -268,7 +272,7 @@ export function getUnsupportedDefaultExpressionReason(
         return null;
       }
 
-      return "object defaults require a class parameter type or an empty map default";
+      return "object defaults require a class or struct parameter type or an empty map default";
     }
 
     case "map-literal": {

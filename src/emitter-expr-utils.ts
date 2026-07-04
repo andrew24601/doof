@@ -13,9 +13,12 @@ import {
   VOID_TYPE,
   type ResolvedType,
 } from "./checker-types.js";
-import type { ClassSymbol, ModuleSymbol } from "./types.js";
+import type { ClassSymbol, StructSymbol, ModuleSymbol } from "./types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitClassInnerType, emitType } from "./emitter-types.js";
+
+type NominalObjectType = Extract<ResolvedType, { kind: "class" | "struct" }>;
+type NominalObjectSymbol = ClassSymbol | StructSymbol;
 
 /**
  * Resolve a TypeAnnotation to a ResolvedType.
@@ -185,6 +188,13 @@ function resolveModuleSymbolType(
         : { kind: "class", symbol };
     }
 
+    case "struct": {
+      const resolvedArgs = typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx));
+      return resolvedArgs.length > 0
+        ? { kind: "struct", symbol, typeArgs: resolvedArgs }
+        : { kind: "struct", symbol };
+    }
+
     case "interface": {
       const resolvedArgs = typeArgs.map((typeArg) => resolveTypeAnnotation(typeArg, ctx));
       return resolvedArgs.length > 0
@@ -216,7 +226,7 @@ function resolveModuleSymbolType(
 /**
  * Build a map from field name to resolved type for a class's instance construction fields.
  */
-export function buildFieldTypeMap(classSym: ClassSymbol | undefined, allowFactory = true): Map<string, ResolvedType> {
+export function buildFieldTypeMap(classSym: NominalObjectSymbol | undefined, allowFactory = true): Map<string, ResolvedType> {
   const map = new Map<string, ResolvedType>();
   for (const field of buildConstructorFieldInfoList(classSym, allowFactory)) {
     if (field.type) {
@@ -230,13 +240,13 @@ export function buildFieldTypeMap(classSym: ClassSymbol | undefined, allowFactor
 /**
  * Build an ordered list of resolved types for a class's instance construction fields.
  */
-export function buildFieldTypeList(classSym: ClassSymbol | undefined, allowFactory = true): ResolvedType[] {
+export function buildFieldTypeList(classSym: NominalObjectSymbol | undefined, allowFactory = true): ResolvedType[] {
   return buildConstructorFieldInfoList(classSym, allowFactory)
     .flatMap((field) => field.type ? [field.type] : []);
 }
 
 export function buildConstructorFieldInfoListForClassType(
-  classType: Extract<ResolvedType, { kind: "class" }>,
+  classType: NominalObjectType,
   allowFactory = true,
 ): ConstructorFieldInfo[] {
   const typeSubstitution = buildClassTypeSubstitution(classType);
@@ -251,7 +261,7 @@ export function buildConstructorFieldInfoListForClassType(
 }
 
 export function buildFieldTypeListForClassType(
-  classType: Extract<ResolvedType, { kind: "class" }>,
+  classType: NominalObjectType,
   allowFactory = true,
 ): ResolvedType[] {
   return buildConstructorFieldInfoListForClassType(classType, allowFactory)
@@ -265,7 +275,7 @@ export interface ConstructorFieldInfo {
 }
 
 function buildClassTypeSubstitution(
-  classType: Extract<ResolvedType, { kind: "class" }>,
+  classType: NominalObjectType,
 ): Map<string, ResolvedType> | null {
   const typeArgs = classType.typeArgs ?? [];
   if (typeArgs.length === 0 || classType.symbol.declaration.typeParams.length === 0) {
@@ -280,7 +290,7 @@ function buildClassTypeSubstitution(
 }
 
 function findConstructorFactoryMethod(
-  classSym: ClassSymbol | undefined,
+  classSym: NominalObjectSymbol | undefined,
   allowFactory = true,
 ): FunctionDeclaration | null {
   if (!allowFactory || !classSym) return null;
@@ -297,7 +307,7 @@ function findConstructorFactoryMethod(
   return null;
 }
 
-export function emitResolvedClassName(type: Extract<ResolvedType, { kind: "class" }>, currentModulePath?: string): string {
+export function emitResolvedClassName(type: NominalObjectType, currentModulePath?: string): string {
   return emitClassInnerType(type, currentModulePath);
 }
 
@@ -310,7 +320,7 @@ export function emitStreamValueHelperName(aliasName: string): string {
 }
 
 export function buildConstructorFieldInfoList(
-  classSym: ClassSymbol | undefined,
+  classSym: NominalObjectSymbol | undefined,
   allowFactory = true,
 ): ConstructorFieldInfo[] {
   const factoryMethod = findConstructorFactoryMethod(classSym, allowFactory);
@@ -345,7 +355,7 @@ export function buildConstructorFieldInfoList(
  */
 export function sortNamedArgsByFieldOrder(
   props: ObjectProperty[],
-  classSym: ClassSymbol | undefined,
+  classSym: NominalObjectSymbol | undefined,
 ): ObjectProperty[] {
   if (!classSym) return props;
 
@@ -373,7 +383,7 @@ export function sortNamedArgsByFieldOrder(
 }
 
 export function buildPositionalConstructorArgList(
-  classSym: ClassSymbol | undefined,
+  classSym: NominalObjectSymbol | undefined,
   providedArgs: string[],
   emitDefaultValue: (expr: Expression, targetType?: ResolvedType) => string,
   allowFactory = true,
@@ -397,12 +407,16 @@ export function buildPositionalConstructorArgList(
 
 export function emitClassConstruction(
   className: string,
-  classSym: ClassSymbol | undefined,
+  classSym: NominalObjectSymbol | undefined,
   args: string[],
   allowFactory = true,
 ): string {
   if (findConstructorFactoryMethod(classSym, allowFactory)) {
     return `${className}::constructor(${args.join(", ")})`;
+  }
+
+  if (classSym?.symbolKind === "struct") {
+    return args.length === 0 ? `${className}{}` : `${className}(${args.join(", ")})`;
   }
 
   return `std::make_shared<${className}>(${args.join(", ")})`;

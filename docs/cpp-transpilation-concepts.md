@@ -32,6 +32,7 @@ Strategy:
 
 - Doof primitives map to direct C++ value types such as `int32_t`, `int64_t`, `float`, `double`, `bool`, and `std::string`
 - classes lower to `std::shared_ptr<T>`
+- structs lower to direct C++ values (`T`)
 - tuples lower to `std::tuple<...>`
 - Doof-visible function values lower to actor-affine
   `doof::callback<R(Args...)>` values, including function-typed parameters in
@@ -58,7 +59,7 @@ Strategy:
 
 - nullable shapes are lowered differently depending on runtime representation
 - pointer-like nullability uses pointer/null forms when possible
-- value-like nullable unions use optional or variant-style lowering
+- value-like nullable unions, including `Struct | null`, use optional or variant-style lowering
 - broader unions use generated `std::variant` shapes and explicit extraction or coercion helpers
 
 Primary modules:
@@ -192,21 +193,24 @@ Validation anchors:
 
 ## Objects, Interfaces, and Enums
 
-### Classes and Construction
+### Classes, Structs, and Construction
 
 Strategy:
 
 - class values lower to shared pointer-managed objects
+- struct values lower to direct values and are copied on assignment, parameter passing, and return
 - constructor and field initialization order is emitted explicitly
-- positional and named construction forms are normalized into the generated constructor call shape
-- a static `constructor` method returning the class becomes the direct-construction
+- positional and named construction forms are normalized into the generated constructor call shape; classes emit `std::make_shared<T>(...)` while structs emit direct value construction
+- member access uses `->` for classes and `.` for structs
+- a static `constructor` method returning the nominal type becomes the direct-construction
   target (`Type(...)` and `Type { ... }` emit `Type::constructor(...)`), except
-  inside that class's own `constructor` body where construction emits the raw field
+  inside that type's own `constructor` body where construction emits the raw field
   constructor to avoid recursive factories
 - generic static constructors specialize the owning class in the call target
   (`Channel<std::string>::constructor(...)`) when type arguments are explicit or inferred
-- field defaults may call static class methods and lower to the same `Class::method(...)`
+- field defaults may call static class/struct methods and lower to the same `Type::method(...)`
   form used by ordinary static calls
+- structs are not emitted with shared ownership bases, destructors, weak references, or interface dispatch support in v1
 
 Primary modules:
 
@@ -380,7 +384,7 @@ Validation anchors:
 Strategy:
 
 - serializable types get generated conversion helpers
-- classes with a dedicated static `constructor(...): Self` are excluded from
+- classes and structs with a dedicated static `constructor(...): Self` are excluded from
   automatic JSON helper generation
 - interface-level deserialization relies on the known set of implementations in the analyzed project
 - metadata surfaces and `.invoke()` generation build on the same emitted type knowledge and JSON support

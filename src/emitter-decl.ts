@@ -27,7 +27,9 @@ import { emitBlockStatements } from "./emitter-stmt.js";
 import { emitToJSON, emitFromJSON, emitInterfaceFromJSON, emitTypeAliasFromJSON } from "./emitter-json.js";
 import { emitMetadataDeclaration, emitMetadataDefinition } from "./emitter-metadata.js";
 import { canEmitDefaultExpressionInHeader, emitDefaultExpression } from "./emitter-defaults.js";
-import type { ClassSymbol } from "./types.js";
+import type { ClassSymbol, StructSymbol } from "./types.js";
+
+type NominalObjectSymbol = ClassSymbol | StructSymbol;
 
 // ============================================================================
 // Template helpers
@@ -82,6 +84,22 @@ function collectTypeAliasClassSymbols(typeAnn: TypeAnnotation): ClassSymbol[] | 
     }
   }
   return members;
+}
+
+function getClassSymbolForDecl(ctx: EmitContext, decl: ClassDeclaration): NominalObjectSymbol | null {
+  const sym = ctx.module.symbols.get(decl.name);
+  return sym?.symbolKind === "class" || sym?.symbolKind === "struct" ? sym : null;
+}
+
+function shouldDeferStaticFieldDefinition(
+  field: ClassField,
+  ownerSymbol: NominalObjectSymbol | null,
+): boolean {
+  return !!field.static_
+    && !!field.defaultValue
+    && !!ownerSymbol
+    && field.resolvedType?.kind === "struct"
+    && field.resolvedType.symbol === ownerSymbol;
 }
 
 // ============================================================================
@@ -218,6 +236,7 @@ export function emitParam(param: Parameter, _ctx: EmitContext, includeDefault = 
 export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
   const ind = indent(ctx);
   const name = ctx.classNameOverride ?? emitIdentifierSafe(decl.name);
+  const ownerSymbol = getClassSymbolForDecl(ctx, decl);
   const selfType = decl.typeParams.length > 0 && !ctx.emitExplicitClassSpecialization
     ? `${name}<${decl.typeParams.map(emitIdentifierSafe).join(", ")}>`
     : name;
@@ -234,11 +253,15 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
     : emitTemplatePrefix(decl.typeParams, ind);
   if (tpl) ctx.sourceLines.push(tpl);
 
-  ctx.sourceLines.push(`${ind}struct ${name} : public std::enable_shared_from_this<${selfType}> {`);
+  if (decl.storage === "value") {
+    ctx.sourceLines.push(`${ind}struct ${name} {`);
+  } else {
+    ctx.sourceLines.push(`${ind}struct ${name} : public std::enable_shared_from_this<${selfType}> {`);
+  }
 
   // Fields
   for (const field of decl.fields) {
-    emitClassField(field, { ...ctx, indent: ctx.indent + 1 });
+    emitClassField(field, { ...ctx, indent: ctx.indent + 1 }, ownerSymbol);
   }
 
   const mockMethods = decl.methods.filter((method) => method.mock_);
@@ -347,9 +370,35 @@ export function emitClassDecl(decl: ClassDeclaration, ctx: EmitContext): void {
 
   ctx.sourceLines.push(`${ind}};`);
 
+  emitDeferredStaticFieldDefinitions(decl, ctx, name, ownerSymbol);
+
   // Metadata definition (out-of-line, after class body so type is complete)
   if (decl.needsMetadata) {
     emitMetadataDefinition(decl, name, ctx);
+  }
+}
+
+function emitDeferredStaticFieldDefinitions(
+  decl: ClassDeclaration,
+  ctx: EmitContext,
+  className: string,
+  ownerSymbol: NominalObjectSymbol | null,
+): void {
+  const ind = indent(ctx);
+  let emittedBlank = false;
+  for (const field of decl.fields) {
+    if (!shouldDeferStaticFieldDefinition(field, ownerSymbol)) continue;
+    const resolvedFieldType = substituteEmitType(field.resolvedType, ctx);
+    const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
+    for (const name of field.names) {
+      if (!emittedBlank) {
+        ctx.sourceLines.push("");
+        emittedBlank = true;
+      }
+      const safeName = emitIdentifierSafe(name);
+      const val = emitExpression(field.defaultValue!, ctx, resolvedFieldType ?? undefined);
+      ctx.sourceLines.push(`${ind}inline ${fType} ${className}::${safeName} = ${val};`);
+    }
   }
 }
 
@@ -371,7 +420,11 @@ export function emitClassMethodDefinitions(decl: ClassDeclaration, ctx: EmitCont
   }
 }
 
-function emitClassField(field: ClassField, ctx: EmitContext): void {
+function emitClassField(
+  field: ClassField,
+  ctx: EmitContext,
+  ownerSymbol: NominalObjectSymbol | null,
+): void {
   const ind = indent(ctx);
   const resolvedFieldType = substituteEmitType(field.resolvedType, ctx);
 
@@ -395,7 +448,9 @@ function emitClassField(field: ClassField, ctx: EmitContext): void {
       }
     } else if (field.static_) {
       const fType = resolvedFieldType ? emitType(resolvedFieldType, ctx.module.path) : "auto";
-      if (field.defaultValue) {
+      if (shouldDeferStaticFieldDefinition(field, ownerSymbol)) {
+        ctx.sourceLines.push(`${ind}static ${fType} ${safeName};`);
+      } else if (field.defaultValue) {
         const val = emitExpression(field.defaultValue, ctx, resolvedFieldType ?? undefined);
         ctx.sourceLines.push(`${ind}static inline ${fType} ${safeName} = ${val};`);
       } else {
@@ -635,6 +690,9 @@ export function emitTypeAnnotation(
         const typeArgSuffix = emitNamedTypeArgs();
         if (sym.symbolKind === "class") {
           return `std::shared_ptr<${emitClassCppName(sym, ctx.module.path)}${typeArgSuffix}>`;
+        }
+        if (sym.symbolKind === "struct") {
+          return `${emitClassCppName(sym, ctx.module.path)}${typeArgSuffix}`;
         }
         // Interface/enum/type alias — refer to the defining module namespace.
         return `${emitQualifiedSymbolName(sym)}${typeArgSuffix}`;

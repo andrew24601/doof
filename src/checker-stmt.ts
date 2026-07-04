@@ -659,10 +659,10 @@ export function checkDestructuringAssignment(
     }
 
     case "positional-destructuring-assignment": {
-      if (valueType.kind !== "class" && valueType.kind !== "tuple") {
+      if (valueType.kind !== "class" && valueType.kind !== "struct" && valueType.kind !== "tuple") {
         info.diagnostics.push({
           severity: "error",
-          message: `Positional destructuring requires a tuple or class value, but got "${typeToString(valueType)}"`,
+          message: `Positional destructuring requires a tuple or nominal object value, but got "${typeToString(valueType)}"`,
           span: stmt.value.span,
           module: table.path,
         });

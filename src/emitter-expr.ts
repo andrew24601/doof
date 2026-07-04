@@ -201,15 +201,19 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
       if (expr.resolvedType?.kind === "enum") {
         return emitEnumVariantAccess(expr.resolvedType, expr.name, ctx.module.path);
       }
-      if (expr.resolvedShorthandOwnerType?.kind === "class") {
+      if (expr.resolvedShorthandOwnerType?.kind === "class" || expr.resolvedShorthandOwnerType?.kind === "struct") {
         const ownerType = substituteEmitType(expr.resolvedShorthandOwnerType, ctx);
-        if (ownerType?.kind === "class") {
+        if (ownerType?.kind === "class" || ownerType?.kind === "struct") {
           return `${emitClassCppName(ownerType.symbol, ctx.module.path)}::${emitIdentifierSafe(expr.name)}`;
         }
       }
       throw new Error(`Cannot emit unresolved dot shorthand ".${expr.name}"`);
 
     case "this-expression":
+      if (ctx.currentClassName) {
+        const currentSymbol = ctx.module.symbols.get(ctx.currentClassName);
+        if (currentSymbol?.symbolKind === "struct") return "(*this)";
+      }
       return "this->shared_from_this()";
 
     case "caller-expression":
@@ -324,7 +328,7 @@ function emitMapLiteral(expr: MapLiteral, ctx: EmitContext, targetType?: Resolve
 }
 
 function emitTupleLiteral(expr: TupleLiteral, ctx: EmitContext): string {
-  if (expr.resolvedType?.kind === "class") {
+  if (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct") {
     const sym = expr.resolvedType.symbol;
     const cppName = emitClassCppName(sym, ctx.module.path);
     const fieldTypes = buildFieldTypeListForClassType(expr.resolvedType);
@@ -384,7 +388,7 @@ function emitObjectLiteral(
     const v = emitType(expr.resolvedType.valueType, ctx.module.path);
     return `std::make_shared<doof::ordered_map<${k}, ${v}>>()`;
   }
-  if (expr.resolvedType?.kind === "class") {
+  if (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct") {
     const sym = expr.resolvedType.symbol;
     const cppName = emitResolvedClassName(expr.resolvedType, ctx.module.path);
     const propMap = new Map(expr.properties.map((prop) => [prop.name, prop]));

@@ -25,8 +25,8 @@ function getNamedClassStaticAccess(expr: MemberExpression, ctx: EmitContext): st
 
   const binding = expr.object.resolvedBinding;
   const objectType = expr.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
-  if (binding?.kind !== "class" && binding?.kind !== "import") return null;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
+  if (binding?.kind !== "class" && binding?.kind !== "struct" && binding?.kind !== "import") return null;
 
   const className = emitClassCppName(objectType.symbol, ctx.module.path);
   if (expr.property === "metadata") {
@@ -72,7 +72,7 @@ function getNamedTypeAliasStaticAccess(expr: MemberExpression): string | null {
 
 function getQualifiedClassStaticAccess(expr: QualifiedMemberExpression, ctx: EmitContext): string | null {
   const objectType = expr.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
   const className = emitClassCppName(objectType.symbol, ctx.module.path);
   if (expr.property === "metadata") {
     return `${className}::_metadata`;
@@ -316,9 +316,12 @@ export function emitAssignmentExpression(expr: AssignmentExpression, ctx: EmitCo
     const mapType = getNullableMapType(expr.target.object.resolvedType);
     if (mapType) {
       const locationArgs = emitPanicLocationArgs(expr.target.span, ctx);
-      target = expr.operator === "="
-        ? `doof::map_index(${object}, ${index}, ${locationArgs})`
-        : `doof::map_at(${object}, ${index}, ${locationArgs})`;
+      if (expr.operator === "=") {
+        const valueType: ResolvedType | undefined = expr.target.resolvedType;
+        const value = emitExpression(expr.value, ctx, valueType);
+        return `doof::map_set(${object}, ${index}, ${value}, ${locationArgs})`;
+      }
+      target = `doof::map_at(${object}, ${index}, ${locationArgs})`;
     } else {
       target = emitExpression(expr.target, ctx);
     }

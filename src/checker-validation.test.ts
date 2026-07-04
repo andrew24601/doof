@@ -1050,6 +1050,26 @@ describe("Class field validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts struct construction in struct field default values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          struct Point {
+            x: double
+            y: double
+          }
+
+          struct MeshVertex {
+            position: Point = Point(0.0, 0.0)
+            uv: Point = Point { x: 0.0, y: 0.0 }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("accepts dot-shorthand static field defaults from contextual class types", () => {
     const info = check(
       {

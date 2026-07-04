@@ -1512,6 +1512,29 @@ describe("E2E — JSON serialization", () => {
     expect(result.stdout.trim()).toBe("10\n20");
   });
 
+  it("round-trips a simple struct through toJsonObject/fromJsonValue", () => {
+    const result = ctx.compileAndRun(`
+      struct Point { x: int; y: int }
+      function main(): int {
+        const p = Point { x: 10, y: 20 }
+        const json = p.toJsonObject()
+        const p2 = Point.fromJsonValue(json)
+        case p2 {
+          s: Success -> {
+            println(s.value.x)
+            println(s.value.y)
+          }
+          f: Failure -> println(f.error)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("10\n20");
+  });
+
   it("round-trips a class through generic fromJsonValue", () => {
     const result = ctx.compileAndRun(`
       class User { name: string }
@@ -2068,6 +2091,29 @@ describe("E2E — Metadata", () => {
     const lines = result.stdout.trim().split("\n");
     expect(lines[0]).toBe("add");
     expect(lines[1]).toBe("7");
+  });
+
+  it("invokes struct method reflection with a value instance", () => {
+    const result = ctx.compileAndRun(`
+      struct Calculator {
+        offset: int
+        function add(a: int, b: int): int => this.offset + a + b
+      }
+      function main(): int {
+        const meta = Calculator.metadata
+        const method = meta.methods[0]
+        let calc = Calculator { offset: 1 }
+        const result = method.invoke(calc, { a: 3, b: 4 })
+        if result.isSuccess() {
+          println(result.value)
+        }
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.stdout.trim()).toBe("8");
   });
 
   it("invokes metadata by method name", () => {

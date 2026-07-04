@@ -213,7 +213,7 @@ export class ModuleAnalyzer {
     switch (stmt.kind) {
       case "class-declaration": {
         const sym: ModuleSymbol = {
-          symbolKind: "class",
+          symbolKind: stmt.storage === "value" ? "struct" : "class",
           name: stmt.name,
           declaration: stmt,
           exported: stmt.exported,
@@ -878,6 +878,7 @@ function synthesizeClassDecl(ext: ExternClassDeclaration): ClassDeclaration {
 
   return {
     kind: "class-declaration",
+    storage: "reference",
     name: ext.name,
     typeParams: [],
     implements_: [],

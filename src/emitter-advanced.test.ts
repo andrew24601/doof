@@ -133,6 +133,12 @@ describe("emitter — Result type", () => {
     expect(header).toContain('doof::Result<V, std::string>::failure("Map key not found")');
   });
 
+  it("generates map_set through insert_or_assign", () => {
+    const header = generateRuntimeHeader();
+    expect(header).toContain("void map_set");
+    expect(header).toContain("m->insert_or_assign(key, value)");
+  });
+
   it("emits Result.map() as a success transform with failure passthrough", () => {
     const cpp = emit(`
       function f(r: Result<int, string>): Result<string, string> {
@@ -849,6 +855,38 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain("std::make_shared<Point>(_f_x, _f_y)");
   });
 
+  it("emits direct struct JSON serialization and deserialization", () => {
+    const cpp = emit(`
+      struct Point {
+        x: int
+        y: int
+      }
+      function write(p: Point): JsonObject => p.toJsonObject()
+      function read(json: JsonValue): Result<Point, string> => Point.fromJsonValue(json)
+    `);
+    expect(cpp).toContain("struct Point");
+    expect(cpp).toContain("static doof::Result<Point, std::string> fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {");
+    expect(cpp).toContain("return doof::Result<Point, std::string>::success(Point(_f_x, _f_y));");
+    expect(cpp).not.toContain("std::make_shared<Point>");
+  });
+
+  it("serializes nested struct fields with dot access", () => {
+    const cpp = emit(`
+      struct Point {
+        x: int
+        y: int
+      }
+      struct Line {
+        start: Point
+        end: Point
+      }
+      function write(line: Line): JsonObject => line.toJsonObject()
+    `);
+    expect(cpp).toContain('(*_j)["start"] = doof::json_value(this->start.toJsonObject());');
+    expect(cpp).toContain('(*_j)["end"] = doof::json_value(this->end.toJsonObject());');
+    expect(cpp).not.toContain("this->start->toJsonObject()");
+  });
+
   it("emits lenient coercions for bool and string fields", () => {
     const cpp = emit(`
       class Config {
@@ -1396,6 +1434,17 @@ describe("emitter — Map methods", () => {
     expect(cpp).toContain("doof::map_at(");
   });
 
+  it("emits map index assignment via doof::map_set()", () => {
+    const cpp = emit(`
+      function main(): void {
+        let m: Map<string, int> = { "a": 1 }
+        m["b"] = 2
+      }
+    `);
+    expect(cpp).toContain("doof::map_set(");
+    expect(cpp).not.toContain("doof::map_index(");
+  });
+
   it("emits .size as ->size()", () => {
     const cpp = emit(`
       let m: Map<string, int> = { "a": 1 }
@@ -1420,15 +1469,15 @@ describe("emitter — Map methods", () => {
     expect(cpp).toContain("->count(");
   });
 
-  it("emits .set() as doof::map_index(...)=value", () => {
+  it("emits .set() as doof::map_set()", () => {
     const cpp = emit(`
       function main(): void {
         let m: Map<string, int> = { "a": 1 }
         m.set("b", 2)
       }
     `);
-    expect(cpp).toContain("doof::map_index(");
-    expect(cpp).toContain(") = 2");
+    expect(cpp).toContain("doof::map_set(");
+    expect(cpp).toContain('std::string("b"), 2, ');
   });
 
   it("emits .delete() as ->erase()", () => {

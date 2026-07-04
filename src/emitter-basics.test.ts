@@ -633,6 +633,21 @@ describe("emitter — classes", () => {
     expect(cpp).not.toContain("Rectangle(std::string kind");
   });
 
+  it("emits self-typed static struct fields after the struct body", () => {
+    const cpp = emit(`
+      export struct Vec3 {
+        readonly x: double
+        readonly y: double
+        readonly z: double
+
+        static readonly zero = Vec3 { x: 0.0, y: 0.0, z: 0.0 }
+      }
+    `);
+    expect(cpp).toContain("static Vec3 zero;");
+    expect(cpp).toContain("inline Vec3 Vec3::zero = Vec3(0.0, 0.0, 0.0);");
+    expect(cpp).not.toContain("static inline Vec3 zero = Vec3(0.0, 0.0, 0.0);");
+  });
+
   it("emits class field Set defaults from empty array syntax", () => {
     const cpp = emit(`
       class Point {

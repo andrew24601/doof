@@ -1099,6 +1099,133 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(holderModule!.cppCode).toContain('#include "data.hpp"');
   });
 
+  it("forward declares imported struct parameters for exported class method surfaces", () => {
+    const project = emitProjectHelper(
+      {
+        "/render.do": `
+          export struct Point3 {
+            x: double
+            y: double
+            z: double
+          }
+        `,
+        "/transform.do": `
+          import { Point3 } from "./render"
+
+          export class Vec3 {
+            x: double
+            y: double
+            z: double
+
+            static fromPoint(point: Point3): Vec3 {
+              return Vec3 { x: point.x, y: point.y, z: point.z }
+            }
+          }
+        `,
+        "/main.do": `
+          import { Vec3 } from "./transform"
+
+          function main(): int => 0
+        `,
+      },
+      "/main.do",
+    );
+
+    const transformModule = project.modules.find((module) => module.modulePath === "/transform.do");
+    expect(transformModule).toBeDefined();
+    expect(transformModule!.hppCode).toContain(`namespace ${emitModuleNamespace("/render.do")} {`);
+    expect(transformModule!.hppCode).toContain("struct Point3;");
+    expect(transformModule!.hppCode).toContain(`static std::shared_ptr<Vec3> fromPoint(::${emitModuleNamespace("/render.do")}::Point3 point);`);
+  });
+
+  it("emits local struct definitions before includes when breaking value-type header cycles", () => {
+    const project = emitProjectHelper(
+      {
+        "/render.do": `
+          import { Transform, Vec3 } from "./transform"
+
+          export struct Point3 {
+            x: double
+            y: double
+            z: double
+          }
+
+          export class Camera {
+            position: Point3
+            transform: Transform
+            up: Vec3
+          }
+        `,
+        "/transform.do": `
+          import { Point3 } from "./render"
+
+          export struct Vec3 {
+            x: double
+            y: double
+            z: double
+          }
+
+          export class Transform {
+            position: Point3
+          }
+        `,
+        "/main.do": `
+          import { Camera } from "./render"
+
+          function main(): int => 0
+        `,
+      },
+      "/main.do",
+    );
+
+    const renderModule = project.modules.find((module) => module.modulePath === "/render.do");
+    const transformModule = project.modules.find((module) => module.modulePath === "/transform.do");
+    expect(renderModule).toBeDefined();
+    expect(transformModule).toBeDefined();
+
+    const pointDefinition = renderModule!.hppCode.indexOf("struct Point3 {");
+    const transformInclude = renderModule!.hppCode.indexOf('#include "transform.hpp"');
+    const cameraDefinition = renderModule!.hppCode.indexOf("struct Camera :");
+    expect(pointDefinition).toBeGreaterThan(-1);
+    expect(transformInclude).toBeGreaterThan(pointDefinition);
+    expect(cameraDefinition).toBeGreaterThan(transformInclude);
+    expect(transformModule!.hppCode).toContain('#include "render.hpp"');
+  });
+
+  it("emits imported struct includes before methods with optional struct parameters", () => {
+    const project = emitProjectHelper(
+      {
+        "/math.do": `
+          export struct Vec3 {
+            x: double
+            y: double
+            z: double
+          }
+        `,
+        "/camera.do": `
+          import { Vec3 } from "./math"
+
+          export class Camera {
+            lookAt(up: Vec3 | null = null): Camera => this
+          }
+        `,
+        "/main.do": `
+          import { Camera } from "./camera"
+
+          function main(): int => 0
+        `,
+      },
+      "/main.do",
+    );
+
+    const cameraModule = project.modules.find((module) => module.modulePath === "/camera.do");
+    expect(cameraModule).toBeDefined();
+    const includePos = cameraModule!.hppCode.indexOf('#include "math.hpp"');
+    const cameraPos = cameraModule!.hppCode.indexOf("struct Camera :");
+    expect(includePos).toBeGreaterThan(-1);
+    expect(cameraPos).toBeGreaterThan(includePos);
+  });
+
   it("forward declares circular imported class fields before header bodies", () => {
     const project = emitProjectHelper(
       {
@@ -1215,10 +1342,10 @@ describe("emitter-module — multi-module hpp includes", () => {
     };
 
     expectBefore("#pragma once", "#include <cstdint>");
-    expectBefore('#include "doof_runtime.hpp"', `namespace ${emitModuleNamespace("/dep.do")} {`);
-    expectBefore(`namespace ${emitModuleNamespace("/dep.do")} {`, '#include "status.hpp"');
-    expectBefore('#include "status.hpp"', '#include "native_thing.hpp"');
-    expectBefore('#include "status.hpp"', "struct __doof_private_main_Impl;");
+    expectBefore('#include "doof_runtime.hpp"', '#include "native_thing.hpp"');
+    expectBefore(`namespace ${emitModuleNamespace("/dep.do")} {`, '#include "native_thing.hpp"');
+    expectBefore('#include "native_thing.hpp"', '#include "status.hpp"');
+    expectBefore('#include "status.hpp"', "struct __doof_private_main_Impl :");
     expectBefore("struct __doof_private_main_Impl;", "using Readable = std::variant");
     expectBefore("using Readable = std::variant", "struct __doof_private_main_Impl :");
     expectBefore("struct __doof_private_main_Impl :", `int32_t read(::${emitModuleNamespace("/main.do")}::Readable input);`);

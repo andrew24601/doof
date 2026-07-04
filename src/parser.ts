@@ -188,8 +188,8 @@ export class Parser {
       }
     }
 
-    // Class
-    if (this.check(TokenType.Class)) {
+    // Class / struct
+    if (this.check(TokenType.Class) || this.check(TokenType.Struct)) {
       return this.parseClassDeclaration(false, false);
     }
 
@@ -205,7 +205,7 @@ export class Parser {
         this.advance(); // consume 'isolated'
         return this.parseFunctionDeclaration(false, false, true, true);
       }
-      if (next === TokenType.Class) {
+      if (next === TokenType.Class || next === TokenType.Struct) {
         this.advance(); // consume 'private'
         return this.parseClassDeclaration(false, true);
       }
@@ -915,7 +915,10 @@ export class Parser {
 
   private parseClassDeclaration(exported: boolean, private__: boolean = false, mock_: boolean = false): Statement {
     const startLoc = this.loc();
-    this.expect(TokenType.Class);
+    const storage = this.match(TokenType.Struct) ? "value" : "reference";
+    if (storage === "reference") {
+      this.expect(TokenType.Class);
+    }
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
     const { names: typeParams, constraints: typeParamConstraints } = this.parseTypeParams();
@@ -967,6 +970,7 @@ export class Parser {
 
     return {
       kind: "class-declaration",
+      storage,
       name,
       description,
       typeParams,
@@ -1698,7 +1702,7 @@ export class Parser {
           declaration = this.parseFunctionDeclaration(true, false, false, false, true);
           break;
         }
-        if (this.check(TokenType.Class)) {
+        if (this.check(TokenType.Class) || this.check(TokenType.Struct)) {
           declaration = this.parseClassDeclaration(true, false, true);
           break;
         }
@@ -1730,6 +1734,7 @@ export class Parser {
         }
         break;
       case TokenType.Class:
+      case TokenType.Struct:
         declaration = this.parseClassDeclaration(true);
         break;
       case TokenType.Interface:

@@ -119,16 +119,16 @@ struct DevAssistant : public std::enable_shared_from_this<DevAssistant> {
 
 ## Tool Metadata (`.metadata`)
 
-Classes with descriptions can expose **structured tool metadata** for interoperability with OpenAPI, MCP, and LLM tool-calling systems. This is an on-demand feature — metadata is only generated when user code accesses `.metadata`.
+Classes and structs with descriptions can expose **structured tool metadata** for interoperability with OpenAPI, MCP, and LLM tool-calling systems. This is an on-demand feature — metadata is only generated when user code accesses `.metadata`.
 
 ### `ClassMetadata`
 
-Accessing `ClassName.metadata` returns a `ClassMetadata` object with the following members:
+Accessing `TypeName.metadata` returns a `ClassMetadata` object with the following members:
 
 | Member | Type | Description |
 |---|---|---|
-| `.name` | `string` | The class name |
-| `.description` | `string` | The class description (empty string if none) |
+| `.name` | `string` | The class or struct name |
+| `.description` | `string` | The class or struct description (empty string if none) |
 | `.methods` | `MethodReflection[]` | Array of public, non-static method reflections |
 
 ```doof
@@ -168,7 +168,7 @@ if result.isSuccess() {
 }
 ```
 
-**Signature:** `(instance: ClassName, methodName: string, params: JsonValue) → Result<JsonValue, JsonValue>`
+**Signature:** `(instance: TypeName, methodName: string, params: JsonValue) → Result<JsonValue, JsonValue>`
 
 - `instance` — the object to call the method on
 - `methodName` — the public instance method name to invoke
@@ -190,7 +190,7 @@ if result.isSuccess() {
 }
 ```
 
-**Signature:** `(instance: ClassName, params: JsonValue) → Result<JsonValue, JsonValue>`
+**Signature:** `(instance: TypeName, params: JsonValue) → Result<JsonValue, JsonValue>`
 
 - `instance` — the object to call the method on
 - `params` — a JSON object with parameter names as keys
@@ -216,9 +216,9 @@ If a method returns `Result<S, F>`, then `outputSchema` describes `S`, not the `
 | `(T, U)` | `{ "type": "array", "prefixItems": [...] }` |
 | `T \| U` | `{ "anyOf": [...] }` |
 | `enum E` | `{ "enum": ["A", "B", ...] }` |
-| Class type | `{ "$ref": "#/$defs/ClassName" }` |
+| Class or struct type | `{ "$ref": "#/$defs/TypeName" }` |
 
-When a method parameter or return type references another class, that class's schema is lifted into a top-level `$defs` string on the metadata object (accessible via the internal `defs` field in the generated C++).
+When a method parameter or return type references another class or struct, that type's schema is lifted into a top-level `$defs` string on the metadata object (accessible via the internal `defs` field in the generated C++).
 
 ### Result Members
 
@@ -241,15 +241,15 @@ The `Result<JsonValue, JsonValue>` returned by `.invoke` supports:
 
 ### Restrictions
 
-- **Generic classes** cannot use `.metadata` (compile error)
+- **Generic classes and structs** cannot use `.metadata` (compile error)
 - All public method parameters must be **JSON-serializable** (compile error otherwise)
 - Public method return types must either be JSON-serializable, or be `Result<S, F>` where `S` is JSON-serializable (or `void`). Failure types do not need to be JSON-serializable; invoke only passes them through when `F` is exactly `JsonValue`.
-- `"metadata"`, `"toJsonObject"`, and `"fromJsonValue"` are **reserved** — classes cannot define methods or fields with these names
+- `"metadata"`, `"toJsonObject"`, and `"fromJsonValue"` are **reserved** — classes and structs cannot define methods or fields with these names
 - Private and static methods are excluded from metadata and invoke dispatch
 
 ### On-demand Generation
 
-Metadata code is only generated when user code accesses `ClassName.metadata`. Classes referenced in method signatures automatically get JSON serialization support (`toJsonObject`/`fromJsonValue`) generated as well.
+Metadata code is only generated when user code accesses `TypeName.metadata`. Classes and structs referenced in method signatures automatically get JSON serialization support (`toJsonObject`/`fromJsonValue`) generated as well.
 
 ## Future Use
 

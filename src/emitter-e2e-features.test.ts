@@ -32,6 +32,53 @@ describe("e2e — byte", () => {
   });
 });
 
+describe("e2e — pass-by-value structs", () => {
+  it("copies struct values across function calls", () => {
+    const result = ctx.compileAndRun(`
+      struct Counter {
+        value: int
+      }
+
+      function bump(c: Counter): int {
+        let copy = c
+        copy.value = copy.value + 1
+        return copy.value
+      }
+
+      function main(): int {
+        c := Counter(10)
+        bumped := bump(c)
+        return bumped + c.value
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(21);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
+  it("allows methods on immutable struct bindings", () => {
+    const result = ctx.compileAndRun(`
+      struct Point {
+        x: int
+        y: int
+        function sum(): int => this.x + this.y
+      }
+
+      function main(): int {
+        p := Point(4, 5)
+        return p.sum()
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(9);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+});
+
 // ============================================================================
 // Tests: Named destructuring
 // ============================================================================
@@ -698,6 +745,26 @@ describe("e2e — map safety", () => {
     }
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe("25");
+  });
+
+  it("inserts struct values on map index assignment without default construction", () => {
+    const result = ctx.compileAndRun(`
+      struct Point {
+        x: int
+      }
+
+      function main(): int {
+        let m: Map<string, Point> = {}
+        m["origin"] = Point(0)
+        println(m["origin"].x)
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("0");
   });
 
   it("runs long-keyed map reads", () => {

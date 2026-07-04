@@ -6,6 +6,7 @@ import {
   type ClassType,
   type InterfaceType,
   type ResolvedType,
+  type StructType,
   typeToString,
   UNKNOWN_TYPE,
 } from "./checker-types.js";
@@ -91,6 +92,7 @@ export function findActorBoundaryViolation(
       return null;
 
     case "class":
+    case "struct":
       return findClassBoundaryViolation(host, type, table, seen, visited);
 
     case "interface":
@@ -146,12 +148,12 @@ export function findActorBoundaryViolation(
 
 function findClassBoundaryViolation(
   host: CheckerHost,
-  type: ClassType,
+  type: ClassType | StructType,
   table: ModuleSymbolTable,
   seen: Set<string>,
   visited: Set<ResolvedType>,
 ): ActorBoundaryViolation | null {
-  const key = `class:${type.symbol.module}:${type.symbol.name}<${(type.typeArgs ?? []).map(typeToString).join(",")}>`;
+  const key = `${type.kind}:${type.symbol.module}:${type.symbol.name}<${(type.typeArgs ?? []).map(typeToString).join(",")}>`;
   if (seen.has(key)) return null;
   seen.add(key);
 

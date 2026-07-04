@@ -92,8 +92,21 @@ describe("emitter — structured metadata", () => {
       const m = Tool.metadata
     `);
     expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>");
-    expect(cpp).toContain("_instance->run(");
+    expect(cpp).toContain("_instance.run(");
     expect(cpp).toContain("::success(");
+  });
+
+  it("emits struct metadata invoke over value references", () => {
+    const cpp = emit(`
+      struct Tool {
+        label: string
+        function run(input: string): string => this.label + input
+      }
+      const m = Tool.metadata
+    `);
+    expect(cpp).toContain("static const doof::ClassMetadata<Tool> _metadata;");
+    expect(cpp).toContain("[](Tool& _instance, const doof::JsonValue& _params)");
+    expect(cpp).toContain("_instance.run(");
   });
 
   it("invoke lambda returns failure on invalid JSON", () => {

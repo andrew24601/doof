@@ -31,7 +31,7 @@ import type {
   Parameter,
   CallExpression,
 } from "./ast.js";
-import type { ModuleSymbolTable, ClassSymbol, ModuleSymbol } from "./types.js";
+import type { ModuleSymbolTable, ClassSymbol, StructSymbol, ModuleSymbol } from "./types.js";
 import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements, isConstexprValue } from "./emitter-stmt.js";
@@ -48,6 +48,8 @@ import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import { createIOSAppSupportFiles } from "./ios-app-support.js";
 import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
 import { getBundledStdlibSupportFiles } from "./stdlib.js";
+
+type NominalObjectSymbol = ClassSymbol | StructSymbol;
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
 import { relativeFsPath, toPortablePath } from "./path-utils.js";
 import { emitStreamNextHelperName, emitStreamValueHelperName } from "./emitter-expr-utils.js";
@@ -442,9 +444,9 @@ function isHeaderVisibleClass(
     || headerSurfaceClassKeys.has(`${modulePath}:${cls.decl.name}`);
 }
 
-function getClassSymbolForDecl(table: ModuleSymbolTable, decl: ClassDeclaration): ClassSymbol {
+function getClassSymbolForDecl(table: ModuleSymbolTable, decl: ClassDeclaration): NominalObjectSymbol {
   const sym = table.symbols.get(decl.name);
-  if (sym?.symbolKind !== "class") {
+  if (sym?.symbolKind !== "class" && sym?.symbolKind !== "struct") {
     throw new Error(`Missing class symbol for "${decl.name}" during C++ emission`);
   }
   return sym;
@@ -456,7 +458,7 @@ function markHeaderVisiblePrivateClassNames(
 ): void {
   for (const cls of classes) {
     const sym = getClassSymbolForDecl(table, cls.decl);
-    if (sym.exported || sym.extern_) continue;
+    if (sym.exported || (sym.symbolKind === "class" && sym.extern_)) continue;
     sym.emittedCppName = emitPrivateClassCppName(sym);
   }
 }
@@ -556,6 +558,12 @@ function collectHeaderReferencedModulePaths(
           addResolvedTypeDeps(arg);
         }
         break;
+      case "struct":
+        addModule(type.symbol.module);
+        for (const arg of type.typeArgs ?? []) {
+          addResolvedTypeDeps(arg);
+        }
+        break;
       case "function":
         for (const param of type.params) {
           addResolvedTypeDeps(param.type);
@@ -621,6 +629,12 @@ function collectHeaderReferencedModulePaths(
     if (!type || isJsonValueType(type)) return;
     switch (type.kind) {
       case "class":
+        addModule(type.symbol.module);
+        for (const arg of type.typeArgs ?? []) {
+          addJsonCompleteTypeDeps(arg);
+        }
+        break;
+      case "struct":
         addModule(type.symbol.module);
         for (const arg of type.typeArgs ?? []) {
           addJsonCompleteTypeDeps(arg);
@@ -934,7 +948,7 @@ function isExternClassSymbol(symbol: ModuleSymbol): boolean {
 }
 
 function canAliasBeforeModuleBody(symbol: ModuleSymbol): boolean {
-  return (symbol.symbolKind === "class" && symbol.declaration.typeParams.length === 0)
+  return ((symbol.symbolKind === "class" || symbol.symbolKind === "struct") && symbol.declaration.typeParams.length === 0)
     || symbol.symbolKind === "enum";
 }
 
@@ -962,28 +976,39 @@ function uniqueSymbols(symbols: ModuleSymbol[]): ModuleSymbol[] {
 }
 
 function emitExternInteropPredecls(
-  modulePath: string,
+  _modulePath: string,
   symbols: ModuleSymbol[],
   analysisResult: AnalysisResult,
 ): string[] {
   const localPredecls = uniqueSymbols(symbols.filter((symbol) =>
-    symbol.module === modulePath && canAliasBeforeModuleBody(symbol),
+    canAliasBeforeModuleBody(symbol),
   ));
   if (localPredecls.length === 0) return [];
 
-  const lines: string[] = [`namespace ${emitModuleNamespace(modulePath, analysisResult.modules)} {`];
+  const lines: string[] = [];
+  const symbolsByNamespace = new Map<string, ModuleSymbol[]>();
   for (const symbol of localPredecls) {
-    if (symbol.symbolKind === "class") {
-      const typeParams = symbol.declaration.typeParams;
-      if (typeParams.length > 0) {
-        lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
-      }
-      lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
-    } else if (symbol.symbolKind === "enum") {
-      lines.push(`enum class ${emitIdentifierSafe(symbol.name)};`);
-    }
+    const namespace = emitModuleNamespace(symbol.module, analysisResult.modules);
+    const namespaceSymbols = symbolsByNamespace.get(namespace) ?? [];
+    namespaceSymbols.push(symbol);
+    symbolsByNamespace.set(namespace, namespaceSymbols);
   }
-  lines.push("}");
+
+  for (const [namespace, namespaceSymbols] of symbolsByNamespace) {
+    lines.push(`namespace ${namespace} {`);
+    for (const symbol of namespaceSymbols) {
+      if (symbol.symbolKind === "class" || symbol.symbolKind === "struct") {
+        const typeParams = symbol.declaration.typeParams;
+        if (typeParams.length > 0) {
+          lines.push(`template<${typeParams.map((param) => `typename ${param}`).join(", ")}>`);
+        }
+        lines.push(`struct ${emitClassForwardDeclName(symbol)};`);
+      } else if (symbol.symbolKind === "enum") {
+        lines.push(`enum class ${emitIdentifierSafe(symbol.name)};`);
+      }
+    }
+    lines.push("}");
+  }
   return lines;
 }
 
@@ -1055,7 +1080,7 @@ function emitExternInteropAliasMap(
     }
     const symbols = uniqueSymbols([...(aliases.get(nativeNamespace)?.values() ?? [])]);
     for (const symbol of symbols) {
-      const targetName = symbol.symbolKind === "class"
+      const targetName = symbol.symbolKind === "class" || symbol.symbolKind === "struct"
         ? emitClassForwardDeclName(symbol)
         : emitIdentifierSafe(symbol.name);
       lines.push(`using ${emitIdentifierSafe(symbol.name)} = ${emitQualifiedSymbolName(symbol, targetName)};`);
@@ -1112,12 +1137,158 @@ function buildHeaderSurfaceClassKeySet(
   return result;
 }
 
-function collectHeaderClassSurfaceSymbols(decl: ClassDeclaration): ClassSymbol[] {
-  const symbols = new Map<string, ClassSymbol>();
+function classNeedsCompleteExternalValueFields(decl: ClassDeclaration, currentModulePath: string): boolean {
+  for (const field of decl.fields) {
+    if (
+      !field.static_
+      && !field.weak_
+      && (
+        typeNeedsCompleteExternalValueType(field.resolvedType, currentModulePath)
+        || typeAnnotationNeedsCompleteExternalValueType(field.type, currentModulePath)
+      )
+    ) {
+      return true;
+    }
+  }
+
+  for (const method of decl.methods) {
+    if (typeNeedsCompleteValueTypeInSignature(method.resolvedType, currentModulePath)) {
+      return true;
+    }
+    if (typeAnnotationNeedsCompleteValueTypeInSignature(method.returnType, currentModulePath)) {
+      return true;
+    }
+    for (const param of method.params) {
+      if (
+        typeNeedsCompleteValueTypeInSignature(param.resolvedType, currentModulePath)
+        || typeAnnotationNeedsCompleteValueTypeInSignature(param.type, currentModulePath)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function typeAnnotationNeedsCompleteValueTypeInSignature(
+  typeAnn: TypeAnnotation | null | undefined,
+  currentModulePath: string,
+): boolean {
+  if (!typeAnn) return false;
+  switch (typeAnn.kind) {
+    case "named-type":
+      return typeAnn.resolvedSymbol?.symbolKind === "enum"
+        && typeAnn.resolvedSymbol.module !== currentModulePath;
+    case "union-type":
+      return typeAnn.types.some((inner) =>
+        inner.kind === "named-type"
+          ? typeAnnotationNamesValueType(inner, currentModulePath)
+          : typeAnnotationNeedsCompleteValueTypeInSignature(inner, currentModulePath)
+      );
+    case "tuple-type":
+      return typeAnn.elements.some((element) => typeAnnotationNeedsCompleteValueTypeInSignature(element, currentModulePath));
+    default:
+      return false;
+  }
+}
+
+function typeAnnotationNeedsCompleteExternalValueType(
+  typeAnn: TypeAnnotation | null | undefined,
+  currentModulePath: string,
+): boolean {
+  if (!typeAnn) return false;
+  switch (typeAnn.kind) {
+    case "named-type": {
+      const sym = typeAnn.resolvedSymbol;
+      return !!sym
+        && (sym.symbolKind === "struct" || sym.symbolKind === "enum")
+        && sym.module !== currentModulePath;
+    }
+    case "union-type":
+      return typeAnn.types.some((inner) => typeAnnotationNeedsCompleteExternalValueType(inner, currentModulePath));
+    case "tuple-type":
+      return typeAnn.elements.some((element) => typeAnnotationNeedsCompleteExternalValueType(element, currentModulePath));
+    default:
+      return false;
+  }
+}
+
+function typeAnnotationNamesValueType(typeAnn: TypeAnnotation, currentModulePath: string): boolean {
+  return typeAnnotationNeedsCompleteExternalValueType(typeAnn, currentModulePath)
+    || (
+      typeAnn.kind === "named-type"
+      && typeAnn.resolvedSymbol?.symbolKind === "struct"
+    );
+}
+
+function typeNeedsCompleteValueTypeInSignature(type: ResolvedType | null | undefined, currentModulePath: string): boolean {
+  if (!type || isJsonValueType(type)) return false;
+  switch (type.kind) {
+    case "enum":
+      return type.symbol.module !== currentModulePath;
+    case "union":
+      return type.types.some((inner) =>
+        inner.kind === "struct" || typeNeedsCompleteValueTypeInSignature(inner, currentModulePath)
+      );
+    case "tuple":
+      return type.elements.some((element) => typeNeedsCompleteValueTypeInSignature(element, currentModulePath));
+    case "result":
+      return typeNeedsCompleteValueTypeInSignature(type.successType, currentModulePath)
+        || typeNeedsCompleteValueTypeInSignature(type.errorType, currentModulePath);
+    case "promise":
+      return typeNeedsCompleteValueTypeInSignature(type.valueType, currentModulePath);
+    case "function":
+      return type.params.some((param) => typeNeedsCompleteValueTypeInSignature(param.type, currentModulePath))
+        || typeNeedsCompleteValueTypeInSignature(type.returnType, currentModulePath);
+    default:
+      return false;
+  }
+}
+
+function typeNeedsCompleteExternalValueType(type: ResolvedType | null | undefined, currentModulePath: string): boolean {
+  if (!type || isJsonValueType(type)) return false;
+  switch (type.kind) {
+    case "struct":
+      return type.symbol.module !== currentModulePath
+        || (type.typeArgs ?? []).some((arg) => typeNeedsCompleteExternalValueType(arg, currentModulePath));
+    case "enum":
+      return type.symbol.module !== currentModulePath;
+    case "class":
+      return !!type.symbol.extern_
+        || (type.typeArgs ?? []).some((arg) => typeNeedsCompleteExternalValueType(arg, currentModulePath));
+    case "function":
+      return type.params.some((param) => typeNeedsCompleteExternalValueType(param.type, currentModulePath))
+        || typeNeedsCompleteExternalValueType(type.returnType, currentModulePath);
+    case "union":
+      return type.types.some((inner) => typeNeedsCompleteExternalValueType(inner, currentModulePath));
+    case "tuple":
+      return type.elements.some((element) => typeNeedsCompleteExternalValueType(element, currentModulePath));
+    case "result":
+      return typeNeedsCompleteExternalValueType(type.successType, currentModulePath)
+        || typeNeedsCompleteExternalValueType(type.errorType, currentModulePath);
+    case "promise":
+      return typeNeedsCompleteExternalValueType(type.valueType, currentModulePath);
+    case "mock-capture":
+      return type.fields.some((field) => typeNeedsCompleteExternalValueType(field.type, currentModulePath));
+    case "class-metadata":
+    case "method-reflection":
+      return typeNeedsCompleteExternalValueType(type.classType, currentModulePath);
+    default:
+      return false;
+  }
+}
+
+function collectHeaderClassSurfaceSymbols(decl: ClassDeclaration): NominalObjectSymbol[] {
+  const symbols = new Map<string, NominalObjectSymbol>();
   const addType = (type: ResolvedType | null | undefined): void => {
     if (!type || isJsonValueType(type)) return;
     switch (type.kind) {
       case "class":
+        symbols.set(`${type.symbol.module}:${type.symbol.name}`, type.symbol);
+        for (const arg of type.typeArgs ?? []) addType(arg);
+        break;
+      case "struct":
         symbols.set(`${type.symbol.module}:${type.symbol.name}`, type.symbol);
         for (const arg of type.typeArgs ?? []) addType(arg);
         break;
@@ -1191,15 +1362,15 @@ function collectCrossModuleClassForwardDecls(
   streamAliases: Map<string, StreamAliasInfo>,
   streamTypesForModule: Extract<ResolvedType, { kind: "stream" }>[],
 ): string[] {
-  const symbols = new Map<string, ClassSymbol>();
+  const symbols = new Map<string, NominalObjectSymbol>();
 
-  const addSymbol = (symbol: ClassSymbol | null): void => {
-    if (!symbol || symbol.module === table.path || symbol.extern_) return;
+  const addSymbol = (symbol: NominalObjectSymbol | null): void => {
+    if (!symbol || symbol.module === table.path || (symbol.symbolKind === "class" && symbol.extern_)) return;
     symbols.set(`${symbol.module}:${emitClassForwardDeclName(symbol)}`, symbol);
   };
 
   for (const imp of table.imports) {
-    if (imp.symbol?.symbolKind === "class") {
+    if (imp.symbol?.symbolKind === "class" || imp.symbol?.symbolKind === "struct") {
       addSymbol(imp.symbol);
     }
   }
@@ -1208,7 +1379,7 @@ function collectCrossModuleClassForwardDecls(
     const sourceTable = analysisResult.modules.get(nsImp.sourceModule);
     if (!sourceTable) continue;
     for (const sym of sourceTable.exports.values()) {
-      if (sym.symbolKind === "class") {
+      if (sym.symbolKind === "class" || sym.symbolKind === "struct") {
         addSymbol(sym);
       }
     }
@@ -1231,7 +1402,7 @@ function collectCrossModuleClassForwardDecls(
       if (impl.isExtern || impl.modulePath === table.path) continue;
       const sourceTable = analysisResult.modules.get(impl.modulePath);
       const symbol = sourceTable?.symbols.get(impl.baseName);
-      if (symbol?.symbolKind === "class") {
+      if (symbol?.symbolKind === "class" || symbol?.symbolKind === "struct") {
         addSymbol(symbol);
       }
     }
@@ -1241,7 +1412,7 @@ function collectCrossModuleClassForwardDecls(
   const ordered = [...symbols.values()].sort((left, right) =>
     `${left.module}:${emitClassForwardDeclName(left)}`.localeCompare(`${right.module}:${emitClassForwardDeclName(right)}`),
   );
-  const symbolsByNamespace = new Map<string, ClassSymbol[]>();
+  const symbolsByNamespace = new Map<string, NominalObjectSymbol[]>();
   for (const symbol of ordered) {
     const namespace = emitModuleNamespace(symbol.module, analysisResult.modules);
     const namespaceSymbols = symbolsByNamespace.get(namespace) ?? [];
@@ -1300,13 +1471,6 @@ function emitHpp(
 
   if (plan.crossModuleForwardDecls.length > 0) {
     lines.push(...plan.crossModuleForwardDecls);
-    lines.push("");
-  }
-
-  if (plan.moduleIncludes.length > 0) {
-    for (const inc of plan.moduleIncludes) {
-      lines.push(`#include "${inc}"`);
-    }
     lines.push("");
   }
 
@@ -1384,19 +1548,44 @@ function emitHpp(
     lines.push("");
   }
 
+  const headerDefinitionClasses = plan.nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl));
+  const earlyHeaderDefinitionClasses = headerDefinitionClasses.filter((candidate) =>
+    !classNeedsCompleteExternalValueFields(candidate.decl, table.path)
+  );
+  const includeDependentHeaderDefinitionClasses = headerDefinitionClasses.filter((candidate) =>
+    classNeedsCompleteExternalValueFields(candidate.decl, table.path)
+  );
+
+  const emitHeaderClassDefinitions = (classes: ClassifiedDecl<ClassDeclaration>[]): void => {
+    for (const cls of classes) {
+      const sym = getClassSymbolForDecl(table, cls.decl);
+      const ctx = {
+        ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
+        classNameOverride: emitLocalClassCppName(sym),
+        emitMethodBodiesInline: cls.decl.typeParams.length > 0 ? true : false,
+      };
+      emitStatement(cls.decl as Statement, ctx);
+      lines.push(...ctx.sourceLines);
+      lines.push("");
+    }
+  };
+
   // Full struct definitions (with inline methods)
   // Skip extern classes — their struct is defined in the external header.
-  for (const cls of plan.nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl))) {
-    const sym = getClassSymbolForDecl(table, cls.decl);
-    const ctx = {
-      ...makeHeaderCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions),
-      classNameOverride: emitLocalClassCppName(sym),
-      emitMethodBodiesInline: cls.decl.typeParams.length > 0 ? true : false,
-    };
-    emitStatement(cls.decl as Statement, ctx);
-    lines.push(...ctx.sourceLines);
+  emitHeaderClassDefinitions(earlyHeaderDefinitionClasses);
+
+  if (plan.moduleIncludes.length > 0) {
+    lines.push(`} // namespace ${moduleNamespace}`);
+    lines.push("");
+    for (const inc of plan.moduleIncludes) {
+      lines.push(`#include "${inc}"`);
+    }
+    lines.push("");
+    lines.push(`namespace ${moduleNamespace} {`);
     lines.push("");
   }
+
+  emitHeaderClassDefinitions(includeDependentHeaderDefinitionClasses);
 
   for (const inst of plan.monomorphizedClassesForModule) {
     const sym = getClassSymbolForDecl(table, inst.decl);

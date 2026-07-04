@@ -7,7 +7,7 @@
  */
 
 import type { ClassDeclaration, Expression, SourceSpan } from "./ast.js";
-import type { ClassSymbol, InterfaceSymbol, EnumSymbol, Diagnostic, ModuleSymbol } from "./types.js";
+import type { ClassSymbol, StructSymbol, InterfaceSymbol, EnumSymbol, Diagnostic, ModuleSymbol } from "./types.js";
 
 // ============================================================================
 // Resolved types
@@ -48,6 +48,13 @@ export interface ClassType {
   kind: "class";
   symbol: ClassSymbol;
   /** Concrete type arguments for generic classes (e.g. Box<int> → [int]). */
+  typeArgs?: ResolvedType[];
+}
+
+export interface StructType {
+  kind: "struct";
+  symbol: StructSymbol;
+  /** Concrete type arguments for generic structs (e.g. Box<int> → [int]). */
   typeArgs?: ResolvedType[];
 }
 
@@ -204,14 +211,14 @@ export interface JsonSerializableConstraintType {
 export interface ClassMetaType {
   kind: "class-metadata";
   /** The class this metadata describes. */
-  classType: ClassType;
+  classType: ClassType | StructType;
 }
 
 /** A single method reflection entry — element of ClassMetadata.methods. */
 export interface MethodReflectionType {
   kind: "method-reflection";
   /** The class this method belongs to. */
-  classType: ClassType;
+  classType: ClassType | StructType;
 }
 
 /** A fully-resolved semantic type. */
@@ -220,6 +227,7 @@ export type ResolvedType =
   | PrimitiveType
   | BuiltinNamespaceType
   | ClassType
+  | StructType
   | InterfaceType
   | EnumType
   | FunctionResolvedType
@@ -308,6 +316,7 @@ export type BindingKind =
   | "field"
   | "function"
   | "class"
+  | "struct"
   | "interface"
   | "enum"
   | "type-alias"
@@ -405,6 +414,11 @@ export function typeToString(t: ResolvedType): string {
     case "builtin-namespace":
       return t.name;
     case "class":
+      if (t.typeArgs && t.typeArgs.length > 0) {
+        return `${t.symbol.name}<${t.typeArgs.map(typeToString).join(", ")}>`;
+      }
+      return t.symbol.name;
+    case "struct":
       if (t.typeArgs && t.typeArgs.length > 0) {
         return `${t.symbol.name}<${t.typeArgs.map(typeToString).join(", ")}>`;
       }
@@ -811,6 +825,12 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
       && source.symbol.module === target.symbol.module;
   }
 
+  // Struct → struct: nominal — must be same struct.
+  if (source.kind === "struct" && target.kind === "struct") {
+    return source.symbol.name === target.symbol.name
+      && source.symbol.module === target.symbol.module;
+  }
+
   // Class → interface: structural — class must have all interface fields and methods.
   if (source.kind === "class" && target.kind === "interface") {
     return classImplementsInterface(source, target);
@@ -931,6 +951,14 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       if (a.symbol.name !== bc.symbol.name || a.symbol.module !== bc.symbol.module) return false;
       const aArgs = a.typeArgs ?? [];
       const bArgs = bc.typeArgs ?? [];
+      if (aArgs.length !== bArgs.length) return false;
+      return aArgs.every((t, i) => typesEqual(t, bArgs[i]));
+    }
+    case "struct": {
+      const bs = b as StructType;
+      if (a.symbol.name !== bs.symbol.name || a.symbol.module !== bs.symbol.module) return false;
+      const aArgs = a.typeArgs ?? [];
+      const bArgs = bs.typeArgs ?? [];
       if (aArgs.length !== bArgs.length) return false;
       return aArgs.every((t, i) => typesEqual(t, bArgs[i]));
     }
@@ -1162,6 +1190,15 @@ export function substituteTypeParams(
         };
       }
       return type;
+    case "struct":
+      if (type.typeArgs && type.typeArgs.length > 0) {
+        return {
+          kind: "struct",
+          symbol: type.symbol,
+          typeArgs: type.typeArgs.map((t) => substituteTypeParams(t, paramMap)),
+        };
+      }
+      return type;
     case "interface":
       if (type.typeArgs && type.typeArgs.length > 0) {
         return {
@@ -1357,6 +1394,19 @@ export function isJSONSerializable(
       return true;
     }
 
+    case "struct": {
+      if (hasDedicatedConstructor(type.symbol.declaration)) return false;
+      const key = `${type.symbol.module}::${type.symbol.name}`;
+      if (visited.has(key)) return true;
+      visited.add(key);
+      for (const field of type.symbol.declaration.fields) {
+        if (field.type && field.resolvedType && !isJSONSerializable(field.resolvedType, visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     case "array":
       return isJSONSerializable(type.elementType, visited);
 
@@ -1483,7 +1533,7 @@ export function buildMockCallMetadata(
  * serialized to JSON.
  */
 export function collectNonSerializableFields(
-  classType: ClassType,
+  classType: ClassType | StructType,
 ): { fieldName: string; typeStr: string }[] {
   const result: { fieldName: string; typeStr: string }[] = [];
   const paramMap = new Map<string, ResolvedType>();

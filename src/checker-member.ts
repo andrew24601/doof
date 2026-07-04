@@ -6,8 +6,10 @@ import {
   isJSONSerializable,
   buildMockCallMetadata,
   type Binding,
+  type ClassType,
   type ModuleTypeInfo,
   type ResolvedType,
+  type StructType,
   JSON_VALUE_TYPE,
   JSON_OBJECT_TYPE,
   STRING_TYPE,
@@ -26,6 +28,7 @@ import type { ClassSymbol, InterfaceSymbol, ModuleSymbolTable, TypeAliasSymbol }
 import { BUILTIN_PARSE_ERROR_TYPE, type CheckerHost } from "./checker-internal.js";
 
 export type MemberLookupMode = "instance" | "named-static" | "qualified-static";
+type NominalObjectType = ClassType | StructType;
 
 function mergeUnionTypes(...types: ResolvedType[]): ResolvedType {
   const flattened: ResolvedType[] = [];
@@ -92,7 +95,7 @@ function inferUnionInstanceMemberType(
 }
 
 function buildClassTypeSubstitution(
-  objectType: Extract<ResolvedType, { kind: "class" }>,
+  objectType: NominalObjectType,
 ): Map<string, ResolvedType> | undefined {
   const classDecl = objectType.symbol.declaration;
   if (!objectType.typeArgs || objectType.typeArgs.length === 0 || classDecl.typeParams.length === 0) {
@@ -226,7 +229,7 @@ function reportPrivateDiagnostic(
 
 function inferClassInstanceMemberType(
   host: CheckerHost,
-  objectType: Extract<ResolvedType, { kind: "class" }>,
+  objectType: NominalObjectType,
   property: string,
   table: ModuleSymbolTable,
   info?: ModuleTypeInfo,
@@ -260,7 +263,7 @@ function inferClassInstanceMemberType(
         info,
         table,
         span,
-        `Static member "${property}" must be accessed on the class or via value::${property}`,
+        `Static member "${property}" must be accessed on the ${objectType.kind} or via value::${property}`,
       );
       return UNKNOWN_TYPE;
     }
@@ -272,7 +275,7 @@ function inferClassInstanceMemberType(
           info,
           table,
           span,
-          `Static member "${property}" must be accessed on the class or via value::${property}`,
+          `Static member "${property}" must be accessed on the ${objectType.kind} or via value::${property}`,
         );
         return UNKNOWN_TYPE;
       }
@@ -289,7 +292,7 @@ function inferClassInstanceMemberType(
           info,
           table,
           span,
-          `Static member "${property}" must be accessed on the class or via value::${property}`,
+          `Static member "${property}" must be accessed on the ${objectType.kind} or via value::${property}`,
         );
         return UNKNOWN_TYPE;
       }
@@ -311,7 +314,7 @@ function inferClassInstanceMemberType(
 
 function inferClassStaticMemberType(
   host: CheckerHost,
-  objectType: Extract<ResolvedType, { kind: "class" }>,
+  objectType: NominalObjectType,
   property: string,
   table: ModuleSymbolTable,
   info: ModuleTypeInfo | undefined,
@@ -420,7 +423,7 @@ function inferClassStaticMemberType(
 }
 
 function validateNoDedicatedConstructorForJson(
-  objectType: Extract<ResolvedType, { kind: "class" }>,
+  objectType: NominalObjectType,
   table: ModuleSymbolTable,
   info?: ModuleTypeInfo,
   span?: SourceSpan,
@@ -430,7 +433,7 @@ function validateNoDedicatedConstructorForJson(
     info,
     table,
     span,
-    `Class "${objectType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
+    `${objectType.kind === "struct" ? "Struct" : "Class"} "${objectType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
   );
 }
 
@@ -917,7 +920,7 @@ export function inferMemberType(
     return inferTypeVariableStaticMemberType(host, objectType, property, table, mode, info, span);
   }
 
-  if (objectType.kind === "class") {
+  if (objectType.kind === "class" || objectType.kind === "struct") {
     return mode === "instance"
       ? inferClassInstanceMemberType(host, objectType, property, table, info, span)
       : inferClassStaticMemberType(host, objectType, property, table, info, span);
@@ -1447,7 +1450,7 @@ export function getPositionalFieldTypes(
   type: ResolvedType,
   _table: ModuleSymbolTable,
 ): ResolvedType[] {
-  if (type.kind === "class") {
+  if (type.kind === "class" || type.kind === "struct") {
     const classTable = host.analysisResult.modules.get(type.symbol.module);
     if (!classTable) return [];
     const result: ResolvedType[] = [];
@@ -1487,7 +1490,7 @@ function findInterfaceImplementors(host: CheckerHost, ifaceSym: InterfaceSymbol)
 function validateMetadataSerializability(
   host: CheckerHost,
   classDecl: ClassDeclaration,
-  objectType: Extract<ResolvedType, { kind: "class" }>,
+  objectType: NominalObjectType,
   table: ModuleSymbolTable,
   info: ModuleTypeInfo | undefined,
   span: SourceSpan | undefined,

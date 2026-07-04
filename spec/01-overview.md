@@ -21,7 +21,7 @@ Doof is a statically-typed, compiled programming language designed around safety
 - **Pattern matching** via `case` expressions with type capture
 - **Concurrency without data races** — actor-owned mutable domains
 - **ESM-style modules** with static imports/exports
-- **Structural interfaces** with nominal classes
+- **Structural interfaces** with nominal classes and structs
 - **First-class functions** with named parameters in type signatures
 
 ## Compilation Model
@@ -44,7 +44,7 @@ This specification is organised into the following sections:
 | [04-functions-and-lambdas.md](04-functions-and-lambdas.md) | Function declarations, lambdas, closures, parameter inference |
 | [05-operators.md](05-operators.md) | Arithmetic, comparison, logical, bitwise, null-coalescing, ranges |
 | [06-control-flow.md](06-control-flow.md) | If/else, loops, break/continue, early return |
-| [07-classes-and-interfaces.md](07-classes-and-interfaces.md) | Classes, interfaces, object initialisation, destructuring |
+| [07-classes-and-interfaces.md](07-classes-and-interfaces.md) | Classes, structs, interfaces, object initialisation, destructuring |
 | [08-pattern-matching.md](08-pattern-matching.md) | Case expressions, value/range/type matching, type narrowing |
 | [09-error-handling.md](09-error-handling.md) | Result types, panic, design rationale |
 | [10-concurrency.md](10-concurrency.md) | Isolation, actors, workers, promises, parameter passing rules |

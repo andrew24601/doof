@@ -215,6 +215,66 @@ describe("emitter — destructuring", () => {
   });
 });
 
+describe("emitter — pass-by-value structs", () => {
+  it("emits struct declarations and construction as direct values", () => {
+    const cpp = emit(`
+      struct Point {
+        x: int
+        y: int
+      }
+      function sum(p: Point): int {
+        return p.x + p.y
+      }
+      function main(): int {
+        p := Point(1, 2)
+        return sum(p)
+      }
+    `);
+
+    expect(cpp).toContain("struct Point {");
+    expect(cpp).not.toContain("enable_shared_from_this<Point>");
+    expect(cpp).toContain("int32_t sum(Point p)");
+    expect(cpp).toContain("Point p = Point(1, 2);");
+    expect(cpp).toContain("return p.x + p.y;");
+    expect(cpp).not.toContain("std::make_shared<Point>");
+    expect(cpp).not.toContain("p->x");
+  });
+
+  it("emits nullable structs as std::optional values", () => {
+    const cpp = emit(`
+      struct Point {
+        x: int
+      }
+      function get(flag: bool): Point | null {
+        if flag {
+          return Point(7)
+        }
+        return null
+      }
+    `);
+
+    expect(cpp).toContain("std::optional<Point> get(bool flag)");
+    expect(cpp).toContain("return std::optional<::app::main_::Point>{Point(7)};");
+    expect(cpp).toContain("return std::nullopt;");
+  });
+
+  it("emits struct destructuring with value field access", () => {
+    const cpp = emit(`
+      struct Point {
+        x: int
+        y: int
+      }
+      function f(p: Point): int {
+        (x, y) := p
+        return x + y
+      }
+    `);
+
+    expect(cpp).toContain("const auto [x, y] = p;");
+    expect(cpp).not.toContain("_obj0->x");
+  });
+});
+
 describe("emitter — labeled break/continue", () => {
   it("emits goto for labeled break", () => {
     const cpp = emit(`

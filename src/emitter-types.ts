@@ -14,7 +14,7 @@
  */
 
 import { isJsonValueType, type ResolvedType, type PrimitiveName } from "./checker-types.js";
-import type { ClassSymbol } from "./types.js";
+import type { ClassSymbol, StructSymbol } from "./types.js";
 import { emitModuleNamespace, emitQualifiedModuleName } from "./emitter-names.js";
 
 function emitModuleOwnedName(
@@ -54,25 +54,25 @@ export function emitEnumVariantAccess(
   return `${emitEnumTypeName(type, currentModulePath)}::${variant}`;
 }
 
-export function emitClassCppName(symbol: ClassSymbol, currentModulePath?: string): string {
-  if (symbol.extern_) return symbol.extern_.cppName ?? symbol.name;
+export function emitClassCppName(symbol: ClassSymbol | StructSymbol, currentModulePath?: string): string {
+  if (symbol.symbolKind === "class" && symbol.extern_) return symbol.extern_.cppName ?? symbol.name;
   return emitModuleOwnedName(symbol.module, symbol.emittedCppName ?? symbol.name, currentModulePath, symbol.emittedCppNamespace);
 }
 
-export function emitLocalClassCppName(symbol: ClassSymbol): string {
-  if (symbol.extern_) return symbol.extern_.cppName ?? symbol.name;
+export function emitLocalClassCppName(symbol: ClassSymbol | StructSymbol): string {
+  if (symbol.symbolKind === "class" && symbol.extern_) return symbol.extern_.cppName ?? symbol.name;
   return symbol.emittedCppName ?? symbol.name;
 }
 
-export function emitPrivateClassCppName(symbol: ClassSymbol): string {
+export function emitPrivateClassCppName(symbol: ClassSymbol | StructSymbol): string {
   return `__doof_private_${mangleModulePathForCppName(symbol.module)}_${sanitizeCppIdentifierPart(symbol.name)}`;
 }
 
-export function emitClassForwardDeclName(symbol: ClassSymbol): string {
+export function emitClassForwardDeclName(symbol: ClassSymbol | StructSymbol): string {
   return emitLocalClassCppName(symbol);
 }
 
-export function emitClassInnerType(type: Extract<ResolvedType, { kind: "class" }>, currentModulePath?: string): string {
+export function emitClassInnerType(type: Extract<ResolvedType, { kind: "class" | "struct" }>, currentModulePath?: string): string {
   const typeArgStr = type.typeArgs && type.typeArgs.length > 0
     ? `<${type.typeArgs.map((typeArg) => emitType(typeArg, currentModulePath)).join(", ")}>`
     : "";
@@ -138,6 +138,10 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
 
     case "class": {
       return emitClassSharedPtrType(type, currentModulePath);
+    }
+
+    case "struct": {
+      return emitClassInnerType(type, currentModulePath);
     }
 
     case "interface": {
@@ -251,6 +255,8 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return type.symbol.extern_
         ? sanitizeCppIdentifierPart(emitClassCppName(type.symbol))
         : mangleModuleOwnedSymbol(type.symbol.module, type.symbol.emittedCppName ?? type.symbol.name, type.symbol.emittedCppNamespace);
+    case "struct":
+      return mangleModuleOwnedSymbol(type.symbol.module, type.symbol.emittedCppName ?? type.symbol.name, type.symbol.emittedCppNamespace);
     case "enum":
       return mangleModuleOwnedSymbol(type.symbol.module, type.symbol.name, type.symbol.emittedCppNamespace);
     case "array":
@@ -311,7 +317,7 @@ export function mangleTypeForCppName(type: ResolvedType): string {
  * For class types this strips the shared_ptr layer — returns just the class name.
  */
 export function emitInnerType(type: ResolvedType, currentModulePath?: string): string {
-  if (type.kind === "class") {
+  if (type.kind === "class" || type.kind === "struct") {
     return emitClassInnerType(type, currentModulePath);
   }
   return emitType(type, currentModulePath);

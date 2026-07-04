@@ -42,14 +42,14 @@ function isVoidResultType(type: ResolvedType): boolean {
 function getStaticClassMethodCall(
   memberExpr: MemberExpression,
   ctx: EmitContext,
-  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" }>,
+  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" | "struct" }>,
 ): string | null {
   if (memberExpr.object.kind !== "identifier") return null;
 
   const binding = memberExpr.object.resolvedBinding;
   const objectType = memberExpr.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
-  if (binding?.kind !== "class" && binding?.kind !== "import") return null;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
+  if (binding?.kind !== "class" && binding?.kind !== "struct" && binding?.kind !== "import") return null;
 
   const method = objectType.symbol.declaration.methods.find(
     (m) => m.name === memberExpr.property && m.static_,
@@ -64,10 +64,10 @@ function getStaticClassMethodCall(
 function getQualifiedClassMethodCall(
   memberExpr: QualifiedMemberExpression,
   ctx: EmitContext,
-  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" }>,
+  ownerTypeOverride?: Extract<ResolvedType, { kind: "class" | "struct" }>,
 ): string | null {
   const objectType = memberExpr.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return null;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
   const ownerType = ownerTypeOverride?.symbol === objectType.symbol ? ownerTypeOverride : objectType;
   const className = emitResolvedClassName(ownerType, ctx.module.path);
   return `${className}::${emitIdentifierSafe(memberExpr.property)}`;
@@ -207,7 +207,7 @@ function resolveConstructGenericTypeArgs(
   return resolveConcreteGenericTypeArgs(expr.resolvedGenericTypeArgs, ctx) ?? null;
 }
 
-function shouldUseConstructorFactory(classSym: import("./types.js").ClassSymbol | undefined, ctx: EmitContext): boolean {
+function shouldUseConstructorFactory(classSym: import("./types.js").ClassSymbol | import("./types.js").StructSymbol | undefined, ctx: EmitContext): boolean {
   return !(classSym && ctx.currentClassName === classSym.name && ctx.currentMethodName === "constructor");
 }
 
@@ -334,7 +334,7 @@ function emitExplicitGenericMethodCall(
 
   if (expr.callee.kind === "member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
-    if (!objectType || objectType.kind !== "class") return null;
+    if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
     const staticMethod = getStaticClassMethodCall(expr.callee, ctx);
     const typeArgs = methodTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ");
     if (staticMethod) {
@@ -347,7 +347,7 @@ function emitExplicitGenericMethodCall(
 
   if (expr.callee.kind === "qualified-member-expression") {
     const objectType = substituteEmitType(expr.callee.object.resolvedType, ctx);
-    if (!objectType || objectType.kind !== "class") return null;
+    if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return null;
     const className = emitResolvedClassName(objectType, ctx.module.path);
     const typeArgs = methodTypeArgs.map((typeArg) => emitType(typeArg, ctx.module.path)).join(", ");
     return `${className}::${emitIdentifierSafe(expr.resolvedGenericMethodName)}<${typeArgs}>(${args})`;
@@ -357,7 +357,7 @@ function emitExplicitGenericMethodCall(
 }
 
 function emitConcreteClassName(
-  type: Extract<ResolvedType, { kind: "class" }>,
+  type: Extract<ResolvedType, { kind: "class" | "struct" }>,
   ctx: EmitContext,
 ): string {
   return emitResolvedClassName(type, ctx.module.path);
@@ -374,7 +374,7 @@ function isFunctionFieldCall(expr: CallExpression): boolean {
   if (expr.callee.kind !== "member-expression") return false;
   const memberExpr = expr.callee;
   const objectType = memberExpr.object.resolvedType;
-  if (!objectType || objectType.kind !== "class") return false;
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct")) return false;
   return objectType.symbol.declaration.fields.some((field) =>
     field.names.includes(memberExpr.property)
     && field.resolvedType?.kind === "function"
@@ -522,12 +522,12 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return emitIdentifierCallByName(expr.callee.name, args, ctx, expr.span, resolveCallGenericTypeArgs(expr, ctx), calleeBinding);
     }
 
-    if (expr.callee.kind === "dot-shorthand" && expr.callee.resolvedShorthandOwnerType?.kind === "class") {
+    if (expr.callee.kind === "dot-shorthand" && (expr.callee.resolvedShorthandOwnerType?.kind === "class" || expr.callee.resolvedShorthandOwnerType?.kind === "struct")) {
       return `${emitExpression(expr.callee, ctx)}(${args.join(", ")})`;
     }
 
     if (expr.callee.kind === "member-expression") {
-      const ownerTypeOverride = expr.callee.property === "constructor" && expr.resolvedType?.kind === "class"
+      const ownerTypeOverride = expr.callee.property === "constructor" && (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct")
         ? expr.resolvedType
         : undefined;
       const staticMethod = getStaticClassMethodCall(expr.callee, ctx, ownerTypeOverride);
@@ -537,7 +537,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     if (expr.callee.kind === "qualified-member-expression") {
-      const ownerTypeOverride = expr.callee.property === "constructor" && expr.resolvedType?.kind === "class"
+      const ownerTypeOverride = expr.callee.property === "constructor" && (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct")
         ? expr.resolvedType
         : undefined;
       const staticMethod = getQualifiedClassMethodCall(expr.callee, ctx, ownerTypeOverride);
@@ -556,7 +556,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     return `${callee}(${args.join(", ")})`;
   }
 
-  if (hasNamedArgs && calleeType?.kind === "class") {
+  if (hasNamedArgs && (calleeType?.kind === "class" || calleeType?.kind === "struct")) {
     const props: ObjectProperty[] = expr.args.map((arg) => ({
       kind: "object-property",
       name: arg.name!,
@@ -564,7 +564,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       span: arg.span,
     }));
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
-    const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
+    const classType = expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType, ctx);
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const allowFactory = shouldUseConstructorFactory(classType.symbol, ctx);
@@ -661,9 +661,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     throw new Error("Failure() call is missing Result type context during emission");
   }
 
-  if (calleeType && calleeType.kind === "class") {
+  if (calleeType && (calleeType.kind === "class" || calleeType.kind === "struct")) {
     // Constructor call → std::make_shared<ClassName>(args...) or static constructor(...)
-    const classType = expr.resolvedType?.kind === "class" ? expr.resolvedType : calleeType;
+    const classType = expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct" ? expr.resolvedType : calleeType;
     const cppName = emitConcreteClassName(classType, ctx);
     const allowFactory = shouldUseConstructorFactory(classType.symbol, ctx);
     const fieldTypes = buildFieldTypeListForClassType(classType, allowFactory);
@@ -698,9 +698,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const constructorOwnerType = expr.resolvedType?.kind === "class"
+    const constructorOwnerType = expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct"
       ? expr.resolvedType
-      : calleeType?.kind === "function" && calleeType.returnType.kind === "class"
+      : calleeType?.kind === "function" && (calleeType.returnType.kind === "class" || calleeType.returnType.kind === "struct")
         ? calleeType.returnType
         : undefined;
     const ownerTypeOverride = memberExpr.property === "constructor"
@@ -761,7 +761,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       const method = memberExpr.property;
       const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "get") return `doof::map_get(${obj}, ${args}, ${locationArgs})`;
-      if (method === "set") return `doof::map_index(${obj}, ${expr.args[0] ? emitExpression(expr.args[0].value, ctx) : args}, ${locationArgs}) = ${expr.args[1] ? emitExpression(expr.args[1].value, ctx) : ""}`;
+      if (method === "set") return `doof::map_set(${obj}, ${expr.args[0] ? emitExpression(expr.args[0].value, ctx) : args}, ${expr.args[1] ? emitExpression(expr.args[1].value, ctx) : ""}, ${locationArgs})`;
       if (method === "has") return `(${obj}->count(${args}) > 0)`;
       if (method === "delete") return `${obj}->erase(${args})`;
       if (method === "keys") return `doof::map_keys(${obj}, ${locationArgs})`;
@@ -794,7 +794,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
 
     // JSON serialization: Class.fromJsonValue(value) → Class::fromJsonValue(value) (static)
-    if (objType && objType.kind === "class" && memberExpr.property === "fromJsonValue") {
+    if (objType && (objType.kind === "class" || objType.kind === "struct") && memberExpr.property === "fromJsonValue") {
       const className = emitClassCppName(objType.symbol, ctx.module.path);
       return `${className}::fromJsonValue(${args})`;
     }
@@ -877,9 +877,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return explicitGenericMethodCall;
     }
 
-    const constructorOwnerType = expr.resolvedType?.kind === "class"
+    const constructorOwnerType = expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct"
       ? expr.resolvedType
-      : calleeType?.kind === "function" && calleeType.returnType.kind === "class"
+      : calleeType?.kind === "function" && (calleeType.returnType.kind === "class" || calleeType.returnType.kind === "struct")
         ? calleeType.returnType
         : undefined;
     const ownerTypeOverride = memberExpr.property === "constructor"
@@ -895,7 +895,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     }
   }
 
-  if (expr.callee.kind === "dot-shorthand" && expr.callee.resolvedShorthandOwnerType?.kind === "class") {
+  if (expr.callee.kind === "dot-shorthand" && (expr.callee.resolvedShorthandOwnerType?.kind === "class" || expr.callee.resolvedShorthandOwnerType?.kind === "struct")) {
     return `${emitExpression(expr.callee, ctx)}(${args})`;
   }
 
@@ -1045,7 +1045,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Append generic type arguments: Box<int> → Box<int32_t>
-  if (resolvedExprType?.kind === "class" && resolvedExprType.typeArgs && resolvedExprType.typeArgs.length > 0) {
+  if ((resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct") && resolvedExprType.typeArgs && resolvedExprType.typeArgs.length > 0) {
     const typeArgStrs = resolvedExprType.typeArgs.map((typeArg) => emitType(typeArg, ctx.module.path));
     typeName = `${typeName}<${typeArgStrs.join(", ")}>`;
   } else if (expr.typeArgs && expr.typeArgs.length > 0) {
@@ -1057,7 +1057,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     // Named construction: Type { field: value, ... }
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
-    const fields = resolvedExprType?.kind === "class"
+    const fields = resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct"
       ? buildConstructorFieldInfoListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
       : buildConstructorFieldInfoList(sym, shouldUseConstructorFactory(sym, ctx));
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
@@ -1075,7 +1075,7 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Positional construction: Type(arg1, arg2, ...)
-  const fieldTypes = resolvedExprType?.kind === "class"
+  const fieldTypes = resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct"
     ? buildFieldTypeListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
     : buildFieldTypeList(sym, shouldUseConstructorFactory(sym, ctx));
   const args = (expr.args as Expression[]).map((a, i) => {
@@ -1102,21 +1102,21 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
 function resolveDirectClassSymbol(
   expr: ConstructExpression,
   ctx: EmitContext,
-): import("./types.js").ClassSymbol | undefined {
+): import("./types.js").ClassSymbol | import("./types.js").StructSymbol | undefined {
   const sym = ctx.module.symbols.get(expr.type);
-  if (sym?.symbolKind === "class") return sym;
+  if (sym?.symbolKind === "class" || sym?.symbolKind === "struct") return sym;
   const imported = ctx.module.imports.find((imp) => imp.localName === expr.type)?.symbol;
-  if (imported?.symbolKind === "class") return imported;
+  if (imported?.symbolKind === "class" || imported?.symbolKind === "struct") return imported;
   return undefined;
 }
 
 export function resolveClassSymbol(
   expr: ConstructExpression,
   ctx: EmitContext,
-): import("./types.js").ClassSymbol | undefined {
+): import("./types.js").ClassSymbol | import("./types.js").StructSymbol | undefined {
   const direct = resolveDirectClassSymbol(expr, ctx);
   if (direct) return direct;
-  if (expr.resolvedType?.kind === "class") {
+  if (expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct") {
     return expr.resolvedType.symbol;
   }
   return undefined;

@@ -310,9 +310,10 @@ class Counter implements Stream<int> {
 
 `for value of someStream` works anywhere an iterable is expected.
 
-## Class and Interface Type Identity
+## Class, Struct, and Interface Type Identity
 
-- Classes are nominal.
+- Classes and structs are nominal.
+- Classes are reference types; structs are value types.
 - Interfaces are structural.
 - Interface types resolve against the closed world of matching classes at compile time.
 
@@ -320,4 +321,4 @@ class Counter implements Stream<int> {
 interface Drawable { draw(canvas: Canvas): void }
 ```
 
-Use classes for identity-rich domain types and interfaces for structural contracts.
+Use classes for identity-rich domain types, structs for copied value data, and interfaces for structural contracts.

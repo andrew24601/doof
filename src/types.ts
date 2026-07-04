@@ -29,6 +29,7 @@ import type {
 /** The kind of declaration a symbol refers to. */
 export type SymbolKind =
   | "class"
+  | "struct"
   | "interface"
   | "enum"
   | "type-alias"
@@ -39,6 +40,7 @@ export type SymbolKind =
 /** A type-level symbol: a name that can appear in type position. */
 export type TypeSymbol =
   | ClassSymbol
+  | StructSymbol
   | InterfaceSymbol
   | EnumSymbol
   | TypeAliasSymbol;
@@ -46,6 +48,7 @@ export type TypeSymbol =
 /** A value-level symbol: a name that can appear in expression position. */
 export type ValueSymbol =
   | ClassSymbol       // classes are both types and constructors
+  | StructSymbol      // structs are both types and constructors
   | EnumSymbol        // enums are both types and namespaces
   | FunctionSymbol
   | ConstSymbol
@@ -73,6 +76,19 @@ export interface ClassSymbol {
     cppName: string | null;
   };
   /** Optional generated C++ identity for private classes that must be header-visible. */
+  emittedCppName?: string;
+  /** Logical generated C++ namespace assigned during emission planning. */
+  emittedCppNamespace?: string;
+}
+
+export interface StructSymbol {
+  symbolKind: "struct";
+  name: string;
+  declaration: ClassDeclaration;
+  exported: boolean;
+  /** The resolved module path this symbol lives in. */
+  module: string;
+  /** Optional generated C++ identity for private structs that must be header-visible. */
   emittedCppName?: string;
   /** Logical generated C++ namespace assigned during emission planning. */
   emittedCppNamespace?: string;

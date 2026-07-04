@@ -456,10 +456,13 @@ function emitImmutableBinding(
   const val = emitExpression(stmt.value, ctx, declType);
   assertDeclarationTypeResolved(stmt.name, declType);
 
-  // := → const auto (shallow immutable: binding can't change, pointee mutable)
+  // := is shallow immutable. Struct values are mutable interiors, like class pointees.
   if (declType && declType.kind === "class") {
     const cppType = emitType(declType, ctx.module.path);
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${cppType} ${name} = ${val};`);
+  } else if (declType && declType.kind === "struct") {
+    const cppType = explicitCppType ?? emitType(declType, ctx.module.path);
+    ctx.sourceLines.push(`${ind}${linkagePrefix}${cppType} ${name} = ${val};`);
   } else if (explicitCppType) {
     ctx.sourceLines.push(`${ind}${linkagePrefix}const ${explicitCppType} ${name} = ${val};`);
   } else {
@@ -634,8 +637,11 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
     }
     case "immutable-binding": {
       const name = emitIdentifierSafe(binding.name);
-      const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
-      const qualifier = cppType ? `const ${cppType}` : "const auto";
+      const resolvedType = binding.resolvedType ? substituteEmitType(binding.resolvedType, ctx) : null;
+      const cppType = binding.type && resolvedType ? emitType(resolvedType, ctx.module.path) : null;
+      const qualifier = resolvedType?.kind === "struct"
+        ? (cppType ?? emitType(resolvedType, ctx.module.path))
+        : cppType ? `const ${cppType}` : "const auto";
       ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
       break;
     }
@@ -766,7 +772,7 @@ function emitPositionalDestructuringWithDiscards(
   sourceType: ResolvedType | undefined,
   ctx: EmitContext,
 ): void {
-  if (sourceType?.kind === "class") {
+  if (sourceType?.kind === "class" || sourceType?.kind === "struct") {
     emitClassPositionalDestructuringWithDiscards(bindingKind, bindings, valueExpr, sourceType, ctx);
     return;
   }
@@ -795,7 +801,7 @@ function emitClassPositionalDestructuringWithDiscards(
   bindingKind: "immutable" | "let",
   bindings: readonly string[],
   valueExpr: string,
-  sourceType: Extract<ResolvedType, { kind: "class" }>,
+  sourceType: Extract<ResolvedType, { kind: "class" | "struct" }>,
   ctx: EmitContext,
 ): void {
   const ind = indent(ctx);
@@ -811,7 +817,8 @@ function emitClassPositionalDestructuringWithDiscards(
     if (name === "_") continue;
     const fieldName = fieldNames[index];
     if (!fieldName) continue;
-    ctx.sourceLines.push(`${ind}${qualifier} ${emitIdentifierSafe(name)} = ${objectRef}->${emitIdentifierSafe(fieldName)};`);
+    const accessor = sourceType.kind === "class" ? "->" : ".";
+    ctx.sourceLines.push(`${ind}${qualifier} ${emitIdentifierSafe(name)} = ${objectRef}${accessor}${emitIdentifierSafe(fieldName)};`);
   }
 }
 
@@ -821,7 +828,7 @@ function emitPositionalDestructuringAssignment(
   sourceType: ResolvedType | undefined,
   ctx: EmitContext,
 ): void {
-  if (sourceType?.kind === "class") {
+  if (sourceType?.kind === "class" || sourceType?.kind === "struct") {
     emitClassPositionalDestructuringAssignment(bindings, valueExpr, sourceType, ctx);
     return;
   }
@@ -847,7 +854,7 @@ function emitTuplePositionalDestructuringAssignment(
 function emitClassPositionalDestructuringAssignment(
   bindings: readonly string[],
   valueExpr: string,
-  sourceType: Extract<ResolvedType, { kind: "class" }>,
+  sourceType: Extract<ResolvedType, { kind: "class" | "struct" }>,
   ctx: EmitContext,
 ): void {
   const ind = indent(ctx);
@@ -862,7 +869,8 @@ function emitClassPositionalDestructuringAssignment(
     if (name === "_") continue;
     const fieldName = fieldNames[index];
     if (!fieldName) continue;
-    ctx.sourceLines.push(`${ind}${emitIdentifierSafe(name)} = ${objectRef}->${emitIdentifierSafe(fieldName)};`);
+    const accessor = sourceType.kind === "class" ? "->" : ".";
+    ctx.sourceLines.push(`${ind}${emitIdentifierSafe(name)} = ${objectRef}${accessor}${emitIdentifierSafe(fieldName)};`);
   }
 }
 

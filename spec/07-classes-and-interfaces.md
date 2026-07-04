@@ -2,7 +2,7 @@
 
 ## Classes
 
-Classes define **nominal types** — two classes with identical structure are distinct types.
+Classes define **nominal reference types** — two classes with identical structure are distinct types, and class values have object identity. In the C++ backend, class values lower to reference-counted `std::shared_ptr<T>` objects.
 
 ### Field Declarations
 
@@ -219,6 +219,38 @@ instance without recursively calling themselves.
 Classes with a dedicated `constructor` method are not eligible for automatic
 JSON serialization/deserialization, because the compiler cannot safely infer how
 JSON fields should map onto custom construction invariants.
+
+## Structs
+
+Structs define **nominal value types**. They share the class surface syntax for fields, readonly fields, literal-valued fields, default values, methods, static members, type parameters, construction, imports, exports, type aliases, JSON, and metadata, but values are copied when assigned, passed, or returned.
+
+```doof
+struct Point {
+    x: int
+    y: int
+
+    lengthSquared(): int => x * x + y * y
+}
+
+p := Point { x: 3, y: 4 }
+q := Point(3, 4)
+```
+
+Structs lower to direct C++ values:
+
+- `Point` lowers to `Point`, not `std::shared_ptr<Point>`.
+- `Point | null` lowers to `std::optional<Point>`.
+- Arrays, maps, and sets store struct elements by value.
+- Construction lowers to direct value construction, not `std::make_shared`.
+- Instance field and method access lowers with `.`, not `->`.
+
+Structs are initially excluded from structural interface implementation. A struct declaration with `implements` is rejected, and assigning a struct value to an interface is not supported yet.
+
+The following class-only features are not available on structs in v1:
+
+- destructors
+- `weak` fields or `weak` references to structs
+- identity/fluent patterns that rely on returning `this` as a shared object
 
 Instances must use `::` to access class statics:
 

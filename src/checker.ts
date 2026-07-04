@@ -40,6 +40,7 @@ import type { ModuleSymbolTable, ModuleSymbol } from "./types.js";
 import {
   buildMockCallMetadata,
   type ClassType,
+  type StructType,
   type FunctionResolvedParam,
   type ResolvedType,
   type Binding,
@@ -1152,6 +1153,7 @@ export class TypeChecker {
     } else {
       switch (sym.symbolKind) {
         case "class": kind = "class"; break;
+        case "struct": kind = "struct"; break;
         case "interface": kind = "interface"; break;
         case "enum": kind = "enum"; break;
         case "type-alias": kind = "type-alias"; break;
@@ -1181,6 +1183,13 @@ export class TypeChecker {
           return { kind: "class", symbol: sym, typeArgs: resolvedArgs };
         }
         return { kind: "class", symbol: sym };
+      }
+      case "struct": {
+        const resolvedArgs = this.resolveGenericTypeArgs(sym.declaration.typeParams, typeArgs, table);
+        if (resolvedArgs && resolvedArgs.length > 0) {
+          return { kind: "struct", symbol: sym, typeArgs: resolvedArgs };
+        }
+        return { kind: "struct", symbol: sym };
       }
       case "interface": {
         const resolvedArgs = this.resolveGenericTypeArgs(sym.declaration.typeParams, typeArgs, table);

@@ -6,8 +6,8 @@
  *     metadata object containing class name, description, method reflections with
  *     per-method `invoke` lambdas returning `doof::Result<doof::JsonValue, doof::JsonValue>`.
  *
- * On-demand: only emitted when `needsMetadata` is set on a ClassDeclaration
- * (triggered by user code accessing `MyClass.metadata`).
+ * On-demand: only emitted when `needsMetadata` is set on a class-like declaration
+ * (triggered by user code accessing `MyType.metadata`).
  */
 
 import type { ClassDeclaration } from "./ast.js";
@@ -42,8 +42,8 @@ function emitMetadataSuccess(valueExpr: string): string {
 // ============================================================================
 
 /**
- * Propagate `needsMetadata` → `needsJson` on all classes referenced by
- * public method signatures of metadata-marked classes.
+ * Propagate `needsMetadata` → `needsJson` on all class-like declarations referenced
+ * by public method signatures of metadata-marked declarations.
  *
  * Must be called before emission (alongside propagateJsonDemand).
  */
@@ -165,8 +165,8 @@ export function emitMetadataDefinition(
     ctx.sourceLines.push(`${ind}            ${inputSchemaValue},`);
     ctx.sourceLines.push(`${ind}            ${outputSchemaValue},`);
 
-    // Invoke lambda: (std::shared_ptr<T>, const doof::JsonValue&) -> Result<JsonValue, JsonValue>
-    ctx.sourceLines.push(`${ind}            [](std::shared_ptr<${cppName}> _instance, const doof::JsonValue& _params) -> ${METADATA_RESULT_TYPE} {`);
+    // Invoke lambda: (T&, const doof::JsonValue&) -> Result<JsonValue, JsonValue>
+    ctx.sourceLines.push(`${ind}            [](${cppName}& _instance, const doof::JsonValue& _params) -> ${METADATA_RESULT_TYPE} {`);
     ctx.sourceLines.push(`${ind}                const auto* _p = doof::json_as_object(_params);`);
     ctx.sourceLines.push(`${ind}                if (_p == nullptr) {`);
     ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(400, 'std::string("Invalid JSON params: expected object")')};`);
@@ -210,10 +210,10 @@ export function emitMetadataDefinition(
       : undefined;
 
     if (!retType || retType.kind === "void") {
-      ctx.sourceLines.push(`${ind}                _instance->${safeName}(${args});`);
+      ctx.sourceLines.push(`${ind}                _instance.${safeName}(${args});`);
       ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::json_value(nullptr)")};`);
     } else if (retType.kind === "result") {
-      ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
+      ctx.sourceLines.push(`${ind}                auto _result = _instance.${safeName}(${args});`);
       ctx.sourceLines.push(`${ind}                if (_result.isFailure()) {`);
       if (isJsonValueType(retType.errorType)) {
         ctx.sourceLines.push(`${ind}                    return ${METADATA_RESULT_TYPE}::failure(_result.error());`);
@@ -230,7 +230,7 @@ export function emitMetadataDefinition(
         ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess(serialized)};`);
       }
     } else {
-      ctx.sourceLines.push(`${ind}                auto _result = _instance->${safeName}(${args});`);
+      ctx.sourceLines.push(`${ind}                auto _result = _instance.${safeName}(${args});`);
       const serialized = emitSerializeExpr("_result", retType);
       ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess(serialized)};`);
     }

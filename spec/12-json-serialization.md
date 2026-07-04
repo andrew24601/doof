@@ -1,6 +1,6 @@
 # 12. JSON Serialization
 
-Doof provides built-in JSON serialization and deserialization for class instances. Classes with all-serializable fields and no dedicated `constructor` method are eligible for `.toJsonObject()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
+Doof provides built-in JSON serialization and deserialization for class and struct instances. Nominal objects with all-serializable fields and no dedicated `constructor` method are eligible for `.toJsonObject()` and `.fromJsonValue()` with no annotations or special syntax. JSON support code is generated on-demand: the compiler only emits serialization methods when your code actually uses these intrinsics.
 
 ## Overview
 
@@ -14,6 +14,8 @@ json := p.toJsonObject()               // JsonObject
 result := Point.fromJsonValue(json)    // Result<Point, string>
 ```
 
+Structs use the same source-level JSON API and return `Result<StructName, string>` from `.fromJsonValue()`, but the generated C++ stores and returns direct values rather than `shared_ptr` objects.
+
 When you need text rather than structured JSON, use the standard JSON helpers:
 
 ```doof
@@ -23,13 +25,13 @@ text := formatJsonValue(p.toJsonObject())
 parsed := parseJsonValue(text)         // Result<JsonValue, string>
 ```
 
-`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonObject()` methods emit class fields in declaration order.
+`JsonValue` objects preserve insertion order for object keys. `formatJsonValue(...)` emits object members in that order, and generated `.toJsonObject()` methods emit class or struct fields in declaration order.
 
 ## On-Demand Generation
 
-JSON methods are only generated for classes and interfaces where user code actually accesses `.toJsonObject()` or `.fromJsonValue()`. If a program never calls these methods, no class JSON code is generated.
+JSON methods are only generated for classes, structs, and supported interfaces where user code actually accesses `.toJsonObject()` or `.fromJsonValue()`. If a program never calls these methods, no nominal-object JSON code is generated.
 
-Generation is transitive: if class `A` has a field of type `B` and you call `A.toJsonObject()`, the compiler automatically generates JSON methods for `B` as well.
+Generation is transitive: if nominal object `A` has a field of type `B` and you call `A.toJsonObject()`, the compiler automatically generates JSON methods for `B` as well.
 
 ```doof
 class Inner { value: int }
@@ -40,7 +42,7 @@ json := Outer { inner: Inner { value: 42 } }.toJsonObject()
 
 ## Serialization — `.toJsonObject()`
 
-Every eligible class instance has a `.toJsonObject()` method that returns a `JsonObject` value. `JsonObject` is the intrinsic alias for `Map<string, JsonValue>`, so it can still be passed anywhere a `JsonValue` is expected.
+Every eligible class or struct instance has a `.toJsonObject()` method that returns a `JsonObject` value. `JsonObject` is the intrinsic alias for `Map<string, JsonValue>`, so it can still be passed anywhere a `JsonValue` is expected.
 
 ```doof
 class User {
@@ -58,7 +60,7 @@ println(formatJsonValue(u.toJsonObject()))
 
 - All fields are serialized, including `private` and `readonly` fields.
 - Literal-valued fields are serialized with their compile-time values.
-- Serialization is deep: nested class instances, arrays of classes, and tuples are serialized recursively.
+- Serialization is deep: nested class/struct instances, arrays of serializable nominal objects, and tuples are serialized recursively.
 - Multi-name fields (`x, y, z: float`) produce separate JSON object keys.
 - Field order follows declaration order.
 
@@ -72,7 +74,7 @@ println(formatJsonValue(u.toJsonObject()))
 | `char` | JSON string (single character) |
 | `bool` | JSON boolean |
 | `null` | JSON `null` |
-| Class instances | JSON object (recursive) |
+| Class or struct instances | JSON object (recursive) |
 | `T[]` | JSON array |
 | `Tuple<T1, T2, ...>` | JSON array |
 | Enums | JSON string (member name) |
@@ -81,7 +83,7 @@ println(formatJsonValue(u.toJsonObject()))
 
 ### Non-Serializable Types
 
-The following types are not JSON-serializable. A compile-time error is produced if `.toJsonObject()` or `.fromJsonValue()` is used on a class containing these field types:
+The following types are not JSON-serializable. A compile-time error is produced if `.toJsonObject()` or `.fromJsonValue()` is used on a class or struct containing these field types:
 
 - Function types (`(int) → string`)
 - `weak` references
@@ -89,7 +91,7 @@ The following types are not JSON-serializable. A compile-time error is produced 
 - `Promise<T>`
 - `Result<T, E>`
 - `void`
-- Classes with a dedicated static `constructor(...): Self` method
+- Classes or structs with a dedicated static `constructor(...): Self` method
 
 ```doof
 class Bad {
@@ -100,13 +102,13 @@ b := Bad { callback: (x) => println(x) }
 b.toJsonObject()  // compile error
 ```
 
-Classes with a dedicated `constructor` method are excluded because custom
+Nominal objects with a dedicated `constructor` method are excluded because custom
 construction usually encodes invariants that the automatic field-by-field JSON
 deserializer cannot safely recreate.
 
 ## Deserialization — `.fromJsonValue()`
 
-Every eligible class has a `.fromJsonValue(json: JsonValue, lenient: bool = false)` method accessible on the class name that returns `Result<ClassName, string>`.
+Every eligible class or struct has a `.fromJsonValue(json: JsonValue, lenient: bool = false)` method accessible on the type name that returns `Result<TypeName, string>`.
 
 ```doof
 result := Point.fromJsonValue({ x: 1.5, y: 2.5 })
@@ -130,8 +132,8 @@ user := decode<User>{ json: payload }
 ```
 
 `JsonSerializable` is a constraint-only intrinsic. It is not a normal value type,
-and each concrete type argument must be a class whose fields are JSON-serializable.
-The concrete class JSON methods are still generated on demand when the generic is
+and each concrete type argument must be a class or struct whose fields are JSON-serializable.
+The concrete nominal-object JSON methods are still generated on demand when the generic is
 instantiated.
 
 ### Required vs Optional Fields

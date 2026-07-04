@@ -462,8 +462,14 @@ public:
             return entries_[pos->second].second;
         }
 
-        index_[key] = entries_.size();
+        const auto newIndex = entries_.size();
         entries_.push_back(value_type{key, V{}});
+        try {
+            index_.emplace(entries_.back().first, newIndex);
+        } catch (...) {
+            entries_.pop_back();
+            throw;
+        }
         validate_invariants("ordered_map::operator[] post");
         return entries_.back().second;
     }
@@ -477,8 +483,14 @@ public:
             return;
         }
 
-        index_[key] = entries_.size();
+        const auto newIndex = entries_.size();
         entries_.push_back(value_type{key, value});
+        try {
+            index_.emplace(entries_.back().first, newIndex);
+        } catch (...) {
+            entries_.pop_back();
+            throw;
+        }
         validate_invariants("ordered_map::insert_or_assign insert");
     }
 
@@ -1601,6 +1613,14 @@ V& map_index(const std::shared_ptr<ordered_map<K, V>>& m, const K& key, const ch
 }
 
 template <typename K, typename V>
+void map_set(const std::shared_ptr<ordered_map<K, V>>& m, const K& key, const V& value, const char* file, int32_t line) {
+    if (!m) {
+        panic_at(file, line, "Attempted to mutate null map");
+    }
+    m->insert_or_assign(key, value);
+}
+
+template <typename K, typename V>
 std::shared_ptr<std::vector<K>> map_keys(const std::shared_ptr<ordered_map<K, V>>& m, const char* file, int32_t line) {
     if (!m) {
         panic_at(file, line, "Attempted to read keys from null map");
@@ -1990,12 +2010,36 @@ namespace doof {
 
 /** Per-method reflection entry with an invoke lambda. */
 template <typename T>
+struct MethodInvoker {
+    using result_type = doof::Result<doof::JsonValue, doof::JsonValue>;
+
+    std::function<result_type(T&, const doof::JsonValue&)> call;
+
+    MethodInvoker() = default;
+
+    template <typename F>
+    MethodInvoker(F&& f) : call(std::forward<F>(f)) {}
+
+    result_type operator()(T& instance, const doof::JsonValue& params) const {
+        return call(instance, params);
+    }
+
+    result_type operator()(const std::shared_ptr<T>& instance, const doof::JsonValue& params) const {
+        if (instance == nullptr) {
+            return result_type::failure(doof::json_error(400, std::string("Cannot invoke method on null instance")));
+        }
+        return call(*instance, params);
+    }
+};
+
+/** Per-method reflection entry with an invoke callable. */
+template <typename T>
 struct MethodReflection {
     std::string name;
     std::string description;
     doof::JsonValue inputSchema;
     doof::JsonValue outputSchema;
-    std::function<doof::Result<doof::JsonValue, doof::JsonValue>(std::shared_ptr<T>, const doof::JsonValue&)> invoke;
+    doof::MethodInvoker<T> invoke;
 };
 
 /** Structured metadata for a class — contains name, description, methods, and schema $defs. */
@@ -2007,18 +2051,29 @@ struct ClassMetadata {
     std::optional<doof::JsonValue> defs;
 
     doof::Result<doof::JsonValue, doof::JsonValue> invoke(
-        std::shared_ptr<T> instance,
+        T& instance,
         const std::string& methodName,
         const doof::JsonValue& params
     ) const {
         if (methods != nullptr) {
             for (const auto& method : *methods) {
                 if (method.name == methodName) {
-                    return method.invoke(std::move(instance), params);
+                    return method.invoke(instance, params);
                 }
             }
         }
         return doof::Result<doof::JsonValue, doof::JsonValue>::failure(doof::json_error(400, std::string("Unknown method: ") + methodName));
+    }
+
+    doof::Result<doof::JsonValue, doof::JsonValue> invoke(
+        const std::shared_ptr<T>& instance,
+        const std::string& methodName,
+        const doof::JsonValue& params
+    ) const {
+        if (instance == nullptr) {
+            return doof::Result<doof::JsonValue, doof::JsonValue>::failure(doof::json_error(400, std::string("Cannot invoke method on null instance")));
+        }
+        return invoke(*instance, methodName, params);
     }
 };
 

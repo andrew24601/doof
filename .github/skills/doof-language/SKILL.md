@@ -19,7 +19,7 @@ Use this base file as the entry point. Load only the reference file that matches
 - Keep code idiomatic: immutable by default, explicit types at boundaries, no JavaScript-style coercions.
 - Use `Result` plus `case`, `try`, declaration-`else`, `as`, or `!` for fallible flows. Use `panic(...)` only for programmer errors.
 - Plain `if` null checks do **not** narrow static types. Use explicit narrowing forms.
-- Classes are nominal. Interfaces are structural.
+- Classes and structs are nominal. Interfaces are structural.
 - Prefer `readonly` for deeply immutable values and `:=` for immutable bindings with mutable interiors. `const` is deprecated and remains accepted temporarily with a warning.
 - Prefer `std/<name>` packages before inventing utility modules.
 
@@ -55,7 +55,7 @@ Load the narrowest matching file for the task.
 | --- | --- |
 | Core syntax, bindings, lambdas, control flow, operators, language differences | [references/core-language.md](./references/core-language.md) |
 | Types, collections, enums, `JsonValue`, inference, nullability | [references/type-system.md](./references/type-system.md) |
-| Classes, interfaces, construction, statics, destructors, `weak` references | [references/classes-and-memory.md](./references/classes-and-memory.md) |
+| Classes, structs, interfaces, construction, statics, destructors, `weak` references | [references/classes-and-memory.md](./references/classes-and-memory.md) |
 | `Result`, `try`, `try!`, `try?`, declaration-`else`, `catch`, `as`, `panic` | [references/error-handling.md](./references/error-handling.md) |
 | Imports, exports, package dependencies, `import class`, `import function` | [references/modules-and-interop.md](./references/modules-and-interop.md) |
 | JSON serialization, generated metadata, schema/invoke behavior | [references/json-and-metadata.md](./references/json-and-metadata.md) |

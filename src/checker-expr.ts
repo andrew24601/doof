@@ -38,6 +38,8 @@ import {
   type ModuleTypeInfo,
   type ResolvedType,
   type Scope,
+  type ClassType,
+  type StructType,
   typeContainsTypeVar,
   typeToString,
   typesEqual,
@@ -56,7 +58,10 @@ import { findActorBoundaryViolation } from "./checker-actor-boundary.js";
 import { inferBinaryType, inferUnaryType, resolveExpectedEnumType } from "./checker-expr-ops.js";
 import { inferMemberType } from "./checker-member.js";
 import { buildCaseArmScope } from "./checker-result.js";
-import type { ClassSymbol, ModuleSymbolTable } from "./types.js";
+import type { ClassSymbol, StructSymbol, ModuleSymbolTable } from "./types.js";
+
+type NominalObjectType = ClassType | StructType;
+type NominalObjectSymbol = ClassSymbol | StructSymbol;
 
 function resolveExpectedResultContext(
   host: CheckerHost,
@@ -318,7 +323,7 @@ function validateJsonSerializableTypeArg(
 ): ResolvedType {
   if (argType.kind === "unknown") return argType;
 
-  if (argType.kind !== "class") {
+  if (argType.kind !== "class" && argType.kind !== "struct") {
     reportTypeArgumentConstraintViolation(info, table, span, typeParam, argType, JSON_SERIALIZABLE_CONSTRAINT_TYPE);
     return UNKNOWN_TYPE;
   }
@@ -327,7 +332,7 @@ function validateJsonSerializableTypeArg(
   if (hasDedicatedConstructor(argType.symbol.declaration)) {
     info.diagnostics.push({
       severity: "error",
-      message: `Class "${argType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
+      message: `${argType.kind === "struct" ? "Struct" : "Class"} "${argType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
       span,
       module: table.path,
     });
@@ -398,9 +403,9 @@ function validateInferredTypeArgsAgainstConstraints(
 }
 
 function buildResolvedGenericClassType(
-  calleeType: Extract<ResolvedType, { kind: "class" }>,
+  calleeType: NominalObjectType,
   paramMap: Map<string, ResolvedType>,
-): Extract<ResolvedType, { kind: "class" }> {
+): NominalObjectType {
   if (calleeType.typeArgs && calleeType.typeArgs.length > 0) {
     return calleeType;
   }
@@ -416,10 +421,10 @@ function buildResolvedGenericClassType(
   }
 
   return {
-    kind: "class",
+    kind: calleeType.kind,
     symbol: calleeType.symbol,
     typeArgs: resolvedTypeArgs,
-  };
+  } as NominalObjectType;
 }
 
 function recordResolvedGenericCall(
@@ -435,7 +440,7 @@ function recordResolvedGenericCall(
 
   if (expr.callee.kind === "member-expression" || expr.callee.kind === "qualified-member-expression") {
     const objectType = expr.callee.object.resolvedType;
-    if (objectType?.kind === "class") {
+    if (objectType?.kind === "class" || objectType?.kind === "struct") {
       expr.resolvedGenericOwnerClass = objectType.symbol;
       expr.resolvedGenericMethodName = expr.callee.property;
       expr.resolvedGenericMethodStatic = expr.callee.kind === "qualified-member-expression";
@@ -451,13 +456,13 @@ function inferStaticOwnerClassTypeArgs(
   providedArgTypes: ResolvedType[],
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
-): { paramMap: Map<string, ResolvedType>; ownerType: Extract<ResolvedType, { kind: "class" }> } | null {
+): { paramMap: Map<string, ResolvedType>; ownerType: NominalObjectType } | null {
   if (expr.callee.kind !== "member-expression" && expr.callee.kind !== "qualified-member-expression") {
     return null;
   }
 
   const objectType = expr.callee.object.resolvedType;
-  if (!objectType || objectType.kind !== "class" || objectType.typeArgs?.length) {
+  if (!objectType || (objectType.kind !== "class" && objectType.kind !== "struct") || objectType.typeArgs?.length) {
     return null;
   }
 
@@ -465,6 +470,7 @@ function inferStaticOwnerClassTypeArgs(
   const isNamedStatic =
     expr.callee.kind === "qualified-member-expression"
     || binding?.kind === "class"
+    || binding?.kind === "struct"
     || binding?.kind === "import";
   if (!isNamedStatic || objectType.symbol.declaration.typeParams.length === 0) {
     return null;
@@ -494,11 +500,11 @@ function inferStaticOwnerClassTypeArgs(
     expr.span,
   );
 
-  const ownerType: Extract<ResolvedType, { kind: "class" }> = {
-    kind: "class",
+  const ownerType: NominalObjectType = {
+    kind: objectType.kind,
     symbol: objectType.symbol,
     typeArgs: getResolvedGenericTypeArgs(objectType.symbol.declaration.typeParams, paramMap),
-  };
+  } as NominalObjectType;
   expr.callee.object.resolvedType = ownerType;
   return { paramMap, ownerType };
 }
@@ -1169,12 +1175,12 @@ function mergeInferredMapKeyType(
   return null;
 }
 
-function resolveExpectedClassType(type?: ResolvedType): Extract<ResolvedType, { kind: "class" }> | undefined {
+function resolveExpectedClassType(type?: ResolvedType): NominalObjectType | undefined {
   if (!type) return undefined;
-  if (type.kind === "class") return type;
+  if (type.kind === "class" || type.kind === "struct") return type;
   if (type.kind === "union") {
-    const classTypes = type.types.filter((member): member is Extract<ResolvedType, { kind: "class" }> =>
-      member.kind === "class"
+    const classTypes = type.types.filter((member): member is NominalObjectType =>
+      member.kind === "class" || member.kind === "struct"
     );
     if (classTypes.length === 1) return classTypes[0];
   }
@@ -1363,7 +1369,7 @@ function inferExprTypeInner(
       } else if (expr.target.kind === "member-expression") {
         if (expr.target.object.kind === "identifier") {
           const objBinding = host.lookupBinding(expr.target.object.name, scope);
-          if (objBinding && objBinding.type.kind === "class") {
+          if (objBinding && (objBinding.type.kind === "class" || objBinding.type.kind === "struct")) {
             const classDecl = objBinding.type.symbol.declaration;
             for (const field of classDecl.fields) {
               if (field.names.includes(expr.target.property)) {
@@ -1383,7 +1389,7 @@ function inferExprTypeInner(
       } else if (expr.target.kind === "qualified-member-expression") {
         if (expr.target.object.kind === "identifier") {
           const objBinding = host.lookupBinding(expr.target.object.name, scope);
-          if (objBinding && objBinding.type.kind === "class") {
+          if (objBinding && (objBinding.type.kind === "class" || objBinding.type.kind === "struct")) {
             const classDecl = objBinding.type.symbol.declaration;
             for (const field of classDecl.fields) {
               if (field.names.includes(expr.target.property)) {
@@ -1465,7 +1471,7 @@ function inferExprTypeInner(
         || binding.symbol?.symbolKind === "type-alias"
       );
       const lookupMode = binding && (
-        (binding.kind === "class" || binding.kind === "import") && objectType.kind === "class"
+        (binding.kind === "class" || binding.kind === "struct" || binding.kind === "import") && (objectType.kind === "class" || objectType.kind === "struct")
         || binding.kind === "interface" && objectType.kind === "interface"
         || isTypeAliasStatic
         || binding.kind === "type-parameter" && objectType.kind === "typevar"
@@ -1810,7 +1816,7 @@ function inferExprTypeInner(
         return effectiveCalleeType.returnType;
       }
 
-      if (calleeType.kind === "class") {
+      if (calleeType.kind === "class" || calleeType.kind === "struct") {
         let effectiveClassType = calleeType;
         let constructorParams = getConstructorParams(host, calleeType.symbol, table, true, scope);
 
@@ -1977,11 +1983,11 @@ function inferExprTypeInner(
       }
 
       const targetBinding = host.lookupBinding(expr.type, scope);
-      const resolvedClassSymbol = targetBinding?.type.kind === "class"
+      const resolvedClassSymbol = targetBinding?.type.kind === "class" || targetBinding?.type.kind === "struct"
         ? targetBinding.type.symbol
         : null;
       const sym = targetBinding ? resolvedClassSymbol : table.symbols.get(expr.type);
-      if (sym?.symbolKind === "class") {
+      if (sym?.symbolKind === "class" || sym?.symbolKind === "struct") {
         const typeParamConstraints = resolveDeclarationTypeParamConstraints(
           host,
           sym.declaration.typeParams,
@@ -2076,7 +2082,7 @@ function inferExprTypeInner(
         if (sym.declaration.private_ && sym.module !== table.path) {
           info.diagnostics.push({
             severity: "error",
-            message: `Class "${sym.name}" is private and only accessible within "${sym.module}"`,
+            message: `${sym.symbolKind === "struct" ? "Struct" : "Class"} "${sym.name}" is private and only accessible within "${sym.module}"`,
             span: expr.span,
             module: table.path,
           });
@@ -2089,15 +2095,15 @@ function inferExprTypeInner(
             const fieldNames = privateFieldsWithoutDefaults.flatMap((f) => f.names).join(", ");
             info.diagnostics.push({
               severity: "error",
-              message: `Class "${sym.name}" cannot be constructed from outside "${sym.module}" because it has private fields without defaults: ${fieldNames}`,
+              message: `${sym.symbolKind === "struct" ? "Struct" : "Class"} "${sym.name}" cannot be constructed from outside "${sym.module}" because it has private fields without defaults: ${fieldNames}`,
               span: expr.span,
               module: table.path,
             });
           }
         }
         return effectiveTypeArgs
-          ? { kind: "class", symbol: sym, typeArgs: effectiveTypeArgs }
-          : { kind: "class", symbol: sym };
+          ? { kind: sym.symbolKind, symbol: sym, typeArgs: effectiveTypeArgs } as NominalObjectType
+          : { kind: sym.symbolKind, symbol: sym } as NominalObjectType;
       }
 
       if (expr.named
@@ -2239,7 +2245,7 @@ function inferExprTypeInner(
     }
 
     case "tuple-literal": {
-      if (expectedType?.kind === "class") {
+      if (expectedType?.kind === "class" || expectedType?.kind === "struct") {
         const sym = expectedType.symbol;
         const params = getConstructorParams(host, sym, table, false);
         const argTypes: ResolvedType[] = [];
@@ -2270,7 +2276,7 @@ function inferExprTypeInner(
       if (expectedType?.kind === "map" && expr.properties.length === 0 && !expr.spread) {
         return expectedType;
       }
-      if (expectedType?.kind === "class") {
+      if (expectedType?.kind === "class" || expectedType?.kind === "struct") {
         const sym = expectedType.symbol;
         const fieldParams = getConstructorParams(host, sym, table, false);
         inferObjectLiteralProperties(host, expr, scope, table, info, (propName) =>
@@ -2693,7 +2699,7 @@ function isAsyncActorMethodCall(
 
 function getConstructorParams(
   host: CheckerHost,
-  sym: ClassSymbol,
+  sym: NominalObjectSymbol,
   table: ModuleSymbolTable,
   nominal: boolean,
   scope?: Scope,
@@ -2729,7 +2735,7 @@ function getConstructorParams(
 
 function getConstructorFactoryParams(
   host: CheckerHost,
-  sym: ClassSymbol,
+  sym: NominalObjectSymbol,
   table: ModuleSymbolTable,
   scope?: Scope,
 ): ConstructorParam[] | null {
@@ -2748,7 +2754,7 @@ function getConstructorFactoryParams(
 
 function findConstructorFactoryMethod(
   host: CheckerHost,
-  sym: ClassSymbol,
+  sym: NominalObjectSymbol,
   table: ModuleSymbolTable,
   scope?: Scope,
 ): FunctionDeclaration | null {
@@ -2763,7 +2769,7 @@ function findConstructorFactoryMethod(
     const resolvedReturnType = method.returnType
       ? host.resolveTypeAnnotation(method.returnType, classTable)
       : UNKNOWN_TYPE;
-    if (resolvedReturnType.kind === "class" && resolvedReturnType.symbol === sym) {
+    if ((resolvedReturnType.kind === "class" || resolvedReturnType.kind === "struct") && resolvedReturnType.symbol === sym) {
       return method;
     }
 
@@ -2781,7 +2787,7 @@ function describeConstructorParam(param: ConstructorParam): string {
 
 function validateConstructorArgs(
   host: CheckerHost,
-  sym: ClassSymbol,
+  sym: NominalObjectSymbol,
   argTypes: ResolvedType[],
   argSpans: SourceSpan[],
   nominal: boolean,
@@ -2798,7 +2804,7 @@ function validateConstructorArgs(
     const range = requiredCount === totalCount ? `${totalCount}` : `${requiredCount}-${totalCount}`;
     info.diagnostics.push({
       severity: "error",
-      message: `Class "${sym.name}" expects ${range} constructor argument(s) but got ${argTypes.length}`,
+        message: `${sym.symbolKind === "struct" ? "Struct" : "Class"} "${sym.name}" expects ${range} constructor argument(s) but got ${argTypes.length}`,
       span: callSpan,
       module: table.path,
     });
@@ -2820,7 +2826,7 @@ function validateConstructorArgs(
 
 function validateNamedConstructorArgs(
   host: CheckerHost,
-  sym: ClassSymbol,
+  sym: NominalObjectSymbol,
   props: ObjectProperty[],
   nominal: boolean,
   table: ModuleSymbolTable,
@@ -2837,8 +2843,8 @@ function validateNamedConstructorArgs(
       info.diagnostics.push({
         severity: "error",
         message: constructorSource === "parameter"
-          ? `Class "${sym.name}" does not have a constructor parameter "${prop.name}"`
-          : `Class "${sym.name}" does not have a field "${prop.name}"`,
+          ? `${sym.symbolKind === "struct" ? "Struct" : "Class"} "${sym.name}" does not have a constructor parameter "${prop.name}"`
+          : `${sym.symbolKind === "struct" ? "Struct" : "Class"} "${sym.name}" does not have a field "${prop.name}"`,
         span: prop.span,
         module: table.path,
       });
@@ -2880,7 +2886,7 @@ function resolveUnionForLiteral(
   info: ModuleTypeInfo,
 ): ResolvedType | null {
   const candidates = unionType.types.filter(
-    (t): t is Extract<ResolvedType, { kind: "class" }> => t.kind === "class",
+    (t): t is NominalObjectType => t.kind === "class" || t.kind === "struct",
   );
   if (candidates.length === 0) return null;
 
@@ -2913,7 +2919,7 @@ function resolveUnionForObjectLiteral(
   info: ModuleTypeInfo,
 ): { resolvedType: ResolvedType | null; diagnostic?: string } {
   const candidates = unionType.types.filter(
-    (t): t is Extract<ResolvedType, { kind: "class" }> => t.kind === "class",
+    (t): t is NominalObjectType => t.kind === "class" || t.kind === "struct",
   );
   if (candidates.length === 0) {
     return {
@@ -2922,7 +2928,10 @@ function resolveUnionForObjectLiteral(
     };
   }
 
-  const sharedDiscriminator = findSharedDiscriminator(candidates.map((candidate) => candidate.symbol));
+  const classCandidates = candidates.filter((candidate): candidate is ClassType => candidate.kind === "class");
+  const sharedDiscriminator = classCandidates.length === candidates.length
+    ? findSharedDiscriminator(classCandidates.map((candidate) => candidate.symbol))
+    : null;
   const disambiguationHint = sharedDiscriminator
     ? `; add "${sharedDiscriminator.fieldName}" to disambiguate`
     : "";
@@ -2965,7 +2974,7 @@ function resolveUnionForObjectLiteral(
 
       return {
         resolvedType: null,
-        diagnostic: `Object literal discriminator "${constDiscriminatorProp.name}" value "${discValue}" does not match any class in union type "${typeToString(unionType)}"`,
+        diagnostic: `Object literal discriminator "${constDiscriminatorProp.name}" value "${discValue}" does not match any nominal type in union type "${typeToString(unionType)}"`,
       };
     }
   }
@@ -2981,7 +2990,7 @@ function resolveUnionForObjectLiteral(
   if (matching.length === 0) {
     return {
       resolvedType: null,
-      diagnostic: `Object literal does not match any class in union type "${typeToString(unionType)}"${disambiguationHint}`,
+      diagnostic: `Object literal does not match any nominal type in union type "${typeToString(unionType)}"${disambiguationHint}`,
     };
   }
 

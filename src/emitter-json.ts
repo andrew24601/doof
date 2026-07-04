@@ -2,7 +2,7 @@
  * C++ JSON serialization code generation — toJsonObject / fromJsonValue methods.
  *
  * Generates doof::JsonValue-based serialization and deserialization code
- * for classes, interface variant types, and discriminated class-union aliases. Handles nested classes, arrays,
+ * for classes/structs, interface variant types, and discriminated class-union aliases. Handles nested nominal objects, arrays,
  * tuples, enums, nullable types, and const discriminator fields.
  */
 
@@ -26,7 +26,7 @@ import type { ClassSymbol } from "./types.js";
  * `.toJsonObject()` / `.fromJsonValue()`, this function:
  *   1. Marks all implementing classes of a `needsJson` interface
  *   2. Recursively marks all class types referenced by fields of
- *      `needsJson` classes (so nested serialization works)
+ *      `needsJson` classes/structs (so nested serialization works)
  *
  * Must be called once before any emission begins.
  */
@@ -85,7 +85,7 @@ export function propagateJsonDemand(analysisResult: AnalysisResult): void {
   }
 }
 
-/** Recursively find class types within a ResolvedType and add them to the worklist. */
+/** Recursively find nominal object types within a ResolvedType and add them to the worklist. */
 export function markReferencedClasses(
   type: ResolvedType,
   classDecls: Map<string, ClassDeclaration[]>,
@@ -97,6 +97,18 @@ export function markReferencedClasses(
 
   switch (type.kind) {
     case "class": {
+      const decls = classDecls.get(type.symbol.name);
+      if (decls) {
+        for (const decl of decls) {
+          if (!decl.needsJson) {
+            decl.needsJson = true;
+            worklist.push(decl);
+          }
+        }
+      }
+      break;
+    }
+    case "struct": {
       const decls = classDecls.get(type.symbol.name);
       if (decls) {
         for (const decl of decls) {
@@ -157,6 +169,9 @@ export function emitSerializeExpr(fieldExpr: string, type: ResolvedType): string
 
     case "class":
       return `doof::json_value(${fieldExpr}->toJsonObject())`;
+
+    case "struct":
+      return `doof::json_value(${fieldExpr}.toJsonObject())`;
 
     case "array":
       return `[&]() { auto _arr = std::make_shared<std::vector<doof::JsonValue>>(); _arr->reserve(${fieldExpr}->size()); for (const auto& _el : *${fieldExpr}) { _arr->push_back(${emitSerializeExpr("_el", type.elementType)}); } return doof::json_value(_arr); }()`;
@@ -224,6 +239,9 @@ export function emitDeserializeExpr(
     case "class":
       return `${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
 
+    case "struct":
+      return `${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
+
     case "array": {
       const elementType = emitType(type.elementType, ctx.module.path);
       return `[&]() { const auto* _arr = doof::json_as_array(${jsonExpr}); if (_arr == nullptr) { doof::panic("Expected JSON array"); } auto _vec = std::make_shared<std::vector<${elementType}>>(); _vec->reserve(_arr->size()); for (const auto& _el : *_arr) { _vec->push_back(${emitDeserializeExpr("_el", type.elementType, ctx, lenientExpr)}); } return _vec; }()`;
@@ -288,6 +306,7 @@ export function emitJsonTypeCheck(jsonExpr: string, type: ResolvedType, lenientE
       }
       return "true";
     case "class":
+    case "struct":
       return `doof::json_is_object(${jsonExpr})`;
     case "array":
     case "tuple":
@@ -332,6 +351,7 @@ export function jsonTypeName(type: ResolvedType): string {
       }
       return "value";
     case "class":
+    case "struct":
       return "object";
     case "array":
     case "tuple":
@@ -349,7 +369,7 @@ export function jsonTypeName(type: ResolvedType): string {
 // toJsonObject / fromJsonValue method generation
 // ============================================================================
 
-/** Generate toJsonObject() for a class. */
+/** Generate toJsonObject() for a class or struct. */
 export function emitToJSON(
   decl: ClassDeclaration,
   _cppName: string,
@@ -380,7 +400,7 @@ export function emitToJSON(
   ctx.sourceLines.push(`${memberInd}}`);
 }
 
-/** Generate fromJsonValue() for a class. */
+/** Generate fromJsonValue() for a class or struct. */
 export function emitFromJSON(
   decl: ClassDeclaration,
   cppName: string,
@@ -388,7 +408,9 @@ export function emitFromJSON(
 ): void {
   const memberInd = indent({ indent: ctx.indent + 1 });
   const bodyInd = indent({ indent: ctx.indent + 2 });
-  const resultType = `doof::Result<std::shared_ptr<${cppName}>, std::string>`;
+  const isValueObject = decl.storage === "value";
+  const resultValueType = isValueObject ? cppName : `std::shared_ptr<${cppName}>`;
+  const resultType = `doof::Result<${resultValueType}, std::string>`;
 
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
@@ -457,9 +479,11 @@ export function emitFromJSON(
 
   if (constructorFields.length > 0) {
     const args = constructorFields.map((field) => `_f_${emitIdentifierSafe(field.name)}`).join(", ");
-    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(std::make_shared<${cppName}>(${args}));`);
+    const constructed = isValueObject ? `${cppName}(${args})` : `std::make_shared<${cppName}>(${args})`;
+    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(${constructed});`);
   } else {
-    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(std::make_shared<${cppName}>());`);
+    const constructed = isValueObject ? `${cppName}{}` : `std::make_shared<${cppName}>()`;
+    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(${constructed});`);
   }
 
   ctx.sourceLines.push(`${memberInd}}`);

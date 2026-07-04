@@ -306,6 +306,31 @@ describe("Parser — class declarations", () => {
     }
   });
 
+  it("parses simple struct as a value class declaration", () => {
+    const stmt = firstStmt(`struct Point {
+      x, y: int
+    }`);
+    expect(stmt).toMatchObject({ kind: "class-declaration", name: "Point", storage: "value" });
+    if (stmt.kind === "class-declaration") {
+      expect(stmt.fields[0].names).toEqual(["x", "y"]);
+    }
+  });
+
+  it("parses exported generic struct with methods", () => {
+    const stmt = firstStmt(`export struct Box<T> {
+      value: T
+      get(): T => value
+    }`);
+    expect(stmt).toMatchObject({
+      kind: "export-declaration",
+      declaration: { kind: "class-declaration", name: "Box", storage: "value", exported: true },
+    });
+    if (stmt.kind === "export-declaration" && stmt.declaration.kind === "class-declaration") {
+      expect(stmt.declaration.typeParams).toEqual(["T"]);
+      expect(stmt.declaration.methods[0].name).toBe("get");
+    }
+  });
+
   it("parses class with readonly and default fields", () => {
     const stmt = firstStmt(`class User {
       readonly id: int;

@@ -1096,6 +1096,23 @@ describe("Function argument type checking", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("accepts struct construction in default parameter values", () => {
+    const info = check(
+      {
+        "/main.do": `
+          struct Point {
+            x: double
+            y: double
+          }
+
+          function translate(point: Point = Point { x: 0.0, y: 0.0 }): Point => point
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("rejects incompatible default parameter value", () => {
     const info = check(
       {

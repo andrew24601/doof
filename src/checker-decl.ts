@@ -379,7 +379,28 @@ export function checkClass(
   const classSymbol = table.symbols.get(decl.name);
   const thisType: ResolvedType = classSymbol?.symbolKind === "class"
     ? { kind: "class", symbol: classSymbol }
-    : UNKNOWN_TYPE;
+    : classSymbol?.symbolKind === "struct"
+      ? { kind: "struct", symbol: classSymbol }
+      : UNKNOWN_TYPE;
+
+  if (decl.storage === "value") {
+    if (decl.destructor) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Struct "${decl.name}" cannot declare a destructor`,
+        span: decl.destructor.span,
+        module: table.path,
+      });
+    }
+    for (const ifaceRef of decl.implements_) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Struct "${decl.name}" cannot implement interfaces yet`,
+        span: ifaceRef.span,
+        module: table.path,
+      });
+    }
+  }
 
   for (const field of decl.fields) {
     if (field.deprecatedConstSyntax) {
@@ -418,6 +439,15 @@ export function checkClass(
       },
     );
     field.resolvedType = declaredFieldType ?? undefined;
+
+    if (decl.storage === "value" && (field.weak_ || (field.resolvedType && containsWeakType(field.resolvedType)))) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Struct field "${field.names[0] ?? "<field>"}" cannot be weak`,
+        span: field.span,
+        module: table.path,
+      });
+    }
 
     if (field.defaultValue) {
       const { inferredType: inferredDefaultType, finalizedType: finalizedDefaultType } = resolveDeclaredValue(
@@ -539,6 +569,18 @@ export function checkClass(
   if (decl.typeParams.length > 0) {
     host.typeParamStack.pop();
   }
+}
+
+function containsWeakType(type: ResolvedType): boolean {
+  if (type.kind === "weak") return true;
+  if (type.kind === "union") return type.types.some(containsWeakType);
+  if (type.kind === "array") return containsWeakType(type.elementType);
+  if (type.kind === "map") return containsWeakType(type.keyType) || containsWeakType(type.valueType);
+  if (type.kind === "set") return containsWeakType(type.elementType);
+  if (type.kind === "tuple") return type.elements.some(containsWeakType);
+  if (type.kind === "result") return containsWeakType(type.successType) || containsWeakType(type.errorType);
+  if (type.kind === "promise") return containsWeakType(type.valueType);
+  return false;
 }
 
 export function checkMethod(

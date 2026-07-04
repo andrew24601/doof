@@ -2,7 +2,7 @@
 
 ## JSON Serialization
 
-Classes with all-serializable fields and no dedicated `constructor` method automatically get `.toJsonObject()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested classes are included).
+Classes and structs with all-serializable fields and no dedicated `constructor` method automatically get `.toJsonObject()` and `.fromJsonValue(json, lenient = false)`. Code is generated **on-demand** — only when these methods are actually called in code. Generation is transitive (nested serializable nominal objects are included).
 
 ### `.toJsonObject()` — Instance Method
 
@@ -35,7 +35,7 @@ Rules:
 | `string`, `char` | string |
 | `bool` | boolean |
 | `null` | null |
-| Class instances | object (recursive) |
+| Class or struct instances | object (recursive) |
 | `T[]` | array |
 | `Tuple<T1, T2>` | array |
 | Enums (opaque) | string (member name) |
@@ -43,7 +43,7 @@ Rules:
 | Enums (int) | number (value) |
 | `T | null` | value or null |
 
-**Not serializable:** function types, `weak` references, `Actor<T>`, `Promise<T>`, `Result<T,E>`, `void`, classes with a dedicated static `constructor(...): Self`.
+**Not serializable:** function types, `weak` references, `Actor<T>`, `Promise<T>`, `Result<T,E>`, `void`, classes or structs with a dedicated static `constructor(...): Self`.
 
 ### `.fromJsonValue()` — Static Method
 
@@ -65,7 +65,7 @@ user := decode<User>{ json: payload }
 ```
 
 `JsonSerializable` is constraint-only, not a normal value type. Concrete
-instantiations must use JSON-serializable classes.
+instantiations must use JSON-serializable classes or structs.
 
 Rules:
 - Fields without defaults are **required**
@@ -133,7 +133,7 @@ Not supported on: `let`, `:=`, imports/exports.
 
 ## Tool Metadata (`.metadata`)
 
-Classes with descriptions can expose structured metadata (generated on-demand):
+Classes and structs with descriptions can expose structured metadata (generated on-demand):
 
 ```doof
 meta := Calculator.metadata
@@ -161,4 +161,4 @@ meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JsonValue, JsonValue
 | `(T, U)` | `{ "type": "array", "prefixItems": [...] }` |
 | `T \| U` | `{ "anyOf": [...] }` |
 | `enum E` | `{ "enum": ["A", "B", ...] }` |
-| Class type | `{ "$ref": "#/$defs/ClassName" }` |
+| Class or struct type | `{ "$ref": "#/$defs/TypeName" }` |

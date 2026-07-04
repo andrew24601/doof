@@ -92,6 +92,50 @@ describe("checker — SourceLocation and @caller", () => {
   });
 });
 
+describe("checker — pass-by-value structs", () => {
+  it("resolves struct declarations and construction as struct types", () => {
+    const cr = check({
+      "/main.do": `
+        struct Point {
+          x: int
+          y: int
+        }
+
+        function main(): int {
+          p := Point(1, 2)
+          return p.x + p.y
+        }
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+    const structDecl = cr.program.statements[0];
+    expect(structDecl).toMatchObject({ kind: "class-declaration", storage: "value" });
+    if (structDecl.kind === "class-declaration") {
+      expect(cr.result.modules.get("/main.do")?.symbols.get("Point")?.symbolKind).toBe("struct");
+    }
+    const pointTypes = findTypes(cr, (type) => type.kind === "struct" && type.symbol.name === "Point");
+    expect(pointTypes.some((type) => type.kind === "struct" && type.symbol.name === "Point")).toBe(true);
+  });
+
+  it("rejects weak fields, destructors, and interfaces on structs", () => {
+    const cr = check({
+      "/main.do": `
+        interface Named { name: string }
+        struct Node implements Named {
+          name: string
+          parent: weak Node | null = null
+          destructor {}
+        }
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics.some((d) => d.message.includes("cannot implement interfaces yet"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes("cannot be weak"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes("cannot declare a destructor"))).toBe(true);
+  });
+});
+
 describe("checker — catchPanic", () => {
   it("infers catchPanic as Result<T, string> from a callback return type", () => {
     const cr = check({ "/main.do": `
