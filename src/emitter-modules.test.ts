@@ -865,6 +865,29 @@ describe("emitter-module — multi-module hpp includes", () => {
     expect(hppCode).toContain("Mode mode;");
   });
 
+  it("hpp includes imported enum definitions used inside map fields", () => {
+    const { hppCode } = emitSplitMulti(
+      {
+        "/main.do": `
+          import { Suit } from "./cards"
+
+          export class Pile {}
+
+          export class State {
+            foundations: Map<Suit, Pile> = { .Spades: Pile {} }
+          }
+        `,
+        "/cards.do": `
+          export enum Suit { Spades, Hearts }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(hppCode).toContain('#include "cards.hpp"');
+    expect(hppCode).toContain("doof::ordered_map<::app::cards::Suit, std::shared_ptr<Pile>>");
+  });
+
   it("hpp includes imported extern class modules for header-visible fields", () => {
     const { hppCode } = emitSplitMulti(
       {

@@ -1280,6 +1280,12 @@ function typeNeedsCompleteExternalValueType(type: ResolvedType | null | undefine
     case "function":
       return type.params.some((param) => typeNeedsCompleteExternalValueType(param.type, currentModulePath))
         || typeNeedsCompleteExternalValueType(type.returnType, currentModulePath);
+    case "array":
+    case "set":
+      return typeNeedsCompleteExternalValueType(type.elementType, currentModulePath);
+    case "map":
+      return typeNeedsCompleteExternalValueType(type.keyType, currentModulePath)
+        || typeNeedsCompleteExternalValueType(type.valueType, currentModulePath);
     case "union":
       return type.types.some((inner) => typeNeedsCompleteExternalValueType(inner, currentModulePath));
     case "tuple":
