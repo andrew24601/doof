@@ -142,7 +142,7 @@ function applyDeepReadonlyInternal(
     case "actor": {
       const readonlyActor: ActorType = { kind: "actor", innerClass: type.innerClass };
       seen.set(type, readonlyActor);
-      readonlyActor.innerClass = applyDeepReadonlyInternal(type.innerClass, seen) as ClassType;
+      readonlyActor.innerClass = applyDeepReadonlyInternal(type.innerClass, seen) as typeof type.innerClass;
       return readonlyActor;
     }
     case "success-wrapper": {
@@ -160,13 +160,13 @@ function applyDeepReadonlyInternal(
     case "class-metadata": {
       const readonlyMetadata: ClassMetaType = { kind: "class-metadata", classType: type.classType };
       seen.set(type, readonlyMetadata);
-      readonlyMetadata.classType = applyDeepReadonlyInternal(type.classType, seen) as ClassType;
+      readonlyMetadata.classType = applyDeepReadonlyInternal(type.classType, seen) as typeof type.classType;
       return readonlyMetadata;
     }
     case "method-reflection": {
       const readonlyMethodReflection: MethodReflectionType = { kind: "method-reflection", classType: type.classType };
       seen.set(type, readonlyMethodReflection);
-      readonlyMethodReflection.classType = applyDeepReadonlyInternal(type.classType, seen) as ClassType;
+      readonlyMethodReflection.classType = applyDeepReadonlyInternal(type.classType, seen) as typeof type.classType;
       return readonlyMethodReflection;
     }
     default:

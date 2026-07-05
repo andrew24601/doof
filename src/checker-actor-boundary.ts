@@ -35,6 +35,7 @@ export function findActorBoundaryViolation(
     case "unknown":
     case "typevar":
     case "json-serializable-constraint":
+    case "reflectable-constraint":
       return null;
 
     case "actor":

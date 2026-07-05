@@ -447,6 +447,10 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
     return staticClassAccess;
   }
 
+  if (objType && objType.kind === "typevar" && expr.property === "metadata") {
+    return `doof::metadata_for_type<${objType.name}>()`;
+  }
+
   const staticInterfaceAccess = getNamedInterfaceStaticAccess(expr);
   if (staticInterfaceAccess) {
     return staticInterfaceAccess;
@@ -586,6 +590,11 @@ export function emitQualifiedMemberExpression(expr: QualifiedMemberExpression, c
   const classStaticAccess = getQualifiedClassStaticAccess(expr, ctx);
   if (classStaticAccess) {
     return classStaticAccess;
+  }
+
+  const qualifiedObjType = expr.object.resolvedType;
+  if (qualifiedObjType && qualifiedObjType.kind === "typevar" && expr.property === "metadata") {
+    return `doof::metadata_for(${emitExpression(expr.object, ctx)})`;
   }
 
   const typeAliasStaticAccess = getQualifiedTypeAliasStaticAccess(expr);

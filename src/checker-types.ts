@@ -207,18 +207,25 @@ export interface JsonSerializableConstraintType {
   kind: "json-serializable-constraint";
 }
 
+/** Constraint-only marker for type parameters that can use generated metadata helpers. */
+export interface ReflectableConstraintType {
+  kind: "reflectable-constraint";
+}
+
+export type MetadataOwnerType = ClassType | StructType | TypeVariableType;
+
 /** Structured metadata for a class — returned by ClassName.metadata. */
 export interface ClassMetaType {
   kind: "class-metadata";
   /** The class this metadata describes. */
-  classType: ClassType | StructType;
+  classType: MetadataOwnerType;
 }
 
 /** A single method reflection entry — element of ClassMetadata.methods. */
 export interface MethodReflectionType {
   kind: "method-reflection";
   /** The class this method belongs to. */
-  classType: ClassType | StructType;
+  classType: MetadataOwnerType;
 }
 
 /** A fully-resolved semantic type. */
@@ -251,6 +258,7 @@ export type ResolvedType =
   | FailureWrapperType
   | TypeVariableType
   | JsonSerializableConstraintType
+  | ReflectableConstraintType
   | ClassMetaType
   | MethodReflectionType;
 
@@ -271,6 +279,7 @@ export const NULL_TYPE: NullType = { kind: "null" };
 export const UNKNOWN_TYPE: UnknownType = { kind: "unknown" };
 export const RANGE_TYPE: RangeResolvedType = { kind: "range" };
 export const JSON_SERIALIZABLE_CONSTRAINT_TYPE: JsonSerializableConstraintType = { kind: "json-serializable-constraint" };
+export const REFLECTABLE_CONSTRAINT_TYPE: ReflectableConstraintType = { kind: "reflectable-constraint" };
 
 export const JSON_VALUE_TYPE = {
   kind: "union",
@@ -485,6 +494,8 @@ export function typeToString(t: ResolvedType): string {
       return t.name;
     case "json-serializable-constraint":
       return "JsonSerializable";
+    case "reflectable-constraint":
+      return "Reflectable";
     case "class-metadata":
       return `ClassMetadata<${typeToString(t.classType)}>`;
     case "method-reflection":
@@ -731,6 +742,8 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
 
   if (target.kind === "json-serializable-constraint") return isJSONSerializable(source);
   if (source.kind === "json-serializable-constraint") return false;
+  if (target.kind === "reflectable-constraint") return source.kind === "class" || source.kind === "struct";
+  if (source.kind === "reflectable-constraint") return false;
 
   // Type variables are wildcards (unresolved generic params).
   if (source.kind === "typevar" || target.kind === "typevar") return true;
@@ -1045,6 +1058,8 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       return a.name === (b as TypeVariableType).name;
     case "json-serializable-constraint":
       return b.kind === "json-serializable-constraint";
+    case "reflectable-constraint":
+      return b.kind === "reflectable-constraint";
     case "class-metadata":
       return b.kind === "class-metadata" && typesEqual(a.classType, b.classType);
     case "method-reflection":
@@ -1125,7 +1140,12 @@ export function substituteTypeParams(
     case "typevar":
       return paramMap.get(type.name) ?? type;
     case "json-serializable-constraint":
+    case "reflectable-constraint":
       return type;
+    case "class-metadata":
+      return { kind: "class-metadata", classType: substituteTypeParams(type.classType, paramMap) as MetadataOwnerType };
+    case "method-reflection":
+      return { kind: "method-reflection", classType: substituteTypeParams(type.classType, paramMap) as MetadataOwnerType };
     case "array":
       return {
         kind: "array",
@@ -1448,6 +1468,7 @@ export function isJSONSerializable(
     case "failure-wrapper":
     case "typevar":
     case "json-serializable-constraint":
+    case "reflectable-constraint":
     case "class-metadata":
     case "method-reflection":
       return false;

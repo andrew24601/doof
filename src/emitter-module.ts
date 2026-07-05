@@ -4632,6 +4632,9 @@ function maybeRecordGenericMethodInstantiation(
   if (!methodDecl || methodDecl.typeParams.length === 0) {
     return;
   }
+  if (expr.resolvedGenericOwnerClass.declaration.typeParams.length === 0 && !functionDeclIsStreamSensitive(methodDecl)) {
+    return;
+  }
 
   const ownerType = getGenericMethodOwnerType(expr, typeSubstitution);
   if (!ownerType || ownerType.kind !== "class") {

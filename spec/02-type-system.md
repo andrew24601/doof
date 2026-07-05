@@ -896,12 +896,17 @@ let unique: Set<int> = [1, 2, 3, 2, 1]  // Contains {1, 2, 3}
 When a declaration or default value uses `Map`, `ReadonlyMap`, `Set`, or `ReadonlySet` **without type arguments**, the checker may infer the missing type arguments only from a **same-site non-empty homogeneous literal**.
 
 Generic type parameters can use constraints such as `T: int | long` to restrict
-valid type arguments. `JsonSerializable` is a compiler-known, constraint-only
-intrinsic used by generic JSON helpers; it is not a normal type annotation:
+valid type arguments. `JsonSerializable` and `Reflectable` are compiler-known,
+constraint-only intrinsics used by generic JSON and metadata helpers; they are
+not normal type annotations:
 
 ```javascript
 function decode<T: JsonSerializable>(json: JsonValue): Result<T, string> {
   return T.fromJsonValue(json)
+}
+
+function toolName<T: Reflectable>(tool: T): string {
+  return T.metadata.name
 }
 ```
 

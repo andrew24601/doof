@@ -2054,6 +2054,15 @@ public:
     }
 };
 
+template <typename T>
+struct metadata_inner { using type = T; };
+
+template <typename T>
+struct metadata_inner<std::shared_ptr<T>> { using type = T; };
+
+template <typename T>
+using metadata_inner_t = typename metadata_inner<std::decay_t<T>>::type;
+
 } // namespace doof
 
 // ============================================================================
@@ -2130,6 +2139,16 @@ struct ClassMetadata {
         return invoke(*instance, methodName, params);
     }
 };
+
+template <typename T>
+const doof::ClassMetadata<metadata_inner_t<T>>& metadata_for(const T&) {
+    return metadata_inner_t<T>::_metadata;
+}
+
+template <typename T>
+const doof::ClassMetadata<metadata_inner_t<T>>& metadata_for_type() {
+    return metadata_inner_t<T>::_metadata;
+}
 
 } // namespace doof
 

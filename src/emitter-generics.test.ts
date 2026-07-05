@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { emit, emitMulti, emitSplit } from "./emitter-test-helpers.js";
+import { emit, emitMulti, emitProjectHelper, emitSplit } from "./emitter-test-helpers.js";
 import { emitType } from "./emitter-types.js";
 import { emitModuleNamespace } from "./emitter-names.js";
 import type { ResolvedType } from "./checker-types.js";
@@ -57,6 +57,47 @@ const user = decode<User>{ json: payload }
 `);
     expect(cpp).toContain("template<typename T>");
     expect(cpp).toContain("T::element_type::fromJsonValue(json)");
+  });
+
+  it("emits generic metadata access through metadata_for_type", () => {
+    const cpp = emit(`
+class Tool {
+  function run(input: string): string => input
+}
+function describe<T: Reflectable>(tool: T): string {
+  return T.metadata.name
+}
+const name = describe<Tool>{ tool: Tool { } }
+`);
+    expect(cpp).toContain("template<typename T>");
+    expect(cpp).toContain("doof::metadata_for_type<T>().name");
+    expect(cpp).toContain("Tool::_metadata");
+  });
+
+  it("emits imported generic Reflectable method calls without extra specialization", () => {
+    const project = emitProjectHelper({
+      "/lib.do": `
+        export class Session {
+          addTools<T: Reflectable>(tools: T): string {
+            return T.metadata.name
+          }
+        }
+      `,
+      "/main.do": `
+        import { Session } from "./lib"
+        class LocalTools {
+          run(input: string): string => input
+        }
+        const session = Session { }
+        const name = session.addTools(LocalTools { })
+      `,
+    }, "/main.do");
+    const libHeader = project.modules.find((module) => module.hppPath === "lib.hpp")?.hppCode ?? "";
+    const mainCpp = project.modules.find((module) => module.cppPath === "main.cpp")?.cppCode ?? "";
+    expect(libHeader).toContain("template<typename T>");
+    expect(libHeader).toContain("doof::metadata_for_type<T>().name");
+    expect(libHeader).not.toContain("Session<>::addTools");
+    expect(mainCpp).toContain("LocalTools::_metadata");
   });
 
   it("emits template prefix with multiple type params", () => {

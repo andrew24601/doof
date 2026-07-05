@@ -12,6 +12,7 @@ import {
   type Scope,
   typeToString,
   JSON_SERIALIZABLE_CONSTRAINT_TYPE,
+  REFLECTABLE_CONSTRAINT_TYPE,
   UNKNOWN_TYPE,
   VOID_TYPE,
 } from "./checker-types.js";
@@ -40,6 +41,9 @@ function resolveTypeParamConstraintTypes(
     const constraint = typeParamConstraints[index] ?? null;
     if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
       return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+    }
+    if (constraint?.kind === "named-type" && constraint.name === "Reflectable" && constraint.typeArgs.length === 0) {
+      return REFLECTABLE_CONSTRAINT_TYPE;
     }
     return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
   });

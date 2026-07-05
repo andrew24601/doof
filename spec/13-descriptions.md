@@ -143,6 +143,21 @@ println(meta.name)          // "Calculator"
 println(meta.description)   // "A simple calculator."
 ```
 
+Generic functions can access `.metadata` on a type parameter only when that
+parameter has the compiler-known `Reflectable` constraint:
+
+```doof
+function toolName<T: Reflectable>(tool: T): string {
+    return T.metadata.name
+}
+
+name := toolName<Calculator>{ tool: Calculator { } }
+```
+
+`Reflectable` is a constraint-only intrinsic. It is not a normal value type, and
+each concrete type argument must be a non-generic class or struct eligible for
+metadata and automatic JSON generation.
+
 ### `MethodReflection`
 
 Each entry in `.methods` is a `MethodReflection` with:

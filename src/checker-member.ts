@@ -10,7 +10,9 @@ import {
   type ModuleTypeInfo,
   type ResolvedType,
   type StructType,
+  JSON_SERIALIZABLE_CONSTRAINT_TYPE,
   JSON_VALUE_TYPE,
+  REFLECTABLE_CONSTRAINT_TYPE,
   JSON_OBJECT_TYPE,
   STRING_TYPE,
   BOOL_TYPE,
@@ -143,6 +145,27 @@ function withMethodTypeParams<T>(
   }
 }
 
+function resolveMethodTypeParamConstraints(
+  host: CheckerHost,
+  method: ClassDeclaration["methods"][number],
+  classTable: ModuleSymbolTable,
+): (ResolvedType | null)[] | undefined {
+  if (method.typeParams.length === 0 || !method.typeParamConstraints || method.typeParamConstraints.length === 0) {
+    return undefined;
+  }
+  const constraints = method.typeParamConstraints;
+  return method.typeParams.map((_, index) => {
+    const constraint = constraints[index] ?? null;
+    if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
+      return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+    }
+    if (constraint?.kind === "named-type" && constraint.name === "Reflectable" && constraint.typeArgs.length === 0) {
+      return REFLECTABLE_CONSTRAINT_TYPE;
+    }
+    return constraint ? host.resolveTypeAnnotation(constraint, classTable) : null;
+  });
+}
+
 function resolveClassFieldType(
   host: CheckerHost,
   classTable: ModuleSymbolTable,
@@ -164,32 +187,26 @@ function resolveClassMethodType(
   classDecl: ClassDeclaration,
   classSubMap?: Map<string, ResolvedType>,
 ): ResolvedType {
-  let methodType: ResolvedType = withMethodTypeParams(host, method, () => ({
-    kind: "function",
-    params: method.params.map((p) => ({
+  let methodType: ResolvedType = withMethodTypeParams(host, method, () => {
+    const params = method.params.map((p) => ({
       name: p.name,
       type: p.type ? host.resolveTypeAnnotation(p.type, classTable) : UNKNOWN_TYPE,
       hasDefault: p.defaultValue !== null,
       defaultValue: p.defaultValue,
-    })),
-    returnType: method.returnType
-      ? host.resolveTypeAnnotation(method.returnType, classTable)
-      : VOID_TYPE,
-    typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
-    mockCall: method.mock_
-      ? buildMockCallMetadata(
-          classTable.path,
-          method.name,
-          method.params.map((p) => ({
-            name: p.name,
-            type: p.type ? host.resolveTypeAnnotation(p.type, classTable) : UNKNOWN_TYPE,
-            hasDefault: p.defaultValue !== null,
-            defaultValue: p.defaultValue,
-          })),
-          classDecl.name,
-        )
-      : undefined,
-  }));
+    }));
+    return {
+      kind: "function",
+      params,
+      returnType: method.returnType
+        ? host.resolveTypeAnnotation(method.returnType, classTable)
+        : VOID_TYPE,
+      typeParams: method.typeParams.length > 0 ? method.typeParams : undefined,
+      typeParamConstraints: resolveMethodTypeParamConstraints(host, method, classTable),
+      mockCall: method.mock_
+        ? buildMockCallMetadata(classTable.path, method.name, params, classDecl.name)
+        : undefined,
+    };
+  });
   if (classSubMap) {
     methodType = substituteTypeParams(methodType, classSubMap);
   }
@@ -757,7 +774,7 @@ function inferTypeVariableStaticMemberType(
   info?: ModuleTypeInfo,
   span?: SourceSpan,
 ): ResolvedType {
-  if (mode === "instance" || property !== "fromJsonValue") {
+  if (mode === "instance") {
     reportMemberDiagnostic(
       info,
       table,
@@ -768,6 +785,29 @@ function inferTypeVariableStaticMemberType(
   }
 
   const constraint = findTypeParamConstraint(host, objectType.name);
+  if (property === "metadata") {
+    if (constraint?.kind !== "reflectable-constraint") {
+      reportMemberDiagnostic(
+        info,
+        table,
+        span,
+        `Static member "metadata" requires type parameter "${objectType.name}" to be constrained by Reflectable`,
+      );
+      return UNKNOWN_TYPE;
+    }
+    return { kind: "class-metadata", classType: objectType };
+  }
+
+  if (property !== "fromJsonValue") {
+    reportMemberDiagnostic(
+      info,
+      table,
+      span,
+      `Property "${property}" does not exist on type "${objectType.name}"`,
+    );
+    return UNKNOWN_TYPE;
+  }
+
   if (constraint?.kind !== "json-serializable-constraint") {
     reportMemberDiagnostic(
       info,
@@ -1487,7 +1527,7 @@ function findInterfaceImplementors(host: CheckerHost, ifaceSym: InterfaceSymbol)
   return result;
 }
 
-function validateMetadataSerializability(
+export function validateMetadataSerializability(
   host: CheckerHost,
   classDecl: ClassDeclaration,
   objectType: NominalObjectType,

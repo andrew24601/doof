@@ -52,6 +52,7 @@ import {
   JSON_VALUE_TYPE,
   JSON_OBJECT_TYPE,
   JSON_SERIALIZABLE_CONSTRAINT_TYPE,
+  REFLECTABLE_CONSTRAINT_TYPE,
   LONG_TYPE,
   VOID_TYPE,
   NULL_TYPE,
@@ -890,6 +891,13 @@ export class TypeChecker {
         if (name === "SourceLocation") return BUILTIN_SOURCE_LOCATION_TYPE;
         if (name === "JsonValue") return JSON_VALUE_TYPE;
         if (name === "JsonObject") return JSON_OBJECT_TYPE;
+        if ((name === "ClassMetadata" || name === "MethodReflection") && ann.typeArgs.length === 1) {
+          const ownerType = this.resolveTypeAnnotation(ann.typeArgs[0], table);
+          if (ownerType.kind === "class" || ownerType.kind === "struct" || ownerType.kind === "typevar") {
+            return { kind: name === "ClassMetadata" ? "class-metadata" : "method-reflection", classType: ownerType };
+          }
+          return UNKNOWN_TYPE;
+        }
         if (name === "Range") return RANGE_TYPE;
         if (isPrimitiveName(name)) return { kind: "primitive", name };
         if (name === "void") return VOID_TYPE;
@@ -1302,6 +1310,9 @@ export class TypeChecker {
       const constraint = typeParamConstraints[index] ?? null;
       if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
         return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
+      }
+      if (constraint?.kind === "named-type" && constraint.name === "Reflectable" && constraint.typeArgs.length === 0) {
+        return REFLECTABLE_CONSTRAINT_TYPE;
       }
       return constraint ? this.resolveTypeAnnotation(constraint, table) : null;
     });

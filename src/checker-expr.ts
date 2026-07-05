@@ -28,6 +28,7 @@ import {
   isSupportedMapKeyType,
   JSON_VALUE_TYPE,
   JSON_SERIALIZABLE_CONSTRAINT_TYPE,
+  REFLECTABLE_CONSTRAINT_TYPE,
   LONG_TYPE,
   normalizeTypeForRuntime,
   NULL_TYPE,
@@ -56,7 +57,7 @@ import {
 } from "./checker-internal.js";
 import { findActorBoundaryViolation } from "./checker-actor-boundary.js";
 import { inferBinaryType, inferUnaryType, resolveExpectedEnumType } from "./checker-expr-ops.js";
-import { inferMemberType } from "./checker-member.js";
+import { inferMemberType, validateMetadataSerializability } from "./checker-member.js";
 import { buildCaseArmScope } from "./checker-result.js";
 import type { ClassSymbol, StructSymbol, ModuleSymbolTable } from "./types.js";
 
@@ -291,6 +292,9 @@ function resolveDeclarationTypeParamConstraints(
     if (constraint?.kind === "named-type" && constraint.name === "JsonSerializable" && constraint.typeArgs.length === 0) {
       return JSON_SERIALIZABLE_CONSTRAINT_TYPE;
     }
+    if (constraint?.kind === "named-type" && constraint.name === "Reflectable" && constraint.typeArgs.length === 0) {
+      return REFLECTABLE_CONSTRAINT_TYPE;
+    }
     return constraint ? host.resolveTypeAnnotation(constraint, table) : null;
   });
   host.typeParamStack.pop();
@@ -354,7 +358,61 @@ function validateJsonSerializableTypeArg(
   return argType;
 }
 
+function validateReflectableTypeArg(
+  host: CheckerHost,
+  typeParam: string,
+  argType: ResolvedType,
+  table: ModuleSymbolTable,
+  info: ModuleTypeInfo,
+  span: SourceSpan,
+): ResolvedType {
+  if (argType.kind === "unknown") return argType;
+
+  if (argType.kind !== "class" && argType.kind !== "struct") {
+    reportTypeArgumentConstraintViolation(info, table, span, typeParam, argType, REFLECTABLE_CONSTRAINT_TYPE);
+    return UNKNOWN_TYPE;
+  }
+
+  const decl = argType.symbol.declaration;
+  if (decl.typeParams.length > 0 || (argType.typeArgs && argType.typeArgs.length > 0)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `${argType.kind === "struct" ? "Struct" : "Class"} "${argType.symbol.name}" is generic and is not eligible for metadata reflection`,
+      span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+
+  decl.needsMetadata = true;
+  decl.needsJson = true;
+  if (hasDedicatedConstructor(decl)) {
+    info.diagnostics.push({
+      severity: "error",
+      message: `${argType.kind === "struct" ? "Struct" : "Class"} "${argType.symbol.name}" has a dedicated constructor and is not eligible for automatic JSON serialization`,
+      span,
+      module: table.path,
+    });
+    return UNKNOWN_TYPE;
+  }
+  const nonSerializable = collectNonSerializableFields(argType);
+  if (nonSerializable.length > 0) {
+    for (const { fieldName, typeStr } of nonSerializable) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Field "${fieldName}" of type "${typeStr}" is not JSON-serializable`,
+        span,
+        module: table.path,
+      });
+    }
+    return UNKNOWN_TYPE;
+  }
+  validateMetadataSerializability(host, decl, argType, table, info, span);
+  return argType;
+}
+
 function validateResolvedTypeArgsAgainstConstraints(
+  host: CheckerHost,
   typeParams: string[],
   typeParamConstraints: (ResolvedType | null)[] | undefined,
   resolvedTypeArgs: ResolvedType[] | undefined,
@@ -369,6 +427,9 @@ function validateResolvedTypeArgsAgainstConstraints(
     if (constraint?.kind === "json-serializable-constraint") {
       return validateJsonSerializableTypeArg(typeParams[index] ?? "T", argType, table, info, span);
     }
+    if (constraint?.kind === "reflectable-constraint") {
+      return validateReflectableTypeArg(host, typeParams[index] ?? "T", argType, table, info, span);
+    }
     if (!constraint || argType.kind === "unknown" || isAssignableTo(argType, constraint)) {
       return argType;
     }
@@ -378,6 +439,7 @@ function validateResolvedTypeArgsAgainstConstraints(
 }
 
 function validateInferredTypeArgsAgainstConstraints(
+  host: CheckerHost,
   typeParams: string[],
   typeParamConstraints: (ResolvedType | null)[] | undefined,
   paramMap: Map<string, ResolvedType>,
@@ -394,6 +456,10 @@ function validateInferredTypeArgsAgainstConstraints(
     const argType = paramMap.get(typeParam);
     if (constraint.kind === "json-serializable-constraint" && argType) {
       paramMap.set(typeParam, validateJsonSerializableTypeArg(typeParam, argType, table, info, span));
+      continue;
+    }
+    if (constraint.kind === "reflectable-constraint" && argType) {
+      paramMap.set(typeParam, validateReflectableTypeArg(host, typeParam, argType, table, info, span));
       continue;
     }
     if (!argType || argType.kind === "unknown" || isAssignableTo(argType, constraint)) continue;
@@ -492,6 +558,7 @@ function inferStaticOwnerClassTypeArgs(
     table,
   );
   validateInferredTypeArgsAgainstConstraints(
+    host,
     objectType.symbol.declaration.typeParams,
     typeParamConstraints,
     paramMap,
@@ -1701,6 +1768,7 @@ function inferExprTypeInner(
               paramMap,
             );
             validateInferredTypeArgsAgainstConstraints(
+              host,
               calleeType.typeParams,
               calleeType.typeParamConstraints,
               paramMap,
@@ -1753,6 +1821,7 @@ function inferExprTypeInner(
             paramMap,
           );
           validateInferredTypeArgsAgainstConstraints(
+            host,
             calleeType.typeParams,
             calleeType.typeParamConstraints,
             paramMap,
@@ -1835,6 +1904,7 @@ function inferExprTypeInner(
           );
           const paramMap = host.inferTypeArgs(calleeType.symbol.declaration.typeParams, constructorParams, argTypes);
           validateInferredTypeArgsAgainstConstraints(
+            host,
             calleeType.symbol.declaration.typeParams,
             typeParamConstraints,
             paramMap,
@@ -1995,6 +2065,7 @@ function inferExprTypeInner(
           table,
         );
         const resolvedTypeArgs = validateResolvedTypeArgsAgainstConstraints(
+          host,
           sym.declaration.typeParams,
           typeParamConstraints,
           host.resolveGenericTypeArgs(sym.declaration.typeParams, expr.typeArgs, table),
@@ -2052,6 +2123,7 @@ function inferExprTypeInner(
             }
             const inferredMap = host.inferTypeArgs(sym.declaration.typeParams, providedParams, providedArgTypes);
             validateInferredTypeArgsAgainstConstraints(
+              host,
               sym.declaration.typeParams,
               typeParamConstraints,
               inferredMap,
@@ -2142,6 +2214,7 @@ function inferExprTypeInner(
         let explicitTypeParamMap: Map<string, ResolvedType> | null = null;
         if (targetBinding.type.typeParams && targetBinding.type.typeParams.length > 0 && expr.typeArgs.length > 0) {
           const resolvedTypeArgs = validateResolvedTypeArgsAgainstConstraints(
+            host,
             targetBinding.type.typeParams,
             targetBinding.type.typeParamConstraints,
             host.resolveGenericTypeArgs(targetBinding.type.typeParams, expr.typeArgs, table),
@@ -2174,6 +2247,7 @@ function inferExprTypeInner(
           }
           const paramMap = host.inferTypeArgs(targetBinding.type.typeParams, providedParams, providedArgTypes);
           validateInferredTypeArgsAgainstConstraints(
+            host,
             targetBinding.type.typeParams,
             targetBinding.type.typeParamConstraints,
             paramMap,

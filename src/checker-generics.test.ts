@@ -349,6 +349,71 @@ describe("Checker — generic functions", () => {
     expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint "JsonSerializable"'))).toBe(true);
   });
 
+  it("accepts metadata on Reflectable type parameters", () => {
+    const cr = check({
+      "/main.do": `
+        class Tool {
+          function run(input: string): string => input
+        }
+        function describe<T: Reflectable>(tool: T): string {
+          return T.metadata.name
+        }
+        const name = describe<Tool>{ tool: Tool { } }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const classDecl = cr.program.statements[0] as any;
+    expect(classDecl.needsMetadata).toBe(true);
+    expect(classDecl.needsJson).toBe(true);
+  });
+
+  it("rejects metadata on unconstrained type parameters", () => {
+    const cr = check({
+      "/main.do": `
+        function describe<T>(tool: T): string {
+          return T.metadata.name
+        }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes("constrained by Reflectable"))).toBe(true);
+  });
+
+  it("rejects non-class Reflectable type arguments", () => {
+    const cr = check({
+      "/main.do": `
+        function describe<T: Reflectable>(tool: T): string {
+          return T.metadata.name
+        }
+        const name = describe<int>{ tool: 1 }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics.some((diag) => diag.message.includes('does not satisfy constraint "Reflectable"'))).toBe(true);
+  });
+
+  it("marks concrete classes passed to imported Reflectable methods for metadata", () => {
+    const cr = check({
+      "/lib.do": `
+        export class Session {
+          addTools<T: Reflectable>(tools: T): string {
+            return T.metadata.name
+          }
+        }
+      `,
+      "/main.do": `
+        import { Session } from "./lib"
+        class LocalTools {
+          run(input: string): string => input
+        }
+        const session = Session { }
+        const name = session.addTools(LocalTools { })
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    const classDecl = cr.program.statements[1] as any;
+    expect(classDecl.needsMetadata).toBe(true);
+    expect(classDecl.needsJson).toBe(true);
+  });
+
   it("rejects dedicated-constructor classes as JsonSerializable type arguments", () => {
     const cr = check({
       "/main.do": `

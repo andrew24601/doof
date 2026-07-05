@@ -233,12 +233,21 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
     case "json-serializable-constraint":
       throw new Error("JsonSerializable constraint should not reach C++ type emission");
 
+    case "reflectable-constraint":
+      throw new Error("Reflectable constraint should not reach C++ type emission");
+
     case "class-metadata": {
-      return `doof::ClassMetadata<${emitClassInnerType(type.classType, currentModulePath)}>`;
+      const ownerType = type.classType.kind === "typevar"
+        ? `doof::metadata_inner_t<${type.classType.name}>`
+        : emitClassInnerType(type.classType, currentModulePath);
+      return `doof::ClassMetadata<${ownerType}>`;
     }
 
     case "method-reflection": {
-      return `doof::MethodReflection<${emitClassInnerType(type.classType, currentModulePath)}>`;
+      const ownerType = type.classType.kind === "typevar"
+        ? `doof::metadata_inner_t<${type.classType.name}>`
+        : emitClassInnerType(type.classType, currentModulePath);
+      return `doof::MethodReflection<${ownerType}>`;
     }
   }
 }
@@ -301,6 +310,8 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return type.name;
     case "json-serializable-constraint":
       return "json_serializable";
+    case "reflectable-constraint":
+      return "reflectable";
     case "builtin-namespace":
       return type.name;
     case "mock-capture":
