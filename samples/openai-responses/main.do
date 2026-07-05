@@ -1,16 +1,19 @@
-import { createOpenAIClient, createResponse } from "./openai"
-import { jsonArrayValues, jsonIsArray, jsonIsObject, jsonObjectGet, jsonStringValue } from "./json_bridge"
+import {
+  OpenAIToolCall,
+  createInitialToolResponse,
+  createOpenAIClient,
+  createToolFollowUpResponse,
+  extractAssistantText,
+  extractResponseId,
+  extractToolCalls,
+  toolErrorOutput,
+  toolOutput,
+} from "./openai"
 import { invokeWeeknightTool, openAITools, WeeknightKitchenTools } from "./tools"
-import { parseJsonValue, formatJsonValue } from "std/json"
+import { formatJsonValue } from "std/json"
 
 export import class NativeEnv from "./native_env.hpp" {
   get(name: string): string
-}
-
-class PendingToolCall {
-  callId: string
-  name: string
-  args: JsonValue
 }
 
 function defaultModel(): string {
@@ -51,13 +54,12 @@ function main(args: string[]): int {
   client := createOpenAIClient(apiKey, model)
   tools := WeeknightKitchenTools { }
   let current: JsonValue = null
-  case createResponse(client, {
-    model,
-    instructions: "You are a concise assistant. Use the provided tools when they are relevant, and ground any tool-backed facts in the tool outputs.",
-    input: prompt,
-    tools: openAITools(),
-    tool_choice: "auto",
-  }) {
+  case createInitialToolResponse(
+    client,
+    "You are a concise assistant. Use the provided tools when they are relevant, and ground any tool-backed facts in the tool outputs.",
+    prompt,
+    openAITools(),
+  ) {
     s: Success -> {
       current = s.value
     }
@@ -69,7 +71,7 @@ function main(args: string[]): int {
   let round = 0
 
   while round < 4 {
-    let calls: PendingToolCall[] = []
+    let calls: OpenAIToolCall[] = []
     case extractToolCalls(current) {
       s: Success -> {
         calls = s.value
@@ -95,11 +97,7 @@ function main(args: string[]): int {
     }
 
     println("")
-    case createResponse(client, {
-      model,
-      previous_response_id: responseId!,
-      input: outputs,
-    }) {
+    case createToolFollowUpResponse(client, responseId!, outputs) {
       s: Success -> {
         current = s.value
       }
@@ -147,74 +145,6 @@ function promptFromArgs(args: string[]): string {
   return prompt
 }
 
-function extractResponseId(response: JsonValue): string | null {
-  if !jsonIsObject(response) {
-    return null
-  }
-
-  return jsonStringValue(jsonObjectGet(response, "id"))
-}
-
-function collectToolCalls(items: JsonValue[]): Result<PendingToolCall[], string> {
-  calls: PendingToolCall[] := []
-
-  for item of items {
-    if !jsonIsObject(item) {
-      continue
-    }
-
-    itemType := jsonStringValue(jsonObjectGet(item, "type"))
-    if itemType != "function_call" {
-      continue
-    }
-
-    callId := jsonStringValue(jsonObjectGet(item, "call_id"))
-    name := jsonStringValue(jsonObjectGet(item, "name"))
-    argumentsText := jsonStringValue(jsonObjectGet(item, "arguments"))
-
-    if callId == null || name == null || argumentsText == null {
-      return Failure("OpenAI returned a function_call item without call_id, name, or arguments")
-    }
-
-    case parseJsonValue(argumentsText!) {
-      parsed: Success -> {
-        calls.push(PendingToolCall {
-          callId: callId!,
-          name: name!,
-          args: parsed.value,
-        })
-      }
-      failed: Failure -> {
-        return Failure("OpenAI returned invalid JSON arguments for ${name!}: ${failed.error}")
-      }
-    }
-  }
-
-  return Success(calls)
-}
-
-function extractToolCalls(response: JsonValue): Result<PendingToolCall[], string> {
-  if !jsonIsObject(response) {
-    return Failure("OpenAI response was not an object")
-  }
-
-  output := jsonObjectGet(response, "output")
-  case output {
-    null -> {
-      emptyCalls: PendingToolCall[] := []
-      return Success { value: emptyCalls }
-    }
-    _ -> {
-    }
-  }
-
-  if !jsonIsArray(output) {
-    return Failure("OpenAI response field \"output\" was not an array")
-  }
-
-  return collectToolCalls(jsonArrayValues(output))
-}
-
 function toolErrorText(error: JsonValue): string {
   return case error {
     value: string -> value,
@@ -222,7 +152,7 @@ function toolErrorText(error: JsonValue): string {
   }
 }
 
-function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]): JsonValue[] {
+function executeToolCalls(tools: WeeknightKitchenTools, calls: OpenAIToolCall[]): JsonValue[] {
   outputs: JsonValue[] := []
 
   for call of calls {
@@ -231,98 +161,15 @@ function executeToolCalls(tools: WeeknightKitchenTools, calls: PendingToolCall[]
       s: Success -> {
         outputText := formatJsonValue(s.value)
         println("  -> ${outputText}")
-        outputs.push({
-          "type": "function_call_output",
-          call_id: call.callId,
-          output: outputText,
-        })
+        outputs.push(toolOutput(call.callId, s.value))
       }
       f: Failure -> {
         errorText := toolErrorText(f.error)
         println("  -> error: ${errorText}")
-        outputs.push({
-          "type": "function_call_output",
-          call_id: call.callId,
-          output: formatJsonValue({ error: errorText }),
-        })
+        outputs.push(toolErrorOutput(call.callId, f.error))
       }
     }
   }
 
   return outputs
-}
-
-function joinWithNewlines(parts: string[]): string {
-  let text = ""
-  let index = 0
-
-  while index < parts.length {
-    if text != "" {
-      text += "\n"
-    }
-    text += parts[index]
-    index += 1
-  }
-
-  return text
-}
-
-function collectMessageContent(parts: string[], contentItems: JsonValue[]): void {
-  for contentItem of contentItems {
-    if !jsonIsObject(contentItem) {
-      continue
-    }
-
-    partType := jsonStringValue(jsonObjectGet(contentItem, "type"))
-    if partType != "output_text" && partType != "text" {
-      continue
-    }
-
-    text := jsonStringValue(jsonObjectGet(contentItem, "text"))
-    if text != null && text != "" {
-      parts.push(text!)
-    }
-  }
-}
-
-function collectAssistantText(items: JsonValue[]): string | null {
-  parts: string[] := []
-
-  for item of items {
-    if !jsonIsObject(item) {
-      continue
-    }
-
-    if jsonStringValue(jsonObjectGet(item, "type")) != "message" {
-      continue
-    }
-
-    content := jsonObjectGet(item, "content")
-    if jsonIsArray(content) {
-      collectMessageContent(parts, jsonArrayValues(content))
-    }
-  }
-
-  if parts.length == 0 {
-    return null
-  }
-  return joinWithNewlines(parts)
-}
-
-function extractAssistantText(response: JsonValue): string | null {
-  if !jsonIsObject(response) {
-    return null
-  }
-
-  topLevel := jsonStringValue(jsonObjectGet(response, "output_text"))
-  if topLevel != null && topLevel != "" {
-    return topLevel
-  }
-
-  output := jsonObjectGet(response, "output")
-  if !jsonIsArray(output) {
-    return null
-  }
-
-  return collectAssistantText(jsonArrayValues(output))
 }

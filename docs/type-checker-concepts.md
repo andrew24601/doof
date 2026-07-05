@@ -66,12 +66,18 @@ Validation anchors:
 - `src/checker-validation.test.ts`
 - `spec/02-type-system.md`
 
-## Generic JSON Constraints
+## Generic JSON and Metadata Constraints
 
 `JsonSerializable` is a constraint-only intrinsic used to allow static JSON
 intrinsics on type parameters. `T.fromJsonValue(...)` is accepted only while the
 active type-parameter constraint stack records `T: JsonSerializable`; concrete
 generic instantiation then validates the class argument and marks it for JSON
+generation.
+
+`Reflectable` is the metadata counterpart. `T.metadata` is accepted only while
+the active type-parameter constraint stack records `T: Reflectable`; concrete
+generic instantiation then validates the class or struct argument, rejects
+generic or dedicated-constructor owners, and marks it for both metadata and JSON
 generation.
 
 Primary modules:
@@ -83,12 +89,12 @@ Primary modules:
 
 Keep aligned:
 
-- constraint resolution must preserve `JsonSerializable` as a marker rather than resolving it as a normal named type
-- member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` is rejected and constrained instantiations mark concrete classes `needsJson`
+- constraint resolution must preserve `JsonSerializable` and `Reflectable` as markers rather than resolving them as normal named types
+- member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` / `T.metadata` are rejected and constrained instantiations mark concrete classes for generated helpers
 - diagnostics and serializability checks should reuse the same field-level JSON helpers used by concrete class `.fromJsonValue()`
 - classes with a dedicated static `constructor(...): Self` must fail
-  `JsonSerializable` validation and direct `.toJsonObject()` / `.fromJsonValue()`
-  access
+  `JsonSerializable`, `Reflectable`, and direct `.toJsonObject()` /
+  `.fromJsonValue()` access
 
 Validation anchors:
 
@@ -96,6 +102,7 @@ Validation anchors:
 - `src/emitter-generics.test.ts`
 - `src/emitter-e2e-advanced.test.ts`
 - `spec/12-json-serialization.md`
+- `spec/13-descriptions.md`
 
 ## Declared Value and Default Resolution
 

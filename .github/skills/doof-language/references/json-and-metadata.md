@@ -148,6 +148,18 @@ meta.methods[0].outputSchema    // JsonValue JSON Schema Draft 7 object
 meta.methods[0].invoke(instance, { a: 1, b: 2 })  // Result<JsonValue, JsonValue>
 ```
 
+Generic helpers can access metadata on a type parameter with the compiler-known
+`Reflectable` constraint:
+
+```doof
+function toolName<T: Reflectable>(tool: T): string {
+  return T.metadata.name
+}
+```
+
+`Reflectable` is constraint-only; concrete arguments must be non-generic classes
+or structs that are eligible for metadata and automatic JSON generation.
+
 ### JSON Schema Type Mappings
 
 | Doof type | JSON Schema |

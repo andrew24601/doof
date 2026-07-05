@@ -55,9 +55,11 @@ fi
 
 node "$ROOT_DIR/dist/cli.js" build "${DOOF_ARGS[@]}"
 
-echo "Built $OUT_DIR/a.out"
-echo "Run it with: OPENAI_API_KEY=... $OUT_DIR/a.out \"Use the tools to plan dinner\""
+BIN_PATH="$OUT_DIR/debug/a.out"
+
+echo "Built $BIN_PATH"
+echo "Run it with: OPENAI_API_KEY=... $BIN_PATH \"Use the tools to plan dinner\""
 
 if [[ "$RUN_AFTER_BUILD" == "--run" ]]; then
-    exec "$OUT_DIR/a.out"
+    exec "$BIN_PATH"
 fi

@@ -1,3 +1,4 @@
+export import function jsonIsNull(value: JsonValue): bool from "./native_json_bridge.hpp" as doof_openai::jsonIsNull
 export import function jsonIsObject(value: JsonValue): bool from "./native_json_bridge.hpp" as doof_openai::jsonIsObject
 export import function jsonIsArray(value: JsonValue): bool from "./native_json_bridge.hpp" as doof_openai::jsonIsArray
 export import function jsonObjectGet(value: JsonValue, key: string): JsonValue from "./native_json_bridge.hpp" as doof_openai::jsonObjectGet

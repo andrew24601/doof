@@ -1,6 +1,9 @@
-# OpenAI Responses API Sample
+# OpenAI Responses API Package Sample
 
-This sample sends a request to the OpenAI Responses API and exposes a normal Doof class as tool definitions by reflecting over `WeeknightKitchenTools.metadata`.
+This sample is structured as a small reusable OpenAI Responses API package plus
+a concrete executable example. The package code owns HTTP transport, Responses
+request construction, response parsing, tool-call extraction, and follow-up tool
+output formatting. The sample-specific kitchen tools stay in `tools.do`.
 
 ## What It Covers
 
@@ -9,16 +12,41 @@ This sample sends a request to the OpenAI Responses API and exposes a normal Doo
 - posting follow-up `function_call_output` items back to the Responses API
 - keeping the transport layer small with the existing libcurl-backed native HTTP bridge pattern
 
-The sample keeps the tools intentionally local and deterministic so the focus stays on the metadata-driven integration rather than on an external business API.
+The sample keeps the tools intentionally local and deterministic so the focus
+stays on the metadata-driven integration rather than on an external business
+API.
 
 ## Files
 
-- `main.do` runs the Responses API loop and forwards tool calls back into Doof.
-- `tools.do` defines the tool class plus a few JSON-serializable return types.
-- `openai.do` builds and sends authenticated Responses API requests.
+- `doof.json` declares the package name and native build inputs.
+- `index.do` re-exports the reusable package surface.
+- `openai.do` builds authenticated Responses requests, parses Responses payloads, and formats follow-up tool outputs.
+- `main.do` runs the executable sample loop and logs tool calls.
+- `tools.do` defines the sample tool class, JSON-serializable return types, and the concrete metadata adapter for `WeeknightKitchenTools`.
 - `http.do` and `native_http_client.hpp` provide the synchronous HTTP transport.
 - `json_bridge.do` and `native_json_bridge.hpp` provide small JSON object/array inspection helpers for walking Responses API payloads.
 - `native_env.hpp` reads `OPENAI_API_KEY` and `OPENAI_MODEL` from the environment.
+
+## Reuse
+
+Import the package facade when another package wants the Responses primitives:
+
+```doof
+import {
+  createInitialToolResponse,
+  createOpenAIClient,
+  createToolFollowUpResponse,
+  extractAssistantText,
+  extractResponseId,
+  extractToolCalls,
+  toolErrorOutput,
+  toolOutput,
+} from "openai-responses"
+```
+
+Domain modules provide their own reflected tool adapter. `tools.do` shows the
+pattern: iterate over `MyTools.metadata.methods` to create OpenAI tool schemas,
+then invoke returned tool calls with `MyTools.metadata.invoke(...)`.
 
 ## Build
 
@@ -47,18 +75,20 @@ export OPENAI_API_KEY=...
 Then run the binary with a prompt, or omit the prompt to use the built-in example:
 
 ```bash
-build-openai-responses/a.out "Use the tools to plan a quick vegetarian dinner and convert 200C to Fahrenheit."
+build-openai-responses/debug/a.out "Use the tools to plan a quick vegetarian dinner and convert 200C to Fahrenheit."
 ```
 
 Optionally override the model:
 
 ```bash
-OPENAI_MODEL=gpt-4.1 build-openai-responses/a.out "Use the tools to plan dinner."
+OPENAI_MODEL=gpt-4.1 build-openai-responses/debug/a.out "Use the tools to plan dinner."
 ```
 
 ## How It Works
 
-`WeeknightKitchenTools.metadata` exposes method names, descriptions, and JSON Schemas. `tools.do` converts each reflected method into an OpenAI tool entry shaped like:
+`WeeknightKitchenTools.metadata` exposes method names, descriptions, and JSON
+Schemas. `tools.do` converts each reflected method into an OpenAI tool entry
+shaped like:
 
 ```json
 {
@@ -69,6 +99,9 @@ OPENAI_MODEL=gpt-4.1 build-openai-responses/a.out "Use the tools to plan dinner.
 }
 ```
 
-When OpenAI returns `function_call` items, `main.do` parses the `arguments` JSON, invokes the matching Doof method with `WeeknightKitchenTools.metadata.invoke(...)`, serializes the tool result, and sends a follow-up Responses API request with `function_call_output` items.
+When OpenAI returns `function_call` items, `openai.do` parses the `arguments`
+JSON, `main.do` invokes the matching Doof method with
+`WeeknightKitchenTools.metadata.invoke(...)`, and the reusable helpers serialize
+the tool result into `function_call_output` items for the follow-up request.
 
 That means the same class descriptions and method signatures power both the tool schema and the runtime dispatch path.

@@ -1,0 +1,22 @@
+{
+  "name": "openai-responses",
+  "version": "0.1.0",
+  "license": "ISC",
+  "build": {
+    "native": {
+      "extraCopyPaths": [
+        "native_env.hpp",
+        "native_http_client.hpp",
+        "native_json_bridge.hpp"
+      ],
+      "linkLibraries": [
+        "curl"
+      ],
+      "pkgConfigPackages": [
+        "libcurl"
+      ]
+    }
+  },
+  "dependencies": {
+  }
+}
