@@ -1,4 +1,5 @@
 export const STDLIB_PACKAGE_VERSIONS = Object.freeze({
+  "apple-intelligence": "0.1",
   assert: "0.1",
   blob: "0.1",
   crypto: "0.1",

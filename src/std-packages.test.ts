@@ -64,6 +64,7 @@ describe("std package metadata", () => {
 
   it("lists implicit std dependency names", () => {
     expect(getImplicitStdDependencyNames()).toEqual([
+      "std/apple-intelligence",
       "std/assert",
       "std/blob",
       "std/crypto",
