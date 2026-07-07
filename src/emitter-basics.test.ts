@@ -717,6 +717,25 @@ describe("emitter — classes", () => {
     expect(cpp).toContain("Counter::constructor(10, 5)");
   });
 
+  it("emits fallible class construction through static constructor", () => {
+    const cpp = emit(`
+      class Email {
+        private value: string
+
+        static constructor(value: string): Result<Email, string> {
+          return Success(Email { value })
+        }
+      }
+
+      function main(): Result<Email, string> {
+        return Email { value: "a@example.com" }
+      }
+    `);
+    expect(cpp).toContain("static doof::Result<std::shared_ptr<Email>, std::string> constructor(std::string value)");
+    expect(cpp).toContain("return doof::Result<std::shared_ptr<Email>, std::string>::success(std::make_shared<Email>(value));");
+    expect(cpp).toContain("return Email::constructor(std::string(\"a@example.com\"));");
+  });
+
   it("emits named constructor args in declaration order", () => {
     const cpp = emit(`
       class Rect { x, y, w, h: float }

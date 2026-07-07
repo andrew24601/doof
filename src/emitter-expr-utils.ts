@@ -298,13 +298,29 @@ function findConstructorFactoryMethod(
   for (const method of classSym.declaration.methods) {
     if (!method.static_ || method.name !== "constructor") continue;
     const returnType = method.returnType;
-    if (!returnType || returnType.kind !== "named-type") continue;
-    if (returnType.resolvedSymbol === classSym || returnType.name === classSym.name) {
+    if (isConstructorFactoryReturnAnnotation(returnType, classSym)) {
       return method;
     }
   }
 
   return null;
+}
+
+function isConstructorFactoryReturnAnnotation(
+  returnType: TypeAnnotation | null | undefined,
+  classSym: NominalObjectSymbol,
+): boolean {
+  if (!returnType || returnType.kind !== "named-type") return false;
+  if (returnType.resolvedSymbol === classSym || returnType.name === classSym.name) {
+    return true;
+  }
+  if (returnType.name !== "Result" || returnType.typeArgs.length !== 2) {
+    return false;
+  }
+
+  const successType = returnType.typeArgs[0];
+  return successType.kind === "named-type"
+    && (successType.resolvedSymbol === classSym || successType.name === classSym.name);
 }
 
 export function emitResolvedClassName(type: NominalObjectType, currentModulePath?: string): string {

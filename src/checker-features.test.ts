@@ -4003,6 +4003,46 @@ describe("checker — constructor validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("infers Result from fallible static constructor direct construction", () => {
+    const info = check({ "/main.do": `
+      class Email {
+        private value: string
+
+        static constructor(value: string): Result<Email, string> {
+          return Success(Email { value })
+        }
+      }
+
+      a := Email("a@example.com")
+      b := Email { value: "b@example.com" }
+    ` }, "/main.do");
+    expect(info.diagnostics).toHaveLength(0);
+
+    const constructions = collectExprs(info.program).filter((expr) =>
+      (expr.kind === "call-expression" || expr.kind === "construct-expression")
+      && expr.resolvedType?.kind === "result"
+      && typeToString(expr.resolvedType) === "Result<Email, string>"
+    );
+    expect(constructions.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("requires fallible static constructor results to be used", () => {
+    const info = check({ "/main.do": `
+      class Email {
+        private value: string
+
+        static constructor(value: string): Result<Email, string> {
+          return Success(Email { value })
+        }
+      }
+
+      function main(): void {
+        Email("a@example.com")
+      }
+    ` }, "/main.do");
+    expect(info.diagnostics.some((diag) => diag.message.includes("Result value must be used"))).toBe(true);
+  });
+
   it("uses generic static constructor params for cross-file direct construction", () => {
     const info = check({
       "/lib.do": `

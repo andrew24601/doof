@@ -202,10 +202,10 @@ Strategy:
 - constructor and field initialization order is emitted explicitly
 - positional and named construction forms are normalized into the generated constructor call shape; classes emit `std::make_shared<T>(...)` while structs emit direct value construction
 - member access uses `->` for classes and `.` for structs
-- a static `constructor` method returning the nominal type becomes the direct-construction
-  target (`Type(...)` and `Type { ... }` emit `Type::constructor(...)`), except
-  inside that type's own `constructor` body where construction emits the raw field
-  constructor to avoid recursive factories
+- a static `constructor` method returning the nominal type, or `Result<Nominal, E>`,
+  becomes the direct-construction target (`Type(...)` and `Type { ... }` emit
+  `Type::constructor(...)`), except inside that type's own `constructor` body
+  where construction emits the raw field constructor to avoid recursive factories
 - generic static constructors specialize the owning class in the call target
   (`Channel<std::string>::constructor(...)`) when type arguments are explicit or inferred
 - field defaults may call static class/struct methods and lower to the same `Type::method(...)`
@@ -384,8 +384,8 @@ Validation anchors:
 Strategy:
 
 - serializable types get generated conversion helpers
-- classes and structs with a dedicated static `constructor(...): Self` are excluded from
-  automatic JSON helper generation
+- classes and structs with a dedicated static `constructor(...): Self` or
+  `constructor(...): Result<Self, E>` are excluded from automatic JSON helper generation
 - interface-level deserialization relies on the known set of implementations in the analyzed project
 - metadata surfaces and `.invoke()` generation build on the same emitted type knowledge and JSON support
 

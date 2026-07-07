@@ -127,7 +127,7 @@ first := BlobReader(payload)
 second := BlobReader { data: payload, offset: 1 }
 ```
 
-When an imported class declares a `static constructor(...): SameClass` method, direct construction routes through that factory. Positional construction follows the factory parameter order, named construction uses the factory parameter names, and omitted arguments use the Doof defaults declared on the imported signature.
+When an imported class declares a `static constructor(...): SameClass` or `static constructor(...): Result<SameClass, E>` method, direct construction routes through that factory. Positional construction follows the factory parameter order, named construction uses the factory parameter names, omitted arguments use the Doof defaults declared on the imported signature, and fallible constructor calls have the declared `Result` type.
 
 ---
 

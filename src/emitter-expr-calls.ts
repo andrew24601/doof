@@ -669,7 +669,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
 
   if (calleeType && (calleeType.kind === "class" || calleeType.kind === "struct")) {
     // Constructor call → std::make_shared<ClassName>(args...) or static constructor(...)
-    const classType = expr.resolvedType?.kind === "class" || expr.resolvedType?.kind === "struct" ? expr.resolvedType : calleeType;
+    const classType = getResolvedConstructionClassType(expr.resolvedType) ?? calleeType;
     const cppName = emitConcreteClassName(classType, ctx);
     const allowFactory = shouldUseConstructorFactory(classType.symbol, ctx);
     const fieldTypes = buildFieldTypeListForClassType(classType, allowFactory);
@@ -1055,8 +1055,9 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Append generic type arguments: Box<int> → Box<int32_t>
-  if ((resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct") && resolvedExprType.typeArgs && resolvedExprType.typeArgs.length > 0) {
-    const typeArgStrs = resolvedExprType.typeArgs.map((typeArg) => emitType(typeArg, ctx.module.path));
+  const constructionClassType = getResolvedConstructionClassType(resolvedExprType);
+  if (constructionClassType && constructionClassType.typeArgs && constructionClassType.typeArgs.length > 0) {
+    const typeArgStrs = constructionClassType.typeArgs.map((typeArg) => emitType(typeArg, ctx.module.path));
     typeName = `${typeName}<${typeArgStrs.join(", ")}>`;
   } else if (expr.typeArgs && expr.typeArgs.length > 0) {
     const typeArgStrs = expr.typeArgs.map((ta) => emitTypeAnnotation(ta, ctx));
@@ -1067,8 +1068,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     // Named construction: Type { field: value, ... }
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const propMap = new Map(props.map((prop) => [prop.name, prop]));
-    const fields = resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct"
-      ? buildConstructorFieldInfoListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
+    const fields = constructionClassType
+      ? buildConstructorFieldInfoListForClassType(constructionClassType, shouldUseConstructorFactory(constructionClassType.symbol, ctx))
       : buildConstructorFieldInfoList(sym, shouldUseConstructorFactory(sym, ctx));
     const defaultCtx: EmitContext = { ...ctx, sourceLocationSpanOverride: expr.span };
     const args = fields.map((field) => {
@@ -1085,8 +1086,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   }
 
   // Positional construction: Type(arg1, arg2, ...)
-  const fieldTypes = resolvedExprType?.kind === "class" || resolvedExprType?.kind === "struct"
-    ? buildFieldTypeListForClassType(resolvedExprType, shouldUseConstructorFactory(resolvedExprType.symbol, ctx))
+  const fieldTypes = constructionClassType
+    ? buildFieldTypeListForClassType(constructionClassType, shouldUseConstructorFactory(constructionClassType.symbol, ctx))
     : buildFieldTypeList(sym, shouldUseConstructorFactory(sym, ctx));
   const args = (expr.args as Expression[]).map((a, i) => {
     const fieldType = i < fieldTypes.length ? fieldTypes[i] : undefined;
@@ -1099,6 +1100,15 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
     shouldUseConstructorFactory(sym, ctx),
   );
   return emitClassConstruction(typeName, sym, positionalArgs, shouldUseConstructorFactory(sym, ctx));
+}
+
+function getResolvedConstructionClassType(type: ResolvedType | undefined): Extract<ResolvedType, { kind: "class" | "struct" }> | null {
+  if (!type) return null;
+  if (type.kind === "class" || type.kind === "struct") return type;
+  if (type.kind === "result" && (type.successType.kind === "class" || type.successType.kind === "struct")) {
+    return type.successType;
+  }
+  return null;
 }
 
 // ============================================================================

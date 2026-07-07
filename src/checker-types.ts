@@ -1479,9 +1479,17 @@ export function hasDedicatedConstructor(decl: ClassDeclaration): boolean {
   return decl.methods.some((method) =>
     method.static_
     && method.name === "constructor"
-    && method.returnType?.kind === "named-type"
-    && method.returnType.name === decl.name
+    && isDedicatedConstructorReturnType(method.returnType, decl.name)
   );
+}
+
+function isDedicatedConstructorReturnType(type: ClassDeclaration["methods"][number]["returnType"], className: string): boolean {
+  if (!type || type.kind !== "named-type") return false;
+  if (type.name === className) return true;
+  return type.name === "Result"
+    && type.typeArgs.length === 2
+    && type.typeArgs[0].kind === "named-type"
+    && type.typeArgs[0].name === className;
 }
 
 function isAssignableToJsonValue(source: ResolvedType): boolean {

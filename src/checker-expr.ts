@@ -1936,7 +1936,7 @@ function inferExprTypeInner(
             expr.span,
             constructorParams,
           );
-          return effectiveClassType;
+          return getConstructorFactoryReturnType(host, calleeType.symbol, table, scope, effectiveClassType) ?? effectiveClassType;
         }
 
         if (expr.args.some((arg) => arg.name)) {
@@ -1960,7 +1960,7 @@ function inferExprTypeInner(
           }
           validateConstructorArgs(host, calleeType.symbol, argTypes, expr.args.map((a) => a.span), true, table, info, expr.span, constructorParams);
         }
-        return effectiveClassType;
+        return getConstructorFactoryReturnType(host, calleeType.symbol, table, scope, effectiveClassType) ?? effectiveClassType;
       }
 
       for (const arg of expr.args) {
@@ -2173,9 +2173,10 @@ function inferExprTypeInner(
             });
           }
         }
-        return effectiveTypeArgs
+        const nominalType = effectiveTypeArgs
           ? { kind: sym.symbolKind, symbol: sym, typeArgs: effectiveTypeArgs } as NominalObjectType
           : { kind: sym.symbolKind, symbol: sym } as NominalObjectType;
+        return getConstructorFactoryReturnType(host, sym, table, scope, nominalType) ?? nominalType;
       }
 
       if (expr.named
@@ -2843,16 +2844,86 @@ function findConstructorFactoryMethod(
     const resolvedReturnType = method.returnType
       ? host.resolveTypeAnnotation(method.returnType, classTable)
       : UNKNOWN_TYPE;
-    if ((resolvedReturnType.kind === "class" || resolvedReturnType.kind === "struct") && resolvedReturnType.symbol === sym) {
+    if (isConstructorFactoryReturnType(resolvedReturnType, sym)) {
       return method;
     }
 
-    if (method.returnType?.kind === "named-type" && method.returnType.name === sym.name) {
+    if (isConstructorFactoryReturnAnnotation(method.returnType, sym.name)) {
       return method;
     }
   }
 
   return null;
+}
+
+function getConstructorFactoryReturnType(
+  host: CheckerHost,
+  sym: NominalObjectSymbol,
+  table: ModuleSymbolTable,
+  scope: Scope | undefined,
+  nominalType: NominalObjectType,
+): ResolvedType | null {
+  const factoryMethod = findConstructorFactoryMethod(host, sym, table, scope);
+  if (!factoryMethod?.returnType) return null;
+
+  const classTable = host.analysisResult.modules.get(sym.module) ?? table;
+  const paramMap = new Map<string, ResolvedType>();
+  if (nominalType.typeArgs && nominalType.typeArgs.length > 0) {
+    for (let i = 0; i < sym.declaration.typeParams.length && i < nominalType.typeArgs.length; i++) {
+      paramMap.set(sym.declaration.typeParams[i], nominalType.typeArgs[i]);
+    }
+  }
+
+  let returnType: ResolvedType;
+  if (sym.declaration.typeParams.length > 0) {
+    host.typeParamStack.push(new Set(sym.declaration.typeParams));
+  }
+  try {
+    returnType = host.resolveTypeAnnotation(factoryMethod.returnType, classTable);
+  } finally {
+    if (sym.declaration.typeParams.length > 0) {
+      host.typeParamStack.pop();
+    }
+  }
+  if (paramMap.size > 0) {
+    returnType = substituteTypeParams(returnType, paramMap);
+  }
+
+  if (isSelfReturnAnnotation(factoryMethod.returnType, sym.name)) return nominalType;
+  if (isResultSelfReturnAnnotation(factoryMethod.returnType, sym.name) && returnType.kind === "result") {
+    return { ...returnType, successType: nominalType };
+  }
+  return returnType;
+}
+
+function isConstructorFactoryReturnType(type: ResolvedType, sym: NominalObjectSymbol): boolean {
+  if ((type.kind === "class" || type.kind === "struct") && type.symbol === sym) {
+    return true;
+  }
+  return type.kind === "result"
+    && (type.successType.kind === "class" || type.successType.kind === "struct")
+    && type.successType.symbol === sym;
+}
+
+function isConstructorFactoryReturnAnnotation(
+  type: TypeAnnotation | null | undefined,
+  className: string,
+): boolean {
+  if (!type || type.kind !== "named-type") return false;
+  return isSelfReturnAnnotation(type, className) || isResultSelfReturnAnnotation(type, className);
+}
+
+function isSelfReturnAnnotation(type: TypeAnnotation | null | undefined, className: string): boolean {
+  return !!type && type.kind === "named-type" && type.name === className;
+}
+
+function isResultSelfReturnAnnotation(type: TypeAnnotation | null | undefined, className: string): boolean {
+  return !!type
+    && type.kind === "named-type"
+    && type.name === "Result"
+    && type.typeArgs.length === 2
+    && type.typeArgs[0].kind === "named-type"
+    && type.typeArgs[0].name === className;
 }
 
 function describeConstructorParam(param: ConstructorParam): string {

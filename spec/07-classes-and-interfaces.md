@@ -178,10 +178,11 @@ c.increment()                // ✅ Called on the instance
 c.constructor(5)             // ❌ Error: static method cannot be called on an instance
 ```
 
-When a class declares a static `constructor` method whose return type is the class
-itself, direct construction syntax delegates to that method. Both positional
-and named construction are validated against `constructor` parameters instead of
-fields:
+When a class declares a static `constructor` method whose return type is the
+class itself, or `Result<ClassName, E>` for a fallible constructor, direct
+construction syntax delegates to that method. Both positional and named
+construction are validated against `constructor` parameters instead of fields,
+and the construction expression has the constructor method's return type:
 
 ```javascript
 class Counter {
@@ -194,6 +195,21 @@ class Counter {
 
 let a = Counter(10)                    // Counter.constructor(10)
 let b = Counter { initial: 10, step: 5 } // Counter.constructor(10, 5)
+```
+
+```javascript
+class Email {
+    private value: string
+
+    static constructor(value: string): Result<Email, string> {
+        if !value.contains("@") {
+            return Failure("invalid email")
+        }
+        return Success(Email { value }) // raw field construction inside constructor
+    }
+}
+
+email := try! Email("a@example.com") // Email(...) has type Result<Email, string>
 ```
 
 Generic classes follow the same rule. The class type arguments may be written

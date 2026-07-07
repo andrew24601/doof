@@ -70,10 +70,11 @@ Rules:
 
 - Named construction may omit fields that have defaults.
 - Positional construction follows declaration order and may omit trailing defaults.
-- If a class or struct has a static `constructor` method returning that type, direct
-  construction delegates to `constructor` and uses its parameters for
-  validation. Inside that type's own `constructor` method, construction still
-  uses fields so the factory can build the instance.
+- If a class or struct has a static `constructor` method returning that type, or
+  `Result<ThatType, E>` for fallible construction, direct construction delegates
+  to `constructor`, uses its parameters for validation, and has the constructor
+  method's return type. Inside that type's own `constructor` method, construction
+  still uses fields so the factory can build the instance.
 - Classes and structs with a dedicated `constructor` method are not eligible for automatic
   JSON serialization/deserialization.
 - Name-value shorthand such as `{ name }` expands to `{ name: name }`.

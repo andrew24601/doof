@@ -91,7 +91,8 @@ The following types are not JSON-serializable. A compile-time error is produced 
 - `Promise<T>`
 - `Result<T, E>`
 - `void`
-- Classes or structs with a dedicated static `constructor(...): Self` method
+- Classes or structs with a dedicated static `constructor(...): Self` or
+  `constructor(...): Result<Self, E>` method
 
 ```doof
 class Bad {
