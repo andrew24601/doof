@@ -116,6 +116,16 @@ export interface CompilerToolchain {
   env?: NodeJS.ProcessEnv;
 }
 
+const EMSCRIPTEN_DEFAULT_COMPILE_FLAGS = ["-Oz", "-flto"];
+const EMSCRIPTEN_DEFAULT_LINK_FLAGS = [
+  "-Oz",
+  "-flto",
+  "--strip-debug",
+  "-sASSERTIONS=0",
+  "-sMALLOC=emmalloc",
+  "-sFILESYSTEM=0",
+];
+
 export interface CompilerDetectionHost {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
@@ -1261,9 +1271,10 @@ function emscriptenObjectTask(
   const isCSource = isNativeCSource(sourceFile);
   const compiler = isCSource ? deriveEmscriptenCCompilerCommand(toolchain.command) : toolchain.command;
   const dependencyFile = `${objectFile}.d`;
+  const effectiveNativeBuild = addDefaultEmscriptenCompileFlags(nativeBuild);
   const args = isCSource
-    ? buildGccLikeCObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild)
-    : buildGccLikeCxxObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild);
+    ? buildGccLikeCObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, effectiveNativeBuild)
+    : buildGccLikeCxxObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, effectiveNativeBuild);
 
   return {
     id: `doof:object:${objectFile}`,
@@ -1919,14 +1930,15 @@ function buildEmscriptenCompileArgs(
   mode: CompileMode,
   wasmExportNames: readonly string[],
 ): string[] {
+  const effectiveNativeBuild = addDefaultEmscriptenCompileFlags(nativeBuild);
   const compileArgs = [
-    `-std=${nativeBuild.cppStd}`,
+    `-std=${effectiveNativeBuild.cppStd}`,
     ...includePaths.map((includePath) => `-I${includePath}`),
-    ...nativeBuild.defines.map((define) => `-D${define}`),
-    ...nativeBuild.compilerFlags,
+    ...effectiveNativeBuild.defines.map((define) => `-D${define}`),
+    ...effectiveNativeBuild.compilerFlags,
   ];
 
-  const compileSources = buildGccLikeCompileSources(moduleCppFiles, nativeBuild.sourceFiles);
+  const compileSources = buildGccLikeCompileSources(moduleCppFiles, effectiveNativeBuild.sourceFiles);
   if (mode === "syntax-only") {
     return [...compileArgs, "-fsyntax-only", ...compileSources];
   }
@@ -1936,7 +1948,7 @@ function buildEmscriptenCompileArgs(
     "-o",
     outBinary,
     ...compileSources,
-    ...nativeBuild.objectFiles,
+    ...effectiveNativeBuild.objectFiles,
     ...buildEmscriptenLinkFlags(nativeBuild, wasmExportNames),
   ];
 }
@@ -1960,11 +1972,22 @@ function buildEmscriptenLinkFlags(nativeBuild: NativeBuildOptions, wasmExportNam
   return [
     ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
     ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+    ...EMSCRIPTEN_DEFAULT_LINK_FLAGS,
     "-sSTANDALONE_WASM=1",
     "--no-entry",
     `-sEXPORTED_FUNCTIONS=${JSON.stringify(exportedFunctions)}`,
     ...nativeBuild.linkerFlags,
   ];
+}
+
+function addDefaultEmscriptenCompileFlags(nativeBuild: NativeBuildOptions): NativeBuildOptions {
+  return {
+    ...nativeBuild,
+    compilerFlags: [
+      ...EMSCRIPTEN_DEFAULT_COMPILE_FLAGS,
+      ...nativeBuild.compilerFlags,
+    ],
+  };
 }
 
 function buildGccLikeCompileSources(moduleCppFiles: string[], nativeSourceFiles: string[]): string[] {

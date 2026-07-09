@@ -21,6 +21,8 @@ describe("release package artifacts", () => {
     expect(withReleaseBuildDefaults(base, "gcc-like").compilerFlags).toEqual(["-O2", "-O0"]);
     expect(withReleaseBuildDefaults(base, "gcc-like").defines).toEqual(["NDEBUG", "CUSTOM"]);
     expect(withReleaseBuildDefaults({ ...base, compilerFlags: [] }, "msvc").compilerFlags).toEqual(["/O2"]);
+    expect(withReleaseBuildDefaults({ ...base, compilerFlags: [] }, "emscripten").compilerFlags).toEqual([]);
+    expect(withReleaseBuildDefaults({ ...base, compilerFlags: [] }, "emscripten").defines).toEqual(["NDEBUG", "CUSTOM"]);
   });
 
   it("names platform archives with executable and version", () => {

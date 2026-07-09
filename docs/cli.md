@@ -230,6 +230,8 @@ npx doof build --target wasm samples/hello.do
 
 For `wasm`, each exported top-level function in the entry module becomes a C ABI export named `doof_export_<function>`. The host passes a UTF-8 JSON object string and receives an allocated UTF-8 JSON envelope string; call the exported `doof_free` after reading the result.
 
+Wasm builds use Emscripten size-oriented defaults (`-Oz`, LTO, stripped debug info, disabled assertions/filesystem support, and `emmalloc`). Manifest `build.native.wasm.compilerFlags` and `linkerFlags` are appended after those defaults so packages can override them when needed.
+
 Create a release artifact:
 
 ```bash

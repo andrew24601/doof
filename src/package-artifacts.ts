@@ -11,10 +11,17 @@ export function withReleaseBuildDefaults(
   return {
     ...nativeBuild,
     defines: uniqueStrings(["NDEBUG", ...nativeBuild.defines]),
-    compilerFlags: toolchainKind === "msvc"
-      ? uniqueStrings(["/O2", ...nativeBuild.compilerFlags])
-      : uniqueStrings(["-O2", ...nativeBuild.compilerFlags]),
+    compilerFlags: uniqueStrings([
+      ...releaseCompilerFlagsForToolchain(toolchainKind),
+      ...nativeBuild.compilerFlags,
+    ]),
   };
+}
+
+function releaseCompilerFlagsForToolchain(toolchainKind: CompilerToolchainKind): string[] {
+  if (toolchainKind === "msvc") return ["/O2"];
+  if (toolchainKind === "emscripten") return [];
+  return ["-O2"];
 }
 
 export function copyPackagedExecutable(

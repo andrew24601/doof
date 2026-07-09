@@ -267,10 +267,37 @@ describe("CLI WebAssembly build planning", () => {
     expect(plan.commands).toHaveLength(1);
     expect(plan.commands[0].command).toBe("em++");
     expect(plan.commands[0].args).toEqual(expect.arrayContaining([
+      "-Oz",
+      "-flto",
+      "--strip-debug",
+      "-sASSERTIONS=0",
+      "-sMALLOC=emmalloc",
+      "-sFILESYSTEM=0",
       "-sSTANDALONE_WASM=1",
       "--no-entry",
       '-sEXPORTED_FUNCTIONS=["_malloc","_free","_doof_free","_doof_export_add"]',
     ]));
+  });
+
+  it("keeps explicit wasm native flags after size defaults", () => {
+    const plan = buildCompilePlan(
+      "/tmp/doof-build",
+      createProjectEmitResult(),
+      {
+        ...emptyNativeBuildOptions(),
+        compilerFlags: ["-O2"],
+        linkerFlags: ["-sMALLOC=dlmalloc"],
+      },
+      {
+        toolchain: { kind: "emscripten", command: "em++" },
+        outputBinaryName: "demo",
+        platform: "linux",
+      },
+    );
+
+    const args = plan.commands[0].args;
+    expect(args.indexOf("-Oz")).toBeLessThan(args.indexOf("-O2"));
+    expect(args.indexOf("-sMALLOC=emmalloc")).toBeLessThan(args.indexOf("-sMALLOC=dlmalloc"));
   });
 });
 
