@@ -26,7 +26,7 @@ function loadSharedBoardgamePackages(): Record<string, string> {
 
 function loadSolitaireLogicSample(overrides: Record<string, string> = {}): Record<string, string> {
   const sampleDir = path.join(process.cwd(), "samples", "solitaire");
-  const randomDir = path.join(process.cwd(), "stdlib", "random");
+  const randomDir = path.join(process.cwd(), "../doof-stdlib", "random");
   return {
     "/__doof_stdlib__/std/random/index.do": fs.readFileSync(path.join(randomDir, "index.do"), "utf8"),
     "/solitaire/doof.json": fs.readFileSync(path.join(sampleDir, "doof.json"), "utf8"),
@@ -101,7 +101,7 @@ describe("e2e — solitaire sample logic", () => {
         ].join("\n"),
       }),
       "/solitaire/main.do",
-      { includePaths: [path.join(process.cwd(), "stdlib", "random")] },
+      { includePaths: [path.join(process.cwd(), "../doof-stdlib", "random")] },
     );
 
     if (result.exitCode === -1) {

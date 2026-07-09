@@ -146,7 +146,7 @@ describe("observer runtime e2e", () => {
 
     const child = spawn(compilePlan.outBinary, [], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: toolchain.env ?? process.env,
+      env: { ...(toolchain.env ?? process.env), DOOF_OBSERVE_NO_BROWSER: "1" },
     });
     processes.push(child);
     const url = await waitForObserverUrl(child);

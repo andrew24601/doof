@@ -244,6 +244,7 @@ function emitCaseAsIIFE(
     }
   }
 
+  result += `${innerInd}doof::unreachable();\n`;
   result += `${ind}}()`;
   return result;
 }

@@ -10,11 +10,17 @@ Doof has no exceptions.
 ## Result Types
 
 ```doof
-type Result<T, E> = Success<T> | Failure<E>
-
-class Success<T> { kind: "Success"; value: T }
-class Failure<E> { kind: "Failure"; error: E }
+Result<T, E>
 ```
+
+`Result<T, E>` is a built-in two-state value: success carries a payload of type
+`T`, and failure carries an error payload of type `E`. `Success(...)` and
+`Failure(...)` wrap values into those states. `case` patterns named `Success`
+and `Failure` test the state and expose `.value` or `.error` on the narrowed
+case binding.
+
+`Success` and `Failure` are not ordinary built-in classes, and built-in Results
+do not have a source-visible `kind` field.
 
 ### Returning Results
 
@@ -36,7 +42,8 @@ case result {
 }
 ```
 
-Direct field access such as `result.value` or `result.error` is rejected.
+Direct field access such as `result.value` or `result.error` is rejected because
+the `Result` must be unwrapped or matched first.
 
 ### Must-Use Rule
 
@@ -46,7 +53,7 @@ Result values cannot be silently discarded. Ignoring a `Result` is a compile err
 
 ### `try` Statement
 
-Statement-level `try` unwraps `Success` or returns the `Failure` from the enclosing function. It only works inside functions that themselves return `Result<..., ...>`.
+Statement-level `try` unwraps the success payload or propagates the failure from the enclosing function. It only works inside functions that themselves return `Result<..., ...>`.
 
 ```doof
 function loadConfig(): Result<Config, Error> {
@@ -121,7 +128,7 @@ Rules:
 
 - The `else` block must exit the current scope via `return`, `break`, `continue`, or `panic(...)` when the binding name is used after the block.
 - `_ := result else ...` is a discard handler; it does not introduce a binding after the block, so its `else` block can continue.
-- `else error { ... }` captures the `Failure<E>.error` payload for non-null `Result<T, E>` subjects.
+- `else error { ... }` captures the error payload for non-null `Result<T, E>` subjects.
 - Without capture, inside the `else` block, the binding has the original full type.
 - After the block, the binding has the narrowed happy-path type.
 - It applies only to nullable and/or `Result` types.
@@ -148,7 +155,7 @@ saveState() else error {
 Rules:
 
 - It applies only to non-null `Result<T, E>` expressions.
-- `else error { ... }` captures the `Failure<E>.error` payload as `E`.
+- `else error { ... }` captures the error payload as `E`.
 - The handler does not need to exit scope because no success-path binding must be satisfied.
 
 ## Checked Narrowing with `as`
@@ -219,7 +226,7 @@ Use panic for impossible states, assertion failures, or other programmer bugs.
 
 ### `catchPanic`
 
-`catchPanic<T>(f: () => T): Result<T, string>` runs a parameterless callback and returns `Success<T>` when it completes normally. If the callback panics, it returns `Failure<string>` with the panic message.
+`catchPanic<T>(f: () => T): Result<T, string>` runs a parameterless callback and returns a success Result when it completes normally. If the callback panics, it returns a failure Result with the panic message as the string error payload.
 
 Use it only as a controlled escape hatch at process or host boundaries. It is not a general exception system, and expected failures should stay as `Result<T, E>`.
 

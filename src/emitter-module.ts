@@ -177,27 +177,49 @@ interface StreamAliasInfo {
 }
 
 interface HeaderPlan {
+  /** C++ standard-library includes required by every generated module header. */
   standardIncludes: Set<string>;
+  /** Native `import class` / `import function` headers that must be visible before generated declarations. */
   externIncludes: string[];
+  /** Forward declarations for generated Doof types that native interop aliases can name before this module body exists. */
   externInteropPredecls: string[];
+  /** Native-namespace aliases that can point at forward-declared generated types. */
   externInteropPreAliases: string[];
+  /** Native-namespace aliases that require complete generated declarations and must be rendered after the module body. */
   externInteropPostAliases: string[];
+  /** Imported Doof classes that can stay incomplete because the header only stores pointer-shaped references. */
   crossModuleForwardDecls: string[];
+  /** Generated module headers that this header must include for complete value/template/native-interop surfaces. */
   moduleIncludes: string[];
+  /** Top-level statements bucketed once so planning and rendering make the same placement decisions. */
   classified: ClassifiedStatements;
+  /** Non-extern classes whose definitions are emitted in this header. */
   nativeClasses: ClassifiedDecl<ClassDeclaration>[];
+  /** Non-extern classes hidden in the `.cpp` because no header-visible surface needs them. */
   cppOnlyNativeClasses: ClassifiedDecl<ClassDeclaration>[];
+  /** Concrete stream-sensitive class specializations that must be emitted in the header for call sites. */
   monomorphizedClassesForModule: GenericClassInstantiation[];
+  /** Concrete generic method specializations that must be emitted in the header for call sites. */
   monomorphizedMethodsForModule: GenericMethodInstantiation[];
+  /** Synthetic capture structs used by exported mocks and therefore visible to importing modules. */
   mockCaptureTypes: MockCaptureType[];
+  /** Closed-world stream alias data, keyed by the emitted `Stream<T>` alias name. */
   streamAliases: Map<string, StreamAliasInfo>;
+  /** Stream types used by this module that require alias and dispatch helper declarations. */
   streamTypesForModule: Extract<ResolvedType, { kind: "stream" }>[];
+  /** Exported non-template functions that get declarations in the header and definitions in the `.cpp`. */
   nonGenericExportedFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  /** Exported generic functions emitted with bodies because C++ templates must be header-visible. */
   genericExportedFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  /** Concrete stream-sensitive function specializations emitted as ordinary declarations. */
   monomorphizedFunctionsForModule: GenericFunctionInstantiation[];
+  /** Exported mock functions whose shared capture storage must be declared for external inspection. */
   exportedMockFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  /** Private generic helpers still emitted in the header because template call sites need the body. */
   nonExportedGenericFunctions: ClassifiedDecl<FunctionDeclaration>[];
+  /** Exported module variables declared as `extern` in the header and defined in the `.cpp`. */
   exportedVariables: { stmt: Statement; exported: boolean }[];
+  /** True when the `.cpp` will define a module init function for runtime value initialization. */
   hasInitDeclaration: boolean;
 }
 
@@ -370,6 +392,16 @@ export function emitProject(
 // Header (.hpp) generation
 // ============================================================================
 
+/**
+ * Decide the complete header surface before rendering any lines.
+ *
+ * Header generation has ordering constraints that are easy to break if each
+ * section discovers dependencies while it renders: aliases need forward
+ * declarations, value fields need complete definitions, templates need bodies,
+ * and native interop may need aliases on both sides of the generated namespace.
+ * This plan centralizes those decisions so `emitHpp` is mostly a deterministic
+ * renderer for an already-classified surface.
+ */
 function buildHeaderPlan(
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
@@ -394,6 +426,9 @@ function buildHeaderPlan(
   ]);
 
   const externIncludeSet = new Set<string>();
+  // Native declarations are trusted external contracts. Their headers must be
+  // included before generated Doof declarations so generated method signatures
+  // can name the native class/function ABI exactly as declared.
   for (const stmt of table.program.statements) {
     if (stmt.kind === "extern-class-declaration") {
       externIncludeSet.add(formatHeaderInclude(stmt.headerPath ?? `${stmt.name}.hpp`));
@@ -416,6 +451,9 @@ function buildHeaderPlan(
     const sym = table.symbols.get(cls.decl.name);
     return !(sym?.symbolKind === "class" && sym.extern_);
   });
+  // The header-visible class set is a fixed point: once a private class appears
+  // in an alias/template/API surface, the classes in that class's own fields and
+  // methods may also need to move from `.cpp` privacy into the header.
   const headerSurfaceClassKeys = buildHeaderSurfaceClassKeySet(table.path, interfaceImpls, classified);
   const headerNativeClasses = nativeClasses.filter((cls) => isHeaderVisibleClass(cls, table.path, headerSurfaceClassKeys));
   markHeaderVisiblePrivateClassNames(table, headerNativeClasses);
@@ -476,6 +514,9 @@ function markHeaderVisiblePrivateClassNames(
   table: ModuleSymbolTable,
   classes: ClassifiedDecl<ClassDeclaration>[],
 ): void {
+  // Header-visible private classes need stable generated names because external
+  // modules may see them through aliases or template bodies even though the
+  // original Doof declaration was not exported.
   for (const cls of classes) {
     const sym = getClassSymbolForDecl(table, cls.decl);
     if (sym.exported || (sym.symbolKind === "class" && sym.extern_)) continue;
@@ -518,6 +559,10 @@ function collectHeaderReferencedModulePaths(
     dependencies.add(modulePath);
   };
 
+  // Syntactic annotations preserve user-written references that may not be
+  // visible from the resolved type alone, especially aliases and native interop
+  // contracts. Keep this parallel to addResolvedTypeDeps instead of replacing
+  // one with the other.
   const addTypeAnnotationDeps = (typeAnn: TypeAnnotation | null | undefined): void => {
     if (!typeAnn) return;
     switch (typeAnn.kind) {
@@ -645,6 +690,9 @@ function collectHeaderReferencedModulePaths(
     }
   };
 
+  // Generated JSON and metadata helpers dereference constructors, fields, and
+  // discriminator values. Forward declarations are not enough for those paths,
+  // so their type graph contributes concrete module includes.
   const addJsonCompleteTypeDeps = (type: ResolvedType | null | undefined): void => {
     if (!type || isJsonValueType(type)) return;
     switch (type.kind) {
@@ -782,6 +830,10 @@ function collectHeaderReferencedModulePaths(
   }
 
   if (hasExternInterop) {
+    // Native headers that accept generated Doof types may inspect value fields
+    // or use aliases outside the generated module namespace. Include the full
+    // type surface for extern declarations instead of relying on pointer-only
+    // forward declarations.
     for (const stmt of table.program.statements) {
       const inner = stmt.kind === "export-declaration" ? stmt.declaration : stmt;
       if (inner.kind === "extern-function-declaration") {
@@ -804,6 +856,9 @@ function collectHeaderReferencedModulePaths(
     || [...monomorphizedClasses.values()].some((inst) => inst.modulePath === table.path)
     || [...monomorphizedMethods.values()].some((inst) => inst.ownerModulePath === table.path);
   if (emitsHeaderInlineBodies) {
+    // Template and concrete specialization bodies are emitted in the header, so
+    // dependencies from expressions inside those bodies become header
+    // dependencies rather than ordinary `.cpp` implementation dependencies.
     for (const dependencyModule of collectReferencedModulePaths(table)) {
       addModule(dependencyModule);
     }
@@ -843,6 +898,10 @@ function collectExternInteropAliases(
   table: ModuleSymbolTable,
   analysisResult: AnalysisResult,
 ): Pick<HeaderPlan, "externInteropPredecls" | "externInteropPreAliases" | "externInteropPostAliases"> {
+  // Native code should use its declared namespace, while generated Doof code
+  // keeps canonical module namespaces. These scoped aliases are the narrow
+  // bridge between the two worlds and avoid reintroducing global generated
+  // aliases for every module.
   const nativeNamespaces = collectExternCppNamespaces(table);
   const referencedTypeSymbols = collectExternReferencedTypeSymbols(table, analysisResult);
   const localInteropSymbols = uniqueSymbols(referencedTypeSymbols);
@@ -1138,6 +1197,10 @@ function buildHeaderSurfaceClassKeySet(
       result.add(`${member.module}:${member.name}`);
     }
   }
+  // Class definitions that become header-visible can expose additional private
+  // class types through fields and method signatures. Iterate until that graph
+  // stops growing so later rendering does not depend on source declaration
+  // order.
   let changed = true;
   while (changed) {
     changed = false;
@@ -1439,6 +1502,9 @@ function collectCrossModuleClassForwardDecls(
     symbols.set(`${symbol.module}:${emitClassForwardDeclName(symbol)}`, symbol);
   };
 
+  // Ordinary imported classes can be forward-declared when the header only
+  // needs `std::shared_ptr<T>`/weak references. Value types, extern classes, and
+  // native interop surfaces are handled by module includes instead.
   for (const imp of table.imports) {
     if (imp.symbol?.symbolKind === "class" || imp.symbol?.symbolKind === "struct") {
       addSymbol(imp.symbol);
@@ -1526,7 +1592,6 @@ function emitHpp(
   );
   const lines: string[] = [];
 
-  // Pragma once
   lines.push("#pragma once");
   lines.push("");
 
@@ -1536,7 +1601,8 @@ function emitHpp(
 
   lines.push("");
 
-  // Runtime header (needed for inline methods that use doof:: utilities)
+  // Inline template bodies, generated aliases, Result/JsonValue surfaces, and
+  // default values all rely on runtime support types from this header.
   lines.push(`#include "doof_runtime.hpp"`);
   lines.push("");
 
@@ -1567,8 +1633,10 @@ function emitHpp(
   lines.push(`namespace ${moduleNamespace} {`);
   lines.push("");
 
-  // Forward declarations for classes (needed before interface aliases)
-  // Skip extern classes — their struct is defined in the external header.
+  // Local forward declarations let interface/stream/type aliases refer to class
+  // handles before the full struct definitions are emitted. Extern classes are
+  // declared by their native headers, so generating a second declaration would
+  // risk disagreeing with the real ABI.
   for (const cls of plan.nativeClasses) {
     const sym = getClassSymbolForDecl(table, cls.decl);
     const tpLen = cls.decl.typeParams.length;
@@ -1620,6 +1688,10 @@ function emitHpp(
   }
 
   const headerDefinitionClasses = plan.nativeClasses.filter((candidate) => !classDeclIsStreamSensitive(candidate.decl));
+  // Classes with only pointer-shaped external dependencies can be defined before
+  // module includes, which helps keep circular headers viable. Classes that
+  // store or expose external value types wait until the needed generated headers
+  // have been included.
   const earlyHeaderDefinitionClasses = headerDefinitionClasses.filter((candidate) =>
     !classNeedsCompleteExternalValueFields(candidate.decl, table.path)
   );
@@ -1642,11 +1714,12 @@ function emitHpp(
     }
   };
 
-  // Full struct definitions (with inline methods)
-  // Skip extern classes — their struct is defined in the external header.
   emitHeaderClassDefinitions(earlyHeaderDefinitionClasses);
 
   if (plan.moduleIncludes.length > 0) {
+    // Generated includes must appear outside the current namespace. Re-enter the
+    // namespace afterward so the rest of this module's declarations keep local
+    // names while included modules keep their own namespaces.
     lines.push(`} // namespace ${moduleNamespace}`);
     lines.push("");
     for (const inc of plan.moduleIncludes) {
@@ -1739,8 +1812,9 @@ function emitHpp(
     lines.push("");
   }
 
-  // Function forward declarations (exported only, non-generic)
-  // Generic functions get full body in .hpp since C++ templates must be header-only.
+  // Exported concrete functions get declarations here and out-of-line
+  // definitions in the `.cpp`; generic functions are emitted with bodies below
+  // because C++ templates must be available at instantiation sites.
   for (const fn of plan.nonGenericExportedFunctions) {
     lines.push(emitFunctionSignature(fn.decl, interfaceImpls, undefined, undefined, true, undefined, true) + ";");
   }

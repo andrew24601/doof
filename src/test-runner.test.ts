@@ -469,7 +469,7 @@ describe("test runner execution", () => {
     const reporter = createReporter();
     const originalCwd = process.cwd();
     const originalStdlibRoot = process.env[DOOF_STDLIB_ROOT_ENV];
-    const stdlibRoot = path.join(originalCwd, "stdlib");
+    const stdlibRoot = path.join(originalCwd, "../doof-stdlib");
     process.env[DOOF_STDLIB_ROOT_ENV] = stdlibRoot;
     process.chdir(outsideDir);
 

@@ -27,7 +27,7 @@ function resolveBundledStdlibAsset(...segments: string[]): string {
     throw new Error("Bundled stdlib assets are not available in this runtime");
   }
 
-  return nodeFs.readFileSync(new URL(`../stdlib/${segments.join("/")}`, import.meta.url), "utf8");
+  return nodeFs.readFileSync(new URL(`../../doof-stdlib/${segments.join("/")}`, import.meta.url), "utf8");
 }
 
 function isNodeRuntime(): boolean {
@@ -59,7 +59,7 @@ function resolveCheckedInStdlibPath(relativePath: string): string | null {
     return null;
   }
 
-  const stdlibRoot = fileUrlToFsPath(new URL(/* @vite-ignore */ "../stdlib/", import.meta.url));
+  const stdlibRoot = fileUrlToFsPath(new URL(/* @vite-ignore */ "../../doof-stdlib/", import.meta.url));
   const absolutePath = joinFsPath(resolveFsPath(stdlibRoot), ...relativePath.split("/"));
   return nodeFs.existsSync(absolutePath) ? absolutePath : null;
 }

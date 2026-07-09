@@ -1062,7 +1062,8 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("DOOF_OBSERVE_URL=");
     expect(header).toContain("http://127.0.0.1:");
     expect(header).toContain("inline void launch_browser(const std::string& url)");
-    expect(header).toContain("std::thread(launch_browser, url).detach();");
+    expect(header).toContain('std::getenv("DOOF_OBSERVE_NO_BROWSER")');
+    expect(header).toContain("if (should_launch_browser())");
     expect(header).toContain("Doof Observer");
     expect(header).toContain("/api/metrics/prometheus");
   });

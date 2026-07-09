@@ -2,313 +2,415 @@
 
 ## Overview
 
-Doof does not have exceptions. Instead, it uses two distinct mechanisms:
+Doof has no exceptions. Fallible code uses explicit values and local control-flow
+constructs:
 
-- **Result types** — for expected, recoverable errors
-- **Panic** — for unrecoverable programmer errors (bugs)
+- `Result<T, E>` for expected, recoverable failures
+- `panic(...)` for programmer errors and impossible states
+- `catchPanic(...)` only at controlled boundaries that need to convert a panic
+  into a `Result`
+
+The core rule is simple: expected failures must appear in the type system.
 
 ---
 
 ## Result Types
 
-Result types represent operations that can fail in expected ways:
+`Result<T, E>` is the built-in type for recoverable failure. A `Result` value is
+always in one of two states:
 
-```javascript
-type Result<T, E> = Success<T> | Failure<E>
+- success, carrying a payload of type `T`
+- failure, carrying an error payload of type `E`
 
-class Success<T> {
-    kind: "Success"
-    value: T
-}
+`Success(...)` and `Failure(...)` are the source syntax for creating those
+states. `case` patterns named `Success` and `Failure` are the source syntax for
+testing which state a `Result` is in and binding the corresponding payload view.
 
-class Failure<E> {
-    kind: "Failure"
-    error: E
-}
+`Success` and `Failure` are not ordinary built-in classes, and built-in Results
+do not have a source-visible `kind` field. The generated C++ runtime stores
+`Result<T, E>` as a compact variant with `isSuccess()`, `isFailure()`, `value()`,
+and `error()` accessors.
+
+`T` is the success payload type. `E` is the failure payload type. Either can be
+a class, enum, primitive, collection, nullable type, or union:
+
+```doof
+Result<int, ParseError>
+Result<Config, string>
+Result<Data, IOError | NetworkError>
 ```
 
-### Error Type Flexibility
+Use specific error types when callers need to branch on the cause. Use `string`
+or another simple type when every failure is handled uniformly.
 
-The error type parameter `E` can be:
-- A specific error class: `Result<int, ParseError>`
-- A generic error type: `Result<Config, Error>`
-- A union of error types: `Result<Data, IOError | NetworkError>`
+### Wrapping Values
 
-When combining Results with different error types (e.g., via `?.`), the type system creates error unions:
+`Success(...)` wraps a value as the success payload of a `Result<T, E>`.
+`Failure(...)` wraps a value as the error payload. Both forms require a
+contextual `Result<T, E>` type so the compiler knows the success and error
+channels.
 
-```javascript
-// foo(): Result<Obj, IOError>
-// Obj.bar(): Result<int, ParseError>
-result := foo()?.bar()  // Result<int | null, IOError | ParseError>
-```
+That context is usually a return type, variable annotation, parameter type, or
+generic expectation.
 
-**Guidelines:**
-- Use specific error types when callers need to distinguish between error cases
-- Use generic `Error` for examples or when all errors are handled uniformly
-- The type system automatically tracks and unions error types
+```doof
+function parseCount(text: string): Result<int, string> {
+    if text == "" {
+        return Failure("empty input")
+    }
 
-### Builtin ParseError
-
-Doof provides a builtin `ParseError` enum for numeric parsing helpers:
-
-```javascript
-enum ParseError { InvalidFormat, Overflow, Underflow, EmptyInput }
-```
-
-The builtin numeric parse APIs use this error type:
-
-```javascript
-let result = int.parse("123")  // Result<int, ParseError>
-```
-
-### Returning Results
-
-```javascript
-function parseCount(s: string): Result<int, ParseError> {
-    return int.parse(s)
+    return Success(42)
 }
 ```
 
-### Handling Results
+Named construction is also supported as an alternate spelling for the same
+wrapping operation:
 
-Use `case` statements for exhaustive handling:
+```doof
+return Success { value: count }
+return Failure { error: .InvalidFormat }
+```
 
-```javascript
-let result = parseInt("123")
-case result {
-    s: Success -> print("Got: ${s.value}"),
-    f: Failure -> print("Error: ${f.error.name}")
-}
+`Result<void, E>` has no success payload:
 
-// As expression
-let value = case parseInt("123") {
-    s: Success -> s.value,
-    f: Failure -> 0
+```doof
+function save(): Result<void, string> {
+    if !canWrite() {
+        return Failure("disk full")
+    }
+
+    return Success()
 }
 ```
 
-### Direct Field Access (Not Supported)
+`Success()` and `Success {}` are valid only for `Result<void, E>`, where the
+success state carries no payload. `Success(value)` and
+`Success { value: value }` are valid only for non-void success types.
 
-Result values must be destructured before accessing their fields:
+### Built-in ParseError
 
-```javascript
-result: Result<int, Error> := parseInt("123")
+Numeric parse helpers return `Result<T, ParseError>`:
 
-// ❌ Cannot access fields directly
-let x = result.value   // Error: Result<int, Error> has no field 'value'
-let e = result.error   // Error: Result<int, Error> has no field 'error'
+```doof
+enum ParseError {
+    InvalidFormat,
+    Overflow,
+    Underflow,
+    EmptyInput,
+}
 
-// ✅ Must destructure with case
-case result {
-    s: Success -> print(s.value),
-    f: Failure -> print(f.error)
+count := int.parse("123")      // Result<int, ParseError>
+ratio := double.parse("3.14")  // Result<double, ParseError>
+```
+
+---
+
+## Handling Results Explicitly
+
+Use `case` when success and failure paths need different logic. A `Success`
+pattern matches the success state and exposes the success payload as `.value`;
+a `Failure` pattern matches the failure state and exposes the error payload as
+`.error`.
+
+```doof
+case int.parse(input) {
+    s: Success -> println("count=${s.value}")
+    f: Failure -> println("invalid count: ${f.error.name}")
 }
 ```
 
-**Rationale:** Result is a discriminated union. The type system cannot guarantee which variant (Success or Failure) is present without explicit pattern matching, so direct field access is disallowed.
+The `.value` and `.error` members exist only on the narrowed case-arm binding.
+They are not fields on the `Result` value itself:
+
+```doof
+result: Result<int, string> := int.parse(input)
+
+value := result.value  // Error: Result<int, string> has no field "value"
+error := result.error  // Error: Result<int, string> has no field "error"
+```
+
+The type checker must first know which state is present.
 
 ### Result Values Must Be Used
 
-A `Result` value **cannot be silently discarded**. If a function or method returns `Result<T, E>`, the caller must use that value in some form — ignoring it is a compile-time error:
+A `Result` value cannot be silently discarded. Calling a `Result`-returning
+function as a bare statement is a compile-time error unless the call has a local
+failure handler.
 
-```javascript
-function readFile(path: string): Result<string, IOError> { ... }
+```doof
+function readText(path: string): Result<string, string> { ... }
 
-// ❌ Error: Result value must be used
-readFile("config.json")
+readText("config.json")  // Error: Result value must be used
+```
 
-// ✅ Capture in a variable
-result := readFile("config.json")
+Valid ways to acknowledge the result include:
 
-// ✅ Unwrap with try (early return on Failure)
-try content := readFile("config.json")
+```doof
+result := readText("config.json")
+try text := readText("config.json")
+text := try! readText("config.json")
+text := try? readText("config.json")
+text := readText("config.json") ?? "default"
 
-// ✅ Unwrap with try! (panic on Failure)
-content := try! readFile("config.json")
-
-// ✅ Convert to optional with try?
-content := try? readFile("config.json")
-
-// ✅ Handle Failure locally without binding Success
-readFile("config.json") else error {
-    print("Read failed: ${error.message}")
+readText("config.json") else error {
+    println("read failed: ${error}")
 }
 
-// ✅ Handle Failure locally and discard Success
-_ := writeText("out.txt", content) else error {
-    print("Write failed: ${error.message}")
-}
+return readText("config.json")
 
-// ✅ Pass to another function
-process(readFile("config.json"))
-
-// ✅ Return from the current function
-return readFile("config.json")
-
-// ✅ Use in a case expression
-case readFile("config.json") {
-    s: Success -> s.value,
-    f: Failure -> ""
+case readText("config.json") {
+    s: Success -> println(s.value)
+    f: Failure -> println(f.error)
 }
 ```
 
-**Rationale:** Silently dropping a `Result` means a `Failure` is ignored without acknowledgement. This is a common source of bugs in error handling — the language enforces that every potential failure is at least acknowledged at the call site.
+The must-use rule prevents accidental loss of recoverable failures.
 
 ---
 
-### Result `else` — Local Failure Handling
+## Propagation and Unwrapping
 
-For side-effecting calls, a Result-returning expression statement can attach an `else` handler:
+### `try` Statement
 
-```javascript
-savePuzzleState(path, pieces) else error {
-    println("Failed to save puzzle state: ${error}")
+Statement-level `try` unwraps the success payload or propagates the failure from
+the current function.
+
+```doof
+function loadConfig(path: string): Result<Config, string> {
+    // readText(), parseJsonValue(), and Config.fromJsonValue() each return
+    // Result<_, string>.
+    try text := readText(path)
+    try json := parseJsonValue(text)
+    try config := Config.fromJsonValue(json)
+    return Success(config)
 }
 ```
 
-The expression must have a non-null `Result<T, E>` type. The captured name receives the `Failure<E>.error` payload as type `E`. The handler may fall through because there is no success value that must be available after the statement.
+Rules:
 
-Declaration-`else` also supports failure capture:
+- `try` can only be used in a function that returns `Result<_, E>`.
+- The tried expression must have type `Result<T, F>`.
+- `F` must be assignable to the enclosing function's error type `E`.
+- The binding receives the success payload type `T`, not `Result<T, F>`.
+- `try` is a statement-level construct, not an expression.
 
-```javascript
+Supported forms:
+
+```doof
+try step()                 // Result<void, E>; no value is bound
+try value := expr          // immutable binding
+try value: Type := expr    // typed immutable binding
+try readonly value = expr  // readonly declaration
+try let value = expr       // mutable declaration
+try target = expr          // assignment to an existing variable
+try (a, b) := expr         // positional destructuring
+try [a, _, c] := expr      // array destructuring
+try { name, age } := expr  // named destructuring
+```
+
+`Result<void, E>` can be used only with the bare `try expr` form. Binding a
+void success value is rejected.
+
+For array destructuring, the success type must be an array. The generated code
+panics at runtime if the success array is shorter than the pattern.
+
+### `try!` Expression
+
+`try!` unwraps the success payload or panics on failure:
+
+```doof
+config := try! loadConfig("required.json")
+```
+
+It is an expression and can be used in any function. Use it only when failure
+means the program cannot sensibly continue.
+
+### `try?` Expression
+
+`try?` converts `Result<T, E>` to `T | null`:
+
+```doof
+config := try? loadConfig("optional.json")
+```
+
+On success, the result is the success payload. On failure, the result is
+`null`.
+
+`try?` is rejected for `Result<void, E>` because there is no success payload to
+return. Use bare `try`, `case`, or statement-`else` instead.
+
+---
+
+## Declaration-`else`
+
+Declaration-`else` unwraps a nullable and/or `Result` expression with an
+explicit bail-out path.
+
+```doof
+config := loadConfig(path) else error {
+    return Failure("could not load config: ${error}")
+}
+
+name := maybeName() else {
+    return Failure("missing name")
+}
+```
+
+The binding after the `else` block is the happy-path type:
+
+| Subject type | Binding type after `else` |
+| --- | --- |
+| `T | null` | `T` |
+| `Result<T, E>` | `T` |
+| `Result<T, E> | null` | `T` |
+| `Result<T | null, E>` | `T` |
+
+Rules:
+
+- The subject must be nullable, a `Result`, or both.
+- If a binding is introduced and used after the `else`, the `else` block must
+  exit the current scope with `return`, `break`, `continue`, or `panic(...)`.
+- Without failure capture, the binding name has the original full type inside
+  the `else` block.
+- `else error { ... }` captures the error payload for non-null `Result<T, E>`
+  subjects.
+- Failure capture is not allowed for nullable-only subjects or
+  `Result<T, E> | null` subjects because the unhappy path may be null.
+
+```doof
 text := readText(path) else error {
-    return Failure { error: ioErrorMessage("read", path, error) }
+    return Failure("read failed: ${error}")
+}
+
+value := maybeResult() else {
+    return Failure(case value {
+        f: Failure -> f.error
+        _ -> "missing value"
+    })
 }
 ```
 
-When a declaration introduces a binding (`text` above), the `else` block must exit scope so the binding is definitely available afterward. The discard form has no such invariant:
+The discard form has no post-block binding, so the handler may fall through:
 
-```javascript
+```doof
 _ := writeText(path, text) else error {
-    println("Write failed: ${error}")
+    println("write failed: ${error.message}")
 }
 ```
-
-Failure capture is only valid for non-null Result subjects. Nullable-only values and `Result<T, E> | null` values cannot use `else error` because the unhappy path may be null.
 
 ---
 
-## Result Propagation Operators
+## Statement-`else`
 
-Doof provides three operators for working with Result types without explicit `case` matching:
+A `Result`-returning expression statement can attach `else` to handle failure
+without binding the success value:
 
-### `try` — Early Return on Failure
-
-The `try` statement unwraps a `Success` value or returns the `Failure` from the enclosing function. Unlike `try!` and `try?`, `try` is a **statement-level construct**, not an expression, because it performs early return (control flow):
-
-```javascript
-function loadConfig(): Result<Config, Error> {
-    try content := readFile("config.json")   // string (or early return on Failure)
-    try parsed := parseJSON(content)          // JSON (or early return)
-    try config := validate(parsed)            // Config (or early return)
-    return Success { value: config }
+```doof
+saveState() else error {
+    println("save failed: ${error}")
 }
 ```
 
-**Supported binding forms:**
+Rules:
 
-```javascript
-try x := expr             // immutable binding
-try x: Type := expr       // typed immutable binding
-try readonly x = expr     // readonly declaration
-try let x = expr          // let declaration
-try (a, b) := expr        // positional destructuring
-try [a, b] := expr        // array destructuring
-try {name, age} := expr   // named destructuring
-try x = expr              // assignment to existing variable
+- The subject must be a non-null `Result<T, E>`.
+- The captured name receives the error payload.
+- The handler may fall through because no success-path binding must be made
+  definitely available afterward.
+
+This form satisfies the must-use rule for side-effecting fallible calls.
+
+---
+
+## Fallback and Force Operators
+
+### `??`
+
+`??` works with nullable values and `Result` values:
+
+```doof
+name := maybeName() ?? "anonymous"
+config := loadConfig(path) ?? defaultConfig()
 ```
 
-**Type requirements:**
-- `try` can only be used in functions that return `Result<T, E>`
-- The expression must evaluate to a `Result<T, E>` type
-- The error type `E` of the expression must be assignable to the error type of the enclosing function's return type
-- The bound variable(s) receive type `T` (the success type), not `Result<T, E>`
+For `Result<T, E> ?? T`, the expression unwraps the success payload or evaluates
+the fallback on failure. Evaluation is lazy and right-associative.
 
-For array destructuring, `T` itself must be an array type. `try [a, _, c] := expr` unwraps a `Result<U[], E>`, binds each non-discard name as `U`, and panics at runtime if the success array is shorter than the pattern.
+### `??=`
 
-### `try!` — Panic on Failure
+`??=` assigns only when the left-hand variable is null or a `Failure`:
 
-The `try!` operator unwraps a `Success` value or panics if the Result is a `Failure`:
+```doof
+let cached: string | null = null
+cached ??= loadFromDisk()
 
-```javascript
-config := try! loadConfig()  // Config (panics if loadConfig returns Failure)
-data := try! readFile("required.txt")  // Panics with error message if file can't be read
+let config: Result<Config, string> = loadCache()
+config ??= loadDefaults()
 ```
 
-Use `try!` when a failure indicates a programming error or unrecoverable condition.
+For `Result<T, E>` variables, the right-hand side may be either a compatible
+`Result<T, E>` or a plain `T`, which is wrapped as a success Result.
 
-### `try?` — Convert Failure to Null
+### `!` and `!.`
 
-The `try?` operator converts a `Result<T, E>` to `T | null`, returning `null` on `Failure`:
+Postfix `!` unwraps nullable values and `Result` success values, panicking on
+null or `Failure`:
 
-```javascript
-config := try? loadConfig()  // Config | null (null if error)
-
-if config != null {
-    useConfig(config)  // config is narrowed to Config
-}
-
-// Common pattern: provide default value
-config := try? loadConfig() ?? defaultConfig
+```doof
+user := maybeUser()!
+config := loadConfig(path)!
 ```
 
-`try?` requires a non-`void` success type. `Result<void, E>` has no success payload to convert to `null`; use `try` for propagation or `case` for branching instead.
+Force member access `!.` combines unwrap-or-panic with a field or method access:
 
-### Interaction with Optional Chaining (`?.`)
-
-The `?.` operator propagates nulls through chains. When used with Result types, it adds `null` to the Success value type:
-
-```javascript
-// foo(): Result<MyObject, Error>
-// MyObject.bar(): Result<int, Error>
-
-result := foo()?.bar()  // Result<int | null, Error>
-// If foo() is Success(null), the chain short-circuits and result is Success(null)
-// If foo() is Failure, result is that Failure
-// Otherwise, bar() is called
-
-// If bar() returns a plain value (not Result):
-// MyObject.getValue(): int
-result := foo()?.getValue()  // Result<int | null, Error>
-
-// Combining try? with ?. for null-coalescing error handling
-value := try? foo()?.bar()  // int | null
-// Both Failure and null in the chain become null
-
-// Multiple error types are unioned
-// foo(): Result<Obj, E1>
-// Obj.bar(): Result<int, E2>
-result := foo()?.bar()  // Result<int | null, E1 | E2>
+```doof
+email := loadUser(id)!.email
+response := connection!.send(request)
 ```
 
-### Comparison of Error Handling Approaches
+Applying `!` or `!.` to a value that is neither nullable nor a `Result` is a
+compile-time error.
 
-```javascript
-// Explicit case matching (most control)
-case readFile("data.txt") {
-    s: Success -> processData(s.value),
-    f: Failure -> handleError(f.error)
-}
+---
 
-// Early return (clean sequential code) — try is a statement
-function process(): Result<Output, Error> {
-    try data := readFile("data.txt")
-    return Success { value: transform(data) }
-}
+## Optional Chaining Across Results
 
-// Panic (unrecoverable errors) — try! is an expression
-data := try! readFile("required-config.txt")
+`?.` checks for null and propagates null through the success channel. It does
+not unwrap `Result`.
 
-// Convert to optional (when error details don't matter) — try? is an expression
-data := try? readFile("optional-cache.txt")
+```doof
+// findUser(): Result<User, LookupError>
+// User.profile(): Result<Profile, ProfileError>
+
+profile := findUser(id)?.profile()
+// Result<Profile | null, LookupError | ProfileError>
 ```
 
-### Result Helper Methods
+If the left side is `Failure`, the failure is preserved. If the success value is
+null, the chain short-circuits as a success containing null. If a later call
+also returns `Result`, the error types are unioned.
 
-`Result<T, E>` also provides a small set of helper methods for common success/error transformations without a full `case` expression:
+For a plain member on the success value:
 
-```javascript
-function describeCount(input: Result<int, string>): Result<string, string> {
+```doof
+// findUser(): Result<User, LookupError>
+name := findUser(id)?.name  // Result<string | null, LookupError>
+```
+
+Use `try?` if both failures and nulls should collapse to `null`:
+
+```doof
+profile := try? findUser(id)?.profile()  // Profile | null
+```
+
+---
+
+## Result Helper Methods
+
+`Result<T, E>` provides helper methods for common transformations:
+
+```doof
+function describe(input: Result<int, string>): Result<string, string> {
     return input.map((value: int): string => "count=" + string(value))
 }
 
@@ -321,248 +423,158 @@ function next(input: Result<int, string>): Result<string, string | bool> {
 }
 ```
 
-| Method | Signature | Description |
-|---|---|---|
-| `.map(fn)` | `(fn: (value: T): U) -> Result<U, E>` | Transform the success value and keep failures unchanged |
-| `.mapError(fn)` | `(fn: (error: E): F) -> Result<T, F>` | Transform the failure value and keep successes unchanged |
-| `.andThen(fn)` | `(fn: (value: T): Result<U, F>) -> Result<U, E \| F>` | Chain another fallible operation after a success |
-| `.orElse(fn)` | `(fn: (error: E): Result<U, F>) -> Result<T \| U, F>` | Recover from a failure with another Result-producing operation |
-| `.unwrapOr(value)` | `(value: T) -> T` | Return the success value or a fallback |
-| `.unwrapOrElse(fn)` | `(fn: (error: E): T) -> T` | Return the success value or compute a fallback from the failure |
-| `.ok()` | `() -> T \| null` | Convert success to a nullable value, discarding failures |
-| `.err()` | `() -> E \| null` | Convert failure to a nullable value, discarding successes |
+| Method | Result |
+| --- | --- |
+| `.map(fn)` | Transform the success payload from `T` to `U` and keep failures unchanged |
+| `.mapError(fn)` | Transform the error payload from `E` to `F` and keep successes unchanged |
+| `.andThen(fn)` | Chain a fallible operation after success: `Result<U, E | F>` |
+| `.orElse(fn)` | Recover from failure with another `Result`: `Result<T | U, F>` |
+| `.unwrapOr(value)` | Return the success value or a fallback value |
+| `.unwrapOrElse(fn)` | Return the success value or compute a fallback from the error |
+| `.ok()` | Convert success to `T | null`, discarding failures |
+| `.err()` | Convert failure to `E | null`, discarding successes |
+| `.isSuccess()` | Return `true` when the Result is in the success state |
+| `.isFailure()` | Return `true` when the Result is in the failure state |
 
-`map` is not available on `Result<void, E>` because there is no success payload to transform.
-
-### Quick Reference
-
-```javascript
-// Type Definition
-type Result<T, E> = Success<T> | Failure<E>
-
-// Creating Results
-return Success { value: data }
-return Failure { error: ParseError { message: "Invalid" } }
-
-// try statement (early return — statement-level)
-try value := expr        // T (or early return Failure<E>)
-try readonly value = expr // T (or early return Failure<E>)
-try let value = expr     // T (or early return Failure<E>)
-try (a, b) := expr       // destructured T (or early return)
-try {a, b} := expr       // destructured T (or early return)
-
-// try! and try? (expression-level)
-value := try! expr       // T (or panic)
-value := try? expr       // T | null (Failure → null)
-value := expr ?? fallback// T (unwraps Success or uses fallback on Failure)
-
-// Optional Chaining
-result?.method()          // Result<T | null, E> (null propagates in success type)
-try? result?.method()     // T | null (errors and null both → null)
-
-// Null-Coalescing with Result
-config := loadConfig() ?? defaultConfig           // Config (unwraps or uses fallback)
-data := loadCache() ?? loadDisk() ?? compute()    // Right-to-left: loadCache() ?? (loadDisk() ?? compute())
-
-// Manual Destructuring
-case result {
-    s: Success -> s.value,
-    f: Failure -> f.error
-}
-
-// Helper Methods
-mapped := result.map((value: T): U => transform(value))
-mappedError := result.mapError((error: E): F => rewrite(error))
-chained := result.andThen((value: T): Result<U, F> => next(value))
-recovered := result.orElse((error: E): Result<U, F> => recover(error))
-value := result.unwrapOr(fallback)
-value2 := result.unwrapOrElse((error: E): T => fallbackFrom(error))
-maybeValue := result.ok()
-maybeError := result.err()
-
-// Error Type Unions
-// If foo(): Result<A, E1> and bar(): Result<B, E2>
-result := foo()?.bar()   // Result<B, E1 | E2>
-```
+`map` is not available on `Result<void, E>` because there is no success payload
+to transform.
 
 ---
 
-## Type Narrowing with `as`
+## Checked Narrowing with `as`
 
-The `as` operator performs checked runtime type narrowing/conversion. For plain values it returns `Result<T, string>`. For `Result<V, F>` sources it narrows the success channel and returns `Result<T, F | string>`:
+`as` performs checked runtime narrowing or conversion and returns a `Result`.
 
-```javascript
+```doof
 value: int | string := "hello"
-r := value as string       // Result<string, string>
+narrowed := value as string       // Result<string, string>
 
 input: Result<int | string, bool> := Success("hello")
-next := input as string    // Result<string, bool | string>
+next := input as string           // Result<string, bool | string>
 
 numeric: int | string := 42
-wide := numeric as long    // Result<long, string>
+wide := numeric as long           // Result<long, string>
 ```
 
-This integrates naturally with all Result handling patterns:
+Rules:
 
-```javascript
-// Propagate failure (in Result-returning function):
-function extractName(data: int | string): Result<string, string> {
-    try name := data as string
-    return Success { value: name }
-}
+- For plain values, `expr as T` returns `Result<T, string>`.
+- For `Result<V, F>` sources, it narrows the success channel and returns
+  `Result<T, F | string>`.
+- Supported sources include unions, nullable types, interfaces to implementing
+  classes, numeric primitives and numeric union members, exact `JsonValue`
+  carrier members, and `Result` values wrapping those forms.
+- Numeric narrowing is checked at runtime and fails when the value cannot be
+  represented exactly in the target type.
 
-// Else-narrow:
-s := value as string else { return "default" }
+Because `as` returns `Result`, all standard Result patterns apply:
 
-// Panic on failure:
-s := try! value as string
+```doof
+try name := value as string
+name := try! value as string
+name := (value as string) ?? "default"
 
-// Pattern match:
-len := case value as string {
-    ok: Success -> ok.value.length,
+case value as string {
+    s: Success -> s.value.length
     _: Failure -> 0
 }
 ```
 
-Supported narrowing sources: unions (`A | B`), nullable types (`T | null`), interfaces (to implementing classes), numeric primitives and numeric union members when the runtime value can be converted exactly to the target numeric type, `JsonValue` exact carrier members, and `Result<V, F>` when `V` is one of those same narrowable source forms. See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full support matrix.
+See [05-operators.md](05-operators.md#type-narrowing-operator-as) for the full
+operator matrix.
 
 ---
 
-## Catch Expression — Local Error Capture
+## Catch Expressions
 
-The `catch` expression groups fallible operations and captures any error locally, without propagating it to the enclosing function. Inside a `catch` block, `try` statements break out of the block (instead of returning from the enclosing function) and the error becomes the value of the `catch` expression. If the block completes without error, the value is `null`.
+`catch` captures failures from statement-level `try` inside a block instead of
+propagating them from the enclosing function.
 
-### Basic Usage
-
-```javascript
+```doof
 err := catch {
-    try a()
-    try b()
+    try readHeader()
+    try readBody()
 }
-// err: IOError | null (if both a() and b() return Result<_, IOError>)
 ```
 
-The inferred type of `err` is the **union of all error types** from `try` statements inside the block, plus `null`:
+If every `try` in the block succeeds, the `catch` expression evaluates to
+`null`. If a `try` sees a `Failure`, the block stops immediately and evaluates
+to that failure payload.
 
-```javascript
-// a(): Result<void, IOError>
-// b(): Result<void, ParseError>
+The type is the union of all captured error types plus `null`:
+
+```doof
+// readHeader(): Result<void, IOError>
+// parseHeader(): Result<Header, ParseError>
+
 err := catch {
-    try a()
-    try b()
+    try readHeader()
+    try header := parseHeader()
 }
-// err: IOError | ParseError | null
+// IOError | ParseError | null
 ```
 
-### With Case Expression
+Rules:
 
-A `catch` expression can be used as the subject of a `case` expression to dispatch on the captured error type:
+- Only statement-level `try` is redirected by `catch`.
+- `try!` still panics on failure.
+- `try?` still converts failure to `null`.
+- Nested `catch` blocks capture independently.
+- A `catch` body with no `try` statements produces a warning.
+- In binding form, `return` inside the body returns from the enclosing function.
+- In expression form, such as `case catch { ... } { ... }`, `return` in the
+  body is rejected for the same reason it is rejected in `case` expression arms.
 
-```javascript
-case catch { try a(); try b() } {
-    io: IOError -> handleIO(io),
-    ex: ParseError -> handleParse(ex),
-    _ -> print("all good")
+`catch` is useful when a sequence of fallible operations should be attempted
+locally and the caller only needs to know whether any step failed:
+
+```doof
+case catch {
+    try connect()
+    try sendPing()
+} {
+    error: NetworkError -> println(error.message)
+    _ -> println("ready")
 }
 ```
-
-The wildcard arm handles the `null` case (no error).
-
-### Type Inference Rules
-
-- The type of a `catch` expression is the deduplicated union of all error types from `try` statements in the body, plus `null`
-- Single error type: `E | null`
-- Multiple error types: `E1 | E2 | ... | null`
-- If the body contains no `try` statements, a warning diagnostic is emitted
-
-### Interaction with `return`
-
-- **Binding form** (`err := catch { ... }`): `return` inside the body returns from the **enclosing function**, because the block is emitted at statement level
-- **Expression form** (`case catch { ... } { ... }`): `return` inside the body is **banned**, same as inside `case` expression arms, because the block is wrapped in an IIFE for evaluation
-
-### Nesting
-
-`catch` blocks can be nested. Each block captures errors independently:
-
-```javascript
-outer := catch {
-    inner := catch {
-        try a()   // captured by inner
-    }
-    try b()       // captured by outer
-}
-```
-
-### Interaction with `try` Variants
-
-Only the `try` **statement** (early-return form) is redirected inside a `catch` block. `try!` and `try?` are expressions and behave normally (panic or convert to null, respectively).
 
 ---
 
 ## Panic
 
-Panic is for unrecoverable errors that indicate bugs — conditions that should never occur in correct code.
+`panic(message)` terminates normal execution immediately. Use it for programmer
+errors, internal invariants, and states that should be impossible in correct
+code.
 
-```javascript
-function getElement<T>(array: T[], index: int): T {
-    if index < 0 || index >= array.length {
-        panic("Index out of bounds: ${index}")
+```doof
+function getElement<T>(items: T[], index: int): T {
+    if index < 0 || index >= items.length {
+        panic("index out of bounds: ${index}")
     }
-    return array[index]
+
+    return items[index]
 }
 ```
 
-**Panic behaviour:**
-- Immediately terminates the program
-- For source-originated panics, prefixes the message with the Doof source filename and line, for example `main.do:3: ...`
-- Prints stack trace and panic message
-- Should **only** be used for programmer errors, not expected runtime conditions
-
-### `catchPanic`
-
-`catchPanic` is a narrow built-in for process-boundary recovery. It runs a parameterless callback and converts a panic from that callback into a `Failure<string>` containing the panic message:
-
-```javascript
-function catchPanic<T>(f: () => T): Result<T, string>
-```
-
-If the callback completes normally, `catchPanic` returns `Success<T>`.
-
-```javascript
-result := catchPanic(=> {
-    initializePlugin()
-    return "ready"
-})
-```
-
-Use `catchPanic` sparingly at controlled boundaries such as plugin hosts, test harnesses, or request/process adapters. It is not a general exception system, and expected failures should still be modeled as `Result<T, E>`.
-
-### Runtime Metrics
-
-Doof provides process-local runtime counters for lightweight instrumentation:
-
-```javascript
-function metricsIncrement(name: string, value: long): void
-function metricsSnapshotPrometheus(): string
-```
-
-Counters are keyed by their full metric identity string, including any Prometheus labels. Increments and snapshots are thread-safe. `metricsSnapshotPrometheus()` returns sorted Prometheus text lines in the form `name value`.
+Source-originated panics include source location information in generated
+programs. Panics should not be used for expected failures such as invalid user
+input, missing files, parse errors, or network failures. Model those as
+`Result<T, E>`.
 
 ### Assertions
 
-```javascript
-function assert(condition: bool, message: string): void {
-    if !condition {
-        panic("Assertion failed: ${message}")
-    }
-}
+The primitive assertion helper is:
+
+```doof
+function assert(condition: bool, message: string): void
 ```
 
-`assert(...)` is the standard assertion primitive for Doof tests.
+An assertion failure panics. Use assertions for tests and internal invariants,
+not recoverable runtime failures.
 
-For richer test assertions, import `Assert` from the compiler-provided `std/assert` module:
+The `std/assert` module provides richer test helpers:
 
-```javascript
+```doof
 import { Assert } from "std/assert"
 
 export function testAdd(): void {
@@ -571,110 +583,96 @@ export function testAdd(): void {
 }
 ```
 
-`Assert` is a library surface layered on top of the primitive `assert(...)`. These helpers are imported explicitly; they are not additional global built-ins. The initial surface includes `equal`, `notEqual`, `isTrue`, `isFalse`, and `fail`.
+These helpers are library APIs, not additional global built-ins.
 
-Typical usage:
+### `catchPanic`
 
-```javascript
-export function testAdd(): void {
-    assert(1 + 1 == 2, "expected 1 + 1 to equal 2")
-}
+`catchPanic<T>(f: () => T): Result<T, string>` runs a parameterless callback and
+converts a panic from that callback into a failure Result with a string error
+payload.
+
+```doof
+result := catchPanic(=> {
+    initializePlugin()
+    return "ready"
+})
 ```
 
-When an assertion fails, it panics immediately. In normal programs that aborts execution. In `doof test`, each test runs in its own process, so a failed assertion marks that test as failed without preventing the rest of the suite from running.
+If the callback completes normally, `catchPanic` returns a success Result with
+the callback's return value. For a void callback, it returns
+`Result<void, string>`.
 
-Use assertions for:
-
-- test expectations
-- internal invariants that indicate a bug when violated
-
-Do not use assertions for:
-
-- expected runtime failures that should be modeled as `Result<T, E>`
-- user input validation that should produce recoverable diagnostics
+Use `catchPanic` sparingly at process, plugin, host, or test boundaries. It is
+not a general exception system.
 
 ---
 
-## When to Use Each
+## Runtime Metrics
 
-| Mechanism | Use For | Examples |
-|-----------|---------|----------|
-| **Result + `case`** | When you need to handle errors differently | Retry logic, fallbacks, detailed error reporting |
-| **`try` statement** | Sequential error propagation in Result-returning functions | Validation pipelines, chained operations |
-| **Result + `try!`** | When failure indicates unrecoverable state | Required config files, initialization |
-| **Result + `try?`** | When error details don't matter, convert to optional | Optional features, cached data |
-| **Result + `??`** | Provide specific fallback value on Failure | Configuration with defaults, fallback chains |
-| **`else` narrow** | Unwrap Result or nullable with custom bail-out logic | Guard clauses, early-return patterns |
-| **`catchPanic`** | Controlled boundary recovery from programmer-error panics | Plugin/process/test harness isolation |
-| **Panic** | Programmer errors (bugs) | Array bounds violations, assertion failures |
+Doof provides process-local runtime counters for lightweight instrumentation:
 
-```javascript
-// ✅ Expected failures use Result
-function readFile(path: string): Result<string, IOError> { ... }
-function parseJSON(s: string): Result<JSON, ParseError> { ... }
-
-// ✅ Use case for detailed error handling
-case readFile("data.txt") {
-    s: Success -> processData(s.value),
-    f: Failure -> {
-        logError(f.error)
-        useDefaultData()
-    }
-}
-
-// ✅ Use try for sequential operations
-function loadConfig(): Result<Config, Error> {
-    try content := readFile("config.json")
-    try parsed := parseJSON(content)
-    return Success { value: validate(parsed) }
-}
-
-// ✅ Use try! when failure is unrecoverable
-config := try! loadConfig()
-
-// ✅ Use try? when you don't care about error details
-cachedData := try? loadCache() ?? computeFresh()
-
-// ✅ Use ?? directly with Result for clearer fallback intent
-config := loadConfig() ?? defaultConfig
-
-// ✅ Programmer errors panic
-function divide(a: int, b: int): int {
-    if b == 0 {
-        panic("Division by zero")
-    }
-    return a / b
-}
+```doof
+function metricsIncrement(name: string, value: long): void
+function metricsSnapshotPrometheus(): string
 ```
+
+Counters are keyed by their full metric identity string, including any
+Prometheus labels. Increments and snapshots are thread-safe.
+`metricsSnapshotPrometheus()` returns sorted Prometheus text lines in the form
+`name value`.
 
 ---
 
-## Resource Cleanup
+## When to Use Each Mechanism
 
-Doof does not have `finally` blocks or `defer` statements. Instead, resource cleanup is handled by **deterministic destructors** — when an object's reference count reaches zero, its destructor runs immediately. This guarantees cleanup regardless of exit path (normal return, early `try` return, or panic).
+| Mechanism | Use for |
+| --- | --- |
+| `Result` + `case` | Detailed branching by success or failure |
+| statement-level `try` | Sequential propagation in a `Result`-returning function |
+| `try!` or `!` | Required success where failure is unrecoverable |
+| `try?` or `.ok()` | Converting failure to nullable when details do not matter |
+| `??` | Supplying a fallback value |
+| declaration-`else` | Guard-style unwrap-or-bail control flow |
+| statement-`else` | Handling a side-effecting `Result` without a success binding |
+| `catch` | Capturing local fallible work without returning early |
+| `panic` / `assert` | Programmer errors and impossible states |
+| `catchPanic` | Converting panics to `Result` at controlled boundaries |
 
-See [Classes and Interfaces — Memory Management](07-classes-and-interfaces.md) for destructor syntax and weak reference details.
+There is no `finally` or `defer`. Cleanup relies on deterministic destructors
+and reference-counted ownership.
 
-```javascript
-function transferData(): Result<void, IOError> {
-    try src := openFile("input.dat")
-    try dst := openFile("output.dat")
-    
-    try data := src.read()
-    try dst.write(data)
-    
-    return Success()
-    // dst and src destructors run automatically on scope exit
+## Quick Reference
+
+```doof
+// Constructing
+return Success(value)
+return Success { value: value }
+return Success()              // only Result<void, E>
+return Failure(error)
+return Failure { error: error }
+
+// Explicit handling
+case result {
+    s: Success -> s.value
+    f: Failure -> fallback(f.error)
 }
+
+// Propagation and conversion
+try value := fallible()
+try stepReturningVoid()
+value := try! fallible()
+maybe := try? fallible()
+value := fallible() ?? fallback
+
+// Local handlers
+value := fallible() else error { return Failure(error) }
+fallibleSideEffect() else error { println(error) }
+err := catch { try a(); try b() }
+
+// Helpers
+mapped := result.map((value: T): U => transform(value))
+chained := result.andThen((value: T): Result<U, F> => next(value))
+value := result.unwrapOr(fallback)
+maybeValue := result.ok()
+maybeError := result.err()
 ```
-
----
-
-## Design Rationale
-
-**Why no exceptions?**
-
-1. **Explicit error handling** — Result types make error cases visible in function signatures
-2. **Exhaustiveness checking** — `case` statements ensure all outcomes are handled
-3. **No hidden control flow** — no invisible throws/catches to track
-4. **Clear separation** — Result for recoverable errors, panic for bugs

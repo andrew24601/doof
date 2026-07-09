@@ -313,6 +313,31 @@ describe("Assignment validation", () => {
     expect(info.diagnostics[0].message).toContain('field "x" is mutable');
   });
 
+  it("rejects readonly fields whose generic type argument is mutable", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Box<T> {
+            readonly item: T
+          }
+
+          class MutablePayload {
+            value: int
+          }
+
+          class Holder {
+            readonly box: Box<MutablePayload>
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(info.diagnostics[0].message).toContain('Readonly field "box" requires a deeply immutable type');
+    expect(info.diagnostics[0].message).toContain('field "item" is not deeply immutable');
+    expect(info.diagnostics[0].message).toContain('field "value" is mutable');
+  });
+
   it("accepts readonly fields whose collection surface is implied readonly", () => {
     const info = check(
       {

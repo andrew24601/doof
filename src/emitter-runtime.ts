@@ -2313,6 +2313,11 @@ inline void launch_browser(const std::string& url) {
     }
 }
 
+inline bool should_launch_browser() {
+    const char* value = std::getenv("DOOF_OBSERVE_NO_BROWSER");
+    return value == nullptr || value[0] == '\\0' || std::string(value) == "0";
+}
+
 inline std::string reason_phrase(int status) {
     switch (status) {
         case 200: return "OK";
@@ -2458,7 +2463,9 @@ inline void start_server() {
         const std::string url = std::string("http://127.0.0.1:") + std::to_string(port) + "/";
         std::cout << "DOOF_OBSERVE_URL=" << url << std::endl;
         std::thread(serve_loop, server).detach();
-        std::thread(launch_browser, url).detach();
+        if (should_launch_browser()) {
+            std::thread(launch_browser, url).detach();
+        }
     });
 }
 

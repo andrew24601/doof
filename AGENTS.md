@@ -274,6 +274,7 @@ import { BUILTIN_TYPE_NAMES } from "./types.js";
 - [ ] Implement in a focused source file (< 500 lines if possible)
 - [ ] Write comprehensive unit tests (aim for 80%+ coverage)
 - [ ] Test error cases and edge cases
+- [ ] Add method-level comments for non-trivial behavior, especially where a method's purpose or role in a larger concept is not immediately obvious
 - [ ] Add JSDoc comments for public APIs
 - [ ] Export from [index.ts](src/index.ts) if part of public API
 - [ ] **Update the relevant `spec/` file** to document language behaviour
@@ -416,6 +417,9 @@ function validate(node: Node, ctx: Context) {
 
 - Document *why*, not *what* (code shows what)
 - Add file-level JSDoc explaining module purpose
+- Add concise comments before non-trivial methods explaining their purpose, the concept they belong to, and how they fit into the surrounding phase or workflow
+- Prefer comments that name invariants, ownership boundaries, lowering/checking intent, or coordination between helper methods
+- Avoid narrating obvious control flow; comments should orient future readers who are trying to understand the design
 - Add JSDoc to public APIs
 - Mark TODOs with context: `// TODO(username): explain why`
 

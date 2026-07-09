@@ -33,6 +33,9 @@ export function applyDeepReadonly(type: ResolvedType): ResolvedType {
   return applyDeepReadonlyInternal(type, new Map<ResolvedType, ResolvedType>());
 }
 
+// Composite resolved types can be recursive through class/interface fields or
+// hand-built test fixtures. Cache replacement nodes before recursing so the
+// transformed graph preserves cycles instead of repeatedly walking them.
 function applyDeepReadonlyInternal(
   type: ResolvedType,
   seen: Map<ResolvedType, ResolvedType>,
@@ -271,6 +274,9 @@ function findClassReadonlyViolation(
   seen: Set<string>,
   visited: Set<ResolvedType>,
 ): DeepReadonlyViolation | null {
+  // Use the declaration identity plus concrete type arguments as the recursion
+  // key. A generic class can be valid for one specialization and invalid for
+  // another, so the type arguments are part of the cycle guard.
   const key = `class:${type.symbol.module}:${type.symbol.name}<${(type.typeArgs ?? []).map(typeToString).join(",")}>`;
   if (seen.has(key)) return null;
   seen.add(key);
@@ -316,6 +322,8 @@ function findInterfaceReadonlyViolation(
   seen: Set<string>,
   visited: Set<ResolvedType>,
 ): DeepReadonlyViolation | null {
+  // Interfaces share the same specialization-aware cycle guard as classes
+  // because field types may mention the interface recursively through T.
   const key = `interface:${type.symbol.module}:${type.symbol.name}<${(type.typeArgs ?? []).map(typeToString).join(",")}>`;
   if (seen.has(key)) return null;
   seen.add(key);

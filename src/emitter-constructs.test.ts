@@ -543,6 +543,96 @@ describe("emitter — lambda captures", () => {
     expect(cpp).toMatch(/auto _else\d+ = sender->send\(\);/);
     expect(cpp).toContain("(*attempts) = (*attempts) + 1");
   });
+
+  it("captures outer bindings reached through expression forms inside lambdas", () => {
+    const cpp = emit(`
+      class Payload {
+        value: int
+      }
+
+      function invoke(handler: (): int): int {
+        return handler()
+      }
+
+      function main(): int {
+        seed := 2
+        extra := 3
+        values := [1, seed]
+        return invoke((): int => {
+          bumped := -seed
+          picked := values[0]
+          pair := (picked, extra)
+          label := \`seed=\${seed}\`
+          scores: Map<string, int> := { "seed": seed, "extra": extra }
+          payload := Payload(seed)
+          return bumped + picked + scores["extra"] + payload.value
+        })
+      }
+    `);
+
+    expect(cpp).toContain("invoke(doof::callback<int32_t()>([seed, values, extra]() -> int32_t");
+    expect(cpp).toContain("std::make_tuple(picked, extra)");
+    expect(cpp).toContain('doof::concat("seed=", doof::to_string(seed))');
+    expect(cpp).toContain(
+      'doof::ordered_map<std::string, int32_t>{{std::string("seed"), seed}, {std::string("extra"), extra}}',
+    );
+    expect(cpp).toContain("std::make_shared<Payload>(seed)");
+  });
+
+  it("captures outer bindings reached through statement forms inside lambda blocks", () => {
+    const cpp = emit(`
+      function invoke(handler: (): int): int {
+        return handler()
+      }
+
+      function main(): int {
+        seed := 1
+        let total = 0
+        return invoke((): int => {
+          if seed > 0 {
+            total = total + seed
+          } else if seed < 0 {
+            total = total - 1
+          } else {
+            total = total + 2
+          }
+
+          while seed < 0 {
+            total = total + 1
+          } then {
+            total = total + seed
+          }
+
+          for let i = 0; i < 1; i += 1 {
+            total = total + i
+          } then {
+            total = total + seed
+          }
+
+          for n of [seed] {
+            total = total + n
+          } then {
+            total = total + seed
+          }
+
+          with scoped := seed {
+            total = total + scoped
+          }
+
+          return total
+        })
+      }
+    `);
+
+    expect(cpp).toContain("auto total = std::make_shared<int32_t>(0)");
+    expect(cpp).toContain("invoke(doof::callback<int32_t()>([seed, total]() -> int32_t");
+    expect(cpp).toContain("(*total) = (*total) + seed");
+    expect(cpp).toContain("if (seed > 0)");
+    expect(cpp).toContain("while (seed < 0)");
+    expect(cpp).toContain("for (auto i = 0; i < 1; i += 1)");
+    expect(cpp).toContain("for (const auto& n : *_iterable_");
+    expect(cpp).toContain("auto scoped = seed;");
+  });
 });
 
 
@@ -780,6 +870,25 @@ describe("emitter — case expressions", () => {
     expect(cpp).toContain("== 0");
     expect(cpp).toContain("== 1");
     expect(cpp).toContain("return 30;");
+    expect(cpp).toContain("doof::unreachable();");
+  });
+
+  it("emits unreachable fallback for non-wildcard value case expressions", () => {
+    const cpp = emit(`
+      enum Day {
+        Monday = 1,
+        Tuesday = 2
+      }
+
+      function name(day: Day): string {
+        return case day {
+          Day.Monday -> "Mon",
+          Day.Tuesday -> "Tue"
+        }
+      }
+    `);
+
+    expect(cpp).toContain("doof::unreachable();");
   });
 
   it("emits IIFE with range patterns", () => {

@@ -12,6 +12,12 @@ import {
 } from "./emitter-expr-utils.js";
 import { emitSymbolReferenceName } from "./emitter-names.js";
 
+/*
+ * Emits the restricted expression subset allowed in parameter and field
+ * defaults. Header-safe callers use `canEmitDefaultExpressionInHeader` first;
+ * defaults that need generated class bodies or static method definitions are
+ * instead materialized at omitted call sites in `.cpp` output.
+ */
 function unsupportedDefault(expr: Expression, contextType?: ResolvedType): never {
   const reason = getUnsupportedDefaultExpressionReason(expr, contextType)
     ?? `expression kind "${expr.kind}" is not supported in parameter defaults`;
