@@ -74,6 +74,7 @@ export interface DoofNativeBuildConfig extends DoofNativeBuildFragment {
   macos?: DoofNativeBuildFragment;
   iosSimulator?: DoofNativeBuildFragment;
   iosDevice?: DoofNativeBuildFragment;
+  wasm?: DoofNativeBuildFragment;
   linux?: DoofNativeBuildFragment;
   windows?: DoofNativeBuildFragment;
 }
@@ -1445,6 +1446,7 @@ function parseNativeBuildConfig(value: unknown, manifestPath: string): DoofNativ
     macos: parseOptionalNativeBuildFragment(value.macos, manifestPath, "build.native.macos"),
     iosSimulator: parseOptionalNativeBuildFragment(value.iosSimulator, manifestPath, "build.native.iosSimulator"),
     iosDevice: parseOptionalNativeBuildFragment(value.iosDevice, manifestPath, "build.native.iosDevice"),
+    wasm: parseOptionalNativeBuildFragment(value.wasm, manifestPath, "build.native.wasm"),
     linux: parseOptionalNativeBuildFragment(value.linux, manifestPath, "build.native.linux"),
     windows: parseOptionalNativeBuildFragment(value.windows, manifestPath, "build.native.windows"),
   };
@@ -1854,7 +1856,9 @@ function normalizeNativeBuildConfig(
     return createEmptyResolvedPackageNativeBuild();
   }
 
-  const platformBuild = effectiveBuildTarget === "ios-app" && process.platform === "darwin"
+  const platformBuild = effectiveBuildTarget === "wasm"
+    ? nativeBuild.wasm
+    : effectiveBuildTarget === "ios-app" && process.platform === "darwin"
     ? effectiveIOSDestination === "device"
       ? nativeBuild.iosDevice
       : nativeBuild.iosSimulator
@@ -1926,6 +1930,8 @@ function normalizeBuildTargetConfig(
         kind: "ios-app",
         config: normalizeIOSAppBuildConfig(build.iosApp!, rootDir, manifestPath),
       };
+    case "wasm":
+      return { kind: "wasm" };
   }
 }
 
@@ -2176,6 +2182,15 @@ function createExternalDependencyNativeTargetContext(
   effectiveBuildTarget: DoofBuildTarget | undefined,
   effectiveIOSDestination: IOSAppDestination,
 ): ExternalDependencyNativeTargetContext {
+  if (effectiveBuildTarget === "wasm") {
+    return {
+      nativeTarget: "wasm",
+      sdkPath: "",
+      targetTriple: "wasm32-unknown-emscripten",
+      configureHost: "wasm32-unknown-emscripten",
+    };
+  }
+
   if (effectiveBuildTarget === "ios-app" && process.platform === "darwin") {
     const minimumDeploymentTarget = build?.iosApp?.minimumDeploymentTarget ?? DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET;
     if (effectiveIOSDestination === "device") {

@@ -366,6 +366,7 @@ Strategy:
 - each Doof module is emitted as a generated header/source pair
 - project emission also writes runtime and target-specific support files
 - the emitted project layout is designed to be consumed by the CLI build pipeline rather than by a separate handwritten build integration layer
+- `build.target = "wasm"` adds `doof_wasm.cpp`, which exposes entry-module exported functions as JSON-string C ABI wrappers and is compiled as an extra generated native source
 
 Primary modules:
 

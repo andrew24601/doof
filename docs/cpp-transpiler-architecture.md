@@ -167,6 +167,9 @@ Some features require dedicated support generation beyond ordinary statement or 
 - `src/emitter-schema.ts` generates JSON Schema fragments for metadata surfaces
 - `src/emitter-metadata.ts` generates `.metadata` and `.invoke()` support
 - `src/emitter-narrowing.ts` handles `as`-narrowing and extraction from narrowed values
+- WebAssembly library targets are coordinated by `src/emitter-module.ts`: it emits
+  `doof_wasm.cpp`, adds the bundled `std/json` parser header, and exposes
+  entry-module exported functions through JSON-string C ABI wrappers
 
 These modules are the owning surface when a feature requires both language lowering and runtime interop support.
 
@@ -180,7 +183,7 @@ At a high level, emission follows this sequence:
 4. Generate runtime and feature support files required by the emitted program.
 5. Return generated source plus the native-build handoff information consumed by the CLI.
 
-The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler. `doof build` and `doof run` materialize debug-profile files through Reckon under `<buildDir>/debug`; `doof package` uses an independent release graph under `<buildDir>/release` and stages its final artifact in `dist/`. Each profile keeps task state in `.reckon/state.json`, compiles generated/native sources to `.doof-objects/`, and links from those object files. Apple app assembly runs after linking: it copies app-declared `embeddedLibraries`, rewrites Mach-O IDs and dependencies to bundle-relative `@rpath` references, and validates that no undeclared non-system dependency remains. Packaging then signs nested code before signing and verifying the outer macOS or iOS device bundle. For `ios-app`, bundle assembly also compiles the emitted app-icon catalog with `actool` for the selected destination and merges the resulting icon keys into the bundled `Info.plist`; the source `.xcassets` directory is not copied into the app.
+The CLI surfaces described in `docs/cli.md` then write those files and optionally invoke a native compiler. `doof build` and `doof run` materialize debug-profile files through Reckon under `<buildDir>/debug`; `doof package` uses an independent release graph under `<buildDir>/release` and stages its final artifact in `dist/`. Each profile keeps task state in `.reckon/state.json`, compiles generated/native sources to `.doof-objects/`, and links from those object files. Apple app assembly runs after linking: it copies app-declared `embeddedLibraries`, rewrites Mach-O IDs and dependencies to bundle-relative `@rpath` references, and validates that no undeclared non-system dependency remains. Packaging then signs nested code before signing and verifying the outer macOS or iOS device bundle. For `ios-app`, bundle assembly also compiles the emitted app-icon catalog with `actool` for the selected destination and merges the resulting icon keys into the bundled `Info.plist`; the source `.xcassets` directory is not copied into the app. For `wasm`, the CLI uses `em++`, links with standalone wasm flags, exports `malloc`, `free`, `doof_free`, and generated `doof_export_*` wrappers, and leaves JavaScript instantiation to the consumer.
 
 ## Design Constraints
 

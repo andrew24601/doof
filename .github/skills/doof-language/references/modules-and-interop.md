@@ -85,6 +85,10 @@ function main(args: string[]): int { /* ... */ }
 
 Module-scope `readonly` values initialize before `main()`. Imported modules initialize depth-first.
 
+### WebAssembly Library Exports
+
+With `build.target = "wasm"` or `--target wasm`, exported top-level functions in the entry module become host-callable C ABI exports named `doof_export_<functionName>`. The host passes a UTF-8 JSON object string with parameters by name and receives an allocated UTF-8 JSON envelope string. Call the exported `doof_free` after reading the result. Generic exports and types outside the supported JSON ABI are rejected.
+
 ## Extern C++ Interop
 
 Import external C++ classes:

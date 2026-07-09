@@ -1,7 +1,7 @@
 import * as nodePath from "node:path";
 import type { AppInfoPlist } from "./app-info-plist.js";
 
-export type DoofBuildTarget = "macos-app" | "ios-app";
+export type DoofBuildTarget = "macos-app" | "ios-app" | "wasm";
 export type IOSAppDestination = "simulator" | "device";
 
 export interface DoofMacOSAppResourceConfig {
@@ -88,14 +88,18 @@ export interface ResolvedDoofIOSAppTarget {
   config: ResolvedDoofIOSAppConfig;
 }
 
-export type ResolvedDoofBuildTarget = ResolvedDoofMacOSAppTarget | ResolvedDoofIOSAppTarget;
+export interface ResolvedDoofWasmTarget {
+  kind: "wasm";
+}
+
+export type ResolvedDoofBuildTarget = ResolvedDoofMacOSAppTarget | ResolvedDoofIOSAppTarget | ResolvedDoofWasmTarget;
 
 export const DEFAULT_MACOS_APP_CATEGORY = "public.app-category.developer-tools";
 export const DEFAULT_MACOS_MINIMUM_SYSTEM_VERSION = "11.0";
 export const DEFAULT_IOS_MINIMUM_DEPLOYMENT_TARGET = "16.0";
 
 export function isDoofBuildTarget(value: string): value is DoofBuildTarget {
-  return value === "macos-app" || value === "ios-app";
+  return value === "macos-app" || value === "ios-app" || value === "wasm";
 }
 
 export function normalizeMacOSAppResourceDestination(destination: string): string {

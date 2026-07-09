@@ -53,6 +53,7 @@ import {
   printDiagnostic,
   RealFS,
   resolveCompilerToolchain,
+  resolveWasmCompilerToolchain,
   resolveNativeBuildOptions,
   runNativeBuildGraph,
   runPipelineWithFs,
@@ -117,7 +118,7 @@ Options:
   -o, --outdir <dir>   Build-state root (default: package build/ or build.buildDir)
   --distdir <dir>      Packaged artifact directory (default: package dist/)
   --compiler <path>    C++ compiler (default: auto-detect clang++/g++, or Visual Studio cl.exe on Windows)
-  --target <kind>      Override the manifest build target (macos-app or ios-app)
+  --target <kind>      Override the manifest build target (macos-app, ios-app, or wasm)
   --ios-destination <kind>
                        iOS destination for ios-app builds (simulator or device)
   --ios-device <id>    Connected iOS device identifier or name for ios-app run when using --ios-destination device
@@ -479,7 +480,6 @@ function cmdEmit(
 }
 
 async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
-  const toolchain = resolveCompilerToolchain(args.compiler);
   const nativeBuild = resolveNativeBuildOptions(args.nativeBuild);
   const { project, nativeBuild: resolvedNativeBuild, outputBinaryName, provenance, buildManifest, buildTarget, resources } = runPipeline(
     args.entry,
@@ -490,6 +490,12 @@ async function cmdBuildOrRun(args: CliArgs, run: boolean): Promise<void> {
     args.metricsClassLifecycle,
     run && args.observe,
   );
+  if (run && buildTarget?.kind === "wasm") {
+    throw new Error("doof run is not supported for --target wasm; instantiate the generated .wasm from your host runtime");
+  }
+  const toolchain = buildTarget?.kind === "wasm"
+    ? resolveWasmCompilerToolchain(args.compiler)
+    : resolveCompilerToolchain(args.compiler);
   const effectiveNativeBuild = buildTarget?.kind === "ios-app"
     ? args.iosDestination === "device"
       ? buildIOSDeviceNativeBuild(

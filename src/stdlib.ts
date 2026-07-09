@@ -168,13 +168,17 @@ export function withBundledStdlib(
 export function getBundledStdlibSupportFiles(modulePaths: Iterable<string>): ProjectSupportFile[] {
   for (const modulePath of modulePaths) {
     if (modulePath === BUNDLED_STD_JSON_MODULE_PATH) {
-      return [{
-        relativePath: BUNDLED_STD_JSON_NATIVE_HEADER_PATH,
-        content: getBundledStdJsonNativeHeader(),
-      }];
+      return [getBundledStdJsonSupportFile()];
     }
   }
   return [];
+}
+
+export function getBundledStdJsonSupportFile(): ProjectSupportFile {
+  return {
+    relativePath: BUNDLED_STD_JSON_NATIVE_HEADER_PATH,
+    content: getBundledStdJsonNativeHeader(),
+  };
 }
 
 export function createBundledModuleResolver(

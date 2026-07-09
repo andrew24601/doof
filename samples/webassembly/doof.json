@@ -1,0 +1,9 @@
+{
+  "name": "webassembly-sample",
+  "version": "0.1.0",
+  "license": "ISC",
+  "build": {
+    "target": "wasm",
+    "entry": "main.do"
+  }
+}

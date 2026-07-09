@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Doof WebAssembly Runtime</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        margin: 2rem;
+        max-width: 48rem;
+      }
+
+      pre {
+        border: 1px solid CanvasText;
+        border-radius: 6px;
+        overflow-x: auto;
+        padding: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Doof WebAssembly Runtime</h1>
+    <pre id="output">Loading samples/webassembly/dist/webassembly-sample.wasm...</pre>
+
+    <script type="module">
+      import { createDoofWasmRuntime } from "./doof-wasm-runtime.js";
+
+      const output = document.querySelector("#output");
+      const wasmResponse = await fetch("../dist/webassembly-sample.wasm");
+      if (!wasmResponse.ok) {
+        throw new Error(`Failed to fetch wasm: ${wasmResponse.status}`);
+      }
+
+      const wasmBytes = await wasmResponse.arrayBuffer();
+      const runtime = await createDoofWasmRuntime(wasmBytes);
+      const examples = [
+        ["add", runtime.add({ a: 20, b: 22 })],
+        ["greet default", runtime.greet({})],
+        ["greet named", runtime.greet({ name: "the browser" })],
+        ["quote success", runtime.quote({ unitPrice: 19.99, quantity: 3 })],
+        ["quote failure", runtime.quote({ unitPrice: 19.99, quantity: -1 })],
+        ["summarize", runtime.summarize({ values: [2, 4, 6] })],
+      ];
+
+      output.textContent = examples
+        .map(([label, result]) => `${label}: ${JSON.stringify(result)}`)
+        .join("\n");
+    </script>
+  </body>
+</html>

@@ -1416,6 +1416,42 @@ describe("local package graphs", () => {
     }
   });
 
+  it("applies wasm native fragments when building a wasm target", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({
+        name: "app",
+        build: {
+          target: "wasm",
+          native: {
+            includePaths: ["shared"],
+            linux: {
+              sourceFiles: ["native_linux.cpp"],
+              linkLibraries: ["linuxonly"],
+            },
+            wasm: {
+              sourceFiles: ["native_wasm.cpp"],
+              defines: ["WASM=1"],
+              linkerFlags: ["--no-entry"],
+            },
+          },
+        },
+      }),
+      "/app/main.do": "export function add(a: int, b: int): int => a + b",
+      "/app/shared/dummy.hpp": "",
+      "/app/native_linux.cpp": "",
+      "/app/native_wasm.cpp": "",
+    });
+
+    const graph = loadPackageGraph(fs, "/app/main.do");
+
+    expect(graph.rootPackage.buildTarget?.kind).toBe("wasm");
+    expect(graph.rootPackage.nativeBuild.includePaths).toEqual(["/app/shared"]);
+    expect(graph.rootPackage.nativeBuild.sourceFiles).toEqual(["/app/native_wasm.cpp"]);
+    expect(graph.rootPackage.nativeBuild.linkLibraries).toEqual([]);
+    expect(graph.rootPackage.nativeBuild.defines).toEqual(["WASM=1"]);
+    expect(graph.rootPackage.nativeBuild.linkerFlags).toEqual(["--no-entry"]);
+  });
+
   it("applies ios simulator native fragments when building an ios-app target", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({

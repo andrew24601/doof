@@ -109,7 +109,7 @@ doof build samples/solitaire/main.do
 
 ## Build Targets
 
-Packages can opt into target-specific build behavior under `build.target`. The built-in targets are `macos-app` and `ios-app`. `macos-app` tells `doof emit` to write bundle support files and target metadata for external native builds and tells `doof build` / `doof run` to produce a real `.app` bundle on macOS. `ios-app` tells `doof emit` to write iOS bundle support files and tells `doof build` / `doof run` to build either for the iOS simulator or for a connected development device on macOS.
+Packages can opt into target-specific build behavior under `build.target`. The built-in targets are `macos-app`, `ios-app`, and `wasm`. `macos-app` tells `doof emit` to write bundle support files and target metadata for external native builds and tells `doof build` / `doof run` to produce a real `.app` bundle on macOS. `ios-app` tells `doof emit` to write iOS bundle support files and tells `doof build` / `doof run` to build either for the iOS simulator or for a connected development device on macOS. `wasm` tells `doof build` to use `em++` and produce a pure `.wasm` library; the CLI does not generate JavaScript glue and does not run wasm targets.
 
 ```json
 {
@@ -156,6 +156,8 @@ Root-level compact fields win when the same value is also declared under `build`
 Built-in app target icons are optional. When provided, they must be PNG files; SVG icon conversion is not part of the Doof build pipeline. For `ios-app`, `doof build` and `doof run` resize the PNG for the generated asset-catalog slots, compile the catalog for the selected simulator or device platform, and merge its icon metadata into `Info.plist`. When omitted, Doof emits a buildable bundle without Doof-managed app icon metadata or generated icon assets.
 
 Packages may declare both `build.macosApp` and `build.iosApp` metadata in the same manifest. The active target still comes from `target` / `build.target`, but you can override that per invocation with `doof build --target ios-app ...` or `doof emit --target macos-app ...`.
+
+For `wasm`, exported top-level functions in the entry module become host-callable C ABI exports named `doof_export_<function>`. Each wrapper accepts a UTF-8 JSON object string containing parameters by name and returns an allocated UTF-8 JSON envelope string. Hosts must call the exported `doof_free` to release returned strings. Generic functions and types outside the supported JSON ABI are rejected during emission.
 
 For string resources, `"images"` is shorthand for `{ "from": "images", "to": "images" }`. Directory resources are copied recursively while preserving their relative paths. Explicit glob resources keep glob semantics; use `**` when you want a glob to include nested files.
 
@@ -274,7 +276,7 @@ Native build metadata can also be scoped to the current host platform:
 }
 ```
 
-Currently supported platform keys are `macos`, `linux`, and `windows`. The CLI applies the fragment for the current host platform on top of the base `build.native` settings. Put shared native sources, frameworks, include paths, and flags in the base `build.native` fragment, then keep platform fragments to the values that truly differ.
+Currently supported platform keys are `macos`, `linux`, `windows`, and `wasm`. The CLI applies the fragment for the current host platform on top of the base `build.native` settings, except `build.target = "wasm"` always selects `build.native.wasm`. Put shared native sources, frameworks, include paths, and flags in the base `build.native` fragment, then keep platform fragments to the values that truly differ.
 
 When the effective target is `ios-app` on macOS, the CLI also recognizes `build.native.iosSimulator` and `build.native.iosDevice`. The selected fragment depends on `--ios-destination`, which lets a package keep separate simulator and device bridge settings in one manifest.
 
@@ -319,6 +321,6 @@ Each active target writes a separate `.doof-external-native-<target>.json` marke
 
 ## doof-build.json
 
-`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, resource mappings, and any resolved target metadata such as `build.target = "macos-app"` or `build.target = "ios-app"`.
+`doof emit` writes a `doof-build.json` alongside the generated C++ files. This is the tool-agnostic external build handoff: it contains the resolved generated source list, propagated include paths, native source files, library paths, libraries, frameworks, defines, flags, resource mappings, and any resolved target metadata such as `build.target = "macos-app"`, `build.target = "ios-app"`, or `build.target = "wasm"`.
 
 External CMake or Xcode integrations should consume `doof-build.json` rather than re-implementing package resolution.

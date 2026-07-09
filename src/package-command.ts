@@ -4,6 +4,7 @@ import {
   printDiagnostic,
   RealFS,
   resolveCompilerToolchain,
+  resolveWasmCompilerToolchain,
   resolveNativeBuildOptions,
   runNativeBuildGraph,
   runPipelineWithFs,
@@ -41,7 +42,6 @@ export async function runPackageCommand(
   options: PackageCommandOptions,
   reporter: PackageCommandReporter,
 ): Promise<string> {
-  const toolchain = resolveCompilerToolchain(options.compiler);
   const requestedNativeBuild = resolveNativeBuildOptions(options.nativeBuild);
   const { project, nativeBuild, outputBinaryName, provenance, buildManifest, buildTarget, resources } = runPipelineWithFs(
     new RealFS(),
@@ -56,6 +56,9 @@ export async function runPackageCommand(
       metricsClassLifecycle: options.metricsClassLifecycle,
     },
   );
+  const toolchain = buildTarget?.kind === "wasm"
+    ? resolveWasmCompilerToolchain(options.compiler)
+    : resolveCompilerToolchain(options.compiler);
   const releaseNativeBuild = withReleaseBuildDefaults(nativeBuild, toolchain.kind);
   buildManifest.compilerFlags = [...releaseNativeBuild.compilerFlags];
   buildManifest.defines = [...releaseNativeBuild.defines];

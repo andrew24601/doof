@@ -216,6 +216,14 @@ describe("CLI argument parsing", () => {
     expect(args.entry).toBe("samples/solitaire");
   });
 
+  it("parses a wasm build target override", () => {
+    const args = parseArgs(["node", "doof", "build", "--target", "wasm", "samples/hello.do"]);
+
+    expect(args.command).toBe("build");
+    expect(args.targetOverride).toBe("wasm");
+    expect(args.entry).toBe("samples/hello.do");
+  });
+
   it("parses ios device deployment flags", () => {
     const args = parseArgs([
       "node",

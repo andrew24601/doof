@@ -42,12 +42,20 @@ import { buildGenericFunctionKey, buildMonomorphizedFunctionName, functionDeclIs
 import { emitClassMethodDefinitions } from "./emitter-decl.js";
 import { canEmitDefaultExpressionInHeader, emitDefaultExpression } from "./emitter-defaults.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
-import { emitInterfaceFromJSON, emitTypeAliasFromJSON, propagateJsonDemand } from "./emitter-json.js";
+import {
+  emitDeserializeExpr,
+  emitJsonTypeCheck,
+  emitInterfaceFromJSON,
+  emitSerializeExpr,
+  emitTypeAliasFromJSON,
+  jsonTypeName,
+  propagateJsonDemand,
+} from "./emitter-json.js";
 import { propagateMetadataDemand } from "./emitter-metadata.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import { createIOSAppSupportFiles } from "./ios-app-support.js";
 import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
-import { getBundledStdlibSupportFiles } from "./stdlib.js";
+import { getBundledStdJsonSupportFile, getBundledStdlibSupportFiles } from "./stdlib.js";
 
 type NominalObjectSymbol = ClassSymbol | StructSymbol;
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
@@ -112,6 +120,8 @@ export interface ProjectEmitResult {
   externalDependencySentinelPaths: string[];
   /** Present when coverage instrumentation was requested via ProjectBuildMetadata.coverage. */
   coverageModules?: CoverageModuleMetadata[];
+  /** C ABI export names generated for a WebAssembly library target. */
+  wasmExportNames?: string[];
 }
 
 export interface ProjectBuildMetadata {
@@ -330,6 +340,13 @@ export function emitProject(
   const baseDir = nodePath.dirname(entryPath);
   assignModuleNamespaces(entryPath, analysisResult.modules, buildMetadata.packageOutputPaths);
   const executableName = buildMetadata.outputBinaryName ?? modulePathToBaseName(entryPath);
+  const wasmExports = buildMetadata.buildTarget?.kind === "wasm"
+    ? collectWasmExports(entryPath, analysisResult)
+    : [];
+  if (wasmExports.length > 0) {
+    markWasmExportJsonDemand(wasmExports);
+    propagateJsonDemand(analysisResult);
+  }
 
   // Build coverage module ID map: assign a stable integer to each non-test, non-stdlib module.
   const coverageModuleIdMap = new Map<string, number>();
@@ -356,8 +373,16 @@ export function emitProject(
     ));
   }
 
+  const stdlibSupportFiles = getBundledStdlibSupportFiles(analysisResult.modules.keys());
+  const wasmNeedsJsonSupport = buildMetadata.buildTarget?.kind === "wasm";
   const supportFiles = [
-    ...getBundledStdlibSupportFiles(analysisResult.modules.keys()),
+    ...stdlibSupportFiles,
+    ...(wasmNeedsJsonSupport && !stdlibSupportFiles.some((file) => file.relativePath === "__doof_stdlib__/std/json/native_json.hpp")
+      ? [getBundledStdJsonSupportFile()]
+      : []),
+    ...(buildMetadata.buildTarget?.kind === "wasm"
+      ? [createWasmSupportFile(entryPath, analysisResult, baseDir, buildMetadata.packageOutputPaths, wasmExports)]
+      : []),
     ...(buildMetadata.buildTarget?.kind === "macos-app"
       ? createMacOSAppSupportFiles(buildMetadata.buildTarget.config, executableName)
       : buildMetadata.buildTarget?.kind === "ios-app"
@@ -381,11 +406,316 @@ export function emitProject(
     supportFiles,
     outputNativeCopies: [],
     outputNativeIncludePaths: [],
-    outputNativeSourceFiles: [],
+    outputNativeSourceFiles: buildMetadata.buildTarget?.kind === "wasm" ? ["doof_wasm.cpp"] : [],
     outputNativeLibraryPaths: [],
     externalDependencySentinelPaths: [],
     coverageModules,
+    ...(wasmExports.length > 0 ? { wasmExportNames: wasmExports.map((entry) => entry.exportName) } : {}),
   };
+}
+
+interface WasmExportFunction {
+  decl: FunctionDeclaration;
+  table: ModuleSymbolTable;
+  exportName: string;
+}
+
+function collectWasmExports(entryPath: string, analysisResult: AnalysisResult): WasmExportFunction[] {
+  const table = analysisResult.modules.get(entryPath);
+  if (!table) {
+    throw new Error(`Module not found: ${entryPath}`);
+  }
+
+  const exports = classifyStatements(table)
+    .functions
+    .filter((fn) => fn.exported && fn.decl.name !== "main");
+  const seenExportNames = new Map<string, string>();
+
+  return exports.map((fn) => {
+    validateWasmExportFunction(fn.decl);
+    const exportName = `doof_export_${emitIdentifierSafe(fn.decl.name)}`;
+    const previous = seenExportNames.get(exportName);
+    if (previous && previous !== fn.decl.name) {
+      throw new Error(`WebAssembly export name collision: "${previous}" and "${fn.decl.name}" both lower to "${exportName}"`);
+    }
+    seenExportNames.set(exportName, fn.decl.name);
+    return { decl: fn.decl, table, exportName };
+  });
+}
+
+function validateWasmExportFunction(decl: FunctionDeclaration): void {
+  if (decl.typeParams.length > 0) {
+    throw new Error(`WebAssembly export "${decl.name}" cannot be generic`);
+  }
+  const type = decl.resolvedType;
+  if (!type || type.kind !== "function") {
+    throw new Error(`WebAssembly export "${decl.name}" is missing a resolved function type`);
+  }
+  for (const param of decl.params) {
+    if (!param.resolvedType || !isWasmJsonAbiType(param.resolvedType)) {
+      throw new Error(`Parameter "${param.name}" of WebAssembly export "${decl.name}" must be supported by the JSON ABI`);
+    }
+  }
+  validateWasmJsonReturnType(decl.name, type.returnType);
+}
+
+function validateWasmJsonReturnType(functionName: string, type: ResolvedType): void {
+  if (type.kind === "void") return;
+  if (type.kind === "result") {
+    if (type.successType.kind !== "void" && !isWasmJsonAbiType(type.successType)) {
+      throw new Error(`Success type of WebAssembly export "${functionName}" must be supported by the JSON ABI`);
+    }
+    if (!isWasmJsonAbiType(type.errorType)) {
+      throw new Error(`Error type of WebAssembly export "${functionName}" must be supported by the JSON ABI`);
+    }
+    return;
+  }
+  if (!isWasmJsonAbiType(type)) {
+    throw new Error(`Return type of WebAssembly export "${functionName}" must be supported by the JSON ABI`);
+  }
+}
+
+function isWasmJsonAbiType(type: ResolvedType): boolean {
+  if (isJsonValueType(type)) return true;
+  if (!isJSONSerializable(type)) return false;
+
+  switch (type.kind) {
+    case "primitive":
+    case "null":
+    case "enum":
+    case "class":
+    case "struct":
+      return true;
+    case "array":
+      return isWasmJsonAbiType(type.elementType);
+    case "tuple":
+      return type.elements.every(isWasmJsonAbiType);
+    case "union": {
+      const nonNull = type.types.filter((inner) => inner.kind !== "null");
+      return nonNull.length === 1 && type.types.length === 2 && isWasmJsonAbiType(nonNull[0]);
+    }
+    default:
+      return false;
+  }
+}
+
+function markWasmExportJsonDemand(exports: WasmExportFunction[]): void {
+  for (const entry of exports) {
+    const type = entry.decl.resolvedType;
+    if (!type || type.kind !== "function") continue;
+    for (const param of entry.decl.params) {
+      if (param.resolvedType) {
+        markTypeNeedsJson(param.resolvedType);
+      }
+    }
+    if (type.returnType.kind === "result") {
+      markTypeNeedsJson(type.returnType.successType);
+      markTypeNeedsJson(type.returnType.errorType);
+    } else {
+      markTypeNeedsJson(type.returnType);
+    }
+  }
+}
+
+function markTypeNeedsJson(type: ResolvedType): void {
+  switch (type.kind) {
+    case "class":
+    case "struct":
+      type.symbol.declaration.needsJson = true;
+      for (const field of type.symbol.declaration.fields) {
+        if (field.resolvedType) {
+          markTypeNeedsJson(field.resolvedType);
+        }
+      }
+      break;
+    case "array":
+      markTypeNeedsJson(type.elementType);
+      break;
+    case "tuple":
+      type.elements.forEach(markTypeNeedsJson);
+      break;
+    case "union":
+      type.types.forEach(markTypeNeedsJson);
+      break;
+  }
+}
+
+function createWasmSupportFile(
+  entryPath: string,
+  analysisResult: AnalysisResult,
+  baseDir: string,
+  packageOutputPaths: PackageOutputPaths | undefined,
+  exports: WasmExportFunction[],
+): ProjectSupportFile {
+  return {
+    relativePath: "doof_wasm.cpp",
+    content: emitWasmSupportSource(entryPath, analysisResult, baseDir, packageOutputPaths, exports),
+  };
+}
+
+function emitWasmSupportSource(
+  entryPath: string,
+  analysisResult: AnalysisResult,
+  baseDir: string,
+  packageOutputPaths: PackageOutputPaths | undefined,
+  exports: WasmExportFunction[],
+): string {
+  const table = analysisResult.modules.get(entryPath);
+  if (!table) {
+    throw new Error(`Module not found: ${entryPath}`);
+  }
+
+  const interfaceImpls = buildInterfaceImplMap(analysisResult);
+  const monomorphizedFunctions = collectDirectStreamFunctionInstantiations(analysisResult);
+  const lines: string[] = [
+    `#include "${modulePathToInclude(entryPath, baseDir, packageOutputPaths)}"`,
+    '#include "doof_runtime.hpp"',
+    '#include "__doof_stdlib__/std/json/native_json.hpp"',
+    "#include <cstring>",
+    "",
+    "namespace {",
+    "",
+    "char* __doof_wasm_return_text(const std::string& text) {",
+    "    auto* out = static_cast<char*>(std::malloc(text.size() + 1));",
+    "    if (out == nullptr) return nullptr;",
+    "    std::memcpy(out, text.c_str(), text.size() + 1);",
+    "    return out;",
+    "}",
+    "",
+    "doof::JsonValue __doof_wasm_object(std::initializer_list<std::pair<std::string, doof::JsonValue>> values) {",
+    "    return doof::json_value(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(values));",
+    "}",
+    "",
+    "char* __doof_wasm_success(const doof::JsonValue& value) {",
+    '    return __doof_wasm_return_text(doof::to_string(__doof_wasm_object({{"ok", doof::json_value(true)}, {"value", value}})));',
+    "}",
+    "",
+    "char* __doof_wasm_failure(const doof::JsonValue& error) {",
+    '    return __doof_wasm_return_text(doof::to_string(__doof_wasm_object({{"ok", doof::json_value(false)}, {"error", error}})));',
+    "}",
+    "",
+    "char* __doof_wasm_failure_message(int32_t code, const std::string& message) {",
+    "    return __doof_wasm_failure(doof::json_error(code, message));",
+    "}",
+    "",
+    "void __doof_wasm_init_once() {",
+    "    static bool initialized = false;",
+    "    if (initialized) return;",
+    "    auto& __doof_application_domain = doof::detail::ApplicationDomain::shared();",
+    "    doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain);",
+  ];
+
+  const initCalls = buildInitOrder(table, analysisResult);
+  for (const modPath of initCalls) {
+    lines.push(`    ${emitQualifiedHelperName(modPath, modulePathToInitName(modPath), analysisResult.modules)}();`);
+  }
+  if (moduleHasRuntimeValueInitializers(table)) {
+    lines.push(`    ${emitQualifiedHelperName(table.path, modulePathToInitName(table.path), analysisResult.modules)}();`);
+  }
+  lines.push("    initialized = true;");
+  lines.push("}");
+  lines.push("");
+  lines.push("} // namespace");
+  lines.push("");
+  lines.push('extern "C" void doof_free(char* ptr) {');
+  lines.push("    std::free(ptr);");
+  lines.push("}");
+  lines.push("");
+
+  const ctx = makeCppCtx(table, analysisResult, interfaceImpls, monomorphizedFunctions);
+  for (const entry of exports) {
+    emitWasmExportWrapper(entry, analysisResult, ctx, lines);
+    lines.push("");
+  }
+
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    lines.pop();
+  }
+  return lines.join("\n") + "\n";
+}
+
+function emitWasmExportWrapper(
+  entry: WasmExportFunction,
+  analysisResult: AnalysisResult,
+  ctx: EmitContext,
+  lines: string[],
+): void {
+  const decl = entry.decl;
+  const type = decl.resolvedType;
+  if (!type || type.kind !== "function") return;
+  const qualifiedName = emitQualifiedHelperName(entry.table.path, decl.name, analysisResult.modules);
+
+  lines.push(`extern "C" char* ${entry.exportName}(const char* params_json) {`);
+  lines.push("    try {");
+  lines.push("        __doof_wasm_init_once();");
+  lines.push('        auto __parsed = doof_json::parse(params_json == nullptr ? std::string("{}") : std::string(params_json));');
+  lines.push("        if (__parsed.isFailure()) {");
+  lines.push('            return __doof_wasm_failure_message(400, std::string("Invalid JSON params: ") + __parsed.error());');
+  lines.push("        }");
+  lines.push("        const auto* __params = doof::json_as_object(__parsed.value());");
+  lines.push("        if (__params == nullptr) {");
+  lines.push('            return __doof_wasm_failure_message(400, "Invalid JSON params: expected object");');
+  lines.push("        }");
+
+  for (const param of decl.params) {
+    emitWasmParamDecode(param, ctx, lines);
+  }
+
+  const args = decl.params.map((param) => emitIdentifierSafe(param.name)).join(", ");
+  if (type.returnType.kind === "void") {
+    lines.push(`        ${qualifiedName}(${args});`);
+    lines.push("        return __doof_wasm_success(doof::json_value(nullptr));");
+  } else if (type.returnType.kind === "result") {
+    lines.push(`        auto __result = ${qualifiedName}(${args});`);
+    lines.push("        if (__result.isFailure()) {");
+    lines.push(`            return __doof_wasm_failure(${emitSerializeExpr("__result.error()", type.returnType.errorType)});`);
+    lines.push("        }");
+    if (type.returnType.successType.kind === "void") {
+      lines.push("        __result.value();");
+      lines.push("        return __doof_wasm_success(doof::json_value(nullptr));");
+    } else {
+      lines.push("        auto __value = __result.value();");
+      lines.push(`        return __doof_wasm_success(${emitSerializeExpr("__value", type.returnType.successType)});`);
+    }
+  } else {
+    lines.push(`        auto __value = ${qualifiedName}(${args});`);
+    lines.push(`        return __doof_wasm_success(${emitSerializeExpr("__value", type.returnType)});`);
+  }
+  lines.push("    } catch (const doof::Panic& __panic) {");
+  lines.push('        return __doof_wasm_failure_message(500, std::string("panic: ") + __panic.what());');
+  lines.push("    } catch (const std::exception& __error) {");
+  lines.push("        return __doof_wasm_failure_message(500, __error.what());");
+  lines.push("    }");
+  lines.push("}");
+}
+
+function emitWasmParamDecode(param: Parameter, ctx: EmitContext, lines: string[]): void {
+  const paramType = param.resolvedType;
+  if (!paramType) return;
+  const safeName = emitIdentifierSafe(param.name);
+  const iterName = `__it_${safeName}`;
+  lines.push(`        auto ${iterName} = __params->find("${param.name}");`);
+  if (param.defaultValue) {
+    const defaultValue = emitDefaultExpression(param.defaultValue, paramType, ctx.module.path);
+    lines.push(`        ${emitType(paramType, ctx.module.path)} ${safeName};`);
+    lines.push(`        if (${iterName} == __params->end()) {`);
+    lines.push(`            ${safeName} = ${defaultValue};`);
+    lines.push("        } else {");
+    lines.push(`            if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
+    lines.push(`                return __doof_wasm_failure_message(400, std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second));`);
+    lines.push("            }");
+    lines.push(`            ${safeName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
+    lines.push("        }");
+    return;
+  }
+
+  lines.push(`        if (${iterName} == __params->end()) {`);
+  lines.push(`            return __doof_wasm_failure_message(400, "Missing required parameter \\"${param.name}\\"");`);
+  lines.push("        }");
+  lines.push(`        if (!${emitJsonTypeCheck(`${iterName}->second`, paramType)}) {`);
+  lines.push(`            return __doof_wasm_failure_message(400, std::string("Parameter \\"${param.name}\\" expected ${jsonTypeName(paramType)} but got ") + doof::json_type_name(${iterName}->second));`);
+  lines.push("        }");
+  lines.push(`        auto ${safeName} = ${emitDeserializeExpr(`${iterName}->second`, paramType, ctx)};`);
 }
 
 // ============================================================================
@@ -2145,7 +2475,7 @@ function emitCppFile(
     instrumentationCtx,
   );
 
-  if (mainFn) {
+  if (mainFn && buildTarget?.kind !== "wasm") {
     emitExternCMainEntryWrapper(mainFn.decl, table, analysisResult, baseDir, lines, observe);
     if (buildTarget?.kind !== "ios-app") {
       emitNativeMainWrapper(lines);

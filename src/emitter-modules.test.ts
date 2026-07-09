@@ -144,6 +144,38 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(project.supportFiles[2]?.content).toContain("doof_entry_main");
   });
 
+  it("emits wasm support wrappers for exported entry-module functions", () => {
+    const project = emitProjectHelper({
+      "/main.do": `
+        export function add(a: int, b: int): int => a + b
+        function main(): int => 0
+      `,
+    }, "/main.do", {
+      buildTarget: { kind: "wasm" },
+    });
+
+    const wasmSupport = project.supportFiles.find((file) => file.relativePath === "doof_wasm.cpp");
+    expect(wasmSupport?.content).toContain('#include "main.hpp"');
+    expect(wasmSupport?.content).toContain('#include "__doof_stdlib__/std/json/native_json.hpp"');
+    expect(wasmSupport?.content).toContain('extern "C" void doof_free(char* ptr)');
+    expect(wasmSupport?.content).toContain('extern "C" char* doof_export_add(const char* params_json)');
+    expect(wasmSupport?.content).toContain("auto a = ((false) ? doof::json_as_int_lenient(__it_a->second) : doof::json_as_int(__it_a->second));");
+    expect(wasmSupport?.content).toContain("auto __value = ::app::main_::add(a, b);");
+    expect(wasmSupport?.content).not.toContain("int main(int argc, char** argv)");
+    expect(project.outputNativeSourceFiles).toEqual(["doof_wasm.cpp"]);
+    expect(project.wasmExportNames).toEqual(["doof_export_add"]);
+  });
+
+  it("rejects unsupported wasm export ABI types", () => {
+    expect(() => emitProjectHelper({
+      "/main.do": `
+        export function lookup(values: Map<string, int>): int => 1
+      `,
+    }, "/main.do", {
+      buildTarget: { kind: "wasm" },
+    })).toThrow('Parameter "values" of WebAssembly export "lookup" must be supported by the JSON ABI');
+  });
+
   it("hpp has struct definition for exported class", () => {
     const { hppCode } = emitSplit(`
       export class Point { x, y: float }

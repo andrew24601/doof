@@ -358,6 +358,14 @@ export function processData(): string {
 - The `main()` function **must not be exported**
 - Only one `main()` function can exist per module
 
+### WebAssembly Library Exports
+
+When a package is built with `build.target = "wasm"` or `--target wasm`, exported top-level functions in the entry module become host-callable WebAssembly exports. The generated export name is `doof_export_<functionName>`.
+
+The wasm export ABI is JSON-text based: the host passes a UTF-8 JSON object string with parameters by name, and the wrapper returns an allocated UTF-8 JSON envelope string. The envelope is `{"ok":true,"value":...}` on success or `{"ok":false,"error":...}` on failure. Hosts must call the exported `doof_free` after reading returned strings.
+
+Generic functions and functions whose parameter or return types cannot be serialized by the supported JSON ABI are compile-time errors for wasm exports. `main()` remains non-exported and is not used as a wasm entry point.
+
 ### Compilation Model
 
 When compiling a Doof program, you specify the executable module:

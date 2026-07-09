@@ -53,8 +53,8 @@ doof run [options] [entry.do | package-dir] -- [program args...]
 
 - `check` — runs parsing, module analysis, and type checking; no output written
 - `emit` — runs the full compiler pipeline and writes generated C++ files plus build metadata; native build flags and target metadata are written into `doof-build.json`
-- `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/debug/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS
-- `run` — same as `build`, then executes the produced binary; for native binaries, arguments after `--` are passed to the program; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`
+- `build` — emits the project and compiles it through an incremental Reckon task graph stored under `<buildDir>/debug/.reckon/`; for `build.target = "macos-app"`, this produces a `.app` bundle on macOS instead of stopping at a plain executable; for `build.target = "ios-app"`, it produces an iOS `.app` for either the simulator or a connected development device on macOS; for `build.target = "wasm"`, it produces a pure `.wasm` library with no JavaScript glue
+- `run` — same as `build`, then executes the produced binary; for native binaries, arguments after `--` are passed to the program; for `macos-app`, it runs the binary inside the `.app` bundle; for `ios-app`, it installs and launches the app on the booted simulator or a connected development device depending on `--ios-destination`; `wasm` targets cannot be run by the CLI because the consumer owns instantiation
 - `package` — compiles with release defaults into `<buildDir>/release`, signs app targets, and writes the finished executable, macOS zip, or iOS IPA to `dist/`
 - `test` — discovers exported test functions in `.test.do` files, builds a harness per test file through the same incremental Reckon graph used by `build`/`run`, and runs each discovered test in its own process
 
@@ -165,8 +165,8 @@ For `emit`, `build`, `run`, `package`, and `check`, the path is optional when th
 | --- | --- |
 | `-o, --outdir <dir>` | Build-state root. Default: the package `build/` directory or `build.buildDir` from `doof.json` |
 | `--distdir <dir>` | Packaged artifact directory. Default: package-root `dist/` |
-| `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, or Visual Studio `cl.exe` on Windows |
-| `--target <kind>` | Override the manifest build target for this invocation. Supported values: `macos-app`, `ios-app` |
+| `--compiler <path>` | C++ compiler to use. Default: auto-detect `clang++`/`g++`/`c++`, Visual Studio `cl.exe` on Windows, or `em++` for `wasm` |
+| `--target <kind>` | Override the manifest build target for this invocation. Supported values: `macos-app`, `ios-app`, `wasm` |
 | `--ios-destination <kind>` | iOS destination for `ios-app`. Supported values: `simulator`, `device`. Default: `simulator` |
 | `--ios-device <id>` | Connected iOS device identifier or name for `ios-app` runs when `--ios-destination device` is used |
 | `--ios-sign-identity <name>` | Code signing identity for `ios-app` device builds |
@@ -221,6 +221,14 @@ Build a native binary:
 ```bash
 npx doof build samples/hello.do
 ```
+
+Build a pure WebAssembly library:
+
+```bash
+npx doof build --target wasm samples/hello.do
+```
+
+For `wasm`, each exported top-level function in the entry module becomes a C ABI export named `doof_export_<function>`. The host passes a UTF-8 JSON object string and receives an allocated UTF-8 JSON envelope string; call the exported `doof_free` after reading the result.
 
 Create a release artifact:
 
@@ -335,6 +343,7 @@ These flags work well for simple bridge files and library integrations. The buil
 | [`samples/regex/`](../samples/regex/) | `std::regex` bridge with a Doof-first API |
 | [`samples/http-client/`](../samples/http-client/) | libcurl bridge |
 | [`samples/openai-responses/`](../samples/openai-responses/) | Metadata-driven OpenAI Responses API integration |
+| [`samples/webassembly/`](../samples/webassembly/) | WebAssembly library target with JSON-string exports |
 | [`samples/obj-viewer/`](../samples/obj-viewer/) | SDL3-backed wireframe OBJ viewer |
 | [`samples/reminders-mcp/`](../samples/reminders-mcp/) | macOS EventKit-backed MCP server in an app bundle |
 | [`samples/solitaire/`](../samples/solitaire/) | Full host-backed Klondike app |

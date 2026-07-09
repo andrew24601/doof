@@ -108,7 +108,7 @@ export interface DoofBuildManifest {
   externalDependencies: BuildProvenance["externalDependencies"];
 }
 
-export type CompilerToolchainKind = "gcc-like" | "msvc";
+export type CompilerToolchainKind = "gcc-like" | "msvc" | "emscripten";
 
 export interface CompilerToolchain {
   kind: CompilerToolchainKind;
@@ -219,6 +219,10 @@ export function getDefaultOutputBinaryName(platform = process.platform): string 
   return platform === "win32" ? "a.exe" : "a.out";
 }
 
+export function getDefaultWasmOutputBinaryName(): string {
+  return "a.wasm";
+}
+
 export function normalizeOutputBinaryName(outputBinaryName: string, platform = process.platform): string {
   if (platform !== "win32") {
     return outputBinaryName;
@@ -229,6 +233,11 @@ export function normalizeOutputBinaryName(outputBinaryName: string, platform = p
 
 function getResolvedOutputBinaryName(outputBinaryName: string | undefined, platform = process.platform): string {
   return normalizeOutputBinaryName(outputBinaryName ?? getDefaultOutputBinaryName(platform), platform);
+}
+
+function getResolvedWasmOutputBinaryName(outputBinaryName: string | undefined): string {
+  const name = outputBinaryName ?? getDefaultWasmOutputBinaryName();
+  return path.posix.extname(name) ? name : `${name}.wasm`;
 }
 
 export function findCompilerToolchain(): CompilerToolchain {
@@ -289,6 +298,19 @@ export function resolveCompilerToolchain(
   }
 
   throw new Error("No C++ compiler found. Install clang++ or g++, or use --compiler <path>");
+}
+
+export function resolveWasmCompilerToolchain(
+  compiler: string | null | undefined,
+  host: CompilerDetectionHost = defaultCompilerDetectionHost(),
+): CompilerToolchain {
+  const command = compiler ?? "em++";
+  try {
+    host.execFile(command, ["--version"]);
+  } catch {
+    throw new Error(`Unable to use Emscripten compiler: ${command}`);
+  }
+  return { kind: "emscripten", command };
 }
 
 export function runPipelineWithFs(
@@ -373,8 +395,10 @@ export function runPipelineWithFs(
   }
   if (verbose) log("  No type errors");
 
-  const outputBinaryName = getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
   const buildTarget = packageGraph.rootPackage.buildTarget;
+  const outputBinaryName = buildTarget?.kind === "wasm"
+    ? getResolvedWasmOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName)
+    : getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
 
   if (verbose) log("Emitting C++...");
   const emittedProject = emitProject(normalizedEntryPath, analysisResult, {
@@ -390,7 +414,7 @@ export function runPipelineWithFs(
       ...emittedProject,
       outputNativeCopies: nativeCopyPlan.outputCopies,
       outputNativeIncludePaths: nativeCopyPlan.includePaths,
-      outputNativeSourceFiles: nativeCopyPlan.sourceFiles,
+      outputNativeSourceFiles: uniqueStrings([...emittedProject.outputNativeSourceFiles, ...nativeCopyPlan.sourceFiles]),
       outputNativeLibraryPaths: nativeCopyPlan.libraryPaths,
       externalDependencySentinelPaths: collectExternalDependencySentinelPaths(buildPackageGraph),
     }
@@ -532,7 +556,7 @@ export function buildCompilePlan(
 
   const sourceGroups = splitNativeSourceFiles(inputs.effectiveNativeBuild.sourceFiles);
 
-  if (toolchain.kind !== "gcc-like") {
+  if (toolchain.kind === "msvc") {
     assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
     return {
       outBinary: inputs.outBinary,
@@ -548,12 +572,17 @@ export function buildCompilePlan(
       }],
     };
   }
+  if (toolchain.kind === "emscripten") {
+    assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
+  }
 
   const generatedObjectFiles: string[] = [];
   const commands: CompileCommandStep[] = [];
 
   if (mode === "build") {
-    const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
+    const cCompiler = toolchain.kind === "emscripten"
+      ? deriveEmscriptenCCompilerCommand(toolchain.command)
+      : deriveGccLikeCCompilerCommand(toolchain.command);
     sourceGroups.cSourceFiles.forEach((sourceFile, index) => {
       const objectFile = buildNativeObjectFilePath(inputs.absOutDir, sourceFile, index, platform);
       fs.mkdirSync(path.dirname(objectFile), { recursive: true });
@@ -580,7 +609,9 @@ export function buildCompilePlan(
   }
 
   if (mode === "syntax-only") {
-    const cCompiler = deriveGccLikeCCompilerCommand(toolchain.command);
+    const cCompiler = toolchain.kind === "emscripten"
+      ? deriveEmscriptenCCompilerCommand(toolchain.command)
+      : deriveGccLikeCCompilerCommand(toolchain.command);
     sourceGroups.cSourceFiles.forEach((sourceFile) => {
       commands.push({
         command: cCompiler,
@@ -633,6 +664,13 @@ export function buildCompilePlan(
       inputs.outBinary,
       finalNativeBuild,
       platform,
+    ) : toolchain.kind === "emscripten" ? buildEmscriptenCompileArgs(
+      inputs.outBinary,
+      inputs.moduleCppFiles,
+      inputs.includePaths,
+      finalNativeBuild,
+      mode,
+      project.wasmExportNames ?? [],
     ) : buildGccLikeCompileArgs(
       inputs.outBinary,
       inputs.moduleCppFiles,
@@ -680,6 +718,9 @@ export function createNativeBuildGraphPlan(
   if (toolchain.kind === "msvc") {
     assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
   }
+  if (toolchain.kind === "emscripten") {
+    assertNoSwiftSources(sourceGroups.swiftSourceFiles, toolchain);
+  }
   const externalDependencyTasks = project.externalDependencySentinelPaths.map(externalDependencySentinelTask);
   const objectTasks = compileSources.map((sourceFile, index) => {
     const sourceTask = materializePlan.taskByOutputPath.get(sourceFile);
@@ -693,10 +734,21 @@ export function createNativeBuildGraphPlan(
       ? swiftObjectTask(sourceFile, objectFile, dependencies)
       : toolchain.kind === "msvc"
       ? msvcObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies)
+      : toolchain.kind === "emscripten"
+        ? emscriptenObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies)
       : gccLikeObjectTask(toolchain, sourceFile, objectFile, inputs.includePaths, inputs.effectiveNativeBuild, dependencies);
   });
   const linkTask = toolchain.kind === "msvc"
     ? msvcLinkTask(toolchain, inputs.outBinary, objectTasks, inputs.effectiveNativeBuild, externalDependencyTasks)
+    : toolchain.kind === "emscripten"
+      ? emscriptenLinkTask(
+        toolchain,
+        inputs.outBinary,
+        objectTasks,
+        inputs.effectiveNativeBuild,
+        project.wasmExportNames ?? [],
+        externalDependencyTasks,
+      )
     : gccLikeLinkTask(
       toolchain,
       inputs.outBinary,
@@ -754,9 +806,12 @@ function resolveBuildCompileInputs(
 ): BuildCompileInputs {
   const platform = options.platform ?? process.platform;
   const absOutDir = platform === "win32" ? path.resolve(outDir) : resolveFsPath(outDir);
+  const outputBinaryName = options.toolchain?.kind === "emscripten"
+    ? getResolvedWasmOutputBinaryName(options.outputBinaryName)
+    : getResolvedOutputBinaryName(options.outputBinaryName, platform);
   const outBinary = platform === "win32"
-    ? path.win32.join(absOutDir, getResolvedOutputBinaryName(options.outputBinaryName, platform))
-    : joinFsPath(absOutDir, getResolvedOutputBinaryName(options.outputBinaryName, platform));
+    ? path.win32.join(absOutDir, outputBinaryName)
+    : joinFsPath(absOutDir, outputBinaryName);
   const moduleCppFiles = project.modules.map((mod) => platform === "win32"
     ? path.win32.join(absOutDir, mod.cppPath)
     : joinFsPath(absOutDir, mod.cppPath));
@@ -1195,6 +1250,36 @@ function gccLikeObjectTask(
   };
 }
 
+function emscriptenObjectTask(
+  toolchain: CompilerToolchain,
+  sourceFile: string,
+  objectFile: string,
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  dependencies: readonly Task[],
+): Task {
+  const isCSource = isNativeCSource(sourceFile);
+  const compiler = isCSource ? deriveEmscriptenCCompilerCommand(toolchain.command) : toolchain.command;
+  const dependencyFile = `${objectFile}.d`;
+  const args = isCSource
+    ? buildGccLikeCObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild)
+    : buildGccLikeCxxObjectArgs(objectFile, dependencyFile, sourceFile, includePaths, nativeBuild);
+
+  return {
+    id: `doof:object:${objectFile}`,
+    label: `compile ${sourceFile}`,
+    outputs: [objectFile],
+    fileDependencies: dependencies.length > 0 ? [] : [sourceFile],
+    taskDependencies: [...dependencies],
+    fingerprint: stableFingerprint({ kind: "doof-emscripten-object", compiler, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(objectFile), { recursive: true });
+      await runBuildCommand(context, compiler, args, toolchain.env);
+      return { discoveredDependencies: parseDependencyFile(dependencyFile).filter((entry) => entry !== sourceFile) };
+    },
+  };
+}
+
 function swiftObjectTask(
   sourceFile: string,
   objectFile: string,
@@ -1250,6 +1335,34 @@ function gccLikeLinkTask(
     async execute(context) {
       fs.mkdirSync(path.dirname(outBinary), { recursive: true });
       await runBuildCommand(context, compiler, args, useSwiftLinker ? undefined : toolchain.env);
+    },
+  };
+}
+
+function emscriptenLinkTask(
+  toolchain: CompilerToolchain,
+  outBinary: string,
+  objectTasks: readonly Task[],
+  nativeBuild: NativeBuildOptions,
+  wasmExportNames: readonly string[],
+  dependencies: readonly Task[] = [],
+): Task {
+  const objectFiles = objectTasks.flatMap((task) => task.outputs);
+  const args = buildEmscriptenLinkArgs(outBinary, {
+    ...nativeBuild,
+    objectFiles: [...objectFiles, ...nativeBuild.objectFiles],
+  }, wasmExportNames);
+
+  return {
+    id: `doof:link:${outBinary}`,
+    label: `wasm ${outBinary}`,
+    outputs: [outBinary],
+    fileDependencies: [...nativeBuild.objectFiles],
+    taskDependencies: uniqueTasks([...objectTasks, ...dependencies]),
+    fingerprint: stableFingerprint({ kind: "doof-emscripten-link", compiler: toolchain.command, args, env: toolchain.env }),
+    async execute(context) {
+      fs.mkdirSync(path.dirname(outBinary), { recursive: true });
+      await runBuildCommand(context, toolchain.command, args, toolchain.env);
     },
   };
 }
@@ -1798,6 +1911,62 @@ function buildGccLikeCompileArgs(
   ];
 }
 
+function buildEmscriptenCompileArgs(
+  outBinary: string,
+  moduleCppFiles: string[],
+  includePaths: string[],
+  nativeBuild: NativeBuildOptions,
+  mode: CompileMode,
+  wasmExportNames: readonly string[],
+): string[] {
+  const compileArgs = [
+    `-std=${nativeBuild.cppStd}`,
+    ...includePaths.map((includePath) => `-I${includePath}`),
+    ...nativeBuild.defines.map((define) => `-D${define}`),
+    ...nativeBuild.compilerFlags,
+  ];
+
+  const compileSources = buildGccLikeCompileSources(moduleCppFiles, nativeBuild.sourceFiles);
+  if (mode === "syntax-only") {
+    return [...compileArgs, "-fsyntax-only", ...compileSources];
+  }
+
+  return [
+    ...compileArgs,
+    "-o",
+    outBinary,
+    ...compileSources,
+    ...nativeBuild.objectFiles,
+    ...buildEmscriptenLinkFlags(nativeBuild, wasmExportNames),
+  ];
+}
+
+function buildEmscriptenLinkArgs(
+  outBinary: string,
+  nativeBuild: NativeBuildOptions,
+  wasmExportNames: readonly string[],
+): string[] {
+  return [
+    "-o",
+    outBinary,
+    ...nativeBuild.objectFiles,
+    ...buildEmscriptenLinkFlags(nativeBuild, wasmExportNames),
+  ];
+}
+
+function buildEmscriptenLinkFlags(nativeBuild: NativeBuildOptions, wasmExportNames: readonly string[]): string[] {
+  const exportedFunctions = ["malloc", "free", "doof_free", ...wasmExportNames]
+    .map((name) => `_${name}`);
+  return [
+    ...nativeBuild.libraryPaths.map((libraryPath) => `-L${libraryPath}`),
+    ...nativeBuild.linkLibraries.map((library) => `-l${library}`),
+    "-sSTANDALONE_WASM=1",
+    "--no-entry",
+    `-sEXPORTED_FUNCTIONS=${JSON.stringify(exportedFunctions)}`,
+    ...nativeBuild.linkerFlags,
+  ];
+}
+
 function buildGccLikeCompileSources(moduleCppFiles: string[], nativeSourceFiles: string[]): string[] {
   return [...moduleCppFiles, ...nativeSourceFiles];
 }
@@ -2024,6 +2193,13 @@ function deriveGccLikeCCompilerCommand(cppCompilerCommand: string): string {
     cCompilerBaseName = baseName;
   }
 
+  return dir === "." ? cCompilerBaseName : path.join(dir, cCompilerBaseName);
+}
+
+function deriveEmscriptenCCompilerCommand(cppCompilerCommand: string): string {
+  const dir = path.dirname(cppCompilerCommand);
+  const baseName = path.basename(cppCompilerCommand);
+  const cCompilerBaseName = baseName === "em++" ? "emcc" : deriveGccLikeCCompilerCommand(baseName);
   return dir === "." ? cCompilerBaseName : path.join(dir, cCompilerBaseName);
 }
 

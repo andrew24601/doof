@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildCompilePlan,
   getDefaultOutputBinaryName,
+  getDefaultWasmOutputBinaryName,
   normalizeOutputBinaryName,
   resolvePkgConfigNativeBuild,
   resolveCompilerToolchain,
+  resolveWasmCompilerToolchain,
   tryFindCompilerToolchain,
 } from "./cli-core.js";
 import type { NativeBuildOptions, ProjectEmitResult } from "./emitter-module.js";
@@ -175,6 +177,7 @@ describe("CLI output binary naming", () => {
   it("uses platform-aware default binary names", () => {
     expect(getDefaultOutputBinaryName("linux")).toBe("a.out");
     expect(getDefaultOutputBinaryName("win32")).toBe("a.exe");
+    expect(getDefaultWasmOutputBinaryName()).toBe("a.wasm");
   });
 
   it("adds .exe on Windows when needed", () => {
@@ -223,6 +226,51 @@ describe("CLI pkg-config native build resolution", () => {
     expect(resolved.defines).toEqual(["TEST_FLAG=1"]);
     expect(resolved.compilerFlags).toEqual(["-Winvalid-pch"]);
     expect(resolved.linkerFlags).toEqual(["-Wl,-rpath,/opt/homebrew/lib"]);
+  });
+});
+
+describe("CLI WebAssembly build planning", () => {
+  it("resolves explicit Emscripten toolchains", () => {
+    const toolchain = resolveWasmCompilerToolchain("em++", {
+      platform: "linux",
+      env: {},
+      fileExists() {
+        return false;
+      },
+      execFile(command, args) {
+        expect(command).toBe("em++");
+        expect(args).toEqual(["--version"]);
+        return Buffer.from("emcc");
+      },
+    });
+
+    expect(toolchain).toEqual({ kind: "emscripten", command: "em++" });
+  });
+
+  it("plans pure wasm links with generated C exports", () => {
+    const project = {
+      ...createProjectEmitResult(),
+      wasmExportNames: ["doof_export_add"],
+    };
+    const plan = buildCompilePlan(
+      "/tmp/doof-build",
+      project,
+      emptyNativeBuildOptions(),
+      {
+        toolchain: { kind: "emscripten", command: "em++" },
+        outputBinaryName: "demo",
+        platform: "linux",
+      },
+    );
+
+    expect(plan.outBinary).toBe("/tmp/doof-build/demo.wasm");
+    expect(plan.commands).toHaveLength(1);
+    expect(plan.commands[0].command).toBe("em++");
+    expect(plan.commands[0].args).toEqual(expect.arrayContaining([
+      "-sSTANDALONE_WASM=1",
+      "--no-entry",
+      '-sEXPORTED_FUNCTIONS=["_malloc","_free","_doof_free","_doof_export_add"]',
+    ]));
   });
 });
 
