@@ -46,19 +46,19 @@ inline std::string take_string(char* raw) {
 
 inline doof::Result<std::string, std::string> wrap_string_result(char* raw, char* error) {
     if (raw) {
-        return doof::Result<std::string, std::string>::success(take_string(raw));
+        return doof::Success<std::string>{take_string(raw)};
     }
 
     const std::string message = error ? take_string(error) : std::string("unknown reminders error");
-    return doof::Result<std::string, std::string>::failure(message);
+    return doof::Failure<std::string>{message};
 }
 
 inline doof::Result<bool, std::string> wrap_bool_result(bool value, char* error) {
     if (!error) {
-        return doof::Result<bool, std::string>::success(value);
+        return doof::Success<bool>{value};
     }
 
-    return doof::Result<bool, std::string>::failure(take_string(error));
+    return doof::Failure<std::string>{take_string(error)};
 }
 
 } // namespace doof_reminders_detail

@@ -218,14 +218,11 @@ export function emitType(type: ResolvedType, currentModulePath?: string): string
     case "promise":
       return `doof::Promise<${emitType(type.valueType, currentModulePath)}>`;
 
-    case "result":
-      return `doof::Result<${emitType(type.successType, currentModulePath)}, ${emitType(type.errorType, currentModulePath)}>`;
+    case "success":
+      return `doof::Success<${emitType(type.valueType, currentModulePath)}>`;
 
-    case "success-wrapper":
-      throw new Error("Success wrapper type should not reach C++ type emission");
-
-    case "failure-wrapper":
-      throw new Error("Failure wrapper type should not reach C++ type emission");
+    case "failure":
+      return `doof::Failure<${emitType(type.errorType, currentModulePath)}>`;
 
     case "typevar":
       return type.name;
@@ -300,11 +297,9 @@ export function mangleTypeForCppName(type: ResolvedType): string {
       return `actor_${mangleTypeForCppName(type.innerClass)}`;
     case "promise":
       return `promise_${mangleTypeForCppName(type.valueType)}`;
-    case "result":
-      return `result_${mangleTypeForCppName(type.successType)}_${mangleTypeForCppName(type.errorType)}`;
-    case "success-wrapper":
+    case "success":
       return `success_${mangleTypeForCppName(type.valueType)}`;
-    case "failure-wrapper":
+    case "failure":
       return `failure_${mangleTypeForCppName(type.errorType)}`;
     case "typevar":
       return type.name;

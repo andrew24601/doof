@@ -23,6 +23,8 @@ import {
   formatUnsupportedHashCollectionConstraintMessage,
   INT_TYPE,
   isAssignableTo,
+  getResultShape,
+  makeResultType,
   isJsonValueType,
   isSupportedHashCollectionElementType,
   isSupportedMapKeyType,
@@ -35,6 +37,7 @@ import {
   STRING_TYPE,
   substituteTypeParams,
   type Binding,
+  type ResultShape,
   type FunctionResolvedParam,
   type ModuleTypeInfo,
   type ResolvedType,
@@ -68,15 +71,16 @@ function resolveExpectedResultContext(
   host: CheckerHost,
   scope: Scope,
   expectedType?: ResolvedType,
-): Extract<ResolvedType, { kind: "result" }> | null {
-  const extractResultContext = (type?: ResolvedType): Extract<ResolvedType, { kind: "result" }> | null => {
+): ResultShape | null {
+  const extractResultContext = (type?: ResolvedType): ResultShape | null => {
     if (!type) return null;
-    if (type.kind === "result") return type;
+    const direct = getResultShape(type);
+    if (direct) return direct;
     if (type.kind !== "union") return null;
 
     const nonNullMembers = type.types.filter((member) => member.kind !== "null");
-    return nonNullMembers.length === 1 && nonNullMembers[0].kind === "result"
-      ? nonNullMembers[0]
+    return nonNullMembers.length === 1
+      ? getResultShape(nonNullMembers[0])
       : null;
   };
 
@@ -86,21 +90,7 @@ function resolveExpectedResultContext(
   return extractResultContext(fnReturn ?? undefined);
 }
 
-function reportMissingResultContext(
-  info: ModuleTypeInfo,
-  table: ModuleSymbolTable,
-  span: SourceSpan,
-  ctorName: "Success" | "Failure",
-): void {
-  info.diagnostics.push({
-    severity: "error",
-    message: `${ctorName} requires contextual Result type; add an explicit Result<T, E> annotation`,
-    span,
-    module: table.path,
-  });
-}
-
-function isVoidResultType(resultType: Extract<ResolvedType, { kind: "result" }>): boolean {
+function isVoidResultType(resultType: ResultShape): boolean {
   return resultType.successType.kind === "void";
 }
 
@@ -148,7 +138,7 @@ function inferResultObjectLiteral(
   scope: Scope,
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
-  resultType: Extract<ResolvedType, { kind: "result" }>,
+  resultType: ResultShape,
 ): ResolvedType {
   inferObjectLiteralProperties(host, expr, scope, table, info, (propName) => {
     if (propName === "value" && !isVoidResultType(resultType)) return resultType.successType;
@@ -172,7 +162,7 @@ function inferResultObjectLiteral(
 
   if (!valueProp && !errorProp) {
     if (expr.properties.length === 0 && isVoidResultType(resultType)) {
-      return resultType;
+      return resultType.successArm;
     }
     info.diagnostics.push({
       severity: "error",
@@ -212,7 +202,7 @@ function inferResultObjectLiteral(
         module: table.path,
       });
     }
-    return resultType;
+    return resultType.successArm;
   }
 
   const errorType = getObjectPropertyResolvedType(errorProp!);
@@ -224,7 +214,7 @@ function inferResultObjectLiteral(
       module: table.path,
     });
   }
-  return resultType;
+  return resultType.failureArm;
 }
 
 function isStringConvertibleType(type: ResolvedType): boolean {
@@ -612,12 +602,14 @@ function applyResultMethodGenericDefaults(
 
   const objectType = callExpr.callee.object.resolvedType;
   const typeParams = calleeType.typeParams ?? [];
-  if (objectType?.kind !== "result" || typeParams.length === 0) return;
+  if (!objectType || typeParams.length === 0) return;
+  const result = getResultShape(objectType);
+  if (!result) return;
 
   if (callExpr.callee.property === "andThen" && typeParams.length >= 2) {
     const errorTypeParam = typeParams[1];
     if (!isResolvedTypeParamBinding(paramMap.get(errorTypeParam), errorTypeParam)) {
-      paramMap.set(errorTypeParam, objectType.errorType);
+      paramMap.set(errorTypeParam, result.errorType);
     }
     return;
   }
@@ -625,11 +617,16 @@ function applyResultMethodGenericDefaults(
   if (callExpr.callee.property === "orElse" && typeParams.length >= 2) {
     const successTypeParam = typeParams[0];
     const errorTypeParam = typeParams[1];
+    const callback = callExpr.args[0]?.value;
+    if (callback?.kind === "lambda-expression" && callback.body.kind !== "block") {
+      const bodyType = callback.body.resolvedType;
+      if (bodyType?.kind === "failure") paramMap.set(errorTypeParam, bodyType.errorType);
+    }
     if (!isResolvedTypeParamBinding(paramMap.get(successTypeParam), successTypeParam)) {
-      paramMap.set(successTypeParam, objectType.successType);
+      paramMap.set(successTypeParam, result.successType);
     }
     if (!isResolvedTypeParamBinding(paramMap.get(errorTypeParam), errorTypeParam)) {
-      paramMap.set(errorTypeParam, objectType.errorType);
+      paramMap.set(errorTypeParam, result.errorType);
     }
   }
 }
@@ -1232,6 +1229,56 @@ function combineArrayElementTypes(elemTypes: ResolvedType[]): ResolvedType {
   return combinedTypes.length === 1 ? combinedTypes[0] : { kind: "union", types: combinedTypes };
 }
 
+/**
+ * Reconstruct a canonical Result type when a case expression yields both
+ * intrinsic Result arms. Result constructors now resolve to their concrete
+ * arm type, so retaining only the first arm would make the emitter generate a
+ * visitor with an arm-specific return type.
+ */
+function combineCaseResultArmTypes(armTypes: ResolvedType[]): ResolvedType | null {
+  if (armTypes.length < 2) return null;
+
+  const successTypes: ResolvedType[] = [];
+  const failureTypes: ResolvedType[] = [];
+  for (const armType of armTypes) {
+    if (armType.kind === "success") {
+      successTypes.push(armType.valueType);
+    } else if (armType.kind === "failure") {
+      failureTypes.push(armType.errorType);
+    } else {
+      return null;
+    }
+  }
+
+  if (successTypes.length === 0 || failureTypes.length === 0) return null;
+  return makeResultType(
+    combineCaseArmPayloadTypes(successTypes),
+    combineCaseArmPayloadTypes(failureTypes),
+  );
+}
+
+function combineCaseArmPayloadTypes(types: ResolvedType[]): ResolvedType {
+  const unionMembers: ResolvedType[] = [];
+  for (const type of types) {
+    if (!unionMembers.some((member) => typesEqual(member, type))) {
+      unionMembers.push(type);
+    }
+  }
+
+  let merged = unionMembers[0];
+
+  for (const next of unionMembers.slice(1)) {
+    if (isAssignableTo(next, merged)) continue;
+    if (isAssignableTo(merged, next)) {
+      merged = next;
+      continue;
+    }
+    return { kind: "union", types: unionMembers };
+  }
+
+  return merged;
+}
+
 function mergeInferredMapKeyType(
   current: ResolvedType,
   next: ResolvedType,
@@ -1668,21 +1715,15 @@ function inferExprTypeInner(
             : undefined;
           argTypes.push(inferExprType(host, arg.value, scope, table, info, expectedArgType));
         }
-        if (expr.callee.name === "Failure" && argTypes.length !== 1) {
-          info.diagnostics.push({
-            severity: "error",
-            message: "Failure() requires exactly 1 argument",
-            span: expr.span,
-            module: table.path,
-          });
-          return UNKNOWN_TYPE;
-        }
-        if (!resultContext) {
-          reportMissingResultContext(info, table, expr.span, expr.callee.name);
-          return UNKNOWN_TYPE;
-        }
         if (expr.callee.name === "Success") {
-          if (isVoidResultType(resultContext)) {
+          if (argTypes.length === 0) {
+            if (resultContext && !isVoidResultType(resultContext)) {
+              info.diagnostics.push({ severity: "error", message: "Success() requires exactly 1 argument", span: expr.span, module: table.path });
+              return UNKNOWN_TYPE;
+            }
+            return { kind: "success", valueType: VOID_TYPE };
+          }
+          if (resultContext && isVoidResultType(resultContext)) {
             if (argTypes.length !== 0) {
               info.diagnostics.push({
                 severity: "error",
@@ -1692,7 +1733,7 @@ function inferExprTypeInner(
               });
               return UNKNOWN_TYPE;
             }
-            return { kind: "result", successType: VOID_TYPE, errorType: resultContext.errorType };
+            return UNKNOWN_TYPE;
           }
           if (argTypes.length !== 1) {
             info.diagnostics.push({
@@ -1704,14 +1745,30 @@ function inferExprTypeInner(
             return UNKNOWN_TYPE;
           }
           const successType = argTypes[0];
-          const resolvedSuccessType = !typeContainsTypeVar(resultContext.successType)
+          const resolvedSuccessType = resultContext
+            && !typeContainsTypeVar(resultContext.successType)
             && isAssignableTo(successType, resultContext.successType)
             ? resultContext.successType
             : successType;
-          return { kind: "result", successType: resolvedSuccessType, errorType: resultContext.errorType };
+          return { kind: "success", valueType: resolvedSuccessType };
         }
-        const errorType = argTypes[0];
-        return { kind: "result", successType: resultContext.successType, errorType };
+        if (argTypes.length === 0) {
+          if (resultContext && resultContext.errorType.kind !== "void") {
+            info.diagnostics.push({ severity: "error", message: "Failure() requires exactly 1 argument", span: expr.span, module: table.path });
+            return UNKNOWN_TYPE;
+          }
+          return { kind: "failure", errorType: VOID_TYPE };
+        }
+        if (argTypes.length !== 1) {
+          info.diagnostics.push({ severity: "error", message: "Failure() requires exactly 1 argument", span: expr.span, module: table.path });
+          return UNKNOWN_TYPE;
+        }
+        const errorType = resultContext
+          && !typeContainsTypeVar(resultContext.errorType)
+          && isAssignableTo(argTypes[0], resultContext.errorType)
+          ? resultContext.errorType
+          : argTypes[0];
+        return { kind: "failure", errorType };
       }
 
       let calleeType: ResolvedType;
@@ -1985,11 +2042,14 @@ function inferExprTypeInner(
             );
           }
         }
-        if (!resultContext) {
-          reportMissingResultContext(info, table, expr.span, "Success");
-          return UNKNOWN_TYPE;
+        if (props.length === 0) {
+          if (resultContext && !isVoidResultType(resultContext)) {
+            info.diagnostics.push({ severity: "error", message: 'Success requires a "value" field', span: expr.span, module: table.path });
+            return UNKNOWN_TYPE;
+          }
+          return { kind: "success", valueType: VOID_TYPE };
         }
-        if (isVoidResultType(resultContext)) {
+        if (resultContext && isVoidResultType(resultContext)) {
           if (props.length !== 0) {
             info.diagnostics.push({
               severity: "error",
@@ -1999,7 +2059,7 @@ function inferExprTypeInner(
             });
             return UNKNOWN_TYPE;
           }
-          return { kind: "result", successType: VOID_TYPE, errorType: resultContext.errorType };
+          return UNKNOWN_TYPE;
         }
         const valueProp = props.find((p) => p.name === "value");
         if (!valueProp || !valueProp.value) {
@@ -2012,11 +2072,12 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const successType = valueProp.value.resolvedType ?? UNKNOWN_TYPE;
-        const resolvedSuccessType = !typeContainsTypeVar(resultContext.successType)
+        const resolvedSuccessType = resultContext
+          && !typeContainsTypeVar(resultContext.successType)
           && isAssignableTo(successType, resultContext.successType)
           ? resultContext.successType
           : successType;
-        return { kind: "result", successType: resolvedSuccessType, errorType: resultContext.errorType };
+        return { kind: "success", valueType: resolvedSuccessType };
       }
 
       if (isUnshadowedResultCtorConstruct(expr, table) && expr.type === "Failure") {
@@ -2036,6 +2097,9 @@ function inferExprTypeInner(
         }
         const errorProp = props.find((p) => p.name === "error");
         if (!errorProp || !errorProp.value) {
+          if (props.length === 0 && (!resultContext || resultContext.errorType.kind === "void")) {
+            return { kind: "failure", errorType: VOID_TYPE };
+          }
           info.diagnostics.push({
             severity: "error",
             message: "Failure requires an \"error\" field",
@@ -2045,11 +2109,12 @@ function inferExprTypeInner(
           return UNKNOWN_TYPE;
         }
         const errorType = errorProp.value.resolvedType ?? UNKNOWN_TYPE;
-        if (!resultContext) {
-          reportMissingResultContext(info, table, expr.span, "Failure");
-          return UNKNOWN_TYPE;
-        }
-        return { kind: "result", successType: resultContext.successType, errorType };
+        const resolvedErrorType = resultContext
+          && !typeContainsTypeVar(resultContext.errorType)
+          && isAssignableTo(errorType, resultContext.errorType)
+          ? resultContext.errorType
+          : errorType;
+        return { kind: "failure", errorType: resolvedErrorType };
       }
 
       const targetBinding = host.lookupBinding(expr.type, scope);
@@ -2345,8 +2410,9 @@ function inferExprTypeInner(
         inferObjectLiteralProperties(host, expr, scope, table, info, () => JSON_VALUE_TYPE);
         return { kind: "map", keyType: STRING_TYPE, valueType: JSON_VALUE_TYPE };
       }
-      if (expectedType?.kind === "result") {
-        return inferResultObjectLiteral(host, expr, scope, table, info, expectedType);
+      const expectedResult = expectedType ? getResultShape(expectedType) : null;
+      if (expectedResult) {
+        return inferResultObjectLiteral(host, expr, scope, table, info, expectedResult);
       }
       if (expectedType?.kind === "map" && expr.properties.length === 0 && !expr.spread) {
         return expectedType;
@@ -2596,6 +2662,7 @@ function inferExprTypeInner(
       const subjectType = inferExprType(host, expr.subject, scope, table, info);
       const expectedEnumType = resolveExpectedEnumType(subjectType);
       let resultType: ResolvedType = UNKNOWN_TYPE;
+      const armTypes: ResolvedType[] = [];
       for (const arm of expr.arms) {
         for (const pattern of arm.patterns) {
           if (pattern.kind === "value-pattern") {
@@ -2623,14 +2690,16 @@ function inferExprTypeInner(
             });
           }
           const yieldedType: ResolvedType = armScope.valueYield?.type ?? UNKNOWN_TYPE;
+          armTypes.push(yieldedType);
           if (resultType.kind === "unknown") resultType = yieldedType;
         } else {
           const expectedBodyType = resultType.kind === "unknown" ? undefined : resultType;
           const bodyType = inferExprType(host, arm.body as Expression, armScope, table, info, expectedBodyType);
+          armTypes.push(bodyType);
           if (resultType.kind === "unknown") resultType = bodyType;
         }
       }
-      return resultType;
+      return combineCaseResultArmTypes(armTypes) ?? resultType;
     }
 
     case "enum-access": {
@@ -2719,9 +2788,8 @@ function inferExprTypeInner(
 
     case "non-null-assertion": {
       const innerType = inferExprType(host, expr.expression, scope, table, info);
-      if (innerType.kind === "result") {
-        return innerType.successType;
-      }
+      const innerResult = getResultShape(innerType);
+      if (innerResult) return innerResult.successType;
       if (innerType.kind === "union") {
         const hasNull = innerType.types.some((t) => t.kind === "null");
         if (!hasNull) {
@@ -2890,8 +2958,9 @@ function getConstructorFactoryReturnType(
   }
 
   if (isSelfReturnAnnotation(factoryMethod.returnType, sym.name)) return nominalType;
-  if (isResultSelfReturnAnnotation(factoryMethod.returnType, sym.name) && returnType.kind === "result") {
-    return { ...returnType, successType: nominalType };
+  const result = getResultShape(returnType);
+  if (isResultSelfReturnAnnotation(factoryMethod.returnType, sym.name) && result) {
+    return makeResultType(nominalType, result.errorType);
   }
   return returnType;
 }
@@ -2900,9 +2969,10 @@ function isConstructorFactoryReturnType(type: ResolvedType, sym: NominalObjectSy
   if ((type.kind === "class" || type.kind === "struct") && type.symbol === sym) {
     return true;
   }
-  return type.kind === "result"
-    && (type.successType.kind === "class" || type.successType.kind === "struct")
-    && type.successType.symbol === sym;
+  const result = getResultShape(type);
+  return !!result
+    && (result.successType.kind === "class" || result.successType.kind === "struct")
+    && result.successType.symbol === sym;
 }
 
 function isConstructorFactoryReturnAnnotation(
@@ -3189,8 +3259,9 @@ function inferAsNarrowType(
     return UNKNOWN_TYPE;
   }
 
-  if (sourceType.kind === "result") {
-    if (!isValidAsNarrow(sourceType.successType, targetType)) {
+  const sourceResult = getResultShape(sourceType);
+  if (sourceResult) {
+    if (!isValidAsNarrow(sourceResult.successType, targetType)) {
       info.diagnostics.push({
         severity: "error",
         message: `Cannot narrow "${typeToString(sourceType)}" to "${typeToString(targetType)}" with "as"; source must be a union, an interface, nullable, or Result thereof`,
@@ -3200,11 +3271,7 @@ function inferAsNarrowType(
       return UNKNOWN_TYPE;
     }
 
-    return {
-      kind: "result",
-      successType: targetType,
-      errorType: widenAsNarrowErrorType(sourceType.errorType),
-    };
+    return makeResultType(targetType, widenAsNarrowErrorType(sourceResult.errorType));
   }
 
   if (!isValidAsNarrow(sourceType, targetType)) {
@@ -3217,12 +3284,7 @@ function inferAsNarrowType(
     return UNKNOWN_TYPE;
   }
 
-  const resultType: ResolvedType = {
-    kind: "result",
-    successType: targetType,
-    errorType: STRING_TYPE,
-  };
-  return resultType;
+  return makeResultType(targetType, STRING_TYPE);
 }
 
 function widenAsNarrowErrorType(errorType: ResolvedType): ResolvedType {

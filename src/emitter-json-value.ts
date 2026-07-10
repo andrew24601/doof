@@ -22,13 +22,15 @@ export function emitRuntimeCoercion(sourceExpr: string, sourceType: ResolvedType
     return emitNullForType(targetType);
   }
 
-  if (sourceType.kind === "result" && targetType.kind === "result") {
+  if (sourceType.kind === "success" && targetType.kind === "success") {
     const targetCpp = emitType(targetType);
-    const successExpr = targetType.successType.kind === "void"
-      ? `${targetCpp}::success()`
-      : `${targetCpp}::success(${emitRuntimeCoercion("_coerce_src.value()", sourceType.successType, targetType.successType)})`;
-    const errorExpr = `${targetCpp}::failure(${emitRuntimeCoercion("_coerce_src.error()", sourceType.errorType, targetType.errorType)})`;
-    return `([&]() -> ${targetCpp} { auto&& _coerce_src = ${sourceExpr}; if (_coerce_src.isSuccess()) return ${successExpr}; return ${errorExpr}; })()`;
+    if (targetType.valueType.kind === "void") return `${targetCpp}{}`;
+    return `${targetCpp}{${emitRuntimeCoercion(`${sourceExpr}.value`, sourceType.valueType, targetType.valueType)}}`;
+  }
+  if (sourceType.kind === "failure" && targetType.kind === "failure") {
+    const targetCpp = emitType(targetType);
+    if (targetType.errorType.kind === "void") return `${targetCpp}{}`;
+    return `${targetCpp}{${emitRuntimeCoercion(`${sourceExpr}.error`, sourceType.errorType, targetType.errorType)}}`;
   }
 
   if (targetType.kind === "stream") {

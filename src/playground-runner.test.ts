@@ -124,7 +124,7 @@ describe("playground runner", () => {
     `, { host });
 
     expect(result.status).toBe("succeeded");
-    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(writes.get("/tmp/doof-playground-test/main.cpp")).toContain("std::variant<doof::Success<int32_t>, doof::Failure<doof::ParseError>>");
     expect(writes.get("/tmp/doof-playground-test/main.cpp")).not.toContain(", G>");
   });
 

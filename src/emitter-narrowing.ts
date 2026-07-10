@@ -1,5 +1,7 @@
 import type { ResolvedType } from "./checker-types.js";
 import {
+  getResultShape,
+  makeResultType,
   normalizeTypeForRuntime,
   STRING_TYPE,
   typeToString,
@@ -45,34 +47,34 @@ export function emitAsNarrowExpression(
   resultType: ResolvedType,
   ctx: EmitContext,
 ): string {
-  if (resultType.kind !== "result") {
+  const result = getResultShape(resultType);
+  if (!result) {
     throw new Error(`As narrowing must resolve to Result<T, E>, got ${resultType.kind}`);
   }
 
-  const targetType = resultType.successType;
+  const targetType = result.successType;
   const targetCpp = emitType(targetType);
   const resultCpp = emitType(resultType, ctx.module.path);
+  const successCpp = emitType(result.successArm, ctx.module.path);
+  const failureCpp = emitType(result.failureArm, ctx.module.path);
 
-  if (sourceType.kind === "result") {
+  const sourceResult = getResultShape(sourceType);
+  if (sourceResult) {
     const sourceTmp = `_as_${ctx.tempCounter++}`;
     const narrowTmp = `_as_${ctx.tempCounter++}`;
-    const innerResultType: ResolvedType = {
-      kind: "result",
-      successType: targetType,
-      errorType: STRING_TYPE,
-    };
-    const narrowed = emitAsNarrowExpression(`${sourceTmp}.value()`, sourceType.successType, innerResultType, ctx);
-    return `[&]() -> ${resultCpp} { auto ${sourceTmp} = ${sourceExpr}; if (${sourceTmp}.isFailure()) return ${resultCpp}::failure(${sourceTmp}.error()); auto ${narrowTmp} = ${narrowed}; if (${narrowTmp}.isFailure()) return ${resultCpp}::failure(${narrowTmp}.error()); return ${resultCpp}::success(${narrowTmp}.value()); }()`;
+    const innerResultType = makeResultType(targetType, STRING_TYPE);
+    const narrowed = emitAsNarrowExpression(`doof::success_value(${sourceTmp})`, sourceResult.successType, innerResultType, ctx);
+    return `[&]() -> ${resultCpp} { auto ${sourceTmp} = ${sourceExpr}; if (doof::is_failure(${sourceTmp})) return ${failureCpp}{doof::failure_error(${sourceTmp})}; auto ${narrowTmp} = ${narrowed}; if (doof::is_failure(${narrowTmp})) return ${failureCpp}{doof::failure_error(${narrowTmp})}; return ${successCpp}{doof::success_value(${narrowTmp})}; }()`;
   }
 
   if (typesEqual(sourceType, targetType)) {
-    return `${resultCpp}::success(${sourceExpr})`;
+    return `${successCpp}{${sourceExpr}}`;
   }
 
   const tmp = `_as_${ctx.tempCounter++}`;
 
   if (isNumericAsTarget(sourceType, targetType)) {
-    return emitCheckedNumericAsExpression(sourceExpr, targetType, resultCpp, tmp, `Narrowing from ${escapeStringForCpp(typeToString(sourceType))} to ${escapeStringForCpp(typeToString(targetType))} failed`);
+    return emitCheckedNumericAsExpression(sourceExpr, targetType, resultCpp, successCpp, failureCpp, tmp, `Narrowing from ${escapeStringForCpp(typeToString(sourceType))} to ${escapeStringForCpp(typeToString(targetType))} failed`);
   }
 
   if (sourceType.kind === "union") {
@@ -84,7 +86,7 @@ export function emitAsNarrowExpression(
       sourceExpr,
       sourceType,
       unionTarget,
-      resultCpp,
+      resultCpp, successCpp, failureCpp,
       tmp,
       failurePrefix,
     );
@@ -92,10 +94,10 @@ export function emitAsNarrowExpression(
 
   if (sourceType.kind === "interface" && targetType.kind === "class") {
     const classCpp = emitType(targetType, ctx.module.path);
-    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${classCpp}>(${tmp})) return ${resultCpp}::success(std::get<${classCpp}>(${tmp})); return ${resultCpp}::failure("Narrowing from ${escapeStringForCpp(sourceType.symbol.name)} to ${escapeStringForCpp(targetType.symbol.name)} failed"); }()`;
+    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (std::holds_alternative<${classCpp}>(${tmp})) return ${successCpp}{std::get<${classCpp}>(${tmp})}; return ${failureCpp}{"Narrowing from ${escapeStringForCpp(sourceType.symbol.name)} to ${escapeStringForCpp(targetType.symbol.name)} failed"}; }()`;
   }
 
-  return `${resultCpp}::failure("Unsupported narrowing")`;
+  return `${failureCpp}{"Unsupported narrowing"}`;
 }
 
 function emitUnionNarrowExpression(
@@ -103,60 +105,65 @@ function emitUnionNarrowExpression(
   sourceType: ResolvedType,
   targetType: ResolvedType,
   resultCpp: string,
+  successCpp: string,
+  failureCpp: string,
   tmp: string,
   failureMessage: string,
 ): string {
   if (sourceType.kind !== "union") {
-    return `${resultCpp}::failure("Unsupported narrowing")`;
+    return `${failureCpp}{"Unsupported narrowing"}`;
   }
 
   const nonNull = sourceType.types.filter((t) => t.kind !== "null");
   const hasNull = nonNull.length < sourceType.types.length;
   if (hasNull && nonNull.length === 1 && isValidUnionMemberNarrow(nonNull[0], targetType)) {
     if (typesEqual(nonNull[0], targetType) && isPointerType(targetType)) {
-      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}) return ${resultCpp}::success(${tmp}); return ${resultCpp}::failure("${failureMessage}: value is null"); }()`;
+      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}) return ${successCpp}{${tmp}}; return ${failureCpp}{"${failureMessage}: value is null"}; }()`;
     }
     if (typesEqual(nonNull[0], targetType)) {
-      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}.has_value()) return ${resultCpp}::success(${tmp}.value()); return ${resultCpp}::failure("${failureMessage}: value is null"); }()`;
+      return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (${tmp}.has_value()) return ${successCpp}{${tmp}.value()}; return ${failureCpp}{"${failureMessage}: value is null"}; }()`;
     }
-    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (!${tmp}.has_value()) return ${resultCpp}::failure("${failureMessage}: value is null"); auto _checked = doof::checked_numeric_as<${emitType(targetType)}>(${tmp}.value()); if (_checked.has_value()) return ${resultCpp}::success(_checked.value()); return ${resultCpp}::failure("${failureMessage}"); }()`;
+    return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; if (!${tmp}.has_value()) return ${failureCpp}{"${failureMessage}: value is null"}; auto _checked = doof::checked_numeric_as<${emitType(targetType)}>(${tmp}.value()); if (_checked.has_value()) return ${successCpp}{_checked.value()}; return ${failureCpp}{"${failureMessage}"}; }()`;
   }
 
   const candidateBranches = sourceType.types
     .filter((member) => isValidUnionMemberNarrow(member, targetType))
-    .map((member) => emitUnionMemberBranch(tmp, member, targetType, resultCpp, failureMessage));
+    .map((member) => emitUnionMemberBranch(tmp, member, targetType, successCpp, failureCpp, failureMessage));
 
   if (candidateBranches.length === 0) {
-    return `${resultCpp}::failure("Unsupported narrowing")`;
+    return `${failureCpp}{"Unsupported narrowing"}`;
   }
 
-  return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; ${candidateBranches.join(" ")} return ${resultCpp}::failure("${failureMessage}"); }()`;
+  return `[&]() -> ${resultCpp} { auto ${tmp} = ${sourceExpr}; ${candidateBranches.join(" ")} return ${failureCpp}{"${failureMessage}"}; }()`;
 }
 
 function emitUnionMemberBranch(
   tmp: string,
   memberType: ResolvedType,
   targetType: ResolvedType,
-  resultCpp: string,
+  successCpp: string,
+  failureCpp: string,
   failureMessage: string,
 ): string {
   const memberCpp = emitType(memberType);
   if (typesEqual(memberType, targetType)) {
-    return `if (std::holds_alternative<${memberCpp}>(${tmp})) return ${resultCpp}::success(std::get<${memberCpp}>(${tmp}));`;
+    return `if (std::holds_alternative<${memberCpp}>(${tmp})) return ${successCpp}{std::get<${memberCpp}>(${tmp})};`;
   }
 
   const targetCpp = emitType(targetType);
-  return `if (std::holds_alternative<${memberCpp}>(${tmp})) { auto _checked = doof::checked_numeric_as<${targetCpp}>(std::get<${memberCpp}>(${tmp})); if (_checked.has_value()) return ${resultCpp}::success(_checked.value()); return ${resultCpp}::failure("${failureMessage}"); }`;
+  return `if (std::holds_alternative<${memberCpp}>(${tmp})) { auto _checked = doof::checked_numeric_as<${targetCpp}>(std::get<${memberCpp}>(${tmp})); if (_checked.has_value()) return ${successCpp}{_checked.value()}; return ${failureCpp}{"${failureMessage}"}; }`;
 }
 
 function emitCheckedNumericAsExpression(
   sourceExpr: string,
   targetType: ResolvedType,
   resultCpp: string,
+  successCpp: string,
+  failureCpp: string,
   tmp: string,
   failureMessage: string,
 ): string {
-  return `[&]() -> ${resultCpp} { auto ${tmp} = doof::checked_numeric_as<${emitType(targetType)}>(${sourceExpr}); if (${tmp}.has_value()) return ${resultCpp}::success(${tmp}.value()); return ${resultCpp}::failure("${failureMessage}"); }()`;
+  return `[&]() -> ${resultCpp} { auto ${tmp} = doof::checked_numeric_as<${emitType(targetType)}>(${sourceExpr}); if (${tmp}.has_value()) return ${successCpp}{${tmp}.value()}; return ${failureCpp}{"${failureMessage}"}; }()`;
 }
 
 function isValidUnionMemberNarrow(sourceType: ResolvedType, targetType: ResolvedType): boolean {

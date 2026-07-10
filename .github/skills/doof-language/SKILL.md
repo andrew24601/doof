@@ -17,7 +17,7 @@ Use this base file as the entry point. Load only the reference file that matches
 - Prefer the focused reference files below over broad assumptions.
 - When exact semantics matter, confirm them in `spec/*.md`.
 - Keep code idiomatic: immutable by default, explicit types at boundaries, no JavaScript-style coercions.
-- Use `Result` plus `case`, `try`, declaration-`else`, `as`, or `!` for fallible flows. Use `panic(...)` only for programmer errors.
+- Use intrinsic `Success<T>` / `Failure<E>` arms and their `Result<T, E>` union alias with `case`, `try`, declaration-`else`, `as`, or `!` for fallible flows. Use `panic(...)` only for programmer errors.
 - Plain `if` null checks do **not** narrow static types. Use explicit narrowing forms.
 - Classes and structs are nominal. Interfaces are structural.
 - Prefer `readonly` for deeply immutable values and `:=` for immutable bindings with mutable interiors. `const` is deprecated and remains accepted temporarily with a warning.

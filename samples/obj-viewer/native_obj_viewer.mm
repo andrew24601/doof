@@ -173,7 +173,7 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
     int32_t height
 ) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(SDL_GetError());
+        return doof::Failure<std::string>{SDL_GetError()};
     }
 
     auto impl = std::make_unique<Impl>();
@@ -188,7 +188,7 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
     if (impl->window == nullptr) {
         const std::string error = SDL_GetError();
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->metalView = SDL_Metal_CreateView(impl->window);
@@ -196,7 +196,7 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
         const std::string error = SDL_GetError();
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->layer = (__bridge CAMetalLayer*)SDL_Metal_GetLayer(impl->metalView);
@@ -205,7 +205,7 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
         SDL_Metal_DestroyView(impl->metalView);
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->device = MTLCreateSystemDefaultDevice();
@@ -213,7 +213,7 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
         SDL_Metal_DestroyView(impl->metalView);
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure("Metal device initialization failed");
+        return doof::Failure<std::string>{"Metal device initialization failed"};
     }
 
     impl->layer.device = impl->device;
@@ -225,16 +225,16 @@ doof::Result<std::shared_ptr<NativeLineViewer>, std::string> NativeLineViewer::c
         SDL_Metal_DestroyView(impl->metalView);
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure("Metal pipeline initialization failed");
+        return doof::Failure<std::string>{"Metal pipeline initialization failed"};
     }
 
     impl->triangleDepthState = makeDepthState(impl->device, MTLCompareFunctionLess, true);
     impl->lineDepthState = makeDepthState(impl->device, MTLCompareFunctionLessEqual, false);
     impl->overlayDepthState = makeDepthState(impl->device, MTLCompareFunctionAlways, false);
 
-    return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::success(
+    return doof::Success<std::shared_ptr<NativeLineViewer>>{
         std::shared_ptr<NativeLineViewer>(new NativeLineViewer(std::move(impl)))
-    );
+    };
 }
 
 bool NativeLineViewer::isOpen() const {

@@ -168,18 +168,6 @@ when iterated.
 Type patterns create immutable bindings with narrowed types:
 
 ```javascript
-class Success<T> {
-    kind: "Success"
-    value: T
-}
-
-class Failure<E> {
-    kind: "Failure"
-    error: E
-}
-
-type Result<T, E> = Success<T> | Failure<E>
-
 let result: Result<int, string> = Success { value: 42 }
 
 case result {
@@ -194,7 +182,11 @@ case result {
 }
 ```
 
-**Note:** This example uses the generic `Result<T, E>` type from [09-error-handling.md](09-error-handling.md).
+`Success<T>` and `Failure<E>` are intrinsic types, and `Result<T, E>` is their
+canonical union. Result cases therefore use the normal union-pattern rules and
+the shorthand `s: Success` / `f: Failure` specializes from the subject type.
+Payloadless `Success<void>` may be discarded but not captured for `.value`;
+payloadless `Failure<void>` may not be captured because it has no `.error`.
 
 ### Nested Access with Capture
 

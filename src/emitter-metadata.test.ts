@@ -93,7 +93,7 @@ describe("emitter — structured metadata", () => {
     `);
     expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>");
     expect(cpp).toContain("_instance.run(");
-    expect(cpp).toContain("::success(");
+    expect(cpp).toContain("doof::Success<doof::JsonValue>{");
   });
 
   it("emits struct metadata invoke over value references", () => {
@@ -116,7 +116,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("::failure(");
+    expect(cpp).toContain("doof::Failure<doof::JsonValue>{");
     expect(cpp).toContain("Invalid JSON params");
     expect(cpp).toContain("doof::json_error(400, std::string(\"Invalid JSON params: expected object\"))");
   });
@@ -139,7 +139,7 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("::success(doof::json_value(nullptr))");
+    expect(cpp).toContain("doof::Success<doof::JsonValue>{doof::json_value(nullptr)}");
   });
 
   it("passes through JsonValue Result failures", () => {
@@ -152,9 +152,9 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("if (_result.isFailure()) {");
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::failure(_result.error())");
-    expect(cpp).toContain("auto _success = _result.value();");
+    expect(cpp).toContain("if (doof::is_failure(_result)) {");
+    expect(cpp).toContain("doof::Failure<doof::JsonValue>{doof::failure_error(_result)}");
+    expect(cpp).toContain("auto _success = doof::success_value(_result);");
     expect(cpp).toContain('{"type", doof::json_value("string")}');
   });
 
@@ -168,9 +168,9 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("if (_result.isFailure()) {");
+    expect(cpp).toContain("if (doof::is_failure(_result)) {");
     expect(cpp).toContain('doof::json_error(500, "An error occurred")');
-    expect(cpp).toContain("auto _success = _result.value();");
+    expect(cpp).toContain("auto _success = doof::success_value(_result);");
     expect(cpp).toContain('{"type", doof::json_value("string")}');
   });
 
@@ -181,8 +181,8 @@ describe("emitter — structured metadata", () => {
       }
       const m = Tool.metadata
     `);
-    expect(cpp).toContain("_result.value();");
-    expect(cpp).toContain("doof::Result<doof::JsonValue, doof::JsonValue>::success(doof::json_value(nullptr))");
+    expect(cpp).not.toContain("doof::success_value(_result)");
+    expect(cpp).toContain("doof::Success<doof::JsonValue>{doof::json_value(nullptr)}");
     expect(cpp).toContain('{"type", doof::json_value("null")}');
   });
 

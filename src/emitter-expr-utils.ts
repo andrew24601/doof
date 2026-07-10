@@ -5,6 +5,7 @@
 import type { Expression, FunctionDeclaration, ObjectProperty, TypeAnnotation } from "./ast.js";
 import {
   isPrimitiveName,
+  makeResultType,
   JSON_OBJECT_TYPE,
   JSON_VALUE_TYPE,
   NULL_TYPE,
@@ -134,13 +135,19 @@ function resolveNamedTypeAnnotation(
 
   if (name === "Result") {
     if (typeAnn.typeArgs.length === 2) {
-      return {
-        kind: "result",
-        successType: resolveTypeAnnotation(typeAnn.typeArgs[0], ctx),
-        errorType: resolveTypeAnnotation(typeAnn.typeArgs[1], ctx),
-      };
+      return makeResultType(
+        resolveTypeAnnotation(typeAnn.typeArgs[0], ctx),
+        resolveTypeAnnotation(typeAnn.typeArgs[1], ctx),
+      );
     }
     return UNKNOWN_TYPE;
+  }
+  if (name === "Success" || name === "Failure") {
+    if (typeAnn.typeArgs.length !== 1) return UNKNOWN_TYPE;
+    const payload = resolveTypeAnnotation(typeAnn.typeArgs[0], ctx);
+    return name === "Success"
+      ? { kind: "success", valueType: payload }
+      : { kind: "failure", errorType: payload };
   }
 
   if (name === "Stream") {

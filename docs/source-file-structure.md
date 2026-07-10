@@ -123,7 +123,7 @@ Feature-specific helpers:
 - `ios-package.ts` — Ad Hoc profile validation, distribution signing, verification, and IPA creation
 - `e2e-test-helpers.ts` — compiler-plus-native-build test helpers
 
-Associated surfaces nearby include native target helpers such as `macos-app-support.ts`, `ios-app-support.ts`, `stdlib-constants.ts`, and the package/build-manifest modules imported by the CLI and emitter.
+Associated surfaces nearby include native target helpers such as `macos-app-support.ts`, `ios-app-support.ts`, `stdlib-constants.ts`, the bundled `stdlib-native-json.ts` bridge, and the package/build-manifest modules imported by the CLI and emitter.
 
 Tests:
 

@@ -161,11 +161,11 @@ inline bool read_frame(std::istream& input, std::string& body, bool& reachedEof,
 
 inline NativeMcpRequest parse_request(const std::string& body) {
     const auto parsedResult = parseJsonText(body);
-    if (parsedResult.isFailure()) {
+    if (doof::is_failure(parsedResult)) {
         return make_error_request(-32700, "Invalid JSON in MCP request");
     }
 
-    const doof::JsonValue parsed = parsedResult.value();
+    const doof::JsonValue parsed = doof::success_value(parsedResult);
     const auto* root = doof::json_as_object(parsed);
     if (root == nullptr) {
         return make_error_request(-32600, "MCP request must be a JSON object");
@@ -241,10 +241,10 @@ inline NativeMcpRequest parse_request(const std::string& body) {
 
 inline doof::JsonValue parse_json_fragment(const std::string& text) {
     const auto parsed = parseJsonText(text);
-    if (parsed.isFailure()) {
+    if (doof::is_failure(parsed)) {
         return doof::JsonValue(text);
     }
-    return parsed.value();
+    return doof::success_value(parsed);
 }
 
 inline void write_message(const doof::JsonValue& payload) {

@@ -13,14 +13,17 @@ Doof has no exceptions.
 Result<T, E>
 ```
 
-`Result<T, E>` is a built-in two-state value: success carries a payload of type
-`T`, and failure carries an error payload of type `E`. `Success(...)` and
-`Failure(...)` wrap values into those states. `case` patterns named `Success`
-and `Failure` test the state and expose `.value` or `.error` on the narrowed
-case binding.
+`Success<T>` and `Failure<E>` are intrinsic arm types. `Result<T, E>` is exactly
+the canonical union `Success<T> | Failure<E>`; explicitly spelling that union in
+either arm order enables the same Result operations. Constructors infer
+standalone arm types, while an expected Result context supplies contextual
+payload typing. Normal union case patterns expose `.value` only on Success and
+`.error` only on Failure.
 
-`Success` and `Failure` are not ordinary built-in classes, and built-in Results
-do not have a source-visible `kind` field.
+`Success()` / `Success {}` construct `Success<void>`. `Failure()` /
+`Failure {}` construct `Failure<void>`. Payloadless arms omit their payload
+member; failure capture and `.err()` are unavailable for `Failure<void>`, and
+callbacks consuming a void channel take no arguments.
 
 ### Returning Results
 

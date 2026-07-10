@@ -13,7 +13,7 @@
  */
 
 import type { Expression, Block, ArrayLiteral, MapLiteral, TupleLiteral } from "./ast.js";
-import { typesEqual, type ResolvedType } from "./checker-types.js";
+import { getResultShape, typesEqual, type ResolvedType } from "./checker-types.js";
 import { emitAsNarrowExpression } from "./emitter-narrowing.js";
 import { emitExtractNarrowedValue } from "./emitter-narrowing.js";
 import { emitPanicAt } from "./emitter-panic.js";
@@ -76,7 +76,7 @@ export function emitExpression(expr: Expression, ctx: EmitContext, targetType?: 
 function expressionCodegenTargetType(expr: Expression, targetType?: ResolvedType): ResolvedType | undefined {
   if (expr.kind !== "case-expression") return targetType;
   if (!targetType) return undefined;
-  if (targetType.kind === "result" && expr.resolvedType?.kind !== "result") {
+  if (getResultShape(targetType) && (!expr.resolvedType || !getResultShape(expr.resolvedType))) {
     return undefined;
   }
   return targetType;
@@ -234,13 +234,15 @@ function emitExpressionInner(expr: Expression, ctx: EmitContext, targetType?: Re
     case "non-null-assertion": {
       const inner = emitExpression(expr.expression, ctx);
       const innerType = expr.expression.resolvedType;
-      if (innerType && innerType.kind === "result") {
+      const result = innerType ? getResultShape(innerType) : null;
+      if (result) {
         const tmp = `_assert_${ctx.tempCounter++}`;
-        if (innerType.successType.kind === "void") {
-          return `[&]() -> void { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
+        const failureMessage = result.errorType.kind === "void" ? '"! failed"' : `"! failed: " + doof::to_string(doof::failure_error(${tmp}))`;
+        if (result.successType.kind === "void") {
+          return `[&]() -> void { auto ${tmp} = ${inner}; if (doof::is_failure(${tmp})) ${emitPanicAt(failureMessage, expr.span, ctx)}; }()`;
         }
-        const valueType = emitType(innerType.successType, ctx.module.path);
-        return `[&]() -> ${valueType} { auto ${tmp} = ${inner}; if (${tmp}.isFailure()) ${emitPanicAt(`"! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
+        const valueType = emitType(result.successType, ctx.module.path);
+        return `[&]() -> ${valueType} { auto ${tmp} = ${inner}; if (doof::is_failure(${tmp})) ${emitPanicAt(failureMessage, expr.span, ctx)}; return std::move(doof::success_value(${tmp})); }()`;
       }
       // For std::optional<T>, unwrap with .value()
       if (innerType && isOptionalNullable(innerType)) {
@@ -358,29 +360,32 @@ function emitObjectLiteral(
   if (!expr.resolvedType || expr.resolvedType.kind === "unknown") {
     throw new Error("Object literal requires contextual type information or an explicit annotation");
   }
-  if (expr.resolvedType.kind === "result") {
-    const resultType = expr.resolvedType;
-    if (resultType.successType.kind === "void" && expr.properties.length === 0) {
-      return `${emitType(resultType, ctx.module.path)}::success()`;
-    }
+  if (expr.resolvedType.kind === "success") {
+    const successType = expr.resolvedType;
+    if (successType.valueType.kind === "void" && expr.properties.length === 0) return `${emitType(successType, ctx.module.path)}{}`;
 
     const valueProp = expr.properties.find((prop) => prop.name === "value");
     if (valueProp) {
       const value = valueProp.value
-        ? emitExpression(valueProp.value, ctx, resultType.successType)
+        ? emitExpression(valueProp.value, ctx, successType.valueType)
         : emitIdentifierSafe(valueProp.name);
-      return `${emitType(resultType, ctx.module.path)}::success(${value})`;
+      return `${emitType(successType, ctx.module.path)}{${value}}`;
     }
 
+    throw new Error("Success object literal is missing a value property during emission");
+  }
+  if (expr.resolvedType.kind === "failure") {
+    const failureType = expr.resolvedType;
+    if (failureType.errorType.kind === "void" && expr.properties.length === 0) return `${emitType(failureType, ctx.module.path)}{}`;
     const errorProp = expr.properties.find((prop) => prop.name === "error");
     if (errorProp) {
       const error = errorProp.value
-        ? emitExpression(errorProp.value, ctx, resultType.errorType)
+        ? emitExpression(errorProp.value, ctx, failureType.errorType)
         : emitIdentifierSafe(errorProp.name);
-      return `${emitType(resultType, ctx.module.path)}::failure(${error})`;
+      return `${emitType(failureType, ctx.module.path)}{${error}}`;
     }
 
-    throw new Error("Result object literal is missing a value or error property during emission");
+    throw new Error("Failure object literal is missing an error property during emission");
   }
   // Empty object literal with Map expected type → empty map
   if (expr.resolvedType?.kind === "map" && expr.properties.length === 0) {

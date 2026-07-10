@@ -12,11 +12,12 @@ import type {
   QualifiedMemberExpression,
   FunctionDeclaration,
 } from "./ast.js";
-import { substituteTypeParams, type Binding, type FunctionResolvedParam, type ResolvedType } from "./checker-types.js";
+import { getResultShape, substituteTypeParams, type Binding, type FunctionResolvedParam, type ResolvedType, type ResultShape } from "./checker-types.js";
 import { emitClassCppName, emitEnumHelperName, emitNullForType, emitType, isPointerType, isVariantUnionType } from "./emitter-types.js";
 import { resolveConcreteGenericTypeArgs, resolveMonomorphizedFunctionName, substituteEmitType } from "./emitter-monomorphize.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
+import { emitRuntimeCoercion } from "./emitter-json-value.js";
 import { emitIdentifierSafe } from "./emitter-expr-literals.js";
 import { emitPanicLocationArgs } from "./emitter-panic.js";
 import { emitTypeAnnotation } from "./emitter-decl.js";
@@ -36,7 +37,7 @@ import {
 } from "./emitter-expr-utils.js";
 
 function isVoidResultType(type: ResolvedType): boolean {
-  return type.kind === "result" && type.successType.kind === "void";
+  return getResultShape(type)?.successType.kind === "void";
 }
 
 function getStaticClassMethodCall(
@@ -413,21 +414,23 @@ function emitCatchPanicCall(
   ctx: EmitContext,
 ): string | null {
   const resultType = expr.resolvedType;
-  if (!resultType || resultType.kind !== "result") return null;
+  if (!resultType) return null;
+  const result = getResultShape(resultType);
+  if (!result) return null;
   const callback = positionalCallValues[0];
   if (!callback) return null;
 
   const resultCppType = emitType(resultType, ctx.module.path);
   if (isVoidResultType(resultType)) {
-    return `[&]() -> ${resultCppType} { try { ${callback}.call(); return ${resultCppType}::success(); } catch (const doof::Panic& _panic) { return ${resultCppType}::failure(std::string(_panic.what())); } }()`;
+    return `[&]() -> ${resultCppType} { try { ${callback}.call(); return ${emitType(result.successArm, ctx.module.path)}{}; } catch (const doof::Panic& _panic) { return ${emitType(result.failureArm, ctx.module.path)}{std::string(_panic.what())}; } }()`;
   }
-  return `[&]() -> ${resultCppType} { try { return ${resultCppType}::success(${callback}.call()); } catch (const doof::Panic& _panic) { return ${resultCppType}::failure(std::string(_panic.what())); } }()`;
+  return `[&]() -> ${resultCppType} { try { return ${emitType(result.successArm, ctx.module.path)}{${callback}.call()}; } catch (const doof::Panic& _panic) { return ${emitType(result.failureArm, ctx.module.path)}{std::string(_panic.what())}; } }()`;
 }
 
 function emitResultHelperCall(
   expr: CallExpression,
   memberExpr: MemberExpression,
-  objectType: Extract<ResolvedType, { kind: "result" }>,
+  objectType: ResultShape,
   positionalCallValues: string[],
   ctx: EmitContext,
 ): string | null {
@@ -435,53 +438,76 @@ function emitResultHelperCall(
   const arg0 = positionalCallValues[0] ?? "";
   const tmp = `_result_${ctx.tempCounter++}`;
   const callArg0 = (args: string) => `${arg0}.call(${args})`;
+  const callbackType = expr.args[0]?.value.resolvedType;
+  const callbackReturnType = callbackType?.kind === "function" ? callbackType.returnType : null;
+
+  if (memberExpr.property === "isSuccess") {
+    return `doof::is_success(${object})`;
+  }
+
+  if (memberExpr.property === "isFailure") {
+    return `doof::is_failure(${object})`;
+  }
 
   if (memberExpr.property === "map") {
     const resultType = expr.resolvedType;
-    if (!resultType || resultType.kind !== "result") return null;
+    if (!resultType) return null;
+    const result = getResultShape(resultType);
+    if (!result) return null;
     const resultCppType = emitType(resultType, ctx.module.path);
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); return ${resultCppType}::success(${callArg0(`std::move(${tmp}.value())`)}); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${emitType(result.failureArm, ctx.module.path)}{std::move(doof::failure_error(${tmp}))}; return ${emitType(result.successArm, ctx.module.path)}{${callArg0(`std::move(doof::success_value(${tmp}))`)} }; }()`;
   }
 
   if (memberExpr.property === "mapError") {
     const resultType = expr.resolvedType;
-    if (!resultType || resultType.kind !== "result") return null;
+    if (!resultType) return null;
+    const result = getResultShape(resultType);
+    if (!result) return null;
     const resultCppType = emitType(resultType, ctx.module.path);
     if (objectType.successType.kind === "void") {
-      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${callArg0(`std::move(${tmp}.error())`)}); ${tmp}.value(); return ${resultCppType}::success(); }()`;
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${emitType(result.failureArm, ctx.module.path)}{${callArg0(`std::move(doof::failure_error(${tmp}))`)} }; return ${emitType(result.successArm, ctx.module.path)}{}; }()`;
     }
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(${callArg0(`std::move(${tmp}.error())`)}); return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${emitType(result.failureArm, ctx.module.path)}{${callArg0(`std::move(doof::failure_error(${tmp}))`)} }; return ${emitType(result.successArm, ctx.module.path)}{std::move(doof::success_value(${tmp}))}; }()`;
   }
 
   if (memberExpr.property === "andThen") {
     const resultType = expr.resolvedType;
-    if (!resultType || resultType.kind !== "result") return null;
+    if (!resultType) return null;
+    const result = getResultShape(resultType);
+    if (!result) return null;
     const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
     if (objectType.successType.kind === "void") {
-      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); ${tmp}.value(); auto ${nextTmp} = ${arg0}.call(); if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+      const convertedNext = callbackReturnType ? emitRuntimeCoercion(nextTmp, callbackReturnType, resultType) : nextTmp;
+      return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${emitType(result.failureArm, ctx.module.path)}{std::move(doof::failure_error(${tmp}))}; auto ${nextTmp} = ${arg0}.call(); return ${convertedNext}; }()`;
     }
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${resultCppType}::failure(std::move(${tmp}.error())); auto ${nextTmp} = ${callArg0(`std::move(${tmp}.value())`)}; if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); }()`;
+    const convertedNext = callbackReturnType ? emitRuntimeCoercion(nextTmp, callbackReturnType, resultType) : nextTmp;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${emitType(result.failureArm, ctx.module.path)}{std::move(doof::failure_error(${tmp}))}; auto ${nextTmp} = ${callArg0(`std::move(doof::success_value(${tmp}))`)}; return ${convertedNext}; }()`;
   }
 
   if (memberExpr.property === "orElse") {
     const resultType = expr.resolvedType;
-    if (!resultType || resultType.kind !== "result") return null;
+    if (!resultType) return null;
+    const result = getResultShape(resultType);
+    if (!result) return null;
     const resultCppType = emitType(resultType, ctx.module.path);
     const nextTmp = `_result_${ctx.tempCounter++}`;
-    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) { auto ${nextTmp} = ${callArg0(`std::move(${tmp}.error())`)}; if (${nextTmp}.isFailure()) return ${resultCppType}::failure(std::move(${nextTmp}.error())); return ${resultCppType}::success(std::move(${nextTmp}.value())); } return ${resultCppType}::success(std::move(${tmp}.value())); }()`;
+    const recoverArg = objectType.errorType.kind === "void" ? "" : `std::move(doof::failure_error(${tmp}))`;
+    const convertedNext = callbackReturnType ? emitRuntimeCoercion(nextTmp, callbackReturnType, resultType) : nextTmp;
+    return `[&]() -> ${resultCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) { auto ${nextTmp} = ${callArg0(recoverArg)}; return ${convertedNext}; } return ${emitType(result.successArm, ctx.module.path)}{std::move(doof::success_value(${tmp}))}; }()`;
   }
 
   if (memberExpr.property === "unwrapOr") {
     const returnType = expr.resolvedType ?? objectType.successType;
     const returnCppType = emitType(returnType, ctx.module.path);
-    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${arg0}; return std::move(${tmp}.value()); }()`;
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${arg0}; return std::move(doof::success_value(${tmp})); }()`;
   }
 
   if (memberExpr.property === "unwrapOrElse") {
     const returnType = expr.resolvedType ?? objectType.successType;
     const returnCppType = emitType(returnType, ctx.module.path);
-    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${callArg0(`std::move(${tmp}.error())`)}; return std::move(${tmp}.value()); }()`;
+    const fallbackArg = objectType.errorType.kind === "void" ? "" : `std::move(doof::failure_error(${tmp}))`;
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${callArg0(fallbackArg)}; return std::move(doof::success_value(${tmp})); }()`;
   }
 
   if (memberExpr.property === "ok") {
@@ -489,7 +515,7 @@ function emitResultHelperCall(
     if (!returnType) return null;
     const returnCppType = emitType(returnType, ctx.module.path);
     const nullValue = emitNullForType(returnType);
-    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return ${nullValue}; return std::move(${tmp}.value()); }()`;
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return ${nullValue}; return std::move(doof::success_value(${tmp})); }()`;
   }
 
   if (memberExpr.property === "err") {
@@ -497,7 +523,7 @@ function emitResultHelperCall(
     if (!returnType) return null;
     const returnCppType = emitType(returnType, ctx.module.path);
     const nullValue = emitNullForType(returnType);
-    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (${tmp}.isFailure()) return std::move(${tmp}.error()); return ${nullValue}; }()`;
+    return `[&]() -> ${returnCppType} { auto ${tmp} = ${object}; if (doof::is_failure(${tmp})) return std::move(doof::failure_error(${tmp})); return ${nullValue}; }()`;
   }
 
   return null;
@@ -631,40 +657,22 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     return emitCallbackDispatch(emitExpression((expr.callee as MemberExpression).object, ctx), args);
   }
 
-  // Positional Success(value) → doof::Result<T, E>::success(val)
+  // Positional intrinsic arm construction.
   if (expr.callee.kind === "identifier" && expr.callee.name === "Success" && isUnshadowedResultCtorCall(expr, "Success")) {
-    const resultType = expr.resolvedType;
-    if (resultType && resultType.kind === "result") {
-      if (isVoidResultType(resultType)) {
-        return `${emitType(resultType, ctx.module.path)}::success()`;
-      }
-      const valueArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, resultType.successType) : args;
-      return `${emitType(resultType, ctx.module.path)}::success(${valueArg})`;
-    }
-    const fnRet = ctx.currentFunctionReturnType;
-    if (fnRet && fnRet.kind === "result") {
-      if (isVoidResultType(fnRet)) {
-        return `${emitType(fnRet, ctx.module.path)}::success()`;
-      }
-      const valueArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, fnRet.successType) : args;
-      return `${emitType(fnRet, ctx.module.path)}::success(${valueArg})`;
-    }
-    throw new Error("Success() call is missing Result type context during emission");
+    const successType = expr.resolvedType;
+    if (!successType || successType.kind !== "success") throw new Error("Success() is missing its intrinsic type during emission");
+    if (successType.valueType.kind === "void") return `${emitType(successType, ctx.module.path)}{}`;
+    const valueArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, successType.valueType) : args;
+    return `${emitType(successType, ctx.module.path)}{${valueArg}}`;
   }
 
-  // Positional Failure(error) → doof::Result<T, E>::failure(err)
+  // Positional intrinsic failure construction.
   if (expr.callee.kind === "identifier" && expr.callee.name === "Failure" && isUnshadowedResultCtorCall(expr, "Failure")) {
-    const resultType = expr.resolvedType;
-    if (resultType && resultType.kind === "result") {
-      const errorArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, resultType.errorType) : args;
-      return `${emitType(resultType, ctx.module.path)}::failure(${errorArg})`;
-    }
-    const fnRet = ctx.currentFunctionReturnType;
-    if (fnRet && fnRet.kind === "result") {
-      const errorArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, fnRet.errorType) : args;
-      return `${emitType(fnRet, ctx.module.path)}::failure(${errorArg})`;
-    }
-    throw new Error("Failure() call is missing Result type context during emission");
+    const failureType = expr.resolvedType;
+    if (!failureType || failureType.kind !== "failure") throw new Error("Failure() is missing its intrinsic type during emission");
+    if (failureType.errorType.kind === "void") return `${emitType(failureType, ctx.module.path)}{}`;
+    const errorArg = expr.args[0] ? emitExpression(expr.args[0].value, ctx, failureType.errorType) : args;
+    return `${emitType(failureType, ctx.module.path)}{${errorArg}}`;
   }
 
   if (calleeType && (calleeType.kind === "class" || calleeType.kind === "struct")) {
@@ -792,8 +800,9 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "cloneMutable") return `doof::set_cloneMutable(${obj}, ${locationArgs})`;
     }
 
-    if (objType && objType.kind === "result") {
-      const resultHelperCall = emitResultHelperCall(expr, memberExpr, objType, positionalCallValues, ctx);
+    const objectResult = objType ? getResultShape(objType) : null;
+    if (objectResult) {
+      const resultHelperCall = emitResultHelperCall(expr, memberExpr, objectResult, positionalCallValues, ctx);
       if (resultHelperCall) return resultHelperCall;
     }
 
@@ -992,50 +1001,31 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
   const functionParams = resolveFunctionParams(expr, ctx);
   const directClassSym = resolveDirectClassSymbol(expr, ctx);
 
-  // Success { value: expr } → doof::Result<T, E>::success(val)
+  // Named intrinsic arm construction.
   if (!directClassSym && expr.type === "Success" && expr.named) {
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const resultType = expr.resolvedType;
-    if (resultType && resultType.kind === "result") {
-      if (isVoidResultType(resultType)) {
-        return `${emitType(resultType, ctx.module.path)}::success()`;
-      }
+    if (resultType && resultType.kind === "success") {
+      if (resultType.valueType.kind === "void") return `${emitType(resultType, ctx.module.path)}{}`;
       const valueProp = props.find((p) => p.name === "value");
       if (!valueProp?.value) {
         throw new Error("Success { ... } is missing a value property during emission");
       }
-      const val = emitExpression(valueProp.value, ctx, resultType.successType);
-      return `${emitType(resultType, ctx.module.path)}::success(${val})`;
-    }
-    const fnRet = ctx.currentFunctionReturnType;
-    if (fnRet && fnRet.kind === "result") {
-      if (isVoidResultType(fnRet)) {
-        return `${emitType(fnRet, ctx.module.path)}::success()`;
-      }
-      const valueProp = props.find((p) => p.name === "value");
-      if (!valueProp?.value) {
-        throw new Error("Success { ... } is missing a value property during emission");
-      }
-      const val = emitExpression(valueProp.value, ctx, fnRet.successType);
-      return `${emitType(fnRet, ctx.module.path)}::success(${val})`;
+      const val = emitExpression(valueProp.value, ctx, resultType.valueType);
+      return `${emitType(resultType, ctx.module.path)}{${val}}`;
     }
     throw new Error("Success { ... } is missing Result type context during emission");
   }
 
-  // Failure { error: expr } → doof::Result<T, E>::failure(err)
+  // Named intrinsic failure-arm construction.
   if (!directClassSym && expr.type === "Failure" && expr.named) {
     const props = expr.args as import("./ast.js").ObjectProperty[];
     const errorProp = props.find((p) => p.name === "error");
-    if (!errorProp?.value) {
-      throw new Error("Failure { ... } is missing an error property during emission");
-    }
     const resultType = expr.resolvedType;
-    if (resultType && resultType.kind === "result") {
-      return `${emitType(resultType, ctx.module.path)}::failure(${emitExpression(errorProp.value, ctx, resultType.errorType)})`;
-    }
-    const fnRet = ctx.currentFunctionReturnType;
-    if (fnRet && fnRet.kind === "result") {
-      return `${emitType(fnRet, ctx.module.path)}::failure(${emitExpression(errorProp.value, ctx, fnRet.errorType)})`;
+    if (resultType && resultType.kind === "failure") {
+      if (resultType.errorType.kind === "void") return `${emitType(resultType, ctx.module.path)}{}`;
+      if (!errorProp?.value) throw new Error("Failure { ... } is missing an error property during emission");
+      return `${emitType(resultType, ctx.module.path)}{${emitExpression(errorProp.value, ctx, resultType.errorType)}}`;
     }
     throw new Error("Failure { ... } is missing Result type context during emission");
   }
@@ -1105,9 +1095,8 @@ export function emitConstructExpression(expr: ConstructExpression, ctx: EmitCont
 function getResolvedConstructionClassType(type: ResolvedType | undefined): Extract<ResolvedType, { kind: "class" | "struct" }> | null {
   if (!type) return null;
   if (type.kind === "class" || type.kind === "struct") return type;
-  if (type.kind === "result" && (type.successType.kind === "class" || type.successType.kind === "struct")) {
-    return type.successType;
-  }
+  const result = getResultShape(type);
+  if (result && (result.successType.kind === "class" || result.successType.kind === "struct")) return result.successType;
   return null;
 }
 

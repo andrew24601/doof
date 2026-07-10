@@ -8,16 +8,15 @@ import {
   type ArrayResolvedType,
   type ClassType,
   type ClassMetaType,
-  type FailureWrapperType,
+  type FailureResolvedType,
   type InterfaceType,
   type JsonValueResolvedType,
   type MapResolvedType,
   type MethodReflectionType,
   type PromiseType,
-  type ResultResolvedType,
   type ResolvedType,
   type SetResolvedType,
-  type SuccessWrapperType,
+  type SuccessResolvedType,
   type TupleResolvedType,
   type UnionResolvedType,
   type WeakResolvedType,
@@ -125,17 +124,6 @@ function applyDeepReadonlyInternal(
         return readonlyInterface;
       }
       return type;
-    case "result": {
-      const readonlyResult: ResultResolvedType = {
-        kind: "result",
-        successType: type.successType,
-        errorType: type.errorType,
-      };
-      seen.set(type, readonlyResult);
-      readonlyResult.successType = applyDeepReadonlyInternal(type.successType, seen);
-      readonlyResult.errorType = applyDeepReadonlyInternal(type.errorType, seen);
-      return readonlyResult;
-    }
     case "promise": {
       const readonlyPromise: PromiseType = { kind: "promise", valueType: type.valueType };
       seen.set(type, readonlyPromise);
@@ -148,14 +136,14 @@ function applyDeepReadonlyInternal(
       readonlyActor.innerClass = applyDeepReadonlyInternal(type.innerClass, seen) as typeof type.innerClass;
       return readonlyActor;
     }
-    case "success-wrapper": {
-      const readonlySuccess: SuccessWrapperType = { kind: "success-wrapper", valueType: type.valueType };
+    case "success": {
+      const readonlySuccess: SuccessResolvedType = { kind: "success", valueType: type.valueType };
       seen.set(type, readonlySuccess);
       readonlySuccess.valueType = applyDeepReadonlyInternal(type.valueType, seen);
       return readonlySuccess;
     }
-    case "failure-wrapper": {
-      const readonlyFailure: FailureWrapperType = { kind: "failure-wrapper", errorType: type.errorType };
+    case "failure": {
+      const readonlyFailure: FailureResolvedType = { kind: "failure", errorType: type.errorType };
       seen.set(type, readonlyFailure);
       readonlyFailure.errorType = applyDeepReadonlyInternal(type.errorType, seen);
       return readonlyFailure;
@@ -242,20 +230,16 @@ export function findDeepReadonlyViolation(
     case "interface":
       return findInterfaceReadonlyViolation(host, type, table, seen, visited);
 
-    case "result":
-      return findDeepReadonlyViolation(host, type.successType, table, seen, visited)
-        ?? findDeepReadonlyViolation(host, type.errorType, table, seen, visited);
-
     case "promise":
       return findDeepReadonlyViolation(host, type.valueType, table, seen, visited);
 
     case "actor":
       return findDeepReadonlyViolation(host, type.innerClass, table, seen, visited);
 
-    case "success-wrapper":
+    case "success":
       return findDeepReadonlyViolation(host, type.valueType, table, seen, visited);
 
-    case "failure-wrapper":
+    case "failure":
       return findDeepReadonlyViolation(host, type.errorType, table, seen, visited);
 
     case "class-metadata":

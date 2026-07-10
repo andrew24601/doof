@@ -10,20 +10,20 @@ import { emit } from "./emitter-test-helpers.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import { emitType } from "./emitter-types.js";
 import { isVariantUnionType, emitNullForType, isMonostateNullable } from "./emitter-types.js";
-import { JSON_VALUE_TYPE, type ResolvedType } from "./checker-types.js";
+import { JSON_VALUE_TYPE, makeResultType, type ResolvedType } from "./checker-types.js";
 
 // ============================================================================
 // Result<T, E> type emission and try operators
 // ============================================================================
 
 describe("emitter — Result type", () => {
-  it("emits doof::Result<T, E> for Result return type", () => {
+  it("emits Result<T, E> through the ordinary variant representation", () => {
     const cpp = emit(`
       function f(): Result<int, string> {
         return Success(42)
       }
     `);
-    expect(cpp).toContain("doof::Result<int32_t, std::string>");
+    expect(cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<std::string>>");
   });
 
   it("emits doof::Result<void, E> for void Result return type", () => {
@@ -32,10 +32,11 @@ describe("emitter — Result type", () => {
         return Success()
       }
     `);
-    expect(cpp).toContain("doof::Result<void, std::string>");
+    expect(cpp).toContain("std::variant<doof::Success<void>, doof::Failure<std::string>>");
     const header = generateRuntimeHeader();
     expect(header).toContain("template <typename E>");
-    expect(header).toContain("struct Result<void, E>");
+    expect(header).toContain("struct Success<void>");
+    expect(header).toContain("using Result = std::variant<Success<T>, Failure<E>>");
   });
 
   it("emits catchPanic as a narrow panic-to-Result wrapper", () => {
@@ -45,8 +46,8 @@ describe("emitter — Result type", () => {
       }
     `);
     expect(cpp).toContain("catch (const doof::Panic& _panic)");
-    expect(cpp).toContain("doof::Result<int32_t, std::string>::success");
-    expect(cpp).toContain("doof::Result<int32_t, std::string>::failure");
+    expect(cpp).toContain("doof::Success<int32_t>{");
+    expect(cpp).toContain("doof::Failure<std::string>{");
   });
 
   it("emits catchPanic for void callbacks without a success payload", () => {
@@ -55,7 +56,7 @@ describe("emitter — Result type", () => {
         return catchPanic(=> println("ok"))
       }
     `);
-    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+    expect(cpp).toContain("doof::Success<void>{}");
   });
 
   it("emits doof::Result with class error type", () => {
@@ -65,7 +66,7 @@ describe("emitter — Result type", () => {
         return Success(42)
       }
     `);
-    expect(cpp).toContain("doof::Result<int32_t, std::shared_ptr<MyError>>");
+    expect(cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<std::shared_ptr<MyError>>>");
   });
 
   it("emits Result parameter type correctly", () => {
@@ -74,7 +75,7 @@ describe("emitter — Result type", () => {
         return try! r
       }
     `);
-    expect(cpp).toContain("doof::Result<int32_t, std::string>");
+    expect(cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<std::string>>");
   });
 
   it("emits try statement with typed Result on success unwrap", () => {
@@ -85,10 +86,10 @@ describe("emitter — Result type", () => {
         return Success(x)
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain("::failure(");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::Failure<std::string>{");
     expect(cpp).toContain("std::move(");
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain("doof::success_value(");
   });
 
   it("emits try! with typed IIFE and improved error in panic", () => {
@@ -98,7 +99,7 @@ describe("emitter — Result type", () => {
         x := try! getVal()
       }
     `);
-    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::is_failure(");
     expect(cpp).toContain("doof::panic");
     expect(cpp).toContain("doof::to_string");
     expect(cpp).toContain("-> int32_t");
@@ -111,7 +112,7 @@ describe("emitter — Result type", () => {
         x := getVal()!
       }
     `);
-    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::is_failure(");
     expect(cpp).toContain('doof::panic_at("main.do", 4, "! failed: " + doof::to_string(');
     expect(cpp).toContain("-> int32_t");
   });
@@ -129,8 +130,8 @@ describe("emitter — Result type", () => {
 
   it("generates map_get as Result<V, string>", () => {
     const header = generateRuntimeHeader();
-    expect(header).toContain("doof::Result<V, std::string> map_get");
-    expect(header).toContain('doof::Result<V, std::string>::failure("Map key not found")');
+    expect(header).toContain("Result<V, std::string> map_get");
+    expect(header).toContain('Failure<std::string>{"Map key not found"}');
   });
 
   it("generates map_set through insert_or_assign", () => {
@@ -145,10 +146,10 @@ describe("emitter — Result type", () => {
         return r.map((value: int): string => string(value))
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain("doof::Result<std::string, std::string>::failure(std::move(");
-    expect(cpp).toContain("doof::Result<std::string, std::string>::success(");
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::Failure<std::string>{std::move(");
+    expect(cpp).toContain("doof::Success<std::string>{");
+    expect(cpp).toContain("doof::success_value(");
   });
 
   it("emits Result.andThen() with direct success chaining", () => {
@@ -159,11 +160,11 @@ describe("emitter — Result type", () => {
         return r.andThen(step)
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain("doof::Result<std::string, std::variant<std::string, bool>>::failure(std::move(");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::Failure<std::variant<std::string, bool>>{std::move(");
     expect(cpp).toContain("auto _result_");
-    expect(cpp).toContain("doof::callback<doof::Result<std::string, bool>(int32_t)>(step).call(std::move(");
-    expect(cpp).toContain("::success(std::move(");
+    expect(cpp).toContain("doof::callback<std::variant<doof::Success<std::string>, doof::Failure<bool>>(int32_t)>(step).call(std::move(");
+    expect(cpp).toContain("std::in_place_type<doof::Success<std::string>>");
   });
 
   it("emits Result.unwrapOr(), ok(), and err() with fallback/null lowering", () => {
@@ -180,7 +181,7 @@ describe("emitter — Result type", () => {
     expect(cpp).toContain("return 7;");
     expect(cpp).toContain("return doof::callback<int32_t(std::string)>(fallback).call(std::move(");
     expect(cpp).toContain("std::nullopt");
-    expect(cpp).toContain(".error()");
+    expect(cpp).toContain("doof::failure_error(");
   });
 
   it("always includes JSON runtime support", () => {
@@ -207,30 +208,27 @@ describe("emitter — Result type", () => {
 
 describe("emitType — Result", () => {
   it("maps Result<int, string> to doof::Result<int32_t, std::string>", () => {
-    const t: ResolvedType = {
-      kind: "result",
-      successType: { kind: "primitive", name: "int" },
-      errorType: { kind: "primitive", name: "string" },
-    };
-    expect(emitType(t)).toBe("doof::Result<int32_t, std::string>");
+    const t: ResolvedType = makeResultType(
+      { kind: "primitive", name: "int" },
+      { kind: "primitive", name: "string" },
+    );
+    expect(emitType(t)).toBe("std::variant<doof::Success<int32_t>, doof::Failure<std::string>>");
   });
 
   it("maps Result<bool, int> to doof::Result<bool, int32_t>", () => {
-    const t: ResolvedType = {
-      kind: "result",
-      successType: { kind: "primitive", name: "bool" },
-      errorType: { kind: "primitive", name: "int" },
-    };
-    expect(emitType(t)).toBe("doof::Result<bool, int32_t>");
+    const t: ResolvedType = makeResultType(
+      { kind: "primitive", name: "bool" },
+      { kind: "primitive", name: "int" },
+    );
+    expect(emitType(t)).toBe("std::variant<doof::Success<bool>, doof::Failure<int32_t>>");
   });
 
   it("maps Result<void, string> to doof::Result<void, std::string>", () => {
-    const t: ResolvedType = {
-      kind: "result",
-      successType: { kind: "void" },
-      errorType: { kind: "primitive", name: "string" },
-    };
-    expect(emitType(t)).toBe("doof::Result<void, std::string>");
+    const t: ResolvedType = makeResultType(
+      { kind: "void" },
+      { kind: "primitive", name: "string" },
+    );
+    expect(emitType(t)).toBe("std::variant<doof::Success<void>, doof::Failure<std::string>>");
   });
 });
 
@@ -245,7 +243,7 @@ describe("emitter — Success/Failure construction", () => {
         return Success { value: 42 }
       }
     `);
-    expect(cpp).toContain("::success(42)");
+    expect(cpp).toContain("doof::Success<int32_t>{42}");
     expect(cpp).not.toContain("make_shared<Success>");
   });
 
@@ -255,7 +253,7 @@ describe("emitter — Success/Failure construction", () => {
         return Failure { error: "something went wrong" }
       }
     `);
-    expect(cpp).toContain('::failure(std::string("something went wrong"))');
+    expect(cpp).toContain('doof::Failure<std::string>{std::string("something went wrong")}');
     expect(cpp).not.toContain("make_shared<Failure>");
   });
 
@@ -265,7 +263,7 @@ describe("emitter — Success/Failure construction", () => {
         return { value: 42 }
       }
     `);
-    expect(cpp).toContain("::success(42)");
+    expect(cpp).toContain("doof::Success<int32_t>{42}");
   });
 
   it("emits { error: expr } as Result::failure()", () => {
@@ -274,7 +272,7 @@ describe("emitter — Success/Failure construction", () => {
         return { error: "something went wrong" }
       }
     `);
-    expect(cpp).toContain('::failure(std::string("something went wrong"))');
+    expect(cpp).toContain('doof::Failure<std::string>{std::string("something went wrong")}');
   });
 
   it("emits Success() as Result<void, E>::success()", () => {
@@ -283,7 +281,7 @@ describe("emitter — Success/Failure construction", () => {
         return Success()
       }
     `);
-    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+    expect(cpp).toContain("doof::Success<void>{}");
   });
 
   it("emits Success {} as Result<void, E>::success()", () => {
@@ -292,7 +290,7 @@ describe("emitter — Success/Failure construction", () => {
         return Success {}
       }
     `);
-    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+    expect(cpp).toContain("doof::Success<void>{}");
   });
 
   it("emits {} as Result<void, E>::success()", () => {
@@ -301,7 +299,7 @@ describe("emitter — Success/Failure construction", () => {
         return {}
       }
     `);
-    expect(cpp).toContain("doof::Result<void, std::string>::success()");
+    expect(cpp).toContain("doof::Success<void>{}");
   });
 
   it("emits Success without double-wrapping in Result::success", () => {
@@ -323,8 +321,8 @@ describe("emitter — Success/Failure construction", () => {
         return Success { value: x }
       }
     `);
-    expect(cpp).toContain('::failure(std::string("negative"))');
-    expect(cpp).toContain("::success(x)");
+    expect(cpp).toContain('doof::Failure<std::string>{std::string("negative")}');
+    expect(cpp).toContain("doof::Success<int32_t>{x}");
   });
 
   it("constructs a user-defined Success class with named syntax", () => {
@@ -369,7 +367,7 @@ describe("emitter — positional Success/Failure construction", () => {
         return Success(42)
       }
     `);
-    expect(cpp).toContain("::success(42)");
+    expect(cpp).toContain("doof::Success<int32_t>{42}");
     expect(cpp).not.toContain("make_shared<Success>");
   });
 
@@ -379,7 +377,7 @@ describe("emitter — positional Success/Failure construction", () => {
         return Failure("something went wrong")
       }
     `);
-    expect(cpp).toContain('::failure(std::string("something went wrong"))');
+    expect(cpp).toContain('doof::Failure<std::string>{std::string("something went wrong")}');
     expect(cpp).not.toContain("make_shared<Failure>");
   });
 
@@ -401,8 +399,8 @@ describe("emitter — positional Success/Failure construction", () => {
         return Success(x)
       }
     `);
-    expect(cpp).toContain('::failure(std::string("negative"))');
-    expect(cpp).toContain("::success(x)");
+    expect(cpp).toContain('doof::Failure<std::string>{std::string("negative")}');
+    expect(cpp).toContain("doof::Success<int32_t>{x}");
   });
 
   it("constructs a user-defined Success class with positional syntax", () => {
@@ -436,8 +434,8 @@ describe("emitter — case expression on Result", () => {
         }
       }
     `);
-    expect(cpp).toContain("isSuccess()");
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain("std::visit(");
+    expect(cpp).toContain("s.value");
   });
 
   it("emits case on Result with Failure pattern binding", () => {
@@ -451,8 +449,8 @@ describe("emitter — case expression on Result", () => {
         }
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain(".error()");
+    expect(cpp).toContain("std::visit(");
+    expect(cpp).toContain("e.error");
   });
 
   it("evaluates case subject only once when it is a function call", () => {
@@ -466,9 +464,8 @@ describe("emitter — case expression on Result", () => {
       }
     `);
     // The IIFE should store the subject in a temp variable
-    expect(cpp).toContain("auto _case_result = ");
-    // isSuccess()/isFailure() should reference the temp, not re-call getVal()
-    expect(cpp).toContain("_case_result.isSuccess()");
+    expect(cpp).toContain("std::visit(");
+    expect(cpp).toContain("getVal())");
     // Inside f(), getVal() should appear only in the temp initialization,
     // not repeated in each arm. (It also appears once in its own definition.)
     const fBodyStart = cpp.indexOf("int32_t f()");
@@ -503,9 +500,9 @@ describe("emitter — case expression on Result", () => {
     `);
 
     expect(cpp).toContain("invoke(doof::callback<int32_t()>([=]() -> int32_t");
-    expect(cpp).toContain("return [&]() -> int32_t");
+    expect(cpp).toContain("std::visit([&](auto&& _val) -> int32_t");
     expect(cpp).not.toContain("invoke([delivered, f]() -> int32_t");
-    expect(cpp).not.toContain("return doof::Result<int32_t, std::string>::success([&]() -> int32_t");
+    expect(cpp).not.toContain("return doof::Success<int32_t>{[&]() -> int32_t");
   });
 });
 
@@ -528,7 +525,7 @@ describe("emitter — catch expression", () => {
     `);
     expect(cpp).toContain("do {");
     expect(cpp).toContain("} while (false);");
-    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::is_failure(");
     expect(cpp).toContain("break;");
     // Should NOT contain return ...::failure (that's the non-catch try behavior)
     const mainBody = cpp.slice(cpp.indexOf("void doof_main()"));
@@ -556,7 +553,7 @@ describe("emitter — catch expression", () => {
     expect(cpp).toContain("} while (false);");
     // Two try statements → two isFailure checks + breaks
     const mainBody = cpp.slice(cpp.indexOf("void doof_main()"));
-    const failureChecks = (mainBody.match(/isFailure\(\)/g) || []).length;
+    const failureChecks = (mainBody.match(/doof::is_failure\(/g) || []).length;
     expect(failureChecks).toBe(2);
     const breakCount = (mainBody.match(/break;/g) || []).length;
     expect(breakCount).toBe(2);
@@ -866,7 +863,7 @@ describe("emitter — JSON serialization", () => {
     `);
     expect(cpp).toContain("struct Point");
     expect(cpp).toContain("static doof::Result<Point, std::string> fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {");
-    expect(cpp).toContain("return doof::Result<Point, std::string>::success(Point(_f_x, _f_y));");
+    expect(cpp).toContain("return doof::Success<Point>{Point(_f_x, _f_y)};");
     expect(cpp).not.toContain("std::make_shared<Point>");
   });
 
@@ -1096,7 +1093,7 @@ describe("emitter — JSON serialization", () => {
     expect(cpp).toContain('_disc == "square"');
     expect(cpp).toContain("Circle::fromJsonValue(_j, _lenient)");
     expect(cpp).toContain("Square::fromJsonValue(_j, _lenient)");
-    expect(cpp).toContain("return doof::Result<Shape, std::string>::success(Shape(_r.value()));");
+    expect(cpp).toContain("return doof::Success<Shape>{Shape(doof::success_value(_r))};");
   });
 
   it("emits union alias fromJsonValue() as free function call", () => {
@@ -1657,8 +1654,8 @@ describe("emitter — else-narrow statement", () => {
       }
     `);
     expect(cpp).toContain("auto _else");
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::success_value(");
   });
 
   it("emits else block with full-type binding", () => {
@@ -1685,8 +1682,8 @@ describe("emitter — else-narrow statement", () => {
         }
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toMatch(/auto& error = doof::failure_error\(_else\d+\);/);
   });
 
   it("emits declaration else with captured error", () => {
@@ -1699,9 +1696,9 @@ describe("emitter — else-narrow statement", () => {
         return Success { value: text }
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
-    expect(cpp).toMatch(/auto text = _else\d+\.value\(\);/);
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toMatch(/auto& error = doof::failure_error\(_else\d+\);/);
+    expect(cpp).toMatch(/auto text = doof::success_value\(_else\d+\);/);
   });
 
   it("does not emit a post-handler binding for discard declaration else", () => {
@@ -1713,9 +1710,9 @@ describe("emitter — else-narrow statement", () => {
         }
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toMatch(/auto& error = _else\d+\.error\(\);/);
-    expect(cpp).not.toMatch(/auto _ = _else\d+\.value\(\);/);
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toMatch(/auto& error = doof::failure_error\(_else\d+\);/);
+    expect(cpp).not.toMatch(/auto _ = doof::success_value\(_else\d+\);/);
   });
 });
 
@@ -1728,7 +1725,7 @@ describe("emitter — as expression", () => {
     const cpp = emit(`
       function test(x: string): Result<string, string> => x as string
     `);
-    expect(cpp).toContain("::success(x)");
+    expect(cpp).toContain("doof::Success<std::string>{x}");
     // No IIFE needed for identity
     expect(cpp).not.toContain("[&]()");
   });
@@ -1739,8 +1736,8 @@ describe("emitter — as expression", () => {
     `);
     expect(cpp).toContain("has_value()");
     expect(cpp).toContain(".value()");
-    expect(cpp).toContain("::success(");
-    expect(cpp).toContain("::failure(");
+    expect(cpp).toContain("doof::Success<int32_t>{");
+    expect(cpp).toContain("doof::Failure<std::string>{");
   });
 
   it("emits union member narrowing with holds_alternative", () => {
@@ -1787,7 +1784,7 @@ describe("emitter — as expression", () => {
       }
     `);
     expect(cpp).toContain("std::holds_alternative<std::string>");
-    expect(cpp).toContain("isFailure()");
+    expect(cpp).toContain("doof::is_failure(");
   });
 
   it("works with try! on as expression", () => {
@@ -1807,9 +1804,9 @@ describe("emitter — as expression", () => {
         return x as string
       }
     `);
-    expect(cpp).toContain("doof::Result<std::string, std::variant<bool, std::string>>");
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain("::failure(_as_");
+    expect(cpp).toContain("std::variant<doof::Success<std::string>, doof::Failure<std::variant<bool, std::string>>>");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::Failure<std::variant<bool, std::string>>{");
     expect(cpp).toContain("std::holds_alternative<std::string>");
   });
 

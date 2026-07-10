@@ -75,7 +75,7 @@ Important design choices:
   values, including function-typed parameters in bodiless extern declarations;
   runtime internals may still use `std::function`, and callback posting returns
   `doof::Promise<R>`
-- `Result`, `Promise`, actors, actor retirement, and metadata surfaces lower to runtime support types
+- intrinsic `Success`/`Failure` arms, `Promise`, actors, actor retirement, and metadata surfaces lower to runtime support types; `Result` itself follows ordinary union/variant lowering
 
 This file is the owning abstraction when a semantic Doof type needs a different C++ representation.
 

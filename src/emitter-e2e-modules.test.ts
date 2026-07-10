@@ -1142,8 +1142,8 @@ struct Worker {
     std::string name;
     Worker(std::string name) : name(std::move(name)) {}
     doof::Result<void, std::string> run(bool fail) {
-        if (fail) return doof::Result<void, std::string>::failure("bad");
-        return doof::Result<void, std::string>::success();
+        if (fail) return doof::Failure<std::string>{"bad"};
+        return doof::Success<void>{};
     }
 };
 `;
@@ -1189,7 +1189,7 @@ struct NativeRows {
     auto row = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();
     (*row)["id"] = doof::json_value(static_cast<int64_t>(7));
     (*row)["title"] = doof::json_value("demo");
-    return doof::Result<doof::JsonObject, std::string>::success(row);
+    return doof::Success<doof::JsonObject>{row};
     }
 };
 `;

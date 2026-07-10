@@ -318,7 +318,13 @@ Validation anchors:
 
 Strategy:
 
-- `Result<T, E>` lowers to runtime support types rather than plain exceptions
+- `Success<T>` and `Failure<E>` lower to intrinsic wrapper structs, including
+  empty `void` specializations
+- `Result<T, E>` lowers through the ordinary union path as
+  `std::variant<doof::Success<T>, doof::Failure<E>>`; the runtime `doof::Result`
+  name is only an equivalent alias for native bridge signatures
+- arm tests and extraction use centralized free helpers, while `case` uses the
+  normal `std::visit` lowering
 - `try` and `catch` forms are emitted with explicit success/failure control flow
 - `as`-narrowing becomes explicit runtime checks that either extract a narrowed value or return a failure result
 

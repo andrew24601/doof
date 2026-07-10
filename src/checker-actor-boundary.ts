@@ -99,17 +99,13 @@ export function findActorBoundaryViolation(
     case "interface":
       return findInterfaceBoundaryViolation(host, type, table, seen, visited);
 
-    case "result":
-      return findActorBoundaryViolation(host, type.successType, table, seen, visited)
-        ?? findActorBoundaryViolation(host, type.errorType, table, seen, visited);
-
     case "weak":
       return findActorBoundaryViolation(host, type.inner, table, seen, visited);
 
-    case "success-wrapper":
+    case "success":
       return findActorBoundaryViolation(host, type.valueType, table, seen, visited);
 
-    case "failure-wrapper":
+    case "failure":
       return findActorBoundaryViolation(host, type.errorType, table, seen, visited);
 
     case "class-metadata":

@@ -10,7 +10,7 @@ import type {
   Expression,
   Block,
 } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { getResultShape, type ResolvedType } from "./checker-types.js";
 import { emitType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression, emitBlockBody, indent } from "./emitter-expr.js";
@@ -36,11 +36,6 @@ export function emitCaseExpression(expr: CaseExpression, ctx: EmitContext, targe
   const subject = emitExpression(expr.subject, ctx);
   const subjectType = expr.subject.resolvedType;
   const resultType = targetType?.kind === "unknown" ? expr.resolvedType : (targetType ?? expr.resolvedType);
-
-  // For Result types → use isSuccess()/isFailure() checks
-  if (subjectType && subjectType.kind === "result") {
-    return emitCaseAsResultMatch(expr, subject, ctx, resultType);
-  }
 
   // For union/variant types → use std::visit
   if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
@@ -72,76 +67,6 @@ function yieldCtx(ctx: EmitContext, indentLevel: number, resultType: ResolvedTyp
   };
 }
 
-/**
- * Emit a case expression matching on a Result<T, E> value.
- */
-function emitCaseAsResultMatch(
-  expr: CaseExpression,
-  subject: string,
-  ctx: EmitContext,
-  resultType?: ResolvedType,
-): string {
-  const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
-  const ind = indent(ctx);
-  const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
-
-  const tmpVar = "_case_result";
-  let result = `[&]() -> ${retType} {\n`;
-  result += `${innerInd}auto ${tmpVar} = ${subject};\n`;
-
-  for (const arm of expr.arms) {
-    for (const pattern of arm.patterns) {
-      if (pattern.kind === "type-pattern") {
-        const typeName = pattern.type.kind === "named-type" ? pattern.type.name : null;
-        if (typeName === "Success") {
-          result += `${innerInd}if (${tmpVar}.isSuccess()) `;
-          result += emitResultMatchArm(arm.body, pattern.name, tmpVar, ctx, resultType);
-        } else if (typeName === "Failure") {
-          result += `${innerInd}if (${tmpVar}.isFailure()) `;
-          result += emitResultMatchArm(arm.body, pattern.name, tmpVar, ctx, resultType);
-        }
-      } else if (pattern.kind === "wildcard-pattern") {
-        if (arm.body.kind === "block") {
-          result += emitBlockBody(arm.body, yieldCtx(ctx, ctx.indent + 1, resultType));
-          result += `\n`;
-        } else {
-          result += `${innerInd}return ${emitExpression(arm.body as Expression, ctx, resultType)};\n`;
-        }
-      }
-    }
-  }
-
-  result += `${innerInd}doof::unreachable();\n`;
-  result += `${ind}}()`;
-  return result;
-}
-
-function emitResultMatchArm(
-  body: Expression | Block,
-  bindingName: string,
-  tmpVar: string,
-  ctx: EmitContext,
-  resultType: ResolvedType | undefined,
-): string {
-  const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
-  if (body.kind === "block") {
-    let s = `{\n`;
-    if (bindingName !== "_") {
-      s += `${innerInd}    auto& ${emitIdentifierSafe(bindingName)} = ${tmpVar};\n`;
-    }
-    s += emitBlockBody(body as Block, yieldCtx(ctx, ctx.indent + 2, resultType));
-    s += `${innerInd}}\n`;
-    return s;
-  }
-  let s = `{\n`;
-  if (bindingName !== "_") {
-    s += `${innerInd}    auto& ${emitIdentifierSafe(bindingName)} = ${tmpVar};\n`;
-  }
-  s += `${innerInd}    return ${emitExpression(body as Expression, ctx, resultType)};\n`;
-  s += `${innerInd}}\n`;
-  return s;
-}
-
 function emitCaseAsVisit(
   expr: CaseExpression,
   subject: string,
@@ -151,6 +76,7 @@ function emitCaseAsVisit(
   const retType = resultType ? emitType(resultType, ctx.module.path) : "auto";
   const ind = indent(ctx);
   const innerInd = indent({ ...ctx, indent: ctx.indent + 1 });
+  const subjectType = expr.subject.resolvedType;
 
   let result = `std::visit([&](auto&& _val) -> ${retType} {\n`;
   result += `${innerInd}using _T = std::decay_t<decltype(_val)>;\n`;
@@ -158,7 +84,13 @@ function emitCaseAsVisit(
   for (const arm of expr.arms) {
     for (const pattern of arm.patterns) {
       if (pattern.kind === "type-pattern") {
-        const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
+        const resultShape = subjectType ? getResultShape(subjectType) : null;
+        const typeName = pattern.type.kind === "named-type" ? pattern.type.name : null;
+        const resolvedType = resultShape && typeName === "Success"
+          ? resultShape.successArm
+          : resultShape && typeName === "Failure"
+            ? resultShape.failureArm
+            : resolveTypeAnnotation(pattern.type, ctx);
         const cppType = emitType(resolvedType, ctx.module.path);
         result += `${innerInd}if constexpr (std::is_same_v<_T, ${cppType}>) {\n`;
         if (pattern.name !== "_") {

@@ -133,8 +133,11 @@ export function markReferencedClasses(
         markReferencedClasses(inner, classDecls, worklist);
       }
       break;
-    case "result":
-      markReferencedClasses(type.successType, classDecls, worklist);
+    case "success":
+      markReferencedClasses(type.valueType, classDecls, worklist);
+      break;
+    case "failure":
+      markReferencedClasses(type.errorType, classDecls, worklist);
       break;
   }
 }
@@ -237,10 +240,10 @@ export function emitDeserializeExpr(
       throw new Error("Unsupported primitive JSON deserialization type");
 
     case "class":
-      return `${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
+      return `doof::success_value(${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}))`;
 
     case "struct":
-      return `${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}).value()`;
+      return `doof::success_value(${emitClassCppName(type.symbol, ctx.module.path)}::fromJsonValue(${jsonExpr}, ${lenientExpr}))`;
 
     case "array": {
       const elementType = emitType(type.elementType, ctx.module.path);
@@ -411,12 +414,14 @@ export function emitFromJSON(
   const isValueObject = decl.storage === "value";
   const resultValueType = isValueObject ? cppName : `std::shared_ptr<${cppName}>`;
   const resultType = `doof::Result<${resultValueType}, std::string>`;
+  const successType = `doof::Success<${resultValueType}>`;
+  const failureType = "doof::Failure<std::string>";
 
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`${memberInd}static ${resultType} fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Expected JSON object"};`);
   ctx.sourceLines.push(`${bodyInd}}`);
 
   const constructorFields = decl.fields
@@ -434,7 +439,7 @@ export function emitFromJSON(
       ctx.sourceLines.push(`${bodyInd}${emitType(fieldType, ctx.module.path)} _f_${safeName};`);
       ctx.sourceLines.push(`${bodyInd}if (auto ${iterName} = _obj->find("${constructorField.name}"); ${iterName} != _obj->end()) {`);
       ctx.sourceLines.push(`${bodyInd}    if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType, "_lenient")}) {`);
-      ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure("Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second)));`);
+      ctx.sourceLines.push(`${bodyInd}        return ${failureType}{"Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second))};`);
       ctx.sourceLines.push(`${bodyInd}    }`);
       ctx.sourceLines.push(`${bodyInd}    _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx, "_lenient")};`);
       ctx.sourceLines.push(`${bodyInd}} else {`);
@@ -445,10 +450,10 @@ export function emitFromJSON(
 
     ctx.sourceLines.push(`${bodyInd}auto ${iterName} = _obj->find("${constructorField.name}");`);
     ctx.sourceLines.push(`${bodyInd}if (${iterName} == _obj->end()) {`);
-    ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Missing required field \\"${constructorField.name}\\"");`);
+    ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Missing required field \\"${constructorField.name}\\""};`);
     ctx.sourceLines.push(`${bodyInd}}`);
     ctx.sourceLines.push(`${bodyInd}if (!${emitJsonTypeCheck(`${iterName}->second`, fieldType, "_lenient")}) {`);
-    ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second)));`);
+    ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Field \\"${constructorField.name}\\" expected ${jsonTypeName(fieldType)} but got " + std::string(doof::json_type_name(${iterName}->second))};`);
     ctx.sourceLines.push(`${bodyInd}}`);
     ctx.sourceLines.push(`${bodyInd}auto _f_${safeName} = ${emitDeserializeExpr(`${iterName}->second`, fieldType, ctx, "_lenient")};`);
   }
@@ -463,14 +468,14 @@ export function emitFromJSON(
           .join("");
         ctx.sourceLines.push(`${bodyInd}if (auto ${iterName} = _obj->find("${fieldName}"); ${iterName} != _obj->end()) {`);
         ctx.sourceLines.push(`${bodyInd}    if (doof::json_is_string(${iterName}->second) && doof::json_as_string(${iterName}->second) != "${constValue}") {`);
-        ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure("Field \\"${fieldName}\\" must be \\"${constValue}\\" but got \\"" + doof::json_as_string(${iterName}->second) + "\\"");`);
+        ctx.sourceLines.push(`${bodyInd}        return ${failureType}{"Field \\"${fieldName}\\" must be \\"${constValue}\\" but got \\"" + doof::json_as_string(${iterName}->second) + "\\""};`);
         ctx.sourceLines.push(`${bodyInd}    }`);
         ctx.sourceLines.push(`${bodyInd}}`);
       } else if (field.defaultValue.kind === "int-literal") {
         const constValue = (field.defaultValue as { value: number }).value;
         ctx.sourceLines.push(`${bodyInd}if (auto ${iterName} = _obj->find("${fieldName}"); ${iterName} != _obj->end()) {`);
         ctx.sourceLines.push(`${bodyInd}    if (doof::json_is_number(${iterName}->second) && doof::json_as_int(${iterName}->second) != ${constValue}) {`);
-        ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure("Field \\"${fieldName}\\" must be ${constValue}");`);
+        ctx.sourceLines.push(`${bodyInd}        return ${failureType}{"Field \\"${fieldName}\\" must be ${constValue}"};`);
         ctx.sourceLines.push(`${bodyInd}    }`);
         ctx.sourceLines.push(`${bodyInd}}`);
       }
@@ -480,10 +485,10 @@ export function emitFromJSON(
   if (constructorFields.length > 0) {
     const args = constructorFields.map((field) => `_f_${emitIdentifierSafe(field.name)}`).join(", ");
     const constructed = isValueObject ? `${cppName}(${args})` : `std::make_shared<${cppName}>(${args})`;
-    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(${constructed});`);
+    ctx.sourceLines.push(`${bodyInd}return ${successType}{${constructed}};`);
   } else {
     const constructed = isValueObject ? `${cppName}{}` : `std::make_shared<${cppName}>()`;
-    ctx.sourceLines.push(`${bodyInd}return ${resultType}::success(${constructed});`);
+    ctx.sourceLines.push(`${bodyInd}return ${successType}{${constructed}};`);
   }
 
   ctx.sourceLines.push(`${memberInd}}`);
@@ -503,16 +508,18 @@ export function emitInterfaceFromJSON(
   const ind = indent(ctx);
   const bodyInd = indent({ indent: ctx.indent + 1 });
   const resultType = `doof::Result<${ifaceName}, std::string>`;
+  const successType = `doof::Success<${ifaceName}>`;
+  const failureType = "doof::Failure<std::string>";
 
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`${ind}inline ${resultType} ${ifaceName}_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Expected JSON object"};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${bodyInd}auto _disc_it = _obj->find("${disc.fieldName}");`);
   ctx.sourceLines.push(`${bodyInd}if (_disc_it == _obj->end() || !doof::json_is_string(_disc_it->second)) {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Missing or invalid discriminator field \\"${disc.fieldName}\\"");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Missing or invalid discriminator field \\"${disc.fieldName}\\""};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${bodyInd}auto _disc = doof::json_as_string(_disc_it->second);`);
 
@@ -522,14 +529,14 @@ export function emitInterfaceFromJSON(
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
     ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls, ctx.module.path)}::fromJsonValue(_j, _lenient);`);
-    ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
-    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${ifaceName}(_r.value()));`);
+    ctx.sourceLines.push(`${bodyInd}    if (doof::is_success(_r)) {`);
+    ctx.sourceLines.push(`${bodyInd}        return ${successType}{${ifaceName}(doof::success_value(_r))};`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);
-    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure(_r.error());`);
+    ctx.sourceLines.push(`${bodyInd}        return ${failureType}{doof::failure_error(_r)};`);
     ctx.sourceLines.push(`${bodyInd}    }`);
   }
   ctx.sourceLines.push(`${bodyInd}} else {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Unknown ${disc.fieldName}: \\"" + _disc + "\\"");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Unknown ${disc.fieldName}: \\"" + _disc + "\\""};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${ind}}`);
 }
@@ -543,16 +550,18 @@ export function emitTypeAliasFromJSON(
   const ind = indent(ctx);
   const bodyInd = indent({ indent: ctx.indent + 1 });
   const resultType = `doof::Result<${aliasName}, std::string>`;
+  const successType = `doof::Success<${aliasName}>`;
+  const failureType = "doof::Failure<std::string>";
 
   ctx.sourceLines.push("");
   ctx.sourceLines.push(`${ind}inline ${resultType} ${aliasName}_fromJsonValue(const doof::JsonValue& _j, bool _lenient = false) {`);
   ctx.sourceLines.push(`${bodyInd}const auto* _obj = doof::json_as_object(_j);`);
   ctx.sourceLines.push(`${bodyInd}if (_obj == nullptr) {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Expected JSON object");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Expected JSON object"};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${bodyInd}auto _disc_it = _obj->find("${disc.fieldName}");`);
   ctx.sourceLines.push(`${bodyInd}if (_disc_it == _obj->end() || !doof::json_is_string(_disc_it->second)) {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Missing or invalid discriminator field \\\"${disc.fieldName}\\\"");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Missing or invalid discriminator field \\\"${disc.fieldName}\\\""};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${bodyInd}auto _disc = doof::json_as_string(_disc_it->second);`);
 
@@ -562,14 +571,14 @@ export function emitTypeAliasFromJSON(
     first = false;
     ctx.sourceLines.push(`${bodyInd}${keyword} (_disc == "${value}") {`);
     ctx.sourceLines.push(`${bodyInd}    auto _r = ${emitClassCppName(cls, ctx.module.path)}::fromJsonValue(_j, _lenient);`);
-    ctx.sourceLines.push(`${bodyInd}    if (_r.isSuccess()) {`);
-    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::success(${aliasName}(_r.value()));`);
+    ctx.sourceLines.push(`${bodyInd}    if (doof::is_success(_r)) {`);
+    ctx.sourceLines.push(`${bodyInd}        return ${successType}{${aliasName}(doof::success_value(_r))};`);
     ctx.sourceLines.push(`${bodyInd}    } else {`);
-    ctx.sourceLines.push(`${bodyInd}        return ${resultType}::failure(_r.error());`);
+    ctx.sourceLines.push(`${bodyInd}        return ${failureType}{doof::failure_error(_r)};`);
     ctx.sourceLines.push(`${bodyInd}    }`);
   }
   ctx.sourceLines.push(`${bodyInd}} else {`);
-  ctx.sourceLines.push(`${bodyInd}    return ${resultType}::failure("Unknown ${disc.fieldName}: \\\"" + _disc + "\\\"");`);
+  ctx.sourceLines.push(`${bodyInd}    return ${failureType}{"Unknown ${disc.fieldName}: \\\"" + _disc + "\\\""};`);
   ctx.sourceLines.push(`${bodyInd}}`);
   ctx.sourceLines.push(`${ind}}`);
 }

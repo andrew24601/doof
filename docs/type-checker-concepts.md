@@ -198,12 +198,19 @@ Validation anchors:
 
 ## Result Propagation and Binding Retyping
 
-`Result<T, E>` behavior crosses expression inference, statement checking, and scope mutation:
+`Result<T, E>` resolves to the canonical union `Success<T> | Failure<E>`.
+`getResultShape` is the single recognition boundary for Result-only operations;
+all recursive type traversal, assignability, and readonly/actor checks otherwise
+treat it as an ordinary union. Result behavior crosses expression inference,
+statement checking, and scope mutation:
 
 - `try` validates the RHS and propagates error types
 - successful bindings are retyped from `Result<T, E>` to `T`
 - `catch` collects error types into nullable unions
-- case arms over `Result` values receive wrapper bindings for `.value` and `.error`
+- case arms use ordinary union narrowing to `Success<T>` or `Failure<E>`; when
+  an expression-form case yields both intrinsic arms, inference reconstructs
+  the full canonical `Result<T, E>` union before emission rather than retaining
+  only the first arm's type
 - declaration-`else` handlers must exit only when a narrowed binding is introduced after the handler
 - Result statement-`else` and `_ := result else ...` handlers mark the Result as handled without requiring scope exit
 
@@ -218,7 +225,8 @@ Keep aligned:
 - any new binding form supported by `try` must be handled by both validation and retyping
 - bare-expression `try`, destructuring `try`, `catch`, and result-pattern case arms should remain mutually consistent
 - diagnostics for unused or misapplied `Result` values should stay aligned between statement and expression positions
-- failure-capture syntax (`else error`) should bind the `Failure<E>.error` payload only for non-null `Result<T, E>` subjects
+- failure-capture syntax (`else error`) should bind the `Failure<E>.error` payload only for non-null Results with non-void `E`
+- unresolved generic channels must not contextually erase a standalone arm's inferred payload type
 
 Validation anchors:
 

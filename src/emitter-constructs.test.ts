@@ -679,10 +679,10 @@ describe("emitter — try operators", () => {
         return Success(x)
       }
     `);
-    expect(cpp).toContain("isFailure()");
-    expect(cpp).toContain("::failure(");
+    expect(cpp).toContain("doof::is_failure(");
+    expect(cpp).toContain("doof::Failure<std::string>{");
     expect(cpp).toContain("std::move(");
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain("doof::success_value(");
   });
 
   it("emits try! with panic on failure", () => {
@@ -691,8 +691,8 @@ describe("emitter — try operators", () => {
         return try! x
       }
     `);
-    expect(cpp).toContain('doof::panic_at("main.do", 3, "try! failed: " + doof::to_string(_try_0.error()))');
-    expect(cpp).toContain(".value()");
+    expect(cpp).toContain('doof::panic_at("main.do", 3, "try! failed: " + doof::to_string(doof::failure_error(_try_0)))');
+    expect(cpp).toContain("doof::success_value(");
   });
 
   it("emits try? with std::nullopt", () => {

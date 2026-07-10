@@ -1,10 +1,11 @@
 import type { CaseArm, CatchExpression, Expression, SourceSpan, TryBinding } from "./ast.js";
 import {
   isAssignableTo,
+  getResultShape,
   NULL_TYPE,
   type ModuleTypeInfo,
   type ResolvedType,
-  type ResultResolvedType,
+  type ResultShape,
   type Scope,
   typeToString,
   UNKNOWN_TYPE,
@@ -25,8 +26,9 @@ export function buildCaseArmScope(
   table: ModuleSymbolTable,
   info: ModuleTypeInfo,
 ): Scope {
-  if (subjectType.kind === "result") {
-    return buildResultArmScope(host, arm, subjectType, parentScope);
+  const result = getResultShape(subjectType);
+  if (result) {
+    return buildResultArmScope(host, arm, result, parentScope);
   }
 
   const armScope = host.pushScope(parentScope, "block");
@@ -61,7 +63,7 @@ export function buildCaseArmScope(
 export function buildResultArmScope(
   host: CheckerHost,
   arm: CaseArm,
-  subjectType: ResultResolvedType,
+  subjectType: ResultShape,
   parentScope: Scope,
 ): Scope {
   const armScope = host.pushScope(parentScope, "block");
@@ -72,7 +74,7 @@ export function buildResultArmScope(
       armScope.bindings.set(pattern.name, {
         name: pattern.name,
         kind: "const",
-        type: { kind: "success-wrapper", valueType: subjectType.successType },
+        type: subjectType.successArm,
         mutable: false,
         span: pattern.span,
         module: "",
@@ -81,7 +83,7 @@ export function buildResultArmScope(
       armScope.bindings.set(pattern.name, {
         name: pattern.name,
         kind: "const",
-        type: { kind: "failure-wrapper", errorType: subjectType.errorType },
+        type: subjectType.failureArm,
         mutable: false,
         span: pattern.span,
         module: "",
@@ -188,7 +190,8 @@ export function checkTryStatement(
 
   const rhsType = rhsExpr.resolvedType ?? UNKNOWN_TYPE;
   if (rhsType.kind === "unknown") return;
-  if (rhsType.kind !== "result") {
+  const rhsResult = getResultShape(rhsType);
+  if (!rhsResult) {
     info.diagnostics.push({
       severity: "error",
       message: `"try" can only be applied to a Result type, but got "${typeToString(rhsType)}"`,
@@ -199,10 +202,11 @@ export function checkTryStatement(
   }
 
   if (host.catchErrorTypes.length > 0) {
-    host.catchErrorTypes[host.catchErrorTypes.length - 1].push(rhsType.errorType);
+    host.catchErrorTypes[host.catchErrorTypes.length - 1].push(rhsResult.errorType);
   } else {
     const enclosingReturn = host.findReturnType(scope);
-    if (enclosingReturn && enclosingReturn.kind !== "result" && enclosingReturn.kind !== "unknown") {
+    const enclosingResult = enclosingReturn ? getResultShape(enclosingReturn) : null;
+    if (enclosingReturn && !enclosingResult && enclosingReturn.kind !== "unknown") {
       info.diagnostics.push({
         severity: "error",
         message: `"try" can only be used in a function that returns Result<T, E>, but enclosing function returns "${typeToString(enclosingReturn)}"`,
@@ -211,11 +215,11 @@ export function checkTryStatement(
       });
     }
 
-    if (enclosingReturn && enclosingReturn.kind === "result") {
-      if (!isAssignableTo(rhsType.errorType, enclosingReturn.errorType)) {
+    if (enclosingResult) {
+      if (!isAssignableTo(rhsResult.errorType, enclosingResult.errorType)) {
         info.diagnostics.push({
           severity: "error",
-          message: `Error type "${typeToString(rhsType.errorType)}" is not assignable to enclosing Result error type "${typeToString(enclosingReturn.errorType)}"`,
+          message: `Error type "${typeToString(rhsResult.errorType)}" is not assignable to enclosing Result error type "${typeToString(enclosingResult.errorType)}"`,
           span,
           module: table.path,
         });
@@ -225,7 +229,7 @@ export function checkTryStatement(
 
   const isBareExpressionTry = binding.kind === "expression-statement"
     && binding.expression.kind !== "assignment-expression";
-  if (rhsType.successType.kind === "void" && !isBareExpressionTry) {
+  if (rhsResult.successType.kind === "void" && !isBareExpressionTry) {
     info.diagnostics.push({
       severity: "error",
       message: '"try" on Result<void, E> cannot bind a value; use "try expr" instead',
@@ -237,11 +241,11 @@ export function checkTryStatement(
 
   if (
     (binding.kind === "array-destructuring" || binding.kind === "array-destructuring-assignment")
-    && rhsType.successType.kind !== "array"
+    && rhsResult.successType.kind !== "array"
   ) {
     info.diagnostics.push({
       severity: "error",
-      message: `Array destructuring requires a T[] value, but got "${typeToString(rhsType.successType)}"`,
+      message: `Array destructuring requires a T[] value, but got "${typeToString(rhsResult.successType)}"`,
       span: binding.value.span,
       module: table.path,
     });
@@ -253,11 +257,11 @@ export function checkTryStatement(
     || binding.kind === "positional-destructuring-assignment"
     || binding.kind === "named-destructuring-assignment"
   ) {
-    checkDestructuringAssignment(host, binding, scope, table, info, rhsType.successType);
+    checkDestructuringAssignment(host, binding, scope, table, info, rhsResult.successType);
     return;
   }
 
-  host.retypeTryBinding(binding, rhsType.successType, scope, table);
+  host.retypeTryBinding(binding, rhsResult.successType, scope, table);
 }
 
 export function getTryBindingValue(binding: TryBinding): Expression | null {

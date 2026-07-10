@@ -15,12 +15,12 @@ namespace doof_obj_viewer {
 inline doof::Result<std::string, std::string> readTextFile(const std::string& path) {
     std::ifstream input(path);
     if (!input.is_open()) {
-        return doof::Result<std::string, std::string>::failure("could not open file");
+        return doof::Failure<std::string>{"could not open file"};
     }
 
     std::ostringstream buffer;
     buffer << input.rdbuf();
-    return doof::Result<std::string, std::string>::success(buffer.str());
+    return doof::Success<std::string>{buffer.str()};
 }
 
 class NativeLineViewer {
@@ -80,7 +80,7 @@ private:
         int32_t height
     ) {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
-            return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(SDL_GetError());
+            return doof::Failure<std::string>{SDL_GetError()};
         }
 
         SDL_Window* window = SDL_CreateWindow(
@@ -92,7 +92,7 @@ private:
         if (window == nullptr) {
             const std::string error = SDL_GetError();
             SDL_Quit();
-            return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(error);
+            return doof::Failure<std::string>{error};
         }
 
         SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
@@ -100,13 +100,13 @@ private:
             const std::string error = SDL_GetError();
             SDL_DestroyWindow(window);
             SDL_Quit();
-            return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::failure(error);
+            return doof::Failure<std::string>{error};
         }
 
         SDL_SetRenderVSync(renderer, 1);
-        return doof::Result<std::shared_ptr<NativeLineViewer>, std::string>::success(
+        return doof::Success<std::shared_ptr<NativeLineViewer>>{
             std::shared_ptr<NativeLineViewer>(new NativeLineViewer(window, renderer))
-        );
+        };
     }
 
     ~NativeLineViewer() {

@@ -44,11 +44,11 @@ namespace detail {
         if (raw) {
             std::string s(raw);
             ai_free_string(raw);
-            return doof::Result<std::string, std::string>::success(std::move(s));
+            return doof::Success<std::string>{std::move(s)};
         }
         std::string e(error ? error : "unknown Apple Intelligence error");
         if (error) ai_free_string(error);
-        return doof::Result<std::string, std::string>::failure(std::move(e));
+        return doof::Failure<std::string>{std::move(e)};
     }
 } // namespace detail
 
@@ -80,4 +80,3 @@ public:
         return detail::wrap_ai_result(result, error);
     }
 };
-

@@ -731,8 +731,8 @@ describe("emitter — classes", () => {
         return Email { value: "a@example.com" }
       }
     `);
-    expect(cpp).toContain("static doof::Result<std::shared_ptr<Email>, std::string> constructor(std::string value)");
-    expect(cpp).toContain("return doof::Result<std::shared_ptr<Email>, std::string>::success(std::make_shared<Email>(value));");
+    expect(cpp).toContain("static std::variant<doof::Success<std::shared_ptr<Email>>, doof::Failure<std::string>> constructor(std::string value)");
+    expect(cpp).toContain("std::in_place_type<doof::Success<std::shared_ptr<::app::main_::Email>>>");
     expect(cpp).toContain("return Email::constructor(std::string(\"a@example.com\"));");
   });
 
@@ -1024,7 +1024,9 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("namespace metrics");
     expect(header).toContain("void increment_counter");
     expect(header).toContain("std::string snapshot_prometheus");
-    expect(header).toContain("struct Result");
+    expect(header).toContain("struct Success");
+    expect(header).toContain("struct Failure");
+    expect(header).toContain("using Result = std::variant<Success<T>, Failure<E>>");
     expect(header).toContain("void panic");
     expect(header).toContain("void println");
     expect(header).toContain("std::string concat");

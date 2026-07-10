@@ -804,6 +804,27 @@ describe("e2e — Result helpers", () => {
     }
     expect(result.exitCode).toBe(1);
   });
+
+  it("compiles a Result-returning case with path-style Success and Failure arms", () => {
+    const result = ctx.compileOnly(`
+      function join(parts: string[]): string {
+        return parts[0]
+      }
+
+      function normalizePathResult(result: Result<string, string>): Result<string, string> {
+        return case result {
+          s: Success -> Success { value: join([s.value]) },
+          f: Failure -> Failure { error: f.error }
+        }
+      }
+
+      function main(): int {
+        return 0
+      }
+    `);
+
+    expect(result.success, `Compile error: ${result.error}\n\nGenerated:\n${result.code}`).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -2897,5 +2918,36 @@ describe("e2e — mock call capture", () => {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
     expect(result.stdout.trim()).toBe("2\nacct-1\n9\n1\n11");
+  });
+});
+
+describe("e2e — intrinsic Result arms", () => {
+  it("runs standalone arms, Result<T,T>, and payloadless failures", () => {
+    const result = ctx.compileAndRun(`
+      function same(ok: bool): Result<int, int> {
+        if ok { return Success(7) }
+        return Failure(9)
+      }
+
+      function payloadless(ok: bool): Result<int, void> {
+        if ok { return Success(3) }
+        return Failure()
+      }
+
+      function main(): int {
+        standalone := Success(1)
+        standaloneFailure := Failure("bad")
+        case same(false) {
+          _: Success -> return 1,
+          f: Failure -> println(f.error)
+        }
+        value := payloadless(true) else { return 2 }
+        payloadless(false) else { println("void failure") }
+        return value + standalone.value
+      }
+    `);
+    if (result.exitCode === -1) expect.unreachable(`Compile error: ${result.stderr}`);
+    expect(result.stdout.trim()).toBe("9\nvoid failure");
+    expect(result.exitCode).toBe(4);
   });
 });

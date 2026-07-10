@@ -9,7 +9,7 @@
  * multiple metadata objects to build consolidated API specs.
  */
 
-import { isJsonValueType, type ResolvedType } from "./checker-types.js";
+import { getResultShape, isJsonValueType, type ResolvedType } from "./checker-types.js";
 import type { ClassDeclaration, FunctionDeclaration } from "./ast.js";
 
 // ============================================================================
@@ -109,12 +109,11 @@ export function typeToJsonSchema(
     case "weak":
     case "actor":
     case "promise":
-    case "result":
     case "unknown":
     case "namespace":
     case "interface":
-    case "success-wrapper":
-    case "failure-wrapper":
+    case "success":
+    case "failure":
     case "typevar":
     case "json-serializable-constraint":
     case "class-metadata":
@@ -209,8 +208,9 @@ export function methodOutputSchema(
     return {};
   }
   const retType = method.resolvedType.returnType;
-  if (retType.kind === "result") {
-    return typeToJsonSchema(retType.successType, defs);
+  const result = getResultShape(retType);
+  if (result) {
+    return typeToJsonSchema(result.successType, defs);
   }
   return typeToJsonSchema(retType, defs);
 }

@@ -760,8 +760,8 @@ export class ModuleAnalyzer {
   private resolveNamedTypeNode(node: NamedType, table: ModuleSymbolTable, typeParamScope: Set<string>): void {
     const name = node.name;
 
-    // Skip builtins — they don't resolve to a user declaration.
-    if (BUILTIN_TYPE_NAMES.has(name)) return;
+    // Intrinsic arm names may still be shadowed by an explicit user declaration.
+    if (BUILTIN_TYPE_NAMES.has(name) && !table.symbols.has(name)) return;
 
     // Skip type parameters — they are resolved later by the type checker.
     if (typeParamScope.has(name)) return;

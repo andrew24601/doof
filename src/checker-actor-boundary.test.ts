@@ -149,8 +149,8 @@ describe("checker actor-boundary analysis", () => {
     const promiseString: ResolvedType = { kind: "promise", valueType: STRING_TYPE };
 
     const nested: ResolvedType = {
-      kind: "result",
-      successType: {
+      kind: "union",
+      types: [{ kind: "success", valueType: {
         kind: "tuple",
         elements: [
           { kind: "weak", inner: { kind: "set", elementType: INT_TYPE, readonly_: true } },
@@ -162,8 +162,7 @@ describe("checker actor-boundary analysis", () => {
             ],
           },
         ],
-      },
-      errorType: STRING_TYPE,
+      } }, { kind: "failure", errorType: STRING_TYPE }],
     };
 
     const violation = findActorBoundaryViolation(host, nested, table);
@@ -193,9 +192,9 @@ describe("checker actor-boundary analysis", () => {
     `);
     const mutablePayload = classType(table, "MutablePayload");
 
-    expect(findActorBoundaryViolation(host, { kind: "success-wrapper", valueType: mutablePayload }, table)?.reason)
+    expect(findActorBoundaryViolation(host, { kind: "success", valueType: mutablePayload }, table)?.reason)
       .toContain('field "value" is mutable');
-    expect(findActorBoundaryViolation(host, { kind: "failure-wrapper", errorType: mutablePayload }, table)?.reason)
+    expect(findActorBoundaryViolation(host, { kind: "failure", errorType: mutablePayload }, table)?.reason)
       .toContain('field "value" is mutable');
     expect(findActorBoundaryViolation(host, { kind: "class-metadata", classType: mutablePayload }, table)?.reason)
       .toContain('field "value" is mutable');

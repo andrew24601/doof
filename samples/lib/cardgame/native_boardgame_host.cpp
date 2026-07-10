@@ -384,7 +384,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(SDL_GetError());
+        return doof::Failure<std::string>{SDL_GetError()};
     }
 
     auto impl = std::make_unique<Impl>();
@@ -394,7 +394,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE) {
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure("CoInitializeEx failed");
+        return doof::Failure<std::string>{"CoInitializeEx failed"};
     }
     impl->comInitialized = (comResult == S_OK || comResult == S_FALSE);
 #endif
@@ -413,7 +413,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
         }
 #endif
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->renderer = SDL_CreateRenderer(impl->window, nullptr);
@@ -426,7 +426,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
         }
 #endif
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     SDL_SetRenderVSync(impl->renderer, 1);
@@ -435,9 +435,9 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     impl->assetBasePath = resolveAssetBasePath();
     impl->lastTicks = SDL_GetTicks();
 
-    return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::success(
+    return doof::Success<std::shared_ptr<NativeBoardgameHost>>{
         std::shared_ptr<NativeBoardgameHost>(new NativeBoardgameHost(std::move(impl)))
-    );
+    };
 }
 
 bool NativeBoardgameHost::isOpen() const {

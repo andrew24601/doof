@@ -16,20 +16,26 @@ The core rule is simple: expected failures must appear in the type system.
 
 ## Result Types
 
-`Result<T, E>` is the built-in type for recoverable failure. A `Result` value is
-always in one of two states:
+`Success<T>` and `Failure<E>` are intrinsic types. `Result<T, E>` is exactly the
+canonical union `Success<T> | Failure<E>`, so a Result value is always in one of
+two states:
 
 - success, carrying a payload of type `T`
 - failure, carrying an error payload of type `E`
 
-`Success(...)` and `Failure(...)` are the source syntax for creating those
-states. `case` patterns named `Success` and `Failure` are the source syntax for
-testing which state a `Result` is in and binding the corresponding payload view.
+The arm types may be written explicitly and constructed without a surrounding
+Result context. Both constructor spellings are equivalent:
 
-`Success` and `Failure` are not ordinary built-in classes, and built-in Results
-do not have a source-visible `kind` field. The generated C++ runtime stores
-`Result<T, E>` as a compact variant with `isSuccess()`, `isFailure()`, `value()`,
-and `error()` accessors.
+```doof
+ok: Success<int> := Success(42)
+alsoOk: Success<int> := Success { value: 42 }
+failed: Failure<string> := Failure("bad")
+alsoFailed: Failure<string> := Failure { error: "bad" }
+```
+
+An arm is assignable to a compatible Result union. Explicitly spelling
+`Success<T> | Failure<E>` has exactly the same behavior as `Result<T, E>`, and
+the two arms may appear in either order.
 
 `T` is the success payload type. `E` is the failure payload type. Either can be
 a class, enum, primitive, collection, nullable type, or union:
@@ -45,13 +51,9 @@ or another simple type when every failure is handled uniformly.
 
 ### Wrapping Values
 
-`Success(...)` wraps a value as the success payload of a `Result<T, E>`.
-`Failure(...)` wraps a value as the error payload. Both forms require a
-contextual `Result<T, E>` type so the compiler knows the success and error
-channels.
-
-That context is usually a return type, variable annotation, parameter type, or
-generic expectation.
+`Success(...)` constructs `Success<T>` and `Failure(...)` constructs
+`Failure<E>`. A surrounding Result type provides contextual payload typing when
+available; otherwise the payload determines the standalone arm type.
 
 ```doof
 function parseCount(text: string): Result<int, string> {
@@ -71,7 +73,7 @@ return Success { value: count }
 return Failure { error: .InvalidFormat }
 ```
 
-`Result<void, E>` has no success payload:
+Either channel may be payloadless:
 
 ```doof
 function save(): Result<void, string> {
@@ -86,6 +88,10 @@ function save(): Result<void, string> {
 `Success()` and `Success {}` are valid only for `Result<void, E>`, where the
 success state carries no payload. `Success(value)` and
 `Success { value: value }` are valid only for non-void success types.
+
+Likewise, `Failure()` and `Failure {}` construct `Failure<void>`. That arm has
+no `.error` member, cannot be captured by `else error` or a failure case binding,
+and propagation or panic paths do not attempt to format an error payload.
 
 ### Built-in ParseError
 
@@ -437,7 +443,9 @@ function next(input: Result<int, string>): Result<string, string | bool> {
 | `.isFailure()` | Return `true` when the Result is in the failure state |
 
 `map` is not available on `Result<void, E>` because there is no success payload
-to transform.
+to transform. `andThen` receives a zero-argument callback for `Success<void>`.
+For `Failure<void>`, `.err()` is absent and `mapError`, `orElse`, and
+`unwrapOrElse` receive zero-argument callbacks.
 
 ---
 

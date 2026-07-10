@@ -56,7 +56,7 @@ function main() {
     `);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.cpp).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(result.cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<doof::ParseError>>");
     expect(result.cpp).not.toContain(", G>");
   });
 
@@ -68,7 +68,7 @@ function main() {
     `);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.cpp).toContain("doof::Result<int32_t, doof::ParseError>");
+    expect(result.cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<doof::ParseError>>");
     expect(result.cpp).not.toContain(", U>");
   });
 
@@ -80,7 +80,7 @@ function main() {
     `);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.cpp).toContain("doof::Result<int32_t, int32_t>");
+    expect(result.cpp).toContain("std::variant<doof::Success<int32_t>, doof::Failure<int32_t>>");
     expect(result.cpp).not.toContain(", U>");
   });
 

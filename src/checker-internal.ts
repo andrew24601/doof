@@ -17,7 +17,7 @@ import type {
   FunctionResolvedParam,
   ModuleTypeInfo,
   ResolvedType,
-  ResultResolvedType,
+  ResultShape,
   Scope,
 } from "./checker-types.js";
 import type { EnumDeclaration } from "./ast.js";
@@ -209,7 +209,7 @@ export interface BuiltinFunctionSpec {
 
 export type ResultArmScopeBuilder = (
   arm: CaseArm,
-  subjectType: ResultResolvedType,
+  subjectType: ResultShape,
   parentScope: Scope,
 ) => Scope;
 

@@ -37,8 +37,8 @@ function isAllowedIdentifierBinding(binding: Binding | undefined): boolean {
   return binding.type.kind !== "function"
     && binding.type.kind !== "namespace"
     && binding.type.kind !== "builtin-namespace"
-    && binding.type.kind !== "success-wrapper"
-    && binding.type.kind !== "failure-wrapper"
+    && binding.type.kind !== "success"
+    && binding.type.kind !== "failure"
     && binding.type.kind !== "class-metadata"
     && binding.type.kind !== "method-reflection";
 }

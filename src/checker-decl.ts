@@ -582,7 +582,8 @@ function containsWeakType(type: ResolvedType): boolean {
   if (type.kind === "map") return containsWeakType(type.keyType) || containsWeakType(type.valueType);
   if (type.kind === "set") return containsWeakType(type.elementType);
   if (type.kind === "tuple") return type.elements.some(containsWeakType);
-  if (type.kind === "result") return containsWeakType(type.successType) || containsWeakType(type.errorType);
+  if (type.kind === "success") return containsWeakType(type.valueType);
+  if (type.kind === "failure") return containsWeakType(type.errorType);
   if (type.kind === "promise") return containsWeakType(type.valueType);
   return false;
 }

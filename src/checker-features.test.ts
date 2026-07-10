@@ -4,6 +4,8 @@ import type {
 } from "./ast.js";
 import {
   typeToString,
+  getResultShape,
+  makeResultType,
   isAssignableTo,
   typesEqual,
   type ResolvedType,
@@ -1059,11 +1061,9 @@ describe("Result<T, E> type integration", () => {
     expect(fnDecl.resolvedType).toBeDefined();
     expect(fnDecl.resolvedType!.kind).toBe("function");
     if (fnDecl.resolvedType!.kind === "function") {
-      expect(fnDecl.resolvedType!.returnType.kind).toBe("result");
-      if (fnDecl.resolvedType!.returnType.kind === "result") {
-        expect(fnDecl.resolvedType!.returnType.successType).toEqual(INT_TYPE);
-        expect(fnDecl.resolvedType!.returnType.errorType).toEqual(STRING_TYPE);
-      }
+      const result = getResultShape(fnDecl.resolvedType!.returnType);
+      expect(result?.successType).toEqual(INT_TYPE);
+      expect(result?.errorType).toEqual(STRING_TYPE);
     }
   });
 
@@ -1076,11 +1076,9 @@ describe("Result<T, E> type integration", () => {
     expect(fnDecl.resolvedType).toBeDefined();
     expect(fnDecl.resolvedType!.kind).toBe("function");
     if (fnDecl.resolvedType!.kind === "function") {
-      expect(fnDecl.resolvedType!.returnType.kind).toBe("result");
-      if (fnDecl.resolvedType!.returnType.kind === "result") {
-        expect(fnDecl.resolvedType!.returnType.successType).toEqual(VOID_TYPE);
-        expect(fnDecl.resolvedType!.returnType.errorType).toEqual(STRING_TYPE);
-      }
+      const result = getResultShape(fnDecl.resolvedType!.returnType);
+      expect(result?.successType).toEqual(VOID_TYPE);
+      expect(result?.errorType).toEqual(STRING_TYPE);
     }
   });
 
@@ -1098,11 +1096,9 @@ describe("Result<T, E> type integration", () => {
     expect(fnDecl.resolvedType).toBeDefined();
     if (fnDecl.resolvedType!.kind === "function") {
       const ret = fnDecl.resolvedType!.returnType;
-      expect(ret.kind).toBe("result");
-      if (ret.kind === "result") {
-        expect(ret.successType).toEqual(INT_TYPE);
-        expect(ret.errorType.kind).toBe("class");
-      }
+      const result = getResultShape(ret);
+      expect(result?.successType).toEqual(INT_TYPE);
+      expect(result?.errorType.kind).toBe("class");
     }
   });
 
@@ -1283,24 +1279,24 @@ describe("Result<T, E> type integration", () => {
   });
 
   it("typeToString formats Result type correctly", () => {
-    const resultType = { kind: "result" as const, successType: INT_TYPE, errorType: STRING_TYPE };
+    const resultType = makeResultType(INT_TYPE, STRING_TYPE);
     expect(typeToString(resultType)).toBe("Result<int, string>");
   });
 
   it("typesEqual checks Result types", () => {
-    const a = { kind: "result" as const, successType: INT_TYPE, errorType: STRING_TYPE };
-    const b = { kind: "result" as const, successType: INT_TYPE, errorType: STRING_TYPE };
-    const c = { kind: "result" as const, successType: FLOAT_TYPE, errorType: STRING_TYPE };
+    const a = makeResultType(INT_TYPE, STRING_TYPE);
+    const b = makeResultType(INT_TYPE, STRING_TYPE);
+    const c = makeResultType(FLOAT_TYPE, STRING_TYPE);
     expect(typesEqual(a, b)).toBe(true);
     expect(typesEqual(a, c)).toBe(false);
   });
 
   it("isAssignableTo handles Result compatibility", () => {
-    const a = { kind: "result" as const, successType: INT_TYPE, errorType: STRING_TYPE };
-    const b = { kind: "result" as const, successType: INT_TYPE, errorType: STRING_TYPE };
+    const a = makeResultType(INT_TYPE, STRING_TYPE);
+    const b = makeResultType(INT_TYPE, STRING_TYPE);
     expect(isAssignableTo(a, b)).toBe(true);
     // int→long widening in success type
-    const c = { kind: "result" as const, successType: LONG_TYPE, errorType: STRING_TYPE };
+    const c = makeResultType(LONG_TYPE, STRING_TYPE);
     expect(isAssignableTo(a, c)).toBe(true);
   });
 
@@ -1349,11 +1345,7 @@ describe("Result<T, E> type integration", () => {
       const ret = body.statements[0];
       if (ret.kind === "return-statement" && ret.value) {
         expect(ret.value.resolvedType).toBeDefined();
-        expect(ret.value.resolvedType!.kind).toBe("result");
-        if (ret.value.resolvedType!.kind === "result") {
-          expect(ret.value.resolvedType!.successType).toEqual(INT_TYPE);
-          expect(ret.value.resolvedType!.errorType).toEqual(STRING_TYPE);
-        }
+        expect(ret.value.resolvedType).toEqual({ kind: "success", valueType: INT_TYPE });
       }
     }
   });
@@ -1376,11 +1368,7 @@ describe("Result<T, E> type integration", () => {
       const ret = body.statements[0];
       if (ret.kind === "return-statement" && ret.value) {
         expect(ret.value.resolvedType).toBeDefined();
-        expect(ret.value.resolvedType!.kind).toBe("result");
-        if (ret.value.resolvedType!.kind === "result") {
-          expect(ret.value.resolvedType!.successType).toEqual(INT_TYPE);
-          expect(ret.value.resolvedType!.errorType).toEqual(STRING_TYPE);
-        }
+        expect(ret.value.resolvedType).toEqual({ kind: "failure", errorType: STRING_TYPE });
       }
     }
   });
@@ -1455,7 +1443,7 @@ describe("Result<T, E> type integration", () => {
     if (body.kind === "block") {
       const ret = body.statements[0];
       if (ret.kind === "return-statement" && ret.value) {
-        expect(ret.value.resolvedType?.kind).toBe("result");
+        expect(ret.value.resolvedType?.kind).toBe("failure");
       }
     }
   });
@@ -1708,11 +1696,7 @@ describe("Result<T, E> type integration", () => {
       const ret = body.statements[0];
       if (ret.kind === "return-statement" && ret.value) {
         expect(ret.value.resolvedType).toBeDefined();
-        expect(ret.value.resolvedType!.kind).toBe("result");
-        if (ret.value.resolvedType!.kind === "result") {
-          expect(ret.value.resolvedType!.successType).toEqual(INT_TYPE);
-          expect(ret.value.resolvedType!.errorType).toEqual(STRING_TYPE);
-        }
+        expect(ret.value.resolvedType).toEqual({ kind: "success", valueType: INT_TYPE });
       }
     }
   });
@@ -1739,6 +1723,49 @@ describe("Result<T, E> type integration", () => {
       "/main.do",
     );
     expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("treats Success<T> and Failure<E> as first-class intrinsic types", () => {
+    const cr = check({ "/main.do": `
+      function main(): void {
+        success: Success<int> := Success(42)
+        failure: Failure<string> := Failure("bad")
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("supports symmetric payloadless intrinsic arms", () => {
+    const cr = check({ "/main.do": `
+      function fail(): Result<int, void> => Failure()
+      function main(): void {
+        success: Success<void> := Success()
+        failure: Failure<void> := Failure {}
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("applies Result operations to explicitly spelled intrinsic unions", () => {
+    const cr = check({ "/main.do": `
+      function source(): Failure<string> | Success<int> => Success(42)
+      function outer(): Result<int, string> {
+        try value := source()
+        return Success(value)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects payload access and failure capture for Failure<void>", () => {
+    const cr = check({ "/main.do": `
+      function fail(): Result<int, void> => Failure()
+      function main(): void {
+        result := fail()
+        result else error { println("failed") }
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics.some((diagnostic) => diagnostic.message.includes("Failure<void>"))).toBe(true);
   });
 
   it("reports error when Success() is used for non-void Result", () => {
@@ -1852,11 +1879,7 @@ describe("Result<T, E> type integration", () => {
       const ret = body.statements[0];
       if (ret.kind === "return-statement" && ret.value) {
         expect(ret.value.resolvedType).toBeDefined();
-        expect(ret.value.resolvedType!.kind).toBe("result");
-        if (ret.value.resolvedType!.kind === "result") {
-          expect(ret.value.resolvedType!.successType).toEqual(INT_TYPE);
-          expect(ret.value.resolvedType!.errorType).toEqual(STRING_TYPE);
-        }
+        expect(ret.value.resolvedType).toEqual({ kind: "failure", errorType: STRING_TYPE });
       }
     }
   });
@@ -1921,7 +1944,7 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics.some(d => d.message.includes('Enum "IoError" does not have a variant "InvalidPaths"'))).toBe(true);
   });
 
-  it("errors on positional Success(value) without contextual Result type", () => {
+  it("infers positional Success(value) without contextual Result type", () => {
     const cr = check(
       {
         "/main.do": `
@@ -1930,8 +1953,7 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
-    const diag = cr.diagnostics.find(d => d.message.includes("Success requires contextual Result type"));
-    expect(diag).toBeDefined();
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("allows positional Success(value) with nullable Result return type", () => {
@@ -1948,7 +1970,7 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("errors on positional Failure(error) without contextual Result type", () => {
+  it("infers positional Failure(error) without contextual Result type", () => {
     const cr = check(
       {
         "/main.do": `
@@ -1957,8 +1979,7 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
-    const diag = cr.diagnostics.find(d => d.message.includes("Failure requires contextual Result type"));
-    expect(diag).toBeDefined();
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("allows positional Failure(error) with nullable Result return type", () => {
@@ -1975,7 +1996,7 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("errors on Success construct without contextual Result type", () => {
+  it("infers Success construct without contextual Result type", () => {
     const cr = check(
       {
         "/main.do": `
@@ -1984,8 +2005,7 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
-    const diag = cr.diagnostics.find(d => d.message.includes("Success requires contextual Result type"));
-    expect(diag).toBeDefined();
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("allows Success construct with nullable Result return type", () => {
@@ -2002,7 +2022,7 @@ describe("Result<T, E> type integration", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("errors on Failure construct without contextual Result type", () => {
+  it("infers Failure construct without contextual Result type", () => {
     const cr = check(
       {
         "/main.do": `
@@ -2011,8 +2031,7 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
-    const diag = cr.diagnostics.find(d => d.message.includes("Failure requires contextual Result type"));
-    expect(diag).toBeDefined();
+    expect(cr.diagnostics).toHaveLength(0);
   });
 
   it("allows Failure construct with nullable Result return type", () => {
@@ -2060,6 +2079,26 @@ describe("Result<T, E> type integration", () => {
       },
       "/main.do",
     );
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("infers a mixed Success/Failure case expression as a Result union", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          function normalize(result: Result<string, string>): Result<string, string> {
+            return case result {
+              s: Success -> Success { value: s.value },
+              f: Failure -> Failure { error: f.error }
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    const caseExpr = collectExprs(cr.program).find((expr) => expr.kind === "case-expression");
+    expect(caseExpr?.resolvedType).toEqual(makeResultType(STRING_TYPE, STRING_TYPE));
     expect(cr.diagnostics).toHaveLength(0);
   });
 
@@ -2130,9 +2169,9 @@ describe("Result<T, E> type integration", () => {
   });
 
   it("typeToString formats Success/Failure wrapper types", () => {
-    const successWrapper = { kind: "success-wrapper" as const, valueType: INT_TYPE };
+    const successWrapper = { kind: "success" as const, valueType: INT_TYPE };
     expect(typeToString(successWrapper)).toBe("Success<int>");
-    const failureWrapper = { kind: "failure-wrapper" as const, errorType: STRING_TYPE };
+    const failureWrapper = { kind: "failure" as const, errorType: STRING_TYPE };
     expect(typeToString(failureWrapper)).toBe("Failure<string>");
   });
 
@@ -3281,11 +3320,9 @@ describe("JSON serialization — fromJsonValue", () => {
     const stmts = info.program.statements;
     const resultDecl = stmts[1] as ConstDeclaration;
     const rt = resultDecl.resolvedType;
-    expect(rt?.kind).toBe("result");
-    if (rt?.kind === "result") {
-      expect(rt.successType.kind).toBe("class");
-      expect(rt.errorType).toEqual(STRING_TYPE);
-    }
+    const result = rt ? getResultShape(rt) : null;
+    expect(result?.successType.kind).toBe("class");
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("errors for non-serializable field on fromJsonValue", () => {
@@ -3332,11 +3369,9 @@ describe("JSON serialization — interface fromJsonValue", () => {
     const stmts = info.program.statements;
     const resultDecl = stmts[3] as ConstDeclaration;
     const rt = resultDecl.resolvedType;
-    expect(rt?.kind).toBe("result");
-    if (rt?.kind === "result") {
-      expect(rt.successType.kind).toBe("interface");
-      expect(rt.errorType).toEqual(STRING_TYPE);
-    }
+    const result = rt ? getResultShape(rt) : null;
+    expect(result?.successType.kind).toBe("interface");
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("errors when interface implementors lack shared discriminator", () => {
@@ -3382,11 +3417,9 @@ describe("JSON serialization — union alias fromJsonValue", () => {
     const stmts = info.program.statements;
     const resultDecl = stmts[3] as ConstDeclaration;
     const rt = resultDecl.resolvedType;
-    expect(rt?.kind).toBe("result");
-    if (rt?.kind === "result") {
-      expect(rt.successType.kind).toBe("union");
-      expect(rt.errorType).toEqual(STRING_TYPE);
-    }
+    const result = rt ? getResultShape(rt) : null;
+    expect(result?.successType.kind).toBe("union");
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("errors when alias members lack a shared discriminator", () => {
@@ -3672,11 +3705,8 @@ describe("Metadata — .methods[i].invoke access", () => {
     expect(info.diagnostics).toHaveLength(0);
     const stmts = info.program.statements;
     const resultDecl = stmts[3] as ConstDeclaration;
-    expect(resultDecl.resolvedType).toEqual({
-      kind: "result",
-      successType: JSON_VALUE_TYPE,
-      errorType: JSON_VALUE_TYPE,
-    });
+    expect(getResultShape(resultDecl.resolvedType!)?.successType).toEqual(JSON_VALUE_TYPE);
+    expect(getResultShape(resultDecl.resolvedType!)?.errorType).toEqual(JSON_VALUE_TYPE);
   });
 
   it("sets needsMetadata and needsJson flags via metadata access", () => {
@@ -4020,7 +4050,7 @@ describe("checker — constructor validation", () => {
 
     const constructions = collectExprs(info.program).filter((expr) =>
       (expr.kind === "call-expression" || expr.kind === "construct-expression")
-      && expr.resolvedType?.kind === "result"
+      && !!expr.resolvedType && !!getResultShape(expr.resolvedType)
       && typeToString(expr.resolvedType) === "Result<Email, string>"
     );
     expect(constructions.length).toBeGreaterThanOrEqual(2);
@@ -4684,11 +4714,9 @@ describe("checker — Map type", () => {
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
     const bindings = findId(cr, "x");
-    expect(bindings[0]?.type.kind).toBe("result");
-    expect((bindings[0]?.type as any)?.successType.kind).toBe("primitive");
-    expect((bindings[0]?.type as any)?.successType.name).toBe("int");
-    expect((bindings[0]?.type as any)?.errorType.kind).toBe("primitive");
-    expect((bindings[0]?.type as any)?.errorType.name).toBe("string");
+    const result = bindings[0] ? getResultShape(bindings[0].type) : null;
+    expect(result?.successType).toEqual(INT_TYPE);
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("resolves Map .has() return type as bool", () => {
@@ -5491,11 +5519,9 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
     const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "parse");
-    expect(call?.resolvedType).toEqual({
-      kind: "result",
-      successType: { kind: "primitive", name: "int" },
-      errorType: { kind: "enum", symbol: expect.objectContaining({ name: "ParseError", module: "<builtin>" }) },
-    });
+    const result = call?.resolvedType ? getResultShape(call.resolvedType) : null;
+    expect(result?.successType).toEqual(INT_TYPE);
+    expect(result?.errorType).toEqual({ kind: "enum", symbol: expect.objectContaining({ name: "ParseError", module: "<builtin>" }) });
   });
 
   it("contextually narrows integer literals to byte and byte[]", () => {
@@ -5529,11 +5555,9 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
     const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "parse");
-    expect(call?.resolvedType).toEqual({
-      kind: "result",
-      successType: { kind: "primitive", name: "byte" },
-      errorType: { kind: "enum", symbol: expect.objectContaining({ name: "ParseError", module: "<builtin>" }) },
-    });
+    const result = call?.resolvedType ? getResultShape(call.resolvedType) : null;
+    expect(result?.successType).toEqual({ kind: "primitive", name: "byte" });
+    expect(result?.errorType).toEqual({ kind: "enum", symbol: expect.objectContaining({ name: "ParseError", module: "<builtin>" }) });
   });
 
   it("rejects using a builtin namespace as a value", () => {
@@ -5567,11 +5591,9 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
     const call = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "identifier" && e.callee.name === "parseJsonValue");
-    expect(call?.resolvedType).toEqual({
-      kind: "result",
-      successType: JSON_VALUE_TYPE,
-      errorType: STRING_TYPE,
-    });
+    const result = call?.resolvedType ? getResultShape(call.resolvedType) : null;
+    expect(result?.successType).toEqual(JSON_VALUE_TYPE);
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("formatJsonValue returns string", () => {
@@ -5908,11 +5930,9 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics).toHaveLength(0);
     const exprs = collectExprs(cr.program!);
     const popCall = exprs.find((e) => e.kind === "call-expression" && e.callee.kind === "member-expression" && e.callee.property === "pop");
-    expect(popCall?.resolvedType).toEqual({
-      kind: "result",
-      successType: INT_TYPE,
-      errorType: STRING_TYPE,
-    });
+    const result = popCall?.resolvedType ? getResultShape(popCall.resolvedType) : null;
+    expect(result?.successType).toEqual(INT_TYPE);
+    expect(result?.errorType).toEqual(STRING_TYPE);
   });
 
   it("resolves buildReadonly() type on mutable array", () => {

@@ -32,7 +32,7 @@ import type {
   CallExpression,
 } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol, StructSymbol, ModuleSymbol } from "./types.js";
-import { findSharedDiscriminator, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
+import { findSharedDiscriminator, getResultShape, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements, isConstexprValue } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
@@ -461,11 +461,12 @@ function validateWasmExportFunction(decl: FunctionDeclaration): void {
 
 function validateWasmJsonReturnType(functionName: string, type: ResolvedType): void {
   if (type.kind === "void") return;
-  if (type.kind === "result") {
-    if (type.successType.kind !== "void" && !isWasmJsonAbiType(type.successType)) {
+  const result = getResultShape(type);
+  if (result) {
+    if (result.successType.kind !== "void" && !isWasmJsonAbiType(result.successType)) {
       throw new Error(`Success type of WebAssembly export "${functionName}" must be supported by the JSON ABI`);
     }
-    if (!isWasmJsonAbiType(type.errorType)) {
+    if (!isWasmJsonAbiType(result.errorType)) {
       throw new Error(`Error type of WebAssembly export "${functionName}" must be supported by the JSON ABI`);
     }
     return;
@@ -508,9 +509,10 @@ function markWasmExportJsonDemand(exports: WasmExportFunction[]): void {
         markTypeNeedsJson(param.resolvedType);
       }
     }
-    if (type.returnType.kind === "result") {
-      markTypeNeedsJson(type.returnType.successType);
-      markTypeNeedsJson(type.returnType.errorType);
+    const result = getResultShape(type.returnType);
+    if (result) {
+      markTypeNeedsJson(result.successType);
+      markTypeNeedsJson(result.errorType);
     } else {
       markTypeNeedsJson(type.returnType);
     }
@@ -649,10 +651,10 @@ function emitWasmExportWrapper(
   lines.push("    try {");
   lines.push("        __doof_wasm_init_once();");
   lines.push('        auto __parsed = doof_json::parse(params_json == nullptr ? std::string("{}") : std::string(params_json));');
-  lines.push("        if (__parsed.isFailure()) {");
-  lines.push('            return __doof_wasm_failure_message(400, std::string("Invalid JSON params: ") + __parsed.error());');
+  lines.push("        if (doof::is_failure(__parsed)) {");
+  lines.push('            return __doof_wasm_failure_message(400, std::string("Invalid JSON params: ") + doof::failure_error(__parsed));');
   lines.push("        }");
-  lines.push("        const auto* __params = doof::json_as_object(__parsed.value());");
+  lines.push("        const auto* __params = doof::json_as_object(doof::success_value(__parsed));");
   lines.push("        if (__params == nullptr) {");
   lines.push('            return __doof_wasm_failure_message(400, "Invalid JSON params: expected object");');
   lines.push("        }");
@@ -665,17 +667,17 @@ function emitWasmExportWrapper(
   if (type.returnType.kind === "void") {
     lines.push(`        ${qualifiedName}(${args});`);
     lines.push("        return __doof_wasm_success(doof::json_value(nullptr));");
-  } else if (type.returnType.kind === "result") {
+  } else if (getResultShape(type.returnType)) {
+    const result = getResultShape(type.returnType)!;
     lines.push(`        auto __result = ${qualifiedName}(${args});`);
-    lines.push("        if (__result.isFailure()) {");
-    lines.push(`            return __doof_wasm_failure(${emitSerializeExpr("__result.error()", type.returnType.errorType)});`);
+    lines.push("        if (doof::is_failure(__result)) {");
+    lines.push(`            return __doof_wasm_failure(${emitSerializeExpr("doof::failure_error(__result)", result.errorType)});`);
     lines.push("        }");
-    if (type.returnType.successType.kind === "void") {
-      lines.push("        __result.value();");
+    if (result.successType.kind === "void") {
       lines.push("        return __doof_wasm_success(doof::json_value(nullptr));");
     } else {
-      lines.push("        auto __value = __result.value();");
-      lines.push(`        return __doof_wasm_success(${emitSerializeExpr("__value", type.returnType.successType)});`);
+      lines.push("        auto __value = doof::success_value(__result);");
+      lines.push(`        return __doof_wasm_success(${emitSerializeExpr("__value", result.successType)});`);
     }
   } else {
     lines.push(`        auto __value = ${qualifiedName}(${args});`);
@@ -998,10 +1000,6 @@ function collectHeaderReferencedModulePaths(
       case "promise":
         addResolvedTypeDeps(type.valueType);
         break;
-      case "result":
-        addResolvedTypeDeps(type.successType);
-        addResolvedTypeDeps(type.errorType);
-        break;
       case "class-metadata":
       case "method-reflection":
         addResolvedTypeDeps(type.classType);
@@ -1012,8 +1010,13 @@ function collectHeaderReferencedModulePaths(
       case "void":
       case "unknown":
       case "namespace":
-      case "success-wrapper":
-      case "failure-wrapper":
+        break;
+      case "success":
+        addResolvedTypeDeps(type.valueType);
+        break;
+      case "failure":
+        addResolvedTypeDeps(type.errorType);
+        break;
       case "typevar":
       case "json-serializable-constraint":
         break;
@@ -1081,14 +1084,10 @@ function collectHeaderReferencedModulePaths(
       case "promise":
         addJsonCompleteTypeDeps(type.valueType);
         break;
-      case "result":
-        addJsonCompleteTypeDeps(type.successType);
-        addJsonCompleteTypeDeps(type.errorType);
-        break;
-      case "success-wrapper":
+      case "success":
         addJsonCompleteTypeDeps(type.valueType);
         break;
-      case "failure-wrapper":
+      case "failure":
         addJsonCompleteTypeDeps(type.errorType);
         break;
       case "mock-capture":
@@ -1647,9 +1646,10 @@ function typeNeedsCompleteValueTypeInSignature(type: ResolvedType | null | undef
       );
     case "tuple":
       return type.elements.some((element) => typeNeedsCompleteValueTypeInSignature(element, currentModulePath));
-    case "result":
-      return typeNeedsCompleteValueTypeInSignature(type.successType, currentModulePath)
-        || typeNeedsCompleteValueTypeInSignature(type.errorType, currentModulePath);
+    case "success":
+      return typeNeedsCompleteValueTypeInSignature(type.valueType, currentModulePath);
+    case "failure":
+      return typeNeedsCompleteValueTypeInSignature(type.errorType, currentModulePath);
     case "promise":
       return typeNeedsCompleteValueTypeInSignature(type.valueType, currentModulePath);
     case "function":
@@ -1684,9 +1684,10 @@ function typeNeedsCompleteExternalValueType(type: ResolvedType | null | undefine
       return type.types.some((inner) => typeNeedsCompleteExternalValueType(inner, currentModulePath));
     case "tuple":
       return type.elements.some((element) => typeNeedsCompleteExternalValueType(element, currentModulePath));
-    case "result":
-      return typeNeedsCompleteExternalValueType(type.successType, currentModulePath)
-        || typeNeedsCompleteExternalValueType(type.errorType, currentModulePath);
+    case "success":
+      return typeNeedsCompleteExternalValueType(type.valueType, currentModulePath);
+    case "failure":
+      return typeNeedsCompleteExternalValueType(type.errorType, currentModulePath);
     case "promise":
       return typeNeedsCompleteExternalValueType(type.valueType, currentModulePath);
     case "mock-capture":
@@ -1729,9 +1730,10 @@ function typeNeedsCompleteJsonType(type: ResolvedType | null | undefined, curren
       return typeNeedsCompleteJsonType(type.innerClass, currentModulePath);
     case "promise":
       return typeNeedsCompleteJsonType(type.valueType, currentModulePath);
-    case "result":
-      return typeNeedsCompleteJsonType(type.successType, currentModulePath)
-        || typeNeedsCompleteJsonType(type.errorType, currentModulePath);
+    case "success":
+      return typeNeedsCompleteJsonType(type.valueType, currentModulePath);
+    case "failure":
+      return typeNeedsCompleteJsonType(type.errorType, currentModulePath);
     case "mock-capture":
       return type.fields.some((field) => typeNeedsCompleteJsonType(field.type, currentModulePath));
     case "class-metadata":
@@ -1786,14 +1788,10 @@ function collectHeaderClassSurfaceSymbols(decl: ClassDeclaration): NominalObject
       case "promise":
         addType(type.valueType);
         break;
-      case "result":
-        addType(type.successType);
-        addType(type.errorType);
-        break;
-      case "success-wrapper":
+      case "success":
         addType(type.valueType);
         break;
-      case "failure-wrapper":
+      case "failure":
         addType(type.errorType);
         break;
       case "mock-capture":
@@ -4190,20 +4188,16 @@ function collectStreamTypesFromResolvedType(
     case "interface":
       for (const arg of type.typeArgs ?? []) collectStreamTypesFromResolvedType(arg, result);
       break;
-    case "result":
-      collectStreamTypesFromResolvedType(type.successType, result);
-      collectStreamTypesFromResolvedType(type.errorType, result);
-      break;
     case "promise":
       collectStreamTypesFromResolvedType(type.valueType, result);
       break;
     case "actor":
       collectStreamTypesFromResolvedType(type.innerClass, result);
       break;
-    case "success-wrapper":
+    case "success":
       collectStreamTypesFromResolvedType(type.valueType, result);
       break;
-    case "failure-wrapper":
+    case "failure":
       collectStreamTypesFromResolvedType(type.errorType, result);
       break;
     case "mock-capture":
@@ -4925,20 +4919,16 @@ function collectConcreteClassInstantiationsFromResolvedType(
     case "interface":
       for (const arg of type.typeArgs ?? []) collectConcreteClassInstantiationsFromResolvedType(arg, result, pendingClasses);
       break;
-    case "result":
-      collectConcreteClassInstantiationsFromResolvedType(type.successType, result, pendingClasses);
-      collectConcreteClassInstantiationsFromResolvedType(type.errorType, result, pendingClasses);
-      break;
     case "promise":
       collectConcreteClassInstantiationsFromResolvedType(type.valueType, result, pendingClasses);
       break;
     case "actor":
       collectConcreteClassInstantiationsFromResolvedType(type.innerClass, result, pendingClasses);
       break;
-    case "success-wrapper":
+    case "success":
       collectConcreteClassInstantiationsFromResolvedType(type.valueType, result, pendingClasses);
       break;
-    case "failure-wrapper":
+    case "failure":
       collectConcreteClassInstantiationsFromResolvedType(type.errorType, result, pendingClasses);
       break;
     case "mock-capture":
@@ -5238,15 +5228,13 @@ function streamAliasContainsTypeVar(type: ResolvedType): boolean {
     case "class":
     case "interface":
       return (type.typeArgs ?? []).some(streamAliasContainsTypeVar);
-    case "result":
-      return streamAliasContainsTypeVar(type.successType) || streamAliasContainsTypeVar(type.errorType);
     case "promise":
       return streamAliasContainsTypeVar(type.valueType);
     case "actor":
       return streamAliasContainsTypeVar(type.innerClass);
-    case "success-wrapper":
+    case "success":
       return streamAliasContainsTypeVar(type.valueType);
-    case "failure-wrapper":
+    case "failure":
       return streamAliasContainsTypeVar(type.errorType);
     case "mock-capture":
       return type.fields.some((field) => streamAliasContainsTypeVar(field.type));

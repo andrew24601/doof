@@ -290,7 +290,7 @@ describe("emitter-module — hpp/cpp split", () => {
       }
     `);
 
-    expect(cppCode).toContain("Result<__doof_stream_int, std::string>::success(__doof_stream_int{");
+    expect(cppCode).toContain("Success<__doof_stream_int>{__doof_stream_int{");
     expect(cppCode).toContain(`std::in_place_type<std::shared_ptr<::${emitModuleNamespace("/main.do")}::__doof_private_main_Counter>>`);
   });
 

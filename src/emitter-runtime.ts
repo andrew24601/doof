@@ -772,41 +772,29 @@ template <typename T>
 ordered_set(std::initializer_list<T>) -> ordered_set<T>;
 
 // ============================================================================
-// Result<T, E> — variant-based error handling
+// Intrinsic Result arms and their ordinary variant alias
 // ============================================================================
 
+template <typename T> struct Success { T value; };
+template <> struct Success<void> {};
+template <typename E> struct Failure { E error; };
+template <> struct Failure<void> {};
+
 template <typename T, typename E>
-struct Result {
-    std::variant<T, E> _data;
+using Result = std::variant<Success<T>, Failure<E>>;
 
-    bool isSuccess() const { return _data.index() == 0; }
-    bool isFailure() const { return _data.index() == 1; }
-
-    T& value() { return std::get<0>(_data); }
-    const T& value() const { return std::get<0>(_data); }
-
-    E& error() { return std::get<1>(_data); }
-    const E& error() const { return std::get<1>(_data); }
-
-    static Result success(T val) { return Result{std::variant<T, E>{std::in_place_index<0>, std::move(val)}}; }
-    static Result failure(E err) { return Result{std::variant<T, E>{std::in_place_index<1>, std::move(err)}}; }
-};
-
-template <typename E>
-struct Result<void, E> {
-    std::variant<std::monostate, E> _data;
-
-    bool isSuccess() const { return _data.index() == 0; }
-    bool isFailure() const { return _data.index() == 1; }
-
-    void value() const { (void)std::get<0>(_data); }
-
-    E& error() { return std::get<1>(_data); }
-    const E& error() const { return std::get<1>(_data); }
-
-    static Result success() { return Result{std::variant<std::monostate, E>{std::in_place_index<0>, std::monostate{}}}; }
-    static Result failure(E err) { return Result{std::variant<std::monostate, E>{std::in_place_index<1>, std::move(err)}}; }
-};
+template <typename T, typename E>
+inline bool is_success(const Result<T, E>& result) { return std::holds_alternative<Success<T>>(result); }
+template <typename T, typename E>
+inline bool is_failure(const Result<T, E>& result) { return std::holds_alternative<Failure<E>>(result); }
+template <typename T, typename E>
+inline T& success_value(Result<T, E>& result) { return std::get<Success<T>>(result).value; }
+template <typename T, typename E>
+inline const T& success_value(const Result<T, E>& result) { return std::get<Success<T>>(result).value; }
+template <typename T, typename E>
+inline E& failure_error(Result<T, E>& result) { return std::get<Failure<E>>(result).error; }
+template <typename T, typename E>
+inline const E& failure_error(const Result<T, E>& result) { return std::get<Failure<E>>(result).error; }
 
 template <typename Target, typename Source>
 inline std::optional<Target> checked_numeric_as(Source value) {
@@ -1197,18 +1185,18 @@ inline std::string to_string(const std::tuple<Ts...>& val) {
 
 template <typename T, typename E>
 inline std::string to_string(const Result<T, E>& val) {
-    if (val.isSuccess()) {
-        return "Success(" + to_string(val.value()) + ")";
+    if (is_success(val)) {
+        return "Success(" + to_string(success_value(val)) + ")";
     }
-    return "Failure(" + to_string(val.error()) + ")";
+    return "Failure(" + to_string(failure_error(val)) + ")";
 }
 
 template <typename E>
 inline std::string to_string(const Result<void, E>& val) {
-    if (val.isSuccess()) {
+    if (is_success(val)) {
         return "Success()";
     }
-    return "Failure(" + to_string(val.error()) + ")";
+    return "Failure(" + to_string(failure_error(val)) + ")";
 }
 
 template <typename T>
@@ -1258,87 +1246,87 @@ inline bool string_has_outer_whitespace(const std::string& s) {
 }
 
 inline Result<int32_t, ParseError> parse_int(const std::string& s) {
-    if (s.empty()) return Result<int32_t, ParseError>::failure(ParseError::EmptyInput);
-    if (string_has_outer_whitespace(s)) return Result<int32_t, ParseError>::failure(ParseError::InvalidFormat);
+    if (s.empty()) return Failure<ParseError>{ParseError::EmptyInput};
+    if (string_has_outer_whitespace(s)) return Failure<ParseError>{ParseError::InvalidFormat};
 
     errno = 0;
     char* end = nullptr;
     const long long value = std::strtoll(s.c_str(), &end, 10);
     if (end == s.c_str() || (end != nullptr && *end != 0)) {
-        return Result<int32_t, ParseError>::failure(ParseError::InvalidFormat);
+        return Failure<ParseError>{ParseError::InvalidFormat};
     }
     if (errno == ERANGE || value > std::numeric_limits<int32_t>::max()) {
-        return Result<int32_t, ParseError>::failure(ParseError::Overflow);
+        return Failure<ParseError>{ParseError::Overflow};
     }
     if (errno == ERANGE || value < std::numeric_limits<int32_t>::min()) {
-        return Result<int32_t, ParseError>::failure(ParseError::Underflow);
+        return Failure<ParseError>{ParseError::Underflow};
     }
-    return Result<int32_t, ParseError>::success(static_cast<int32_t>(value));
+    return Success<int32_t>{static_cast<int32_t>(value)};
 }
 
 inline Result<uint8_t, ParseError> parse_byte(const std::string& s) {
     const auto parsed = parse_int(s);
-    if (parsed.isFailure()) {
-        return Result<uint8_t, ParseError>::failure(parsed.error());
+    if (is_failure(parsed)) {
+        return Failure<ParseError>{failure_error(parsed)};
     }
 
-    const int32_t value = parsed.value();
+    const int32_t value = success_value(parsed);
     if (value < 0) {
-        return Result<uint8_t, ParseError>::failure(ParseError::Underflow);
+        return Failure<ParseError>{ParseError::Underflow};
     }
     if (value > 255) {
-        return Result<uint8_t, ParseError>::failure(ParseError::Overflow);
+        return Failure<ParseError>{ParseError::Overflow};
     }
 
-    return Result<uint8_t, ParseError>::success(static_cast<uint8_t>(value));
+    return Success<uint8_t>{static_cast<uint8_t>(value)};
 }
 
 inline Result<int64_t, ParseError> parse_long(const std::string& s) {
-    if (s.empty()) return Result<int64_t, ParseError>::failure(ParseError::EmptyInput);
-    if (string_has_outer_whitespace(s)) return Result<int64_t, ParseError>::failure(ParseError::InvalidFormat);
+    if (s.empty()) return Failure<ParseError>{ParseError::EmptyInput};
+    if (string_has_outer_whitespace(s)) return Failure<ParseError>{ParseError::InvalidFormat};
 
     errno = 0;
     char* end = nullptr;
     const long long value = std::strtoll(s.c_str(), &end, 10);
     if (end == s.c_str() || (end != nullptr && *end != 0)) {
-        return Result<int64_t, ParseError>::failure(ParseError::InvalidFormat);
+        return Failure<ParseError>{ParseError::InvalidFormat};
     }
     if (errno == ERANGE) {
-        return Result<int64_t, ParseError>::failure(value < 0 ? ParseError::Underflow : ParseError::Overflow);
+        return Failure<ParseError>{value < 0 ? ParseError::Underflow : ParseError::Overflow};
     }
-    return Result<int64_t, ParseError>::success(static_cast<int64_t>(value));
+    return Success<int64_t>{static_cast<int64_t>(value)};
 }
 
 inline Result<float, ParseError> parse_float(const std::string& s) {
-    if (s.empty()) return Result<float, ParseError>::failure(ParseError::EmptyInput);
-    if (string_has_outer_whitespace(s)) return Result<float, ParseError>::failure(ParseError::InvalidFormat);
+    if (s.empty()) return Failure<ParseError>{ParseError::EmptyInput};
+    if (string_has_outer_whitespace(s)) return Failure<ParseError>{ParseError::InvalidFormat};
 
     errno = 0;
     char* end = nullptr;
     const float value = std::strtof(s.c_str(), &end);
     if (end == s.c_str() || (end != nullptr && *end != 0)) {
-        return Result<float, ParseError>::failure(ParseError::InvalidFormat);
+        return Failure<ParseError>{ParseError::InvalidFormat};
     }
     if (errno == ERANGE) {
-        return Result<float, ParseError>::failure(value == 0.0f ? ParseError::Underflow : ParseError::Overflow);
+        return Failure<ParseError>{value == 0.0f ? ParseError::Underflow : ParseError::Overflow};
     }
-    return Result<float, ParseError>::success(value);
+    return Success<float>{value};
 }
 
 inline Result<double, ParseError> parse_double(const std::string& s) {
-    if (s.empty()) return Result<double, ParseError>::failure(ParseError::EmptyInput);
-    if (string_has_outer_whitespace(s)) return Result<double, ParseError>::failure(ParseError::InvalidFormat);
+    if (s.empty()) return Failure<ParseError>{ParseError::EmptyInput};
+    if (string_has_outer_whitespace(s)) return Failure<ParseError>{ParseError::InvalidFormat};
 
     errno = 0;
     char* end = nullptr;
     const double value = std::strtod(s.c_str(), &end);
     if (end == s.c_str() || (end != nullptr && *end != 0)) {
-        return Result<double, ParseError>::failure(ParseError::InvalidFormat);
+        return Failure<ParseError>{ParseError::InvalidFormat};
     }
     if (errno == ERANGE) {
-        return Result<double, ParseError>::failure(value == 0.0 ? ParseError::Underflow : ParseError::Overflow);
+        return Failure<ParseError>{value == 0.0 ? ParseError::Underflow : ParseError::Overflow};
     }
-    return Result<double, ParseError>::success(value);
+    return Success<double>{value};
 }
 
 // ============================================================================
@@ -1503,14 +1491,14 @@ void array_require_min_size(const std::shared_ptr<std::vector<T>>& arr, int32_t 
 template <typename T>
 Result<T, std::string> array_pop(const std::shared_ptr<std::vector<T>>& arr) {
     if (!arr) {
-        return Result<T, std::string>::failure("Attempted to pop from null array");
+        return Failure<std::string>{"Attempted to pop from null array"};
     }
     if (arr->empty()) {
-        return Result<T, std::string>::failure("Attempted to pop from empty array");
+        return Failure<std::string>{"Attempted to pop from empty array"};
     }
     T value = arr->back();
     arr->pop_back();
-    return Result<T, std::string>::success(std::move(value));
+    return Success<T>{std::move(value)};
 }
 
 template <typename T>
@@ -1640,8 +1628,8 @@ doof::Result<V, std::string> map_get(const std::shared_ptr<ordered_map<K, V>>& m
     }
     m->validate_invariants("map_get");
     auto it = m->find(key);
-    if (it != m->end()) return doof::Result<V, std::string>::success(it->second);
-    return doof::Result<V, std::string>::failure("Map key not found");
+    if (it != m->end()) return doof::Success<V>{it->second};
+    return doof::Failure<std::string>{"Map key not found"};
 }
 
 template <typename K, typename V>
@@ -1836,13 +1824,13 @@ public:
 
     doof::Result<T, std::string> get() const {
         try {
-            return doof::Result<T, std::string>::success(future_.get());
+            return doof::Success<T>{future_.get()};
         } catch (const doof::Panic&) {
             throw;
         } catch (const std::exception& e) {
-            return doof::Result<T, std::string>::failure(std::string(e.what()));
+            return doof::Failure<std::string>{std::string(e.what())};
         } catch (...) {
-            return doof::Result<T, std::string>::failure(std::string("unknown error"));
+            return doof::Failure<std::string>{std::string("unknown error")};
         }
     }
 };
@@ -1858,13 +1846,13 @@ public:
     doof::Result<void, std::string> get() const {
         try {
             future_.get();
-            return doof::Result<void, std::string>::success();
+            return doof::Success<void>{};
         } catch (const doof::Panic&) {
             throw;
         } catch (const std::exception& e) {
-            return doof::Result<void, std::string>::failure(std::string(e.what()));
+            return doof::Failure<std::string>{std::string(e.what())};
         } catch (...) {
-            return doof::Result<void, std::string>::failure(std::string("unknown error"));
+            return doof::Failure<std::string>{std::string("unknown error")};
         }
     }
 };
@@ -2089,7 +2077,7 @@ struct MethodInvoker {
 
     result_type operator()(const std::shared_ptr<T>& instance, const doof::JsonValue& params) const {
         if (instance == nullptr) {
-            return result_type::failure(doof::json_error(400, std::string("Cannot invoke method on null instance")));
+            return doof::Failure<doof::JsonValue>{doof::json_error(400, std::string("Cannot invoke method on null instance"))};
         }
         return call(*instance, params);
     }
@@ -2125,7 +2113,7 @@ struct ClassMetadata {
                 }
             }
         }
-        return doof::Result<doof::JsonValue, doof::JsonValue>::failure(doof::json_error(400, std::string("Unknown method: ") + methodName));
+        return doof::Failure<doof::JsonValue>{doof::json_error(400, std::string("Unknown method: ") + methodName)};
     }
 
     doof::Result<doof::JsonValue, doof::JsonValue> invoke(
@@ -2134,7 +2122,7 @@ struct ClassMetadata {
         const doof::JsonValue& params
     ) const {
         if (instance == nullptr) {
-            return doof::Result<doof::JsonValue, doof::JsonValue>::failure(doof::json_error(400, std::string("Cannot invoke method on null instance")));
+            return doof::Failure<doof::JsonValue>{doof::json_error(400, std::string("Cannot invoke method on null instance"))};
         }
         return invoke(*instance, methodName, params);
     }

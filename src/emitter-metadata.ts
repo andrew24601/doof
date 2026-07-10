@@ -13,7 +13,7 @@
 import type { ClassDeclaration } from "./ast.js";
 import type { AnalysisResult } from "./analyzer.js";
 import type { Statement } from "./ast.js";
-import { isJsonValueType, type ResolvedType } from "./checker-types.js";
+import { getResultShape, isJsonValueType, type ResolvedType } from "./checker-types.js";
 import { emitDefaultExpression } from "./emitter-defaults.js";
 import { indent, emitIdentifierSafe } from "./emitter-expr.js";
 import { emitType } from "./emitter-types.js";
@@ -30,11 +30,11 @@ import { buildClassMetadata } from "./emitter-schema.js";
 const METADATA_RESULT_TYPE = "doof::Result<doof::JsonValue, doof::JsonValue>";
 
 function emitMetadataFailure(code: 400 | 500, messageExpr: string): string {
-  return `${METADATA_RESULT_TYPE}::failure(doof::json_error(${code}, ${messageExpr}))`;
+  return `doof::Failure<doof::JsonValue>{doof::json_error(${code}, ${messageExpr})}`;
 }
 
 function emitMetadataSuccess(valueExpr: string): string {
-  return `${METADATA_RESULT_TYPE}::success(${valueExpr})`;
+  return `doof::Success<doof::JsonValue>{${valueExpr}}`;
 }
 
 // ============================================================================
@@ -100,7 +100,7 @@ function unwrapExport(stmt: Statement): Statement {
 }
 
 function metadataSuccessType(type: ResolvedType): ResolvedType {
-  return type.kind === "result" ? type.successType : type;
+  return getResultShape(type)?.successType ?? type;
 }
 
 // ============================================================================
@@ -212,21 +212,21 @@ export function emitMetadataDefinition(
     if (!retType || retType.kind === "void") {
       ctx.sourceLines.push(`${ind}                _instance.${safeName}(${args});`);
       ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::json_value(nullptr)")};`);
-    } else if (retType.kind === "result") {
+    } else if (getResultShape(retType)) {
+      const result = getResultShape(retType)!;
       ctx.sourceLines.push(`${ind}                auto _result = _instance.${safeName}(${args});`);
-      ctx.sourceLines.push(`${ind}                if (_result.isFailure()) {`);
-      if (isJsonValueType(retType.errorType)) {
-        ctx.sourceLines.push(`${ind}                    return ${METADATA_RESULT_TYPE}::failure(_result.error());`);
+      ctx.sourceLines.push(`${ind}                if (doof::is_failure(_result)) {`);
+      if (isJsonValueType(result.errorType)) {
+        ctx.sourceLines.push(`${ind}                    return doof::Failure<doof::JsonValue>{doof::failure_error(_result)};`);
       } else {
         ctx.sourceLines.push(`${ind}                    return ${emitMetadataFailure(500, '"An error occurred"')};`);
       }
       ctx.sourceLines.push(`${ind}                }`);
-      if (retType.successType.kind === "void") {
-        ctx.sourceLines.push(`${ind}                _result.value();`);
+      if (result.successType.kind === "void") {
         ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess("doof::json_value(nullptr)")};`);
       } else {
-        ctx.sourceLines.push(`${ind}                auto _success = _result.value();`);
-        const serialized = emitSerializeExpr("_success", retType.successType);
+        ctx.sourceLines.push(`${ind}                auto _success = doof::success_value(_result);`);
+        const serialized = emitSerializeExpr("_success", result.successType);
         ctx.sourceLines.push(`${ind}                return ${emitMetadataSuccess(serialized)};`);
       }
     } else {

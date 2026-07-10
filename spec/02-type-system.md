@@ -534,6 +534,11 @@ class Failure {
 type Result = Success | Failure
 ```
 
+The language's intrinsic error arms use the same ordinary union model:
+`Result<T, E>` is the canonical alias for `Success<T> | Failure<E>`. Intrinsic
+arms expose `.value` or `.error` only after ordinary union narrowing. They remain
+non-JSON-serializable despite using the union representation.
+
 ---
 
 ## Enum Types

@@ -12,7 +12,7 @@ import type {
   QualifiedMemberExpression,
   IndexExpression,
 } from "./ast.js";
-import { isJsonValueType, type ResolvedType } from "./checker-types.js";
+import { getResultShape, isJsonValueType, type ResolvedType } from "./checker-types.js";
 import { emitClassCppName, emitEnumHelperName, emitEnumVariantAccess, emitNullForType, emitType, isPointerType, isMonostateNullable, isOptionalNullable, isVariantUnionType } from "./emitter-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitExpression } from "./emitter-expr.js";
@@ -278,26 +278,29 @@ export function emitUnaryExpression(expr: UnaryExpression, ctx: EmitContext): st
     case "try!": {
       const tmp = `_try_${ctx.tempCounter++}`;
       const operandType = expr.operand.resolvedType;
-      if (operandType && operandType.kind === "result") {
-        if (operandType.successType.kind === "void") {
-          return `[&]() -> void { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; ${tmp}.value(); }()`;
+      const result = operandType ? getResultShape(operandType) : null;
+      if (result) {
+        const failureMessage = result.errorType.kind === "void" ? '"try! failed"' : `"try! failed: " + doof::to_string(doof::failure_error(${tmp}))`;
+        if (result.successType.kind === "void") {
+          return `[&]() -> void { auto ${tmp} = ${operand}; if (doof::is_failure(${tmp})) ${emitPanicAt(failureMessage, expr.span, ctx)}; }()`;
         }
-        const valType = emitType(operandType.successType, ctx.module.path);
-        return `[&]() -> ${valType} { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed: " + doof::to_string(${tmp}.error())`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
+        const valType = emitType(result.successType, ctx.module.path);
+        return `[&]() -> ${valType} { auto ${tmp} = ${operand}; if (doof::is_failure(${tmp})) ${emitPanicAt(failureMessage, expr.span, ctx)}; return std::move(doof::success_value(${tmp})); }()`;
       }
-      return `[&]() { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) ${emitPanicAt(`"try! failed"`, expr.span, ctx)}; return std::move(${tmp}.value()); }()`;
+      throw new Error("try! operand is missing its canonical Result type during emission");
     }
     case "try?": {
       const tmp = `_try_${ctx.tempCounter++}`;
       const operandType = expr.operand.resolvedType;
-      if (operandType && operandType.kind === "result") {
-        if (operandType.successType.kind === "void") {
+      const result = operandType ? getResultShape(operandType) : null;
+      if (result) {
+        if (result.successType.kind === "void") {
           throw new Error("try? on Result<void, E> should be rejected by the checker");
         }
-        const valType = emitType(operandType.successType, ctx.module.path);
-        return `[&]() -> std::optional<${valType}> { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) return std::nullopt; return std::move(${tmp}.value()); }()`;
+        const valType = emitType(result.successType, ctx.module.path);
+        return `[&]() -> std::optional<${valType}> { auto ${tmp} = ${operand}; if (doof::is_failure(${tmp})) return std::nullopt; return std::move(doof::success_value(${tmp})); }()`;
       }
-      return `[&]() -> std::optional<decltype(${operand}.value())> { auto ${tmp} = ${operand}; if (${tmp}.isFailure()) return std::nullopt; return std::move(${tmp}.value()); }()`;
+      throw new Error("try? operand is missing its canonical Result type during emission");
     }
     default:
       throw new Error(`Unhandled unary operator in emitter: ${expr.operator}`);
@@ -493,28 +496,29 @@ export function emitMemberExpression(expr: MemberExpression, ctx: EmitContext): 
 
   // Result<T,E>: .value → .value(), .error → .error()
   // (.isSuccess/.isFailure are methods and handled as call expressions)
-  if (objType && objType.kind === "result") {
+  const result = objType ? getResultShape(objType) : null;
+  if (result) {
     const object = emitExpression(expr.object, ctx);
-    if (expr.property === "value" && objType.successType.kind === "void") {
+    if (expr.property === "value" && result.successType.kind === "void") {
       throw new Error("Result<void, E>.value should be rejected by the checker");
     }
-    if (expr.property === "value") return `${object}.value()`;
-    if (expr.property === "error") return `${object}.error()`;
+    if (expr.property === "value") return `doof::success_value(${object})`;
+    if (expr.property === "error") return `doof::failure_error(${object})`;
   }
 
   // Success wrapper: .value → .value() method call
-  if (objType && objType.kind === "success-wrapper" && expr.property === "value") {
+  if (objType && objType.kind === "success" && expr.property === "value") {
     if (objType.valueType.kind === "void") {
       throw new Error("Success<void>.value should be rejected by the checker");
     }
     const object = emitExpression(expr.object, ctx);
-    return `${object}.value()`;
+    return `${object}.value`;
   }
 
   // Failure wrapper: .error → .error() method call
-  if (objType && objType.kind === "failure-wrapper" && expr.property === "error") {
+  if (objType && objType.kind === "failure" && expr.property === "error") {
     const object = emitExpression(expr.object, ctx);
-    return `${object}.error()`;
+    return `${object}.error`;
   }
 
   // String .length → .length()

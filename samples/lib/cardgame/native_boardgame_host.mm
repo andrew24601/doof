@@ -159,7 +159,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(SDL_GetError());
+        return doof::Failure<std::string>{SDL_GetError()};
     }
 
     auto impl = std::make_unique<Impl>();
@@ -184,7 +184,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
     if (impl->window == nullptr) {
         const std::string error = SDL_GetError();
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->metalView = SDL_Metal_CreateView(impl->window);
@@ -192,7 +192,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
         const std::string error = SDL_GetError();
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     impl->layer = (__bridge CAMetalLayer*)SDL_Metal_GetLayer(impl->metalView);
@@ -201,23 +201,23 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
         SDL_Metal_DestroyView(impl->metalView);
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(error);
+        return doof::Failure<std::string>{error};
     }
 
     if (!impl->renderer.init(impl->layer)) {
         SDL_Metal_DestroyView(impl->metalView);
         SDL_DestroyWindow(impl->window);
         SDL_Quit();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure("Metal renderer initialization failed");
+        return doof::Failure<std::string>{"Metal renderer initialization failed"};
     }
 
     impl->textures = std::make_unique<TextureRegistry>(impl->renderer.device(), impl->renderer.commandQueue());
     impl->assetBasePath = resolveAssetBasePath();
     impl->lastTicks = SDL_GetTicks();
 
-    return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::success(
+    return doof::Success<std::shared_ptr<NativeBoardgameHost>>{
         std::shared_ptr<NativeBoardgameHost>(new NativeBoardgameHost(std::move(impl)))
-    );
+    };
 }
 
 bool NativeBoardgameHost::isOpen() const {

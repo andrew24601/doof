@@ -349,7 +349,7 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
 
     const std::string installError = installIOSSurface();
     if (!installError.empty()) {
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure(installError);
+        return doof::Failure<std::string>{installError};
     }
 
     auto impl = std::make_unique<Impl>();
@@ -363,20 +363,20 @@ doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string> NativeBoardgameH
 
     if (impl->layer == nil) {
         teardownIOSSurface();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure("UIKit Metal surface initialization failed");
+        return doof::Failure<std::string>{"UIKit Metal surface initialization failed"};
     }
 
     if (!impl->renderer.init(impl->layer)) {
         teardownIOSSurface();
-        return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::failure("Metal renderer initialization failed");
+        return doof::Failure<std::string>{"Metal renderer initialization failed"};
     }
 
     impl->textures = std::make_unique<TextureRegistry>(impl->renderer.device(), impl->renderer.commandQueue());
     impl->lastPollTime = Clock::now();
 
-    return doof::Result<std::shared_ptr<NativeBoardgameHost>, std::string>::success(
+    return doof::Success<std::shared_ptr<NativeBoardgameHost>>{
         std::shared_ptr<NativeBoardgameHost>(new NativeBoardgameHost(std::move(impl)))
-    );
+    };
 }
 
 bool NativeBoardgameHost::isOpen() const {

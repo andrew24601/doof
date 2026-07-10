@@ -17,7 +17,7 @@ import type {
   ElseNarrowStatement,
   ResultElseStatement,
 } from "./ast.js";
-import type { ResolvedType } from "./checker-types.js";
+import { getResultShape, type ResolvedType, type ResultShape } from "./checker-types.js";
 import { emitClassCppName, emitType, isPointerType, isVariantUnionType, isOptionalNullable, isMonostateNullable } from "./emitter-types.js";
 import { substituteEmitType } from "./emitter-monomorphize.js";
 import { emitExpression, indent, emitIdentifierSafe, emitBlockBody } from "./emitter-expr.js";
@@ -124,9 +124,9 @@ export function emitStatement(stmt: Statement, ctx: EmitContext): void {
         // If enclosing function returns Result<T,E> and value is not already Result,
         // wrap in Result::success()
         const valType = substituteEmitType(stmt.value.resolvedType, ctx);
-        if (fnRet && fnRet.kind === "result" && valType && valType.kind !== "result") {
-          const resultCppType = emitType(fnRet, ctx.module.path);
-          ctx.sourceLines.push(`${ind}return ${resultCppType}::success(${val});`);
+        const fnResult = fnRet ? getResultShape(fnRet) : null;
+        if (fnResult && valType && !getResultShape(valType) && valType.kind !== "success" && valType.kind !== "failure") {
+          ctx.sourceLines.push(`${ind}return ${emitType(fnResult.successArm, ctx.module.path)}{${val}};`);
         } else {
           ctx.sourceLines.push(`${ind}return ${val};`);
         }
@@ -316,8 +316,8 @@ function findLoopControl(
  *   CppType _catch_N = std::nullopt;          // or std::monostate{}
  *   do {
  *       auto _try_M = rhs;
- *       if (_try_M.isFailure()) { _catch_N = std::move(_try_M.error()); break; }
- *       const auto x = std::move(_try_M.value());
+ *       if (doof::is_failure(_try_M)) { _catch_N = std::move(doof::failure_error(_try_M)); break; }
+ *       const auto x = std::move(doof::success_value(_try_M));
  *       ...
  *   } while (false);
  *   const auto varName = _catch_N;            // optional alias
@@ -543,8 +543,8 @@ function assertDeclarationTypeResolved(
  *
  * Generated pattern:
  *   auto _try_N = <rhs>;
- *   if (_try_N.isFailure()) return doof::Result<OutT, OutE>::failure(std::move(_try_N.error()));
- *   const auto x = std::move(_try_N.value());
+ *   if (doof::is_failure(_try_N)) return doof::Failure<OutE>{std::move(doof::failure_error(_try_N))};
+ *   const auto x = std::move(doof::success_value(_try_N));
  */
 function emitTryStatement(stmt: TryStatement, ctx: EmitContext): void {
   const ind = indent(ctx);
@@ -559,34 +559,41 @@ function emitTryStatement(stmt: TryStatement, ctx: EmitContext): void {
   }
 
   const rhs = emitExpression(rhsExpr, ctx);
+  const rhsResult = rhsExpr.resolvedType ? getResultShape(rhsExpr.resolvedType) : null;
 
   // Emit the temp assignment
   ctx.sourceLines.push(`${ind}auto ${tmp} = ${rhs};`);
 
   // Inside a catch expression: break instead of return, assign error to catch var
   if (ctx.catchVarName) {
-    ctx.sourceLines.push(`${ind}if (${tmp}.isFailure()) { ${ctx.catchVarName} = std::move(${tmp}.error()); break; }`);
+    if (rhsResult?.errorType.kind === "void") {
+      ctx.sourceLines.push(`${ind}if (doof::is_failure(${tmp})) { break; }`);
+    } else {
+      ctx.sourceLines.push(`${ind}if (doof::is_failure(${tmp})) { ${ctx.catchVarName} = std::move(doof::failure_error(${tmp})); break; }`);
+    }
   } else {
     // Emit the failure check with early return
     // Use the enclosing function's return type for the Result wrapping
     const fnRet = ctx.currentFunctionReturnType;
-    if (fnRet && fnRet.kind === "result") {
-      const retType = emitType(fnRet, ctx.module.path);
-      ctx.sourceLines.push(`${ind}if (${tmp}.isFailure()) return ${retType}::failure(std::move(${tmp}.error()));`);
+    const fnResult = fnRet ? getResultShape(fnRet) : null;
+    if (fnResult) {
+      const failureValue = fnResult.errorType.kind === "void" ? "" : `std::move(doof::failure_error(${tmp}))`;
+      ctx.sourceLines.push(`${ind}if (doof::is_failure(${tmp})) return ${emitType(fnResult.failureArm, ctx.module.path)}{${failureValue}};`);
     } else {
       // Fallback: use the RHS result type
       const rhsType = rhsExpr.resolvedType;
-      if (rhsType && rhsType.kind === "result") {
-        const retType = emitType(rhsType);
-        ctx.sourceLines.push(`${ind}if (${tmp}.isFailure()) return ${retType}::failure(std::move(${tmp}.error()));`);
+      const fallbackResult = rhsType ? getResultShape(rhsType) : null;
+      if (fallbackResult) {
+        const failureValue = fallbackResult.errorType.kind === "void" ? "" : `std::move(doof::failure_error(${tmp}))`;
+        ctx.sourceLines.push(`${ind}if (doof::is_failure(${tmp})) return ${emitType(fallbackResult.failureArm)}{${failureValue}};`);
       } else {
-        ctx.sourceLines.push(`${ind}if (${tmp}.isFailure()) return std::move(${tmp}.error());`);
+        ctx.sourceLines.push(`${ind}if (doof::is_failure(${tmp})) return std::move(doof::failure_error(${tmp}));`);
       }
     }
   }
 
   const rhsType = rhsExpr.resolvedType;
-  const isVoidSuccessResult = rhsType?.kind === "result" && rhsType.successType.kind === "void";
+  const isVoidSuccessResult = !!rhsType && getResultShape(rhsType)?.successType.kind === "void";
   const isBareExpressionTry = binding.kind === "expression-statement"
     && binding.expression.kind !== "assignment-expression";
   if (isVoidSuccessResult && !isBareExpressionTry) {
@@ -632,7 +639,7 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
       const name = emitIdentifierSafe(binding.name);
       const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
       const qualifier = cppType ? `const ${cppType}` : "const auto";
-      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
+      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(doof::success_value(${tmp}));`);
       break;
     }
     case "immutable-binding": {
@@ -642,14 +649,14 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
       const qualifier = resolvedType?.kind === "struct"
         ? (cppType ?? emitType(resolvedType, ctx.module.path))
         : cppType ? `const ${cppType}` : "const auto";
-      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
+      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(doof::success_value(${tmp}));`);
       break;
     }
     case "let-declaration": {
       const name = emitIdentifierSafe(binding.name);
       const cppType = binding.type && binding.resolvedType ? emitType(binding.resolvedType, ctx.module.path) : null;
       const qualifier = cppType ?? "auto";
-      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(${tmp}.value());`);
+      ctx.sourceLines.push(`${ind}${qualifier} ${name} = std::move(doof::success_value(${tmp}));`);
       break;
     }
     case "expression-statement": {
@@ -657,51 +664,51 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
       const expr = binding.expression;
       if (expr.kind === "assignment-expression") {
         const target = emitExpression(expr.target, ctx);
-        ctx.sourceLines.push(`${ind}${target} = std::move(${tmp}.value());`);
+        ctx.sourceLines.push(`${ind}${target} = std::move(doof::success_value(${tmp}));`);
       }
       break;
     }
     case "array-destructuring-assignment": {
-      emitArrayDestructuringAssignment(binding.bindings, `${tmp}.value()`, binding.span, ctx);
+      emitArrayDestructuringAssignment(binding.bindings, `doof::success_value(${tmp})`, binding.span, ctx);
       break;
     }
     case "array-destructuring": {
       const arrayTmp = `_arr${ctx.tempCounter++}`;
-      ctx.sourceLines.push(`${ind}const auto& ${arrayTmp} = ${tmp}.value();`);
+      ctx.sourceLines.push(`${ind}const auto& ${arrayTmp} = doof::success_value(${tmp});`);
       emitArrayDestructuring(binding.bindingKind, binding.bindings, arrayTmp, binding.span, ctx, false);
       break;
     }
     case "positional-destructuring": {
       if (binding.bindings.includes("_")) {
-        const sourceType = binding.value.resolvedType?.kind === "result"
-          ? binding.value.resolvedType.successType
-          : binding.value.resolvedType;
+        const sourceType = binding.value.resolvedType
+          ? getResultShape(binding.value.resolvedType)?.successType ?? binding.value.resolvedType
+          : undefined;
         emitPositionalDestructuringWithDiscards(
           binding.bindingKind,
           binding.bindings,
-          `${tmp}.value()`,
+          `doof::success_value(${tmp})`,
           sourceType,
           ctx,
         );
       } else {
         const qualifier = binding.bindingKind === "let" ? "auto" : "const auto";
         const bindings = binding.bindings.join(", ");
-        ctx.sourceLines.push(`${ind}${qualifier} [${bindings}] = std::move(${tmp}.value());`);
+        ctx.sourceLines.push(`${ind}${qualifier} [${bindings}] = std::move(doof::success_value(${tmp}));`);
       }
       break;
     }
     case "positional-destructuring-assignment": {
-      const sourceType = binding.value.resolvedType?.kind === "result"
-        ? binding.value.resolvedType.successType
-        : binding.value.resolvedType;
-      emitPositionalDestructuringAssignment(binding.bindings, `${tmp}.value()`, sourceType, ctx);
+      const sourceType = binding.value.resolvedType
+        ? getResultShape(binding.value.resolvedType)?.successType ?? binding.value.resolvedType
+        : undefined;
+      emitPositionalDestructuringAssignment(binding.bindings, `doof::success_value(${tmp})`, sourceType, ctx);
       break;
     }
     case "named-destructuring": {
       const qualifier = binding.bindingKind === "let" ? "auto" : "const auto";
       const valType = binding.value.resolvedType;
       const accessor = valType && isPointerType(valType) ? "->" : ".";
-      const inner = `${tmp}.value()`;
+      const inner = `doof::success_value(${tmp})`;
       for (const b of binding.bindings) {
         const localName = emitIdentifierSafe(b.alias ?? b.name);
         const fieldName = emitIdentifierSafe(b.name);
@@ -710,10 +717,10 @@ function emitTryBinding(binding: TryBinding, tmp: string, ctx: EmitContext): voi
       break;
     }
     case "named-destructuring-assignment": {
-      const sourceType = binding.value.resolvedType?.kind === "result"
-        ? binding.value.resolvedType.successType
-        : binding.value.resolvedType;
-      emitNamedDestructuringAssignment(binding.bindings, `${tmp}.value()`, sourceType, ctx);
+      const sourceType = binding.value.resolvedType
+        ? getResultShape(binding.value.resolvedType)?.successType ?? binding.value.resolvedType
+        : undefined;
+      emitNamedDestructuringAssignment(binding.bindings, `doof::success_value(${tmp})`, sourceType, ctx);
       break;
     }
   }
@@ -935,9 +942,7 @@ function emitCaseStatement(
   ctx.sourceLines.push(`${ind}{`);
   innerCtx.sourceLines.push(`${innerInd}auto ${tmp} = ${subject};`);
 
-  if (subjectType?.kind === "result") {
-    emitResultCaseStatementBranches(stmt.arms, tmp, innerCtx);
-  } else if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
+  if (subjectType && (subjectType.kind === "union" || subjectType.kind === "interface")) {
     emitVariantCaseStatementBranches(stmt.arms, tmp, subjectType, innerCtx);
   } else {
     emitValueCaseStatementBranches(stmt.arms, tmp, innerCtx);
@@ -984,38 +989,6 @@ function emitValueCaseStatementBranches(
   }
 }
 
-function emitResultCaseStatementBranches(
-  arms: readonly import("./ast.js").CaseArm[],
-  tmp: string,
-  ctx: EmitContext,
-): void {
-  let hasPreviousBranch = false;
-
-  for (const arm of arms) {
-    for (const pattern of arm.patterns) {
-      let condition: string | null = null;
-      let bindingPrelude: string | null = null;
-
-      if (pattern.kind === "type-pattern") {
-        const typeName = pattern.type.kind === "named-type" ? pattern.type.name : null;
-        if (typeName === "Success") {
-          condition = `${tmp}.isSuccess()`;
-        } else if (typeName === "Failure") {
-          condition = `${tmp}.isFailure()`;
-        } else {
-          continue;
-        }
-        if (pattern.name !== "_") {
-          bindingPrelude = `auto& ${emitIdentifierSafe(pattern.name)} = ${tmp};`;
-        }
-      }
-
-      hasPreviousBranch = emitCaseStatementBranch(condition, bindingPrelude, arm.body, ctx, hasPreviousBranch);
-      if (pattern.kind === "wildcard-pattern") return;
-    }
-  }
-}
-
 function emitVariantCaseStatementBranches(
   arms: readonly import("./ast.js").CaseArm[],
   tmp: string,
@@ -1030,7 +1003,13 @@ function emitVariantCaseStatementBranches(
       let bindingPrelude: string | null = null;
 
       if (pattern.kind === "type-pattern") {
-        const resolvedType = resolveTypeAnnotation(pattern.type, ctx);
+        const result = getResultShape(subjectType);
+        const typeName = pattern.type.kind === "named-type" ? pattern.type.name : null;
+        const resolvedType = result && typeName === "Success"
+          ? result.successArm
+          : result && typeName === "Failure"
+            ? result.failureArm
+            : resolveTypeAnnotation(pattern.type, ctx);
         const cppType = emitType(resolvedType, ctx.module.path);
         condition = `std::holds_alternative<${cppType}>(${tmp})`;
         if (pattern.name !== "_") {
@@ -1323,7 +1302,7 @@ function emitElseNarrowStatement(stmt: ElseNarrowStatement, ctx: EmitContext): v
 
   if (stmt.failureName) {
     if (stmt.failureName !== "_") {
-      ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = ${tmp}.error();`);
+      ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = doof::failure_error(${tmp});`);
     }
   } else if (stmt.name !== "_") {
     // Bind name with full type inside else block
@@ -1354,7 +1333,7 @@ function emitResultElseStatement(stmt: ResultElseStatement, ctx: EmitContext): v
   const condition = emitElseNarrowCondition(tmp, subjectType, ctx);
   ctx.sourceLines.push(`${ind}if (${condition}) {`);
   if (stmt.failureName && stmt.failureName !== "_") {
-    ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = ${tmp}.error();`);
+    ctx.sourceLines.push(`${innerInd}auto& ${emitIdentifierSafe(stmt.failureName)} = doof::failure_error(${tmp});`);
   }
   emitBlockStatements(stmt.elseBlock, { ...ctx, indent: ctx.indent + 1 });
   ctx.sourceLines.push(`${ind}}`);
@@ -1379,15 +1358,15 @@ function emitElseNarrowCondition(
     // Result | null — check null OR failure
     if (isOptionalNullable(subjectType) || isPointerType(subjectType)) {
       // Not possible for Result|null (would be variant), but handle gracefully
-      return `!${tmp}.has_value() || ${tmp}.value().isFailure()`;
+      return `!${tmp}.has_value() || doof::is_failure(${tmp}.value())`;
     }
     // variant with monostate: Result | null → std::variant<std::monostate, Result<S,E>>
-    return `std::holds_alternative<std::monostate>(${tmp}) || std::get<${emitType(resultType, _ctx.module.path)}>(${tmp}).isFailure()`;
+    return `std::holds_alternative<std::monostate>(${tmp}) || doof::is_failure(std::get<${emitType(resultType.type, _ctx.module.path)}>(${tmp}))`;
   }
 
   if (resultType) {
     // Pure Result (may have nullable success type — handled at extraction)
-    return `${tmp}.isFailure()`;
+    return `doof::is_failure(${tmp})`;
   }
 
   // Nullable (no Result)
@@ -1420,17 +1399,17 @@ function emitElseNarrowExtraction(
     // Result | null → extract from variant then unwrap Result value
     if (resultType.successType.kind === "class") {
       // Success type is a class (shared_ptr) — move it out
-      return `auto ${name} = std::move(std::get<${emitType(resultType, currentModulePath)}>(${tmp}).value());`;
+      return `auto ${name} = std::move(doof::success_value(std::get<${emitType(resultType.type, currentModulePath)}>(${tmp})));`;
     }
-    return `auto ${name} = std::get<${emitType(resultType, currentModulePath)}>(${tmp}).value();`;
+    return `auto ${name} = doof::success_value(std::get<${emitType(resultType.type, currentModulePath)}>(${tmp}));`;
   }
 
   if (resultType) {
     // Pure Result — unwrap value
     if (resultType.successType.kind === "class") {
-      return `auto ${name} = std::move(${tmp}.value());`;
+      return `auto ${name} = std::move(doof::success_value(${tmp}));`;
     }
-    return `auto ${name} = ${tmp}.value();`;
+    return `auto ${name} = doof::success_value(${tmp});`;
   }
 
   // Nullable — unwrap
@@ -1452,11 +1431,14 @@ function typeHasNull(type: import("./checker-types.js").ResolvedType): boolean {
 }
 
 /** Find a Result type within a type (directly or as a union member). */
-function findResultType(type: import("./checker-types.js").ResolvedType): import("./checker-types.js").ResultResolvedType | null {
-  if (type.kind === "result") return type;
+function findResultType(type: import("./checker-types.js").ResolvedType): ResultShape | null {
+  const direct = getResultShape(type);
+  if (direct) return direct;
   if (type.kind === "union") {
-    const r = type.types.find((t) => t.kind === "result");
-    if (r && r.kind === "result") return r;
+    for (const member of type.types) {
+      const result = getResultShape(member);
+      if (result) return result;
+    }
   }
   return null;
 }

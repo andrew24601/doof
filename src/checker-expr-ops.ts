@@ -1,6 +1,7 @@
 import type { SourceSpan } from "./ast.js";
 import {
   BOOL_TYPE,
+  getResultShape,
   INT_TYPE,
   RANGE_TYPE,
   STRING_TYPE,
@@ -170,7 +171,8 @@ export function inferUnaryType(
   if (op === "!") return BOOL_TYPE;
   if (op === "try!" || op === "try?") {
     if (operand.kind === "unknown") return UNKNOWN_TYPE;
-    if (operand.kind !== "result") {
+    const result = getResultShape(operand);
+    if (!result) {
       info.diagnostics.push({
         severity: "error",
         message: `"${op}" can only be applied to a Result type, but got "${typeToString(operand)}"`,
@@ -179,8 +181,8 @@ export function inferUnaryType(
       });
       return UNKNOWN_TYPE;
     }
-    if (op === "try!") return operand.successType;
-    if (operand.successType.kind === "void") {
+    if (op === "try!") return result.successType;
+    if (result.successType.kind === "void") {
       info.diagnostics.push({
         severity: "error",
         message: '"try?" is not supported on Result<void, E> because there is no success value to convert to null',
@@ -189,7 +191,7 @@ export function inferUnaryType(
       });
       return UNKNOWN_TYPE;
     }
-    return { kind: "union", types: [operand.successType, NULL_TYPE] };
+    return { kind: "union", types: [result.successType, NULL_TYPE] };
   }
   return operand;
 }

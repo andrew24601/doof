@@ -60,6 +60,8 @@ import {
   UNKNOWN_TYPE,
   isPrimitiveName,
   isAssignableTo,
+  getResultShape,
+  makeResultType,
   substituteTypeParams,
   typeToString,
 } from "./checker-types.js";
@@ -959,9 +961,20 @@ export class TypeChecker {
           if (ann.typeArgs.length === 2) {
             const successType = this.resolveTypeAnnotation(ann.typeArgs[0], table);
             const errorType = this.resolveTypeAnnotation(ann.typeArgs[1], table);
-            return { kind: "result", successType, errorType };
+            return makeResultType(successType, errorType);
           }
           return UNKNOWN_TYPE;
+        }
+        if (name === "Success" || name === "Failure") {
+          const shadowingSymbol = ann.resolvedSymbol ?? table.symbols.get(name);
+          if (shadowingSymbol) {
+            return this.symbolToType(shadowingSymbol, table, ann.typeArgs);
+          }
+          if (ann.typeArgs.length !== 1) return UNKNOWN_TYPE;
+          const payloadType = this.resolveTypeAnnotation(ann.typeArgs[0], table);
+          return name === "Success"
+            ? { kind: "success", valueType: payloadType }
+            : { kind: "failure", errorType: payloadType };
         }
 
         if (name === "Stream") {
@@ -1124,7 +1137,7 @@ export class TypeChecker {
       {
         name: "catchPanic",
         params: [{ name: "f", type: { kind: "function", params: [], returnType: catchPanicSuccessType } }],
-        returnType: { kind: "result", successType: catchPanicSuccessType, errorType: STRING_TYPE },
+        returnType: makeResultType(catchPanicSuccessType, STRING_TYPE),
         typeParams: ["T"],
       },
       // to_string(value: T): string — convert any value to a string
@@ -1390,9 +1403,24 @@ export class TypeChecker {
       this.unifyType(paramType.returnType, argType.returnType, typeParams, result);
       return;
     }
-    if (paramType.kind === "result" && argType.kind === "result") {
-      this.unifyType(paramType.successType, argType.successType, typeParams, result);
+    if (paramType.kind === "union" && (argType.kind === "success" || argType.kind === "failure")) {
+      const matchingArm = paramType.types.find((member) => member.kind === argType.kind);
+      if (matchingArm) this.unifyType(matchingArm, argType, typeParams, result);
+      return;
+    }
+    if (paramType.kind === "success" && argType.kind === "success") {
+      this.unifyType(paramType.valueType, argType.valueType, typeParams, result);
+      return;
+    }
+    if (paramType.kind === "failure" && argType.kind === "failure") {
       this.unifyType(paramType.errorType, argType.errorType, typeParams, result);
+      return;
+    }
+    const paramResult = getResultShape(paramType);
+    const argResult = getResultShape(argType);
+    if (paramResult && argResult) {
+      this.unifyType(paramResult.successType, argResult.successType, typeParams, result);
+      this.unifyType(paramResult.errorType, argResult.errorType, typeParams, result);
       return;
     }
     if (paramType.kind === "union" && argType.kind === "union") {

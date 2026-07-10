@@ -143,6 +143,10 @@ type ParseResult = Success | Failure
 Direct member access on a multi-member union is allowed only when every non-null
 member has that field or method.
 
+Error results are also ordinary unions: `Result<T, E>` is the canonical spelling
+of `Success<T> | Failure<E>`. The intrinsic arms are valid standalone types, but
+their payload members are intentionally not shared across the union.
+
 ## `JsonValue`
 
 `JsonValue` is an exact recursive JSON carrier.

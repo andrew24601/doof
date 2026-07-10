@@ -9,7 +9,8 @@ import {
   isAssignableTo,
   type Binding,
   type ModuleTypeInfo,
-  type ResultResolvedType,
+  type ResultShape,
+  getResultShape,
   type ResolvedType,
   type Scope,
   typeToString,
@@ -383,7 +384,7 @@ export function checkStatement(
           host.checkBlock(arm.body, armScope, table, info);
         } else {
           const bodyType = host.inferExprType(arm.body, armScope, table, info);
-          if (bodyType.kind === "result") {
+          if (getResultShape(bodyType)) {
             info.diagnostics.push({
               severity: "error",
               message: "Result value must be used — assign it to a variable, unwrap it with try/try!/try?, or use it in an expression",
@@ -398,7 +399,7 @@ export function checkStatement(
 
     case "expression-statement": {
       const exprType = host.inferExprType(stmt.expression, scope, table, info);
-      if (exprType.kind === "result") {
+      if (getResultShape(exprType)) {
         info.diagnostics.push({
           severity: "error",
           message: "Result value must be used — assign it to a variable, unwrap it with try/try!/try?, or use it in an expression",
@@ -521,6 +522,8 @@ export function checkStatement(
             span: stmt.span,
             module: table.path,
           });
+        } else if (directResultType.errorType.kind === "void") {
+          info.diagnostics.push({ severity: "error", message: "Else failure capture is not available for Failure<void>", span: stmt.span, module: table.path });
         } else if (stmt.failureName !== "_") {
           bindImmutable(elseScope, stmt.failureName, directResultType.errorType, stmt.span, table.path);
         }
@@ -559,8 +562,12 @@ export function checkStatement(
       }
 
       const elseScope = host.pushScope(scope, "block");
-      if (stmt.failureName && resultType && stmt.failureName !== "_") {
-        bindImmutable(elseScope, stmt.failureName, resultType.errorType, stmt.span, table.path);
+      if (stmt.failureName && resultType) {
+        if (resultType.errorType.kind === "void") {
+          info.diagnostics.push({ severity: "error", message: "Else failure capture is not available for Failure<void>", span: stmt.span, module: table.path });
+        } else if (stmt.failureName !== "_") {
+          bindImmutable(elseScope, stmt.failureName, resultType.errorType, stmt.span, table.path);
+        }
       }
       host.checkBlock(stmt.elseBlock, elseScope, table, info);
       break;
@@ -621,8 +628,8 @@ function bindImmutable(
   });
 }
 
-function getDirectResultType(type: ResolvedType): ResultResolvedType | null {
-  return type.kind === "result" ? type : null;
+function getDirectResultType(type: ResolvedType): ResultShape | null {
+  return getResultShape(type);
 }
 
 function failureHandlerSatisfiesBindingInvariant(host: CheckerHost, block: Block): boolean {

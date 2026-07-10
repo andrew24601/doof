@@ -3,6 +3,8 @@ import {
   findSharedDiscriminator,
   hasDedicatedConstructor,
   isAssignableTo,
+  getResultShape,
+  makeResultType,
   isJSONSerializable,
   buildMockCallMetadata,
   type Binding,
@@ -364,7 +366,7 @@ function inferClassStaticMemberType(
           { name: "json", type: JSON_VALUE_TYPE },
           { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
         ],
-        returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+        returnType: makeResultType(objectType, STRING_TYPE),
       };
     }
 
@@ -578,7 +580,7 @@ function inferInterfaceStaticMemberType(
         { name: "json", type: JSON_VALUE_TYPE },
         { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
       ],
-      returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+      returnType: makeResultType(objectType, STRING_TYPE),
     };
   }
 
@@ -753,7 +755,7 @@ function inferTypeAliasStaticMemberType(
       { name: "json", type: JSON_VALUE_TYPE },
       { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
     ],
-    returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+    returnType: makeResultType(objectType, STRING_TYPE),
   };
 }
 
@@ -824,7 +826,7 @@ function inferTypeVariableStaticMemberType(
       { name: "json", type: JSON_VALUE_TYPE },
       { name: "lenient", type: BOOL_TYPE, hasDefault: true, defaultValue: null },
     ],
-    returnType: { kind: "result", successType: objectType, errorType: STRING_TYPE },
+    returnType: makeResultType(objectType, STRING_TYPE),
   };
 }
 
@@ -972,7 +974,7 @@ export function inferMemberType(
       : inferInterfaceStaticMemberType(host, objectType, property, table, mode, info, span);
   }
 
-  if (objectType.kind === "union" && mode === "instance") {
+  if (objectType.kind === "union" && mode === "instance" && !getResultShape(objectType)) {
     return inferUnionInstanceMemberType(host, objectType, property, table, info, span);
   }
 
@@ -1004,7 +1006,7 @@ export function inferMemberType(
   if (objectType.kind === "array" && property === "length") return INT_TYPE;
   if (objectType.kind === "array") {
     const elem = objectType.elementType;
-    const resultElem: ResolvedType = { kind: "result", successType: elem, errorType: STRING_TYPE };
+    const resultElem: ResolvedType = makeResultType(elem, STRING_TYPE);
     if (objectType.readonly_ && property === "push") {
       reportMemberDiagnostic(info, table, span, 'Method "push" is not available on readonly array');
       return UNKNOWN_TYPE;
@@ -1095,7 +1097,7 @@ export function inferMemberType(
   if (objectType.kind === "map") {
     const k = objectType.keyType;
     const v = objectType.valueType;
-    const resultV: ResolvedType = { kind: "result", successType: v, errorType: STRING_TYPE };
+    const resultV: ResolvedType = makeResultType(v, STRING_TYPE);
     if (property === "size") return INT_TYPE;
     if (property === "get") return { kind: "function", params: [{ name: "key", type: k }], returnType: resultV };
     if (objectType.readonly_ && property === "set") {
@@ -1183,11 +1185,7 @@ export function inferMemberType(
       return {
         kind: "function",
         params: [{ name: "value", type: STRING_TYPE }],
-        returnType: {
-          kind: "result",
-          successType: { kind: "primitive", name: primitiveName },
-          errorType: BUILTIN_PARSE_ERROR_TYPE,
-        },
+        returnType: makeResultType({ kind: "primitive", name: primitiveName }, BUILTIN_PARSE_ERROR_TYPE),
       };
     }
     if (info && span) {
@@ -1224,18 +1222,15 @@ export function inferMemberType(
       return {
         kind: "function",
         params: [],
-        returnType: {
-          kind: "result",
-          successType: objectType.valueType,
-          errorType: STRING_TYPE,
-        },
+        returnType: makeResultType(objectType.valueType, STRING_TYPE),
       };
     }
   }
 
-  if (objectType.kind === "result") {
+  const objectResult = getResultShape(objectType);
+  if (objectResult) {
     if (property === "value") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         if (info && span) {
           info.diagnostics.push({
             severity: "error",
@@ -1246,13 +1241,19 @@ export function inferMemberType(
         }
         return UNKNOWN_TYPE;
       }
-      return objectType.successType;
+      return objectResult.successType;
     }
-    if (property === "error") return objectType.errorType;
+    if (property === "error") {
+      if (objectResult.errorType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, 'Property "error" is not available on type "Failure<void>"');
+        return UNKNOWN_TYPE;
+      }
+      return objectResult.errorType;
+    }
     if (property === "isSuccess") return { kind: "function", params: [], returnType: BOOL_TYPE };
     if (property === "isFailure") return { kind: "function", params: [], returnType: BOOL_TYPE };
     if (property === "map") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         reportMemberDiagnostic(info, table, span, `Method "map" is not available on type "${typeToString(objectType)}"`);
         return UNKNOWN_TYPE;
       }
@@ -1264,11 +1265,11 @@ export function inferMemberType(
           name: "mapper",
           type: {
             kind: "function",
-            params: [{ name: "it", type: objectType.successType }],
+            params: [{ name: "it", type: objectResult.successType }],
             returnType: mappedType,
           },
         }],
-        returnType: { kind: "result", successType: mappedType, errorType: objectType.errorType },
+        returnType: makeResultType(mappedType, objectResult.errorType),
       };
     }
     if (property === "mapError") {
@@ -1280,11 +1281,11 @@ export function inferMemberType(
           name: "mapper",
           type: {
             kind: "function",
-            params: [{ name: "it", type: objectType.errorType }],
+            params: objectResult.errorType.kind === "void" ? [] : [{ name: "it", type: objectResult.errorType }],
             returnType: mappedErrorType,
           },
         }],
-        returnType: { kind: "result", successType: objectType.successType, errorType: mappedErrorType },
+        returnType: makeResultType(objectResult.successType, mappedErrorType),
       };
     }
     if (property === "andThen") {
@@ -1297,25 +1298,17 @@ export function inferMemberType(
           name: "next",
           type: {
             kind: "function",
-            params: objectType.successType.kind === "void"
+            params: objectResult.successType.kind === "void"
               ? []
-              : [{ name: "it", type: objectType.successType }],
-            returnType: {
-              kind: "result",
-              successType: chainedSuccessType,
-              errorType: chainedErrorType,
-            },
+              : [{ name: "it", type: objectResult.successType }],
+            returnType: makeResultType(chainedSuccessType, chainedErrorType),
           },
         }],
-        returnType: {
-          kind: "result",
-          successType: chainedSuccessType,
-          errorType: mergeUnionTypes(objectType.errorType, chainedErrorType),
-        },
+        returnType: makeResultType(chainedSuccessType, mergeUnionTypes(objectResult.errorType, chainedErrorType)),
       };
     }
     if (property === "orElse") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         reportMemberDiagnostic(info, table, span, `Method "orElse" is not available on type "${typeToString(objectType)}"`);
         return UNKNOWN_TYPE;
       }
@@ -1328,34 +1321,26 @@ export function inferMemberType(
           name: "recover",
           type: {
             kind: "function",
-            params: [{ name: "it", type: objectType.errorType }],
-            returnType: {
-              kind: "result",
-              successType: recoveredSuccessType,
-              errorType: recoveredErrorType,
-            },
+            params: objectResult.errorType.kind === "void" ? [] : [{ name: "it", type: objectResult.errorType }],
+            returnType: makeResultType(recoveredSuccessType, recoveredErrorType),
           },
         }],
-        returnType: {
-          kind: "result",
-          successType: mergeUnionTypes(objectType.successType, recoveredSuccessType),
-          errorType: recoveredErrorType,
-        },
+        returnType: makeResultType(mergeUnionTypes(objectResult.successType, recoveredSuccessType), recoveredErrorType),
       };
     }
     if (property === "unwrapOr") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         reportMemberDiagnostic(info, table, span, `Method "unwrapOr" is not available on type "${typeToString(objectType)}"`);
         return UNKNOWN_TYPE;
       }
       return {
         kind: "function",
-        params: [{ name: "defaultValue", type: objectType.successType }],
-        returnType: objectType.successType,
+        params: [{ name: "defaultValue", type: objectResult.successType }],
+        returnType: objectResult.successType,
       };
     }
     if (property === "unwrapOrElse") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         reportMemberDiagnostic(info, table, span, `Method "unwrapOrElse" is not available on type "${typeToString(objectType)}"`);
         return UNKNOWN_TYPE;
       }
@@ -1365,34 +1350,38 @@ export function inferMemberType(
           name: "fallback",
           type: {
             kind: "function",
-            params: [{ name: "error", type: objectType.errorType }],
-            returnType: objectType.successType,
+            params: objectResult.errorType.kind === "void" ? [] : [{ name: "error", type: objectResult.errorType }],
+            returnType: objectResult.successType,
           },
         }],
-        returnType: objectType.successType,
+        returnType: objectResult.successType,
       };
     }
     if (property === "ok") {
-      if (objectType.successType.kind === "void") {
+      if (objectResult.successType.kind === "void") {
         reportMemberDiagnostic(info, table, span, `Method "ok" is not available on type "${typeToString(objectType)}"`);
         return UNKNOWN_TYPE;
       }
       return {
         kind: "function",
         params: [],
-        returnType: mergeUnionTypes(objectType.successType, NULL_TYPE),
+        returnType: mergeUnionTypes(objectResult.successType, NULL_TYPE),
       };
     }
     if (property === "err") {
+      if (objectResult.errorType.kind === "void") {
+        reportMemberDiagnostic(info, table, span, `Method "err" is not available on type "${typeToString(objectType)}"`);
+        return UNKNOWN_TYPE;
+      }
       return {
         kind: "function",
         params: [],
-        returnType: mergeUnionTypes(objectType.errorType, NULL_TYPE),
+        returnType: mergeUnionTypes(objectResult.errorType, NULL_TYPE),
       };
     }
   }
 
-  if (objectType.kind === "success-wrapper") {
+  if (objectType.kind === "success") {
     if (property === "value") {
       if (objectType.valueType.kind === "void") {
         if (info && span) {
@@ -1408,8 +1397,8 @@ export function inferMemberType(
       return objectType.valueType;
     }
   }
-  if (objectType.kind === "failure-wrapper") {
-    if (property === "error") return objectType.errorType;
+  if (objectType.kind === "failure") {
+    if (property === "error" && objectType.errorType.kind !== "void") return objectType.errorType;
   }
 
   if (objectType.kind === "union") {
@@ -1446,7 +1435,7 @@ export function inferMemberType(
           { name: "methodName", type: STRING_TYPE },
           { name: "params", type: JSON_VALUE_TYPE },
         ],
-        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: JSON_VALUE_TYPE },
+        returnType: makeResultType(JSON_VALUE_TYPE, JSON_VALUE_TYPE),
       };
     }
     if (property === "methods") {
@@ -1468,7 +1457,7 @@ export function inferMemberType(
           { name: "instance", type: objectType.classType },
           { name: "params", type: JSON_VALUE_TYPE },
         ],
-        returnType: { kind: "result", successType: JSON_VALUE_TYPE, errorType: JSON_VALUE_TYPE },
+        returnType: makeResultType(JSON_VALUE_TYPE, JSON_VALUE_TYPE),
       };
     }
   }
@@ -1556,8 +1545,9 @@ export function validateMetadataSerializability(
     }
     if (method.returnType) {
       const retType = host.resolveTypeAnnotation(method.returnType, classTable);
-      if (retType.kind === "result") {
-        const successType = retType.successType;
+      const result = getResultShape(retType);
+      if (result) {
+        const successType = result.successType;
         if (successType.kind !== "void" && !isJSONSerializable(successType)) {
           info.diagnostics.push({
             severity: "error",

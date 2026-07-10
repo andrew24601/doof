@@ -133,7 +133,7 @@ public:
 
         CURL* handle = curl_easy_init();
         if (handle == nullptr) {
-            return doof::Result<int32_t, std::string>::failure("internal|0|failed to create libcurl handle");
+            return doof::Failure<std::string>{"internal|0|failed to create libcurl handle"};
         }
 
         curl_slist* headerList = parseHeaderList(requestHeaders);
@@ -176,7 +176,7 @@ public:
                 curl_slist_free_all(headerList);
             }
             curl_easy_cleanup(handle);
-            return doof::Result<int32_t, std::string>::failure(encoded);
+            return doof::Failure<std::string>{encoded};
         }
 
         long statusCode = 0;
@@ -187,7 +187,7 @@ public:
             curl_slist_free_all(headerList);
         }
         curl_easy_cleanup(handle);
-        return doof::Result<int32_t, std::string>::success(static_cast<int32_t>(statusCode));
+        return doof::Success<int32_t>{static_cast<int32_t>(statusCode)};
     }
 
     std::string responseStatusText() const {

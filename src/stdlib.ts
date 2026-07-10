@@ -4,6 +4,7 @@ import { joinFsPath, resolveFsPath, toVirtualPath } from "./path-utils.js";
 import type { ProjectSupportFile } from "./macos-app-support.js";
 import { DEFAULT_STD_VERSIONS, getStdPackageShortName, isStdPackageName, resolveStdlibOverridePath } from "./std-packages.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
+import { BUNDLED_STD_JSON_NATIVE_HEADER } from "./stdlib-native-json.js";
 export { BUNDLED_STDLIB_ROOT };
 
 export interface BundledStdlibMaterializedDependency {
@@ -19,15 +20,6 @@ export type BundledStdlibRemoteMaterializer = (
 export interface BundledStdlibOptions {
   cacheRoot?: string;
   materializeRemoteDependency?: BundledStdlibRemoteMaterializer;
-}
-
-function resolveBundledStdlibAsset(...segments: string[]): string {
-  const nodeFs = getNodeFs();
-  if (!nodeFs) {
-    throw new Error("Bundled stdlib assets are not available in this runtime");
-  }
-
-  return nodeFs.readFileSync(new URL(`../../doof-stdlib/${segments.join("/")}`, import.meta.url), "utf8");
 }
 
 function isNodeRuntime(): boolean {
@@ -66,13 +58,8 @@ function resolveCheckedInStdlibPath(relativePath: string): string | null {
 
 const BUNDLED_STD_JSON_MODULE_PATH = `${BUNDLED_STDLIB_ROOT}/std/json/index.do`;
 const BUNDLED_STD_JSON_NATIVE_HEADER_PATH = "__doof_stdlib__/std/json/native_json.hpp";
-let bundledStdJsonNativeHeader: string | null = null;
-
 function getBundledStdJsonNativeHeader(): string {
-  if (bundledStdJsonNativeHeader === null) {
-    bundledStdJsonNativeHeader = resolveBundledStdlibAsset("json", "native_json.hpp");
-  }
-  return bundledStdJsonNativeHeader;
+  return BUNDLED_STD_JSON_NATIVE_HEADER;
 }
 
 const BUNDLED_MODULES = new Map<string, string>([

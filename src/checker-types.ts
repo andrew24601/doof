@@ -173,26 +173,25 @@ export interface PromiseType {
   valueType: ResolvedType;
 }
 
-export interface ResultResolvedType {
-  kind: "result";
-  /** The success type (T in Result<T, E>). */
-  successType: ResolvedType;
-  /** The error type (E in Result<T, E>). */
-  errorType: ResolvedType;
-}
-
-/** Narrowed type for a Success variant in a case arm on Result. */
-export interface SuccessWrapperType {
-  kind: "success-wrapper";
-  /** The T in Result<T, E>. */
+/** The intrinsic success arm used by Result<T, E>. */
+export interface SuccessResolvedType {
+  kind: "success";
   valueType: ResolvedType;
 }
 
-/** Narrowed type for a Failure variant in a case arm on Result. */
-export interface FailureWrapperType {
-  kind: "failure-wrapper";
-  /** The E in Result<T, E>. */
+/** The intrinsic failure arm used by Result<T, E>. */
+export interface FailureResolvedType {
+  kind: "failure";
   errorType: ResolvedType;
+}
+
+/** The two payload channels extracted from a canonical Result union. */
+export interface ResultShape {
+  type: UnionResolvedType;
+  successType: ResolvedType;
+  errorType: ResolvedType;
+  successArm: SuccessResolvedType;
+  failureArm: FailureResolvedType;
 }
 
 /** A type variable (generic parameter) — resolved during instantiation. */
@@ -253,9 +252,8 @@ export type ResolvedType =
   | NamespaceType
   | ActorType
   | PromiseType
-  | ResultResolvedType
-  | SuccessWrapperType
-  | FailureWrapperType
+  | SuccessResolvedType
+  | FailureResolvedType
   | TypeVariableType
   | JsonSerializableConstraintType
   | ReflectableConstraintType
@@ -280,6 +278,32 @@ export const UNKNOWN_TYPE: UnknownType = { kind: "unknown" };
 export const RANGE_TYPE: RangeResolvedType = { kind: "range" };
 export const JSON_SERIALIZABLE_CONSTRAINT_TYPE: JsonSerializableConstraintType = { kind: "json-serializable-constraint" };
 export const REFLECTABLE_CONSTRAINT_TYPE: ReflectableConstraintType = { kind: "reflectable-constraint" };
+
+/** Build the canonical semantic representation of Result<T, E>. */
+export function makeResultType(successType: ResolvedType, errorType: ResolvedType): UnionResolvedType {
+  return {
+    kind: "union",
+    types: [
+      { kind: "success", valueType: successType },
+      { kind: "failure", errorType },
+    ],
+  };
+}
+
+/** Recognize exactly Success<T> | Failure<E>, independent of arm order. */
+export function getResultShape(type: ResolvedType): ResultShape | null {
+  if (type.kind !== "union" || isJsonValueType(type) || type.types.length !== 2) return null;
+  const successArms = type.types.filter((member): member is SuccessResolvedType => member.kind === "success");
+  const failureArms = type.types.filter((member): member is FailureResolvedType => member.kind === "failure");
+  if (successArms.length !== 1 || failureArms.length !== 1) return null;
+  return {
+    type,
+    successType: successArms[0].valueType,
+    errorType: failureArms[0].errorType,
+    successArm: successArms[0],
+    failureArm: failureArms[0],
+  };
+}
 
 export const JSON_VALUE_TYPE = {
   kind: "union",
@@ -416,6 +440,8 @@ export interface ModuleTypeInfo {
 /** Human-readable string for a ResolvedType (useful for tests/diagnostics). */
 export function typeToString(t: ResolvedType): string {
   if (isJsonValueType(t)) return "JsonValue";
+  const result = getResultShape(t);
+  if (result) return `Result<${typeToString(result.successType)}, ${typeToString(result.errorType)}>`;
 
   switch (t.kind) {
     case "primitive":
@@ -484,11 +510,9 @@ export function typeToString(t: ResolvedType): string {
       return `Actor<${typeToString(t.innerClass)}>`;
     case "promise":
       return `Promise<${typeToString(t.valueType)}>`;
-    case "result":
-      return `Result<${typeToString(t.successType)}, ${typeToString(t.errorType)}>`;
-    case "success-wrapper":
+    case "success":
       return `Success<${typeToString(t.valueType)}>`;
-    case "failure-wrapper":
+    case "failure":
       return `Failure<${typeToString(t.errorType)}>`;
     case "typevar":
       return t.name;
@@ -619,16 +643,10 @@ export function findUnsupportedHashCollectionConstraint(type: ResolvedType): Has
     case "range":
       return null;
 
-    case "result": {
-      const unsupportedSuccess = findUnsupportedHashCollectionConstraint(type.successType);
-      if (unsupportedSuccess) return unsupportedSuccess;
-      return findUnsupportedHashCollectionConstraint(type.errorType);
-    }
-
-    case "success-wrapper":
+    case "success":
       return findUnsupportedHashCollectionConstraint(type.valueType);
 
-    case "failure-wrapper":
+    case "failure":
       return findUnsupportedHashCollectionConstraint(type.errorType);
 
     case "class-metadata":
@@ -864,17 +882,11 @@ export function isAssignableTo(source: ResolvedType, target: ResolvedType): bool
     return isAssignableTo(source.inner, target.inner);
   }
 
-  // Result compatibility: co-variant success, co-variant error.
-  if (source.kind === "result" && target.kind === "result") {
-    return isAssignableTo(source.successType, target.successType)
-      && isAssignableTo(source.errorType, target.errorType);
-  }
-
-  // Success/Failure wrapper compatibility.
-  if (source.kind === "success-wrapper" && target.kind === "success-wrapper") {
+  // Intrinsic Result arms are covariant in their payloads.
+  if (source.kind === "success" && target.kind === "success") {
     return isAssignableTo(source.valueType, target.valueType);
   }
-  if (source.kind === "failure-wrapper" && target.kind === "failure-wrapper") {
+  if (source.kind === "failure" && target.kind === "failure") {
     return isAssignableTo(source.errorType, target.errorType);
   }
 
@@ -1045,15 +1057,10 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
       return typesEqual(a.innerClass, (b as ActorType).innerClass);
     case "promise":
       return typesEqual(a.valueType, (b as PromiseType).valueType);
-    case "result": {
-      const br = b as ResultResolvedType;
-      return typesEqual(a.successType, br.successType)
-        && typesEqual(a.errorType, br.errorType);
-    }
-    case "success-wrapper":
-      return typesEqual(a.valueType, (b as SuccessWrapperType).valueType);
-    case "failure-wrapper":
-      return typesEqual(a.errorType, (b as FailureWrapperType).errorType);
+    case "success":
+      return typesEqual(a.valueType, (b as SuccessResolvedType).valueType);
+    case "failure":
+      return typesEqual(a.errorType, (b as FailureResolvedType).errorType);
     case "typevar":
       return a.name === (b as TypeVariableType).name;
     case "json-serializable-constraint":
@@ -1088,8 +1095,9 @@ export function computeElseNarrowType(
   const { stripped, hadNull } = stripNull(type);
 
   // Step 2: if Result, extract success type and strip null from it
-  if (stripped.kind === "result") {
-    const innerStripped = stripNull(stripped.successType).stripped;
+  const result = getResultShape(stripped);
+  if (result) {
+    const innerStripped = stripNull(result.successType).stripped;
     return { narrowedType: innerStripped, applicable: true };
   }
 
@@ -1228,12 +1236,10 @@ export function substituteTypeParams(
         };
       }
       return type;
-    case "result":
-      return {
-        kind: "result",
-        successType: substituteTypeParams(type.successType, paramMap),
-        errorType: substituteTypeParams(type.errorType, paramMap),
-      };
+    case "success":
+      return { kind: "success", valueType: substituteTypeParams(type.valueType, paramMap) };
+    case "failure":
+      return { kind: "failure", errorType: substituteTypeParams(type.errorType, paramMap) };
     case "promise":
       return { kind: "promise", valueType: substituteTypeParams(type.valueType, paramMap) };
     case "actor":
@@ -1293,15 +1299,13 @@ export function typeContainsTypeVar(type: ResolvedType): boolean {
     case "class":
     case "interface":
       return (type.typeArgs ?? []).some(typeContainsTypeVar);
-    case "result":
-      return typeContainsTypeVar(type.successType) || typeContainsTypeVar(type.errorType);
     case "promise":
       return typeContainsTypeVar(type.valueType);
     case "actor":
       return typeContainsTypeVar(type.innerClass);
-    case "success-wrapper":
+    case "success":
       return typeContainsTypeVar(type.valueType);
-    case "failure-wrapper":
+    case "failure":
       return typeContainsTypeVar(type.errorType);
     case "mock-capture":
       return type.fields.some((field) => typeContainsTypeVar(field.type));
@@ -1340,15 +1344,13 @@ export function isStreamSensitiveType(type: ResolvedType): boolean {
     case "class":
     case "interface":
       return (type.typeArgs ?? []).some(isStreamSensitiveType);
-    case "result":
-      return isStreamSensitiveType(type.successType) || isStreamSensitiveType(type.errorType);
     case "promise":
       return isStreamSensitiveType(type.valueType);
     case "actor":
       return isStreamSensitiveType(type.innerClass);
-    case "success-wrapper":
+    case "success":
       return isStreamSensitiveType(type.valueType);
-    case "failure-wrapper":
+    case "failure":
       return isStreamSensitiveType(type.errorType);
     case "mock-capture":
       return type.fields.some((field) => isStreamSensitiveType(field.type));
@@ -1377,8 +1379,8 @@ export function isStreamSensitiveType(type: ResolvedType): boolean {
  *   - unions where all members are serializable (e.g., T | null)
  *
  * Non-serializable types:
- *   - function, void, weak, actor, promise, result, unknown, namespace,
- *     success-wrapper, failure-wrapper
+ *   - function, void, weak, actor, promise, Result unions, intrinsic arms,
+ *     unknown, and namespaces
  *
  * @param visited — set of class names already being checked (prevents infinite recursion)
  */
@@ -1389,6 +1391,7 @@ export function isJSONSerializable(
   if (isJsonValueType(type)) {
     return true;
   }
+  if (getResultShape(type)) return false;
 
   switch (type.kind) {
     case "primitive":
@@ -1459,13 +1462,12 @@ export function isJSONSerializable(
     case "weak":
     case "actor":
     case "promise":
-    case "result":
     case "unknown":
     case "mock-capture":
     case "builtin-namespace":
     case "namespace":
-    case "success-wrapper":
-    case "failure-wrapper":
+    case "success":
+    case "failure":
     case "typevar":
     case "json-serializable-constraint":
     case "reflectable-constraint":
