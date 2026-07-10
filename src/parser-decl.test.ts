@@ -153,6 +153,50 @@ describe("Parser — type annotations", () => {
     }
   });
 
+  it("parses nested generic types with adjacent closing delimiters", () => {
+    const stmt = firstStmt("let x: Success<Array<int>> = Success([])");
+    if (stmt.kind === "let-declaration" && stmt.type?.kind === "named-type") {
+      expect(stmt.type).toMatchObject({ kind: "named-type", name: "Success" });
+      expect(stmt.type.typeArgs[0]).toMatchObject({
+        kind: "named-type",
+        name: "Array",
+        typeArgs: [{ kind: "named-type", name: "int" }],
+      });
+    } else {
+      throw new Error("Expected a typed let declaration");
+    }
+  });
+
+  it("parses nested generic construction types with adjacent closing delimiters", () => {
+    const expression = parseExpr("Box<Array<int>> { value: [] }");
+    expect(expression).toMatchObject({
+      kind: "construct-expression",
+      typeArgs: [{
+        kind: "named-type",
+        name: "Array",
+        typeArgs: [{ kind: "named-type", name: "int" }],
+      }],
+    });
+  });
+
+  it("parses nested generic constraints with adjacent closing delimiters", () => {
+    const stmt = firstStmt(`class Parser {
+      decode<T: Success<Array<int>>>(value: T): T => value
+    }`);
+    expect(stmt).toMatchObject({
+      kind: "class-declaration",
+      methods: [{
+        name: "decode",
+        typeParams: ["T"],
+        typeParamConstraints: [{
+          kind: "named-type",
+          name: "Success",
+          typeArgs: [{ kind: "named-type", name: "Array" }],
+        }],
+      }],
+    });
+  });
+
   it("parses readonly array type", () => {
     const stmt = firstStmt("let x: readonly int[] = []");
     if (stmt.kind === "let-declaration" && stmt.type) {

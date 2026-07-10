@@ -824,7 +824,7 @@ export class Parser {
         }
         constraints.push(constraint);
       } while (this.match(TokenType.Comma));
-      this.expect(TokenType.Greater);
+      this.expectTypeArgumentClose();
     }
     return { names, constraints };
   }
@@ -869,12 +869,15 @@ export class Parser {
           angleDepth++;
           break;
         case TokenType.Greater:
-          if (angleDepth > 0) {
-            angleDepth--;
-          } else {
-            return index;
-          }
+        case TokenType.GreaterGreater:
+        case TokenType.GreaterGreaterGreater: {
+          const closeCount = token === TokenType.Greater ? 1
+            : token === TokenType.GreaterGreater ? 2
+              : 3;
+          if (angleDepth < closeCount) return index;
+          angleDepth -= closeCount;
           break;
+        }
       }
       index++;
     }
@@ -1066,7 +1069,9 @@ export class Parser {
         index++;
         continue;
       }
-      if (separator !== TokenType.Greater) return false;
+      if (separator !== TokenType.Greater &&
+          separator !== TokenType.GreaterGreater &&
+          separator !== TokenType.GreaterGreaterGreater) return false;
       const next = this.peek(index + 1);
       return next.type === TokenType.LeftParen
         || (next.type === TokenType.StringLiteral && this.peek(index + 2).type === TokenType.LeftParen);
@@ -2570,7 +2575,7 @@ export class Parser {
         while (this.match(TokenType.Comma)) {
           typeArgs.push(this.parseTypeAnnotation());
         }
-        this.expect(TokenType.Greater);
+        this.expectTypeArgumentClose();
       }
 
       let type: TypeAnnotation = {
@@ -3447,11 +3452,16 @@ export class Parser {
       if (t.type === TokenType.EOF) return false;
       if (t.type === TokenType.Less) depth++;
       else if (t.type === TokenType.Greater) depth--;
+      else if (t.type === TokenType.GreaterGreater) depth -= 2;
+      else if (t.type === TokenType.GreaterGreaterGreater) depth -= 3;
+      if (depth < 0) return false;
       if (depth === 0) break;
       // Allow identifiers, commas, [], ?, and nested < > (for Map<string, int>)
       if (t.type !== TokenType.Identifier && t.type !== TokenType.Comma &&
           t.type !== TokenType.LeftBracket && t.type !== TokenType.RightBracket &&
-          t.type !== TokenType.Less) {
+          t.type !== TokenType.Less &&
+          t.type !== TokenType.GreaterGreater &&
+          t.type !== TokenType.GreaterGreaterGreater) {
         return false;
       }
       i++;
@@ -3472,8 +3482,32 @@ export class Parser {
     while (this.match(TokenType.Comma)) {
       typeArgs.push(this.parseTypeAnnotation());
     }
-    this.expect(TokenType.Greater);
+    this.expectTypeArgumentClose();
     return typeArgs;
+  }
+
+  /**
+   * Consume a generic `>` delimiter, splitting a lexed shift token only while
+   * parsing type syntax. This keeps `>>` available as an expression operator.
+   */
+  private expectTypeArgumentClose(): Token {
+    if (this.check(TokenType.Greater)) return this.advance();
+
+    const token = this.current();
+    const closeCount = token.type === TokenType.GreaterGreater ? 2
+      : token.type === TokenType.GreaterGreaterGreater ? 3
+        : 0;
+    if (closeCount === 0) return this.expect(TokenType.Greater);
+
+    const closers: Token[] = Array.from({ length: closeCount }, (_, index) => ({
+      type: TokenType.Greater,
+      value: ">",
+      line: token.line,
+      column: token.column + index,
+      offset: token.offset + index,
+    }));
+    this.tokens.splice(this.pos, 1, ...closers);
+    return this.advance();
   }
 
   private parseNamedConstruction(
