@@ -130,6 +130,12 @@ function getNullableMapType(type: ResolvedType | undefined): Extract<ResolvedTyp
   return nonNull[0].kind === "map" ? nonNull[0] : null;
 }
 
+function isNullableCollectionType(type: ResolvedType | undefined): boolean {
+  return type?.kind === "union"
+    && type.types.some((member) => member.kind === "null")
+    && type.types.filter((member) => member.kind !== "null").length === 1;
+}
+
 // ============================================================================
 // Binary expressions
 // ============================================================================
@@ -633,12 +639,18 @@ export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): st
 
   if (expr.optional) {
     if (arrayType) {
+      if (!isNullableCollectionType(objType)) {
+        return `doof::array_at(${object}, ${index}, ${locationArgs})`;
+      }
       const resultType = expr.resolvedType ? emitType(expr.resolvedType, ctx.module.path) : `decltype(doof::array_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const arrayObject = objType && isOptionalNullable(objType) ? `*${object}` : object;
       return `[&]() -> ${resultType} { if (${object}) return doof::array_at(${arrayObject}, ${index}, ${locationArgs}); return ${nullValue}; }()`;
     }
     if (mapType) {
+      if (!isNullableCollectionType(objType)) {
+        return `doof::map_at(${object}, ${index}, ${locationArgs})`;
+      }
       const resultType = expr.resolvedType ? emitType(expr.resolvedType, ctx.module.path) : `decltype(doof::map_at(${object}, ${index}, ${locationArgs}))`;
       const nullValue = expr.resolvedType ? emitNullForType(expr.resolvedType) : "{}";
       const mapObject = objType && isOptionalNullable(objType) ? `*${object}` : object;

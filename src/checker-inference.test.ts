@@ -685,6 +685,24 @@ describe("Expression type inference", () => {
     expect(ints.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("infers nullable array and map optional index types", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function first(items: int[] | null): int | null => items?[0]
+          function score(scores: Map<string, int> | null): int | null => scores?["alice"]
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+    const indexExpressions = collectExprs(info.program).filter((expr) => expr.kind === "index-expression");
+    expect(indexExpressions).toHaveLength(2);
+    expect(typeToString(indexExpressions[0].resolvedType!)).toBe("int | null");
+    expect(typeToString(indexExpressions[1].resolvedType!)).toBe("int | null");
+  });
+
   it("infers array destructuring binding types and skips discards", () => {
     const info = check(
       {

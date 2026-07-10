@@ -1373,6 +1373,28 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain('doof::array_at(values, 0, "main.do", 3)');
   });
 
+  it("emits optional indexing for nullable arrays", () => {
+    const cpp = emit(`
+      function first(values: int[] | null): int | null {
+        return values?[0]
+      }
+    `);
+    expect(cpp).toContain("[&]() -> std::optional<int32_t> {");
+    expect(cpp).toContain('if (values) return doof::array_at(values, 0, "main.do",');
+    expect(cpp).toContain("return std::nullopt;");
+  });
+
+  it("emits optional indexing for nullable maps", () => {
+    const cpp = emit(`
+      function score(scores: Map<string, int> | null): int | null {
+        return scores?["alice"]
+      }
+    `);
+    expect(cpp).toContain("[&]() -> std::optional<int32_t> {");
+    expect(cpp).toContain("if (scores) return doof::map_at(scores,");
+    expect(cpp).toContain("return std::nullopt;");
+  });
+
   it("emits array pop via runtime helper", () => {
     const cpp = emit(`
       function trim(values: int[]): Result<int, string> {

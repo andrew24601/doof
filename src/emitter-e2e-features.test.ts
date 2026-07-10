@@ -271,6 +271,25 @@ describe("e2e — weak references", () => {
 // ============================================================================
 
 describe("e2e — optional chaining", () => {
+  it("runs optional array and map indexing", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        values: int[] | null := [10, 20]
+        missingValues: int[] | null := null
+        scores: Map<string, int> | null := { "alice": 7 }
+        missingScores: Map<string, int> | null := null
+        return (values?[1] ?? 0)
+          + (missingValues?[0] ?? 0)
+          + (scores?["alice"] ?? 0)
+          + (missingScores?["alice"] ?? 0)
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(27);
+  });
+
   it("compiles class construction and field access", () => {
     const result = ctx.compileOnly(`
       export class Box {

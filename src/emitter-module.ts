@@ -5327,6 +5327,7 @@ function makeBlockHelper(
       sourceLines: [],
     };
     emitBlockStatements(block, tempCtx);
+    ctx.tempCounter = tempCtx.tempCounter;
     return tempCtx.sourceLines.join("\n");
   };
 }

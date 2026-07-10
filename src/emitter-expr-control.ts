@@ -207,25 +207,18 @@ export function emitCatchExpressionIIFE(expr: CatchExpression, ctx: EmitContext)
   lines.push(`        ${cppType} ${catchVar} = ${nullInit};`);
   lines.push(`        do {`);
 
-  const savedLines = ctx.sourceLines;
-  const bodyLines: string[] = [];
-  ctx.sourceLines = bodyLines;
-
   const prevCatchVar = ctx.catchVarName;
   ctx.catchVarName = catchVar;
   const innerCtx = { ...ctx, indent: 3 };
   for (const stmt of expr.body) {
     const blockWrapper = { kind: "block" as const, statements: [stmt], span: expr.span };
-    ctx.emitBlock(blockWrapper, innerCtx);
+    const emittedBody = ctx.emitBlock(blockWrapper, innerCtx);
+    if (emittedBody.length > 0) {
+      lines.push(emittedBody);
+    }
   }
   ctx.catchVarName = prevCatchVar;
   ctx.tempCounter = innerCtx.tempCounter;
-
-  ctx.sourceLines = savedLines;
-
-  for (const line of bodyLines) {
-    lines.push(line);
-  }
 
   lines.push(`        } while (false);`);
   lines.push(`        return ${catchVar};`);

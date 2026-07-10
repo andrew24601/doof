@@ -511,6 +511,27 @@ describe("emitter — case expression on Result", () => {
 // ============================================================================
 
 describe("emitter — catch expression", () => {
+  it("emits catch expression as an IIFE in expression position", () => {
+    const cpp = emit(`
+      function readValue(): Result<int, string> {
+        return Success(42)
+      }
+      function consumeError(error: string | null): void {
+        println(error)
+      }
+      function main(): void {
+        consumeError(catch {
+          try value := readValue()
+        })
+      }
+    `);
+    expect(cpp).toContain("[&]() -> std::optional<std::string> {");
+    expect(cpp).toContain("std::optional<std::string> _catch_");
+    expect(cpp).toContain("do {\n");
+    expect(cpp).toContain("} while (false);");
+    expect(cpp).toContain("break;");
+  });
+
   it("emits catch binding with do/while and break on failure", () => {
     const cpp = emit(`
       class IOError { message: string }

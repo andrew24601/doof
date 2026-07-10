@@ -1636,6 +1636,24 @@ function inferExprTypeInner(
     case "index-expression": {
       const objectType = inferExprType(host, expr.object, scope, table, info);
       inferExprType(host, expr.index, scope, table, info);
+      const nonNullObjectTypes = objectType.kind === "union"
+        ? objectType.types.filter((member) => member.kind !== "null")
+        : [];
+      const nullableCollection = objectType.kind === "union"
+        && objectType.types.some((member) => member.kind === "null")
+        && nonNullObjectTypes.length === 1
+        && (nonNullObjectTypes[0].kind === "array" || nonNullObjectTypes[0].kind === "map")
+        ? nonNullObjectTypes[0]
+        : null;
+      if (expr.optional && nullableCollection) {
+        const elementType = nullableCollection.kind === "array"
+          ? nullableCollection.elementType
+          : nullableCollection.valueType;
+        if (isJsonValueType(elementType) || (elementType.kind === "union" && elementType.types.some((member) => member.kind === "null"))) {
+          return elementType;
+        }
+        return { kind: "union", types: [elementType, NULL_TYPE] };
+      }
       if (objectType.kind === "array") return objectType.elementType;
       if (objectType.kind === "map") return objectType.valueType;
       return UNKNOWN_TYPE;
