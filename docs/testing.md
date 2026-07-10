@@ -174,7 +174,7 @@ The current implementation intentionally rejects a few mock forms:
 
 These are compile-time diagnostics rather than runtime failures.
 
-## Running Tests
+## Running Doof Tests
 
 Run a single file:
 
@@ -203,6 +203,19 @@ npx doof test --filter fibonacci samples
 ```
 
 The discovered test id format is `<relative-path>::<functionName>`. `--filter` matches against that full id.
+
+## Running Compiler Tests
+
+The TypeScript compiler tests use Vitest and are split into two tiers:
+
+- `npm test` runs the fast unit and integration tests. It excludes test files whose names contain `e2e`.
+- `npm run test:e2e` runs the complete suite, including the native C++ compile-and-run E2E tests.
+
+Use `npm run test:coverage` for coverage on the fast tier. To collect coverage for the complete suite, pass the coverage flag to the full command:
+
+```bash
+npm run test:e2e -- --coverage
+```
 
 ## Assertions
 

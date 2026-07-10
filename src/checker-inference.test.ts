@@ -801,6 +801,65 @@ describe("Expression type inference", () => {
     expect(typeToString(cRefs[0].type)).toBe("int");
   });
 
+  it("retypes try positional destructuring from a nominal success payload", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Point {
+            x: int
+            label: string
+            z: int
+          }
+
+          function load(): Result<Point, string> => Success(Point(4, "ignored", 6))
+
+          function total(): Result<int, string> {
+            try (x, _, z) := load()
+            return Success(x + z)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+    const xRefs = findId(info, "x");
+    const zRefs = findId(info, "z");
+    expect(xRefs.length).toBeGreaterThanOrEqual(1);
+    expect(zRefs.length).toBeGreaterThanOrEqual(1);
+    expect(typeToString(xRefs[0].type)).toBe("int");
+    expect(typeToString(zRefs[0].type)).toBe("int");
+  });
+
+  it("retypes try named destructuring from a nominal success payload, including aliases", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Person {
+            name: string
+            age: int
+          }
+
+          function load(): Result<Person, string> => Success(Person("Ada", 42))
+
+          function describe(): Result<string, string> {
+            try { name as displayName, age } := load()
+            return Success(displayName + string(age))
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+    const displayNameRefs = findId(info, "displayName");
+    const ageRefs = findId(info, "age");
+    expect(displayNameRefs.length).toBeGreaterThanOrEqual(1);
+    expect(ageRefs.length).toBeGreaterThanOrEqual(1);
+    expect(typeToString(displayNameRefs[0].type)).toBe("string");
+    expect(typeToString(ageRefs[0].type)).toBe("int");
+  });
+
   it("reports a diagnostic for non-array destructuring values", () => {
     const info = check(
       {

@@ -287,8 +287,9 @@ Testing → [docs/testing.md](docs/testing.md)
 ```bash
 npm install
 npm run build   # compile TypeScript
-npm test        # run compiler test suite
-npm run test:coverage  # run compiler tests with Vitest coverage
+npm test        # run fast compiler tests (excludes native E2E suites)
+npm run test:e2e  # run the complete compiler test suite, including E2E tests
+npm run test:coverage  # run fast compiler tests with Vitest coverage
 npm run sync:stdlib  # mirror implicit std/* repos into ./stdlib for local reference
 ```
 

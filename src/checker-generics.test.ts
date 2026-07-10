@@ -792,6 +792,100 @@ describe("Checker — method-level type params", () => {
       expect(typeToString(lambda.resolvedType.params[0].type)).toBe("Request");
     }
   });
+
+  it("substitutes inferred types through block-bodied generic callbacks", () => {
+    const cr = check({
+      "/main.do": `
+        function apply<T>(value: T, transform: (value: T): T): T {
+          return transform(value)
+        }
+
+        const result = apply(42, (value) => {
+          copy := value
+          if true {
+            nested := copy
+            print(nested)
+          }
+          return copy
+        })
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const lambda = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").LambdaExpression => expr.kind === "lambda-expression");
+
+    expect(lambda).toBeDefined();
+    expect(lambda?.params[0].resolvedType ? typeToString(lambda.params[0].resolvedType) : null).toBe("int");
+    expect(lambda?.resolvedType?.kind).toBe("function");
+    if (lambda?.resolvedType?.kind === "function") {
+      expect(typeToString(lambda.resolvedType.params[0].type)).toBe("int");
+      expect(typeToString(lambda.resolvedType.returnType)).toBe("int");
+    }
+
+    if (lambda?.body.kind === "block") {
+      const [copy, ifStatement, returnStatement] = lambda.body.statements;
+      expect(copy.kind).toBe("immutable-binding");
+      if (copy.kind === "immutable-binding") {
+        expect(typeToString(copy.resolvedType!)).toBe("int");
+        expect(typeToString(copy.value.resolvedType!)).toBe("int");
+      }
+      expect(ifStatement.kind).toBe("if-statement");
+      if (ifStatement.kind === "if-statement") {
+        expect(ifStatement.body.statements[0].kind).toBe("immutable-binding");
+        if (ifStatement.body.statements[0].kind === "immutable-binding") {
+          expect(typeToString(ifStatement.body.statements[0].resolvedType!)).toBe("int");
+          expect(typeToString(ifStatement.body.statements[0].value.resolvedType!)).toBe("int");
+        }
+      }
+      expect(returnStatement.kind).toBe("return-statement");
+      if (returnStatement.kind === "return-statement") {
+        expect(typeToString(returnStatement.value!.resolvedType!)).toBe("int");
+      }
+    }
+  });
+
+  it("substitutes inferred types through yield blocks in generic callbacks", () => {
+    const cr = check({
+      "/main.do": `
+        function apply<T>(value: T, transform: (value: T): T): T {
+          return transform(value)
+        }
+
+        const result = apply(42, (value) => {
+          let current = value
+          current <- {
+            yield value
+          }
+          return current
+        })
+      `,
+    }, "/main.do");
+
+    expect(cr.diagnostics).toHaveLength(0);
+
+    const lambda = collectExprs(cr.program)
+      .find((expr): expr is import("./ast.js").LambdaExpression => expr.kind === "lambda-expression");
+
+    expect(lambda?.body.kind).toBe("block");
+    if (lambda?.body.kind === "block") {
+      const [current, reassignment] = lambda.body.statements;
+      expect(current.kind).toBe("let-declaration");
+      if (current.kind === "let-declaration") {
+        expect(typeToString(current.resolvedType!)).toBe("int");
+      }
+      expect(reassignment.kind).toBe("yield-block-assignment-statement");
+      if (reassignment.kind === "yield-block-assignment-statement") {
+        expect(typeToString(reassignment.resolvedType!)).toBe("int");
+        const yieldStatement = reassignment.value.body.statements[0];
+        expect(yieldStatement.kind).toBe("yield-statement");
+        if (yieldStatement.kind === "yield-statement") {
+          expect(typeToString(yieldStatement.value.resolvedType!)).toBe("int");
+        }
+      }
+    }
+  });
 });
 
 describe("checker-types — stream sensitivity", () => {

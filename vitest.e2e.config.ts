@@ -2,8 +2,5 @@ import { defineConfig } from 'vitest/config';
 import { sharedTestConfig } from './vitest.shared.js';
 
 export default defineConfig({
-  test: {
-    ...sharedTestConfig,
-    exclude: ['src/**/*e2e*.test.ts'],
-  },
+  test: sharedTestConfig,
 });

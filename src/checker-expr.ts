@@ -775,6 +775,9 @@ function applyTypeSubstitutionToExpression(
         applyTypeSubstitutionToExpression(expr.expression, paramMap);
       }
       return;
+    case "yield-block-expression":
+      applyTypeSubstitutionToBlock(expr.body, paramMap);
+      return;
     case "retire-expression":
       applyTypeSubstitutionToExpression(expr.actor, paramMap);
       return;
@@ -818,6 +821,9 @@ function applyTypeSubstitutionToStatement(
       if (stmt.value) {
         applyTypeSubstitutionToExpression(stmt.value, paramMap);
       }
+      return;
+    case "yield-statement":
+      applyTypeSubstitutionToExpression(stmt.value, paramMap);
       return;
     case "if-statement":
       applyTypeSubstitutionToExpression(stmt.condition, paramMap);
@@ -877,6 +883,12 @@ function applyTypeSubstitutionToStatement(
         applyTypeSubstitutionToExpression(binding.value, paramMap);
       }
       applyTypeSubstitutionToBlock(stmt.body, paramMap);
+      return;
+    case "yield-block-assignment-statement":
+      if (stmt.resolvedType) {
+        stmt.resolvedType = substituteTypeParams(stmt.resolvedType, paramMap);
+      }
+      applyTypeSubstitutionToExpression(stmt.value, paramMap);
       return;
     case "array-destructuring":
     case "positional-destructuring":

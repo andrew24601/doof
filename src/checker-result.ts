@@ -288,6 +288,14 @@ export function getTryBindingValue(binding: TryBinding): Expression | null {
   }
 }
 
+/**
+ * Finalize declaration binding types after `checkTryStatement` unwraps a
+ * `Result<T, E>` to its success payload `T`. The try checker first validates
+ * the original binding and failure propagation while the RHS still has its
+ * full Result type; this handoff updates the binding scope so statements that
+ * follow the try see the narrowed success type. Destructuring assignments are
+ * validated separately because they update existing mutable targets.
+ */
 export function retypeTryBinding(
   host: CheckerHost,
   binding: TryBinding,
@@ -295,6 +303,10 @@ export function retypeTryBinding(
   scope: Scope,
   table: ModuleSymbolTable,
 ): void {
+  // The binding is checked once before the Result shape is known, so
+  // destructuring declarations may initially contain UNKNOWN_TYPE entries.
+  // A successful `try` removes the Result wrapper; update those entries with
+  // the payload type that is actually available on the success path.
   switch (binding.kind) {
     case "immutable-binding":
     case "const-declaration":
@@ -317,6 +329,9 @@ export function retypeTryBinding(
       break;
     }
     case "positional-destructuring": {
+      // Positional fields are ordered tuple elements or instance fields in
+      // the nominal type. Discards do not create bindings, and a pattern that
+      // reaches beyond the payload remains unknown rather than being guessed.
       const fieldTypes = host.getPositionalFieldTypes(successType, table);
       for (let i = 0; i < binding.bindings.length; i++) {
         if (binding.bindings[i] === "_") continue;
@@ -326,6 +341,8 @@ export function retypeTryBinding(
       break;
     }
     case "named-destructuring": {
+      // Look up the source field by its declared name, but write the type to
+      // the alias (or the source name when there is no alias).
       for (const db of binding.bindings) {
         const localName = db.alias ?? db.name;
         const fieldType = host.lookupFieldType(successType, db.name, table);

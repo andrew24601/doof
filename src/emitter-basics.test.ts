@@ -4,11 +4,13 @@
  * includes, runtime header, type mapping, union type mapping.
  */
 
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { emit, emitMulti, emitProjectHelper, emitSplit } from "./emitter-test-helpers.js";
-import { emitType } from "./emitter-types.js";
+import { emitType, mangleTypeForCppName } from "./emitter-types.js";
+import { assignModuleNamespaces } from "./emitter-names.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
-import type { ResolvedType } from "./checker-types.js";
+import { check, collectExprs } from "./checker-test-helpers.js";
+import { UNKNOWN_TYPE, type ResolvedType } from "./checker-types.js";
 
 // ============================================================================
 // Phase 1: Primitives & Basic Constructs
@@ -1162,6 +1164,197 @@ describe("emitter — type mapping", () => {
   it("emits null type as std::monostate", () => {
     const t: ResolvedType = { kind: "null" };
     expect(emitType(t)).toBe("std::monostate");
+  });
+});
+
+describe("emitter — C++ type-name mangling", () => {
+  type MangleFixtures = Record<string, ResolvedType>;
+  let fixtures: MangleFixtures;
+
+  beforeAll(() => {
+    const checked = check({
+      "/values.do": `export const number = 1`,
+      "/fixtures.do": `
+        import class NativeWidget from "<native.hpp>" as native::Widget {}
+        import * as values from "./values"
+
+        export interface Readable { read(): string }
+        export class Widget implements Readable {
+          read(): string => "ok"
+        }
+        export class Worker {}
+        export class Tool {
+          function run(input: string): string => input
+        }
+        export struct Record { value: int }
+        export enum Color { Red, Blue }
+
+        mock function sendPayment(targetId: string, amount: int): bool => true
+
+        function mangleFixtures(
+          json: JsonValue,
+          primitive: int,
+          widget: Widget,
+          native: NativeWidget,
+          record: Record,
+          color: Color,
+          readable: Readable,
+          ints: int[],
+          lookup: Map<string, int>,
+          flags: Set<bool>,
+          pair: Tuple<int, string>,
+          unionValue: int | null,
+          stream: Stream<string>,
+          callback: (value: int): bool,
+          weakValue: weak int,
+          actor: Actor<Worker>,
+          promise: Promise<int>,
+          success: Success<int>,
+          failure: Failure<string>,
+          nullable: null,
+          range: Range
+        ): void {}
+
+        function generic<T>(value: T): T => value
+        function jsonSerializable<T: JsonSerializable>(value: T): T => value
+        function reflectable<T: Reflectable>(value: T): T => value
+        function metadataOf<T: Reflectable>() => T.metadata
+        function methodsOf<T: Reflectable>() => T.metadata.methods
+
+        const parseResult = int.parse("1")
+        const importedNumber = values.number
+        const captures = sendPayment.calls
+        const meta = Tool.metadata
+        const methods = meta.methods
+      `,
+    }, "/fixtures.do");
+    expect(checked.diagnostics).toHaveLength(0);
+    assignModuleNamespaces("/fixtures.do", checked.result.modules);
+
+    const functionDeclaration = (name: string) => {
+      const declaration = checked.program.statements.find(
+        (statement) => statement.kind === "function-declaration" && statement.name === name,
+      );
+      if (!declaration || declaration.kind !== "function-declaration") {
+        throw new Error(`Expected function declaration ${name}`);
+      }
+      return declaration;
+    };
+
+    const parameterType = (functionName: string, parameterName: string): ResolvedType => {
+      const parameter = functionDeclaration(functionName).params.find((candidate) => candidate.name === parameterName);
+      if (!parameter?.resolvedType) throw new Error(`Expected resolved type for ${functionName}.${parameterName}`);
+      return parameter.resolvedType;
+    };
+
+    const constType = (name: string): ResolvedType => {
+      const declaration = checked.program.statements.find(
+        (statement) => statement.kind === "const-declaration" && statement.name === name,
+      );
+      if (!declaration || declaration.kind !== "const-declaration" || !declaration.resolvedType) {
+        throw new Error(`Expected resolved const ${name}`);
+      }
+      return declaration.resolvedType;
+    };
+
+    const functionType = (name: string): Extract<ResolvedType, { kind: "function" }> => {
+      const type = functionDeclaration(name).resolvedType;
+      if (!type || type.kind !== "function") throw new Error(`Expected resolved function type ${name}`);
+      return type;
+    };
+
+    const expressionType = (predicate: (type: ResolvedType) => boolean): ResolvedType => {
+      const expression = collectExprs(checked.program).find(
+        (candidate) => candidate.resolvedType !== undefined && predicate(candidate.resolvedType),
+      );
+      if (!expression?.resolvedType) throw new Error("Expected matching resolved expression type");
+      return expression.resolvedType;
+    };
+
+    const methodsType = constType("methods");
+    if (methodsType.kind !== "array") throw new Error("Expected metadata methods array");
+    const capturesType = constType("captures");
+    if (capturesType.kind !== "array") throw new Error("Expected mock captures array");
+
+    const jsonSerializableConstraint = functionType("jsonSerializable").typeParamConstraints?.[0];
+    const reflectableConstraint = functionType("reflectable").typeParamConstraints?.[0];
+    if (!jsonSerializableConstraint || !reflectableConstraint) throw new Error("Expected generic constraints");
+
+    fixtures = {
+      json: parameterType("mangleFixtures", "json"),
+      primitive: parameterType("mangleFixtures", "primitive"),
+      class: parameterType("mangleFixtures", "widget"),
+      externClass: parameterType("mangleFixtures", "native"),
+      struct: parameterType("mangleFixtures", "record"),
+      enum: parameterType("mangleFixtures", "color"),
+      interface: parameterType("mangleFixtures", "readable"),
+      array: parameterType("mangleFixtures", "ints"),
+      map: parameterType("mangleFixtures", "lookup"),
+      set: parameterType("mangleFixtures", "flags"),
+      tuple: parameterType("mangleFixtures", "pair"),
+      union: parameterType("mangleFixtures", "unionValue"),
+      null: parameterType("mangleFixtures", "nullable"),
+      stream: parameterType("mangleFixtures", "stream"),
+      range: parameterType("mangleFixtures", "range"),
+      function: functionType("generic"),
+      weak: parameterType("mangleFixtures", "weakValue"),
+      void: functionType("mangleFixtures").returnType,
+      unknown: UNKNOWN_TYPE,
+      namespace: expressionType((type) => type.kind === "namespace"),
+      actor: parameterType("mangleFixtures", "actor"),
+      promise: parameterType("mangleFixtures", "promise"),
+      success: parameterType("mangleFixtures", "success"),
+      failure: parameterType("mangleFixtures", "failure"),
+      typevar: functionType("generic").params[0].type,
+      jsonSerializableConstraint,
+      reflectableConstraint,
+      builtinNamespace: expressionType((type) => type.kind === "builtin-namespace"),
+      mockCapture: capturesType.elementType,
+      classMetadata: constType("meta"),
+      typevarMetadata: functionType("metadataOf").returnType,
+      methodReflection: methodsType.elementType,
+      typevarMethodReflection: functionType("methodsOf").returnType.kind === "array"
+        ? functionType("methodsOf").returnType.elementType
+        : (() => { throw new Error("Expected generic methods array"); })(),
+    };
+  });
+
+  it.each([
+    ["JsonValue", "json", "json"],
+    ["primitive", "primitive", "int"],
+    ["class", "class", "app_fixtures_Widget"],
+    ["extern class", "externClass", "native__Widget"],
+    ["struct", "struct", "app_fixtures_Record"],
+    ["enum", "enum", "app_fixtures_Color"],
+    ["array", "array", "array_int"],
+    ["map", "map", "map_string_int"],
+    ["set", "set", "set_bool"],
+    ["tuple", "tuple", "tuple_int_string"],
+    ["union", "union", "union_int_null"],
+    ["null", "null", "null"],
+    ["stream", "stream", "stream_string"],
+    ["range", "range", "range"],
+    ["interface", "interface", "app_fixtures_Readable"],
+    ["function", "function", "fn"],
+    ["weak", "weak", "weak_int"],
+    ["void", "void", "void"],
+    ["unknown", "unknown", "unknown"],
+    ["namespace", "namespace", "namespace"],
+    ["actor", "actor", "actor_app_fixtures_Worker"],
+    ["promise", "promise", "promise_int"],
+    ["success", "success", "success_int"],
+    ["failure", "failure", "failure_string"],
+    ["type variable", "typevar", "T"],
+    ["JSON-serializable constraint", "jsonSerializableConstraint", "json_serializable"],
+    ["reflectable constraint", "reflectableConstraint", "reflectable"],
+    ["builtin namespace", "builtinNamespace", "int"],
+    ["mock capture", "mockCapture", "__fixtures_sendPayment_Call"],
+    ["class metadata", "classMetadata", "metadata_app_fixtures_Tool"],
+    ["type-variable metadata", "typevarMetadata", "metadata_T"],
+    ["method reflection", "methodReflection", "method_app_fixtures_Tool"],
+    ["type-variable method reflection", "typevarMethodReflection", "method_T"],
+  ] as [string, keyof MangleFixtures, string][]) ("mangles %s", (_label, key, expected) => {
+    expect(mangleTypeForCppName(fixtures[key])).toBe(expected);
   });
 });
 
