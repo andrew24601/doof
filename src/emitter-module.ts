@@ -55,7 +55,7 @@ import { propagateMetadataDemand } from "./emitter-metadata.js";
 import type { ResolvedDoofBuildTarget } from "./build-targets.js";
 import { createIOSAppSupportFiles } from "./ios-app-support.js";
 import { createMacOSAppSupportFiles, type ProjectSupportFile } from "./macos-app-support.js";
-import { getBundledStdJsonSupportFile, getBundledStdlibSupportFiles } from "./stdlib.js";
+import { getBundledStdlibSupportFiles } from "./stdlib.js";
 
 type NominalObjectSymbol = ClassSymbol | StructSymbol;
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
@@ -373,13 +373,13 @@ export function emitProject(
     ));
   }
 
-  const stdlibSupportFiles = getBundledStdlibSupportFiles(analysisResult.modules.keys());
-  const wasmNeedsJsonSupport = buildMetadata.buildTarget?.kind === "wasm";
+  const stdlibModulePaths = new Set(analysisResult.modules.keys());
+  if (buildMetadata.buildTarget?.kind === "wasm") {
+    stdlibModulePaths.add(`${BUNDLED_STDLIB_ROOT}/std/json/index.do`);
+  }
+  const stdlibSupportFiles = getBundledStdlibSupportFiles(stdlibModulePaths);
   const supportFiles = [
     ...stdlibSupportFiles,
-    ...(wasmNeedsJsonSupport && !stdlibSupportFiles.some((file) => file.relativePath === "__doof_stdlib__/std/json/native_json.hpp")
-      ? [getBundledStdJsonSupportFile()]
-      : []),
     ...(buildMetadata.buildTarget?.kind === "wasm"
       ? [createWasmSupportFile(entryPath, analysisResult, baseDir, buildMetadata.packageOutputPaths, wasmExports)]
       : []),
@@ -589,11 +589,11 @@ function emitWasmSupportSource(
     "}",
     "",
     "char* __doof_wasm_success(const doof::JsonValue& value) {",
-    '    return __doof_wasm_return_text(doof::to_string(__doof_wasm_object({{"ok", doof::json_value(true)}, {"value", value}})));',
+    '    return __doof_wasm_return_text(doof_json::format(__doof_wasm_object({{"ok", doof::json_value(true)}, {"value", value}})));',
     "}",
     "",
     "char* __doof_wasm_failure(const doof::JsonValue& error) {",
-    '    return __doof_wasm_return_text(doof::to_string(__doof_wasm_object({{"ok", doof::json_value(false)}, {"error", error}})));',
+    '    return __doof_wasm_return_text(doof_json::format(__doof_wasm_object({{"ok", doof::json_value(false)}, {"error", error}})));',
     "}",
     "",
     "char* __doof_wasm_failure_message(int32_t code, const std::string& message) {",

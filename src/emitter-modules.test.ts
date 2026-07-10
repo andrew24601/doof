@@ -66,7 +66,7 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(cppCode).toContain("return a + b");
   });
 
-  it("always emits runtime JsonValue and stringification support", () => {
+  it("always emits runtime JsonValue support", () => {
     const project = emitProjectHelper({
       "/main.do": `
         function main(): int {
@@ -77,8 +77,8 @@ describe("emitter-module — hpp/cpp split", () => {
     }, "/main.do");
 
     expect(project.runtime).toContain("struct JsonValue");
-    expect(project.runtime).toContain("append_stringified");
-    expect(project.runtime).toContain("to_string(const JsonValue& value)");
+    expect(project.runtime).not.toContain("append_stringified");
+    expect(project.runtime).not.toContain("to_string(const JsonValue& value)");
     expect(project.runtime).not.toContain("struct Parser {");
     expect(project.runtime).not.toContain("struct JSON {");
   });
@@ -162,6 +162,10 @@ describe("emitter-module — hpp/cpp split", () => {
     expect(wasmSupport?.content).toContain("auto a = ((false) ? doof::json_as_int_lenient(__it_a->second) : doof::json_as_int(__it_a->second));");
     expect(wasmSupport?.content).toContain("auto __value = ::app::main_::add(a, b);");
     expect(wasmSupport?.content).not.toContain("int main(int argc, char** argv)");
+    expect(project.supportFiles.map((file) => file.relativePath)).toEqual([
+      "__doof_stdlib__/std/json/native_json.hpp",
+      "doof_wasm.cpp",
+    ]);
     expect(project.outputNativeSourceFiles).toEqual(["doof_wasm.cpp"]);
     expect(project.wasmExportNames).toEqual(["doof_export_add"]);
   });

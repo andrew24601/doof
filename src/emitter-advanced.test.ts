@@ -187,8 +187,8 @@ describe("emitter — Result type", () => {
   it("always includes JSON runtime support", () => {
     const header = generateRuntimeHeader();
     expect(header).toContain("struct JsonValue");
-    expect(header).toContain("append_stringified");
-    expect(header).toContain("to_string(const JsonValue& value)");
+    expect(header).not.toContain("append_stringified");
+    expect(header).not.toContain("to_string(const JsonValue& value)");
     expect(header).not.toContain("struct JSON {");
     expect(header).not.toContain("struct Parser {");
   });

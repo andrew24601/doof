@@ -4,7 +4,6 @@ import { joinFsPath, resolveFsPath, toVirtualPath } from "./path-utils.js";
 import type { ProjectSupportFile } from "./macos-app-support.js";
 import { DEFAULT_STD_VERSIONS, getStdPackageShortName, isStdPackageName, resolveStdlibOverridePath } from "./std-packages.js";
 import { BUNDLED_STDLIB_ROOT } from "./stdlib-constants.js";
-import { BUNDLED_STD_JSON_NATIVE_HEADER } from "./stdlib-native-json.js";
 export { BUNDLED_STDLIB_ROOT };
 
 export interface BundledStdlibMaterializedDependency {
@@ -58,22 +57,31 @@ function resolveCheckedInStdlibPath(relativePath: string): string | null {
 
 const BUNDLED_STD_JSON_MODULE_PATH = `${BUNDLED_STDLIB_ROOT}/std/json/index.do`;
 const BUNDLED_STD_JSON_NATIVE_HEADER_PATH = "__doof_stdlib__/std/json/native_json.hpp";
-function getBundledStdJsonNativeHeader(): string {
-  return BUNDLED_STD_JSON_NATIVE_HEADER;
+
+function readStdlibAsset(relativePath: string): string | null {
+  const nodeFs = getNodeFs();
+  if (!nodeFs) return null;
+
+  const overridePath = resolveStdlibOverridePath(`std/${relativePath}`);
+  const checkedInPath = resolveCheckedInStdlibPath(relativePath);
+  for (const candidate of [overridePath, checkedInPath]) {
+    if (candidate && nodeFs.existsSync(candidate)) {
+      return nodeFs.readFileSync(candidate, "utf8");
+    }
+  }
+  return null;
 }
 
-const BUNDLED_MODULES = new Map<string, string>([
-  [
-    BUNDLED_STD_JSON_MODULE_PATH,
-    [
-      'export import function parseJsonValue(text: string): Result<JsonValue, string>',
-      '  from "./native_json.hpp" as doof_json::parse',
-      "",
-      'export import function formatJsonValue(value: JsonValue): string',
-      '  from "doof_runtime.hpp" as doof::to_string',
-    ].join("\n"),
-  ],
-]);
+function isBundledStdJsonModulePath(modulePath: string): boolean {
+  return modulePath === BUNDLED_STD_JSON_MODULE_PATH
+    || modulePath.endsWith("/doof-stdlib/json/index.do")
+    || modulePath.endsWith("/std/json/index.do");
+}
+
+function isBundledStdJsonVirtualPath(path: string): boolean {
+  return path === `${BUNDLED_STDLIB_ROOT}/std/json`
+    || path.startsWith(`${BUNDLED_STDLIB_ROOT}/std/json/`);
+}
 
 class StdlibFS implements FileSystem {
   constructor(
@@ -85,27 +93,29 @@ class StdlibFS implements FileSystem {
     // virtualPath is normalized via toVirtualPath by callers
     if (!virtualPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) return null;
     const rel = virtualPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
-    const overridePath = resolveStdlibOverridePath(`std/${rel}`);
-    if (overridePath) {
-      return { realPath: overridePath };
-    }
-
-    const checkedInPath = resolveCheckedInStdlibPath(rel);
-    if (checkedInPath) {
-      return { realPath: checkedInPath };
-    }
-
     const parts = rel.split("/");
     const pkgName = getStdPackageShortName(`std/${parts[0]}`);
     const rest = parts.slice(1).join("/");
     if (!pkgName || !isStdPackageName(pkgName)) return null;
+    if (rest.length === 0 && parts[0] !== "json") return null;
+    const packageRelativePath = rest.length === 0 ? "index.do" : rest;
+    const packageRelative = joinFsPath(parts[0], packageRelativePath);
+
+    const overridePath = resolveStdlibOverridePath(`std/${packageRelative}`);
+    if (overridePath) {
+      return { realPath: overridePath };
+    }
+
+    const checkedInPath = resolveCheckedInStdlibPath(packageRelative);
+    if (checkedInPath) {
+      return { realPath: checkedInPath };
+    }
+
     const version = DEFAULT_STD_VERSIONS[pkgName];
     if (!version) return null;
 
     // Let ModuleResolver probe package roots as directories so it resolves to
     // /std/<pkg>/index.do instead of treating /std/<pkg> as a file.
-    if (rest.length === 0) return null;
-
     // Materialize remote repo: https://github.com/doof-lang/<pkgName>
     const url = `https://github.com/doof-lang/${pkgName}.git`;
     if (!this.options.materializeRemoteDependency) {
@@ -115,7 +125,7 @@ class StdlibFS implements FileSystem {
     try {
       const resolved = this.options.materializeRemoteDependency(url, version, this.options.cacheRoot);
       const rootDir = resolved.rootDir;
-      const target = joinFsPath(rootDir, rest);
+      const target = joinFsPath(rootDir, packageRelativePath);
       return { realPath: target };
     } catch {
       return null;
@@ -124,13 +134,14 @@ class StdlibFS implements FileSystem {
 
   readFile(absolutePath: string): string | null {
     const normalizedPath = toVirtualPath(absolutePath);
-    const inMem = BUNDLED_MODULES.get(normalizedPath);
-    if (inMem !== undefined) return inMem;
-
     const mapped = this.tryMapVirtualStdPath(normalizedPath);
     if (mapped) {
       const content = this.fallback.readFile(mapped.realPath);
       if (content !== null) return content;
+      const nodeFs = getNodeFs();
+      if (isBundledStdJsonVirtualPath(normalizedPath) && nodeFs?.existsSync(mapped.realPath)) {
+        return nodeFs.readFileSync(mapped.realPath, "utf8");
+      }
     }
 
     return this.fallback.readFile(absolutePath);
@@ -138,11 +149,34 @@ class StdlibFS implements FileSystem {
 
   fileExists(absolutePath: string): boolean {
     const normalizedPath = toVirtualPath(absolutePath);
-    if (BUNDLED_MODULES.has(normalizedPath)) return true;
+    if (normalizedPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) {
+      const rel = normalizedPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
+      if (!rel.includes("/")) return false;
+    }
+
     const mapped = this.tryMapVirtualStdPath(normalizedPath);
-    if (mapped && this.fallback.fileExists(mapped.realPath)) return true;
+    if (mapped) {
+      if (this.fallback.fileExists(mapped.realPath)) return true;
+      const nodeFs = getNodeFs();
+      if (isBundledStdJsonVirtualPath(normalizedPath) && nodeFs?.existsSync(mapped.realPath)) return true;
+    }
     return this.fallback.fileExists(absolutePath);
   }
+}
+
+export function getBundledStdlibSupportFiles(modulePaths: Iterable<string>): ProjectSupportFile[] {
+  if (![...modulePaths].some(isBundledStdJsonModulePath)) {
+    return [];
+  }
+
+  const content = readStdlibAsset("json/native_json.hpp");
+  if (content === null) {
+    throw new Error("Unable to load std/json/native_json.hpp from the configured stdlib checkout");
+  }
+  return [{
+    relativePath: BUNDLED_STD_JSON_NATIVE_HEADER_PATH,
+    content,
+  }];
 }
 
 export function withBundledStdlib(
@@ -150,22 +184,6 @@ export function withBundledStdlib(
   options: BundledStdlibOptions | string | undefined = undefined,
 ): FileSystem {
   return new StdlibFS(fileSystem, typeof options === "string" ? { cacheRoot: options } : options);
-}
-
-export function getBundledStdlibSupportFiles(modulePaths: Iterable<string>): ProjectSupportFile[] {
-  for (const modulePath of modulePaths) {
-    if (modulePath === BUNDLED_STD_JSON_MODULE_PATH) {
-      return [getBundledStdJsonSupportFile()];
-    }
-  }
-  return [];
-}
-
-export function getBundledStdJsonSupportFile(): ProjectSupportFile {
-  return {
-    relativePath: BUNDLED_STD_JSON_NATIVE_HEADER_PATH,
-    content: getBundledStdJsonNativeHeader(),
-  };
 }
 
 export function createBundledModuleResolver(

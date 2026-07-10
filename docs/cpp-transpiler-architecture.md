@@ -169,9 +169,9 @@ Some features require dedicated support generation beyond ordinary statement or 
 - `src/emitter-schema.ts` generates JSON Schema fragments for metadata surfaces
 - `src/emitter-metadata.ts` generates `.metadata` and `.invoke()` support
 - `src/emitter-narrowing.ts` handles `as`-narrowing and extraction from narrowed values
-- WebAssembly library targets are coordinated by `src/emitter-module.ts`: it emits
-  `doof_wasm.cpp`, adds the bundled `std/json` parser header, and exposes
-  entry-module exported functions through JSON-string C ABI wrappers
+- WebAssembly library targets are coordinated by `src/emitter-module.ts`: they
+  pull in the bundled `std/json` package support, emit `doof_wasm.cpp`, and
+  expose entry-module exported functions through JSON-string C ABI wrappers
 
 These modules are the owning surface when a feature requires both language lowering and runtime interop support.
 

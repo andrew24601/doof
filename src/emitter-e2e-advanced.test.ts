@@ -2186,6 +2186,8 @@ describe("E2E — Metadata", () => {
 
   it("invoke returns JSON null for void methods", () => {
     const result = ctx.compileAndRun(`
+      import { formatJsonValue } from "std/json"
+
       class Tool {
         function reset(): void { }
       }
@@ -2194,7 +2196,7 @@ describe("E2E — Metadata", () => {
         const t = Tool { }
         const result = meta.methods[0].invoke(t, { })
         if result.isSuccess() {
-          println(result.value)
+          println(formatJsonValue(result.value))
         }
         return 0
       }
@@ -2276,7 +2278,7 @@ describe("E2E — Metadata", () => {
 
         const success = meta.invoke(tool, "run", { flag: true })
         if success.isSuccess() {
-          println(success.value)
+          println(formatJsonValue(success.value))
         }
 
         const failure = meta.invoke(tool, "run", { flag: false })
@@ -2317,7 +2319,7 @@ describe("E2E — Metadata", () => {
 
         const success = meta.invoke(tool, "run", { flag: true })
         if success.isSuccess() {
-          println(success.value)
+          println(formatJsonValue(success.value))
         }
 
         const failure = meta.invoke(tool, "run", { flag: false })
@@ -2357,7 +2359,7 @@ describe("E2E — Metadata", () => {
 
         const success = meta.invoke(tool, "reset", { flag: true })
         if success.isSuccess() {
-          println(success.value)
+          println(formatJsonValue(success.value))
         }
 
         const failure = meta.invoke(tool, "reset", { flag: false })

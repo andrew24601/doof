@@ -20,8 +20,6 @@ export interface RuntimeHeaderOptions {
 
 export function generateRuntimeHeader(options: RuntimeHeaderOptions = {}): string {
     return RUNTIME_HEADER
-        .replace("__DOOF_JSON_SUPPORT__", JSON_RUNTIME_SUPPORT)
-        .replace("__DOOF_JSON_TO_STRING_OVERLOAD__", JSON_TO_STRING_OVERLOAD)
         .replace("__DOOF_OBSERVER_PLATFORM_SUPPORT__", options.observe ? OBSERVER_PLATFORM_SUPPORT : "")
         .replace("__DOOF_OBSERVER_RUNTIME_SUPPORT__", options.observe ? buildObserverRuntimeSupport() : "");
 }
@@ -1101,7 +1099,6 @@ inline std::string json_as_string_lenient(const JsonValue& value) {
     panic("Expected lenient JSON string");
 }
 
-__DOOF_JSON_SUPPORT__
 
 // ============================================================================
 // String utilities
@@ -1223,7 +1220,6 @@ inline std::string to_string(ParseError val) {
     return ParseError_name(val);
 }
 
-__DOOF_JSON_TO_STRING_OVERLOAD__
 
 // Variadic string concatenation for string interpolation
 inline std::string concat() { return ""; }
@@ -2460,123 +2456,3 @@ inline void start_server() {
 } // namespace observe
 `;
 }
-
-const JSON_TO_STRING_OVERLOAD = `inline std::string to_string(const JsonValue& value) {
-    std::string out;
-    json_detail::append_stringified(out, value);
-    return out;
-}`;
-
-const JSON_RUNTIME_SUPPORT = String.raw`namespace json_detail {
-
-inline bool is_digit(char ch) {
-    return ch >= '0' && ch <= '9';
-}
-
-inline int hex_value(char ch) {
-    if (ch >= '0' && ch <= '9') return ch - '0';
-    if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
-    if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
-    return -1;
-}
-
-inline void append_codepoint_utf8(std::string& out, uint32_t codepoint) {
-    if (codepoint <= 0x7F) {
-        out.push_back(static_cast<char>(codepoint));
-        return;
-    }
-    if (codepoint <= 0x7FF) {
-        out.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
-        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        return;
-    }
-    if (codepoint <= 0xFFFF) {
-        out.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
-        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        return;
-    }
-    out.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
-    out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-    out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-    out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-}
-
-inline void append_escaped_string(std::string& out, const std::string& value) {
-    static constexpr char HEX[] = "0123456789abcdef";
-    out.push_back('"');
-    for (unsigned char ch : value) {
-        switch (ch) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\b': out += "\\b"; break;
-            case '\f': out += "\\f"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (ch < 0x20) {
-                    out += "\\u00";
-                    out.push_back(HEX[(ch >> 4) & 0x0F]);
-                    out.push_back(HEX[ch & 0x0F]);
-                } else {
-                    out.push_back(static_cast<char>(ch));
-                }
-                break;
-        }
-    }
-    out.push_back('"');
-}
-
-inline std::string format_float(double value) {
-    if (!std::isfinite(value)) {
-        return "null";
-    }
-    std::ostringstream out;
-    out.precision(std::numeric_limits<double>::max_digits10);
-    out << value;
-    return out.str();
-}
-
-inline void append_stringified(std::string& out, const JsonValue& value) {
-    std::visit([&out](const auto& inner) {
-        using T = std::decay_t<decltype(inner)>;
-        if constexpr (std::is_same_v<T, std::monostate>) {
-            out += "null";
-        } else if constexpr (std::is_same_v<T, bool>) {
-            out += inner ? "true" : "false";
-        } else if constexpr (std::is_same_v<T, int32_t>
-            || std::is_same_v<T, int64_t>) {
-            out += std::to_string(inner);
-        } else if constexpr (std::is_same_v<T, float>
-            || std::is_same_v<T, double>) {
-            out += format_float(static_cast<double>(inner));
-        } else if constexpr (std::is_same_v<T, std::string>) {
-            append_escaped_string(out, inner);
-        } else if constexpr (std::is_same_v<T, JsonArray>) {
-            out.push_back('[');
-            if (inner != nullptr) {
-                for (size_t index = 0; index < inner->size(); ++index) {
-                    if (index > 0) out.push_back(',');
-                    append_stringified(out, (*inner)[index]);
-                }
-            }
-            out.push_back(']');
-        } else {
-            out.push_back('{');
-            if (inner != nullptr) {
-                bool first = true;
-                for (const auto& [key, item] : *inner) {
-                    if (!first) out.push_back(',');
-                    first = false;
-                    append_escaped_string(out, key);
-                    out.push_back(':');
-                    append_stringified(out, item);
-                }
-            }
-            out.push_back('}');
-        }
-    }, json_storage(value));
-}
-
-} // namespace json_detail`;
