@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { emit, emitMulti, emitProjectHelper } from "./emitter-test-helpers.js";
+import { emit, emitMulti, emitProjectHelper, emitSplit } from "./emitter-test-helpers.js";
 import { emitType } from "./emitter-types.js";
 import { generateRuntimeHeader } from "./emitter-runtime.js";
 import type { ResolvedType } from "./checker-types.js";
@@ -968,6 +968,37 @@ describe("emitter — for-of loops", () => {
     expect(cpp).toContain("using __doof_stream_int = std::variant<std::shared_ptr<__doof_private_main_Counter>>;");
     expect(cpp).toContain("__doof_stream_next___doof_stream_int(stream)");
     expect(cpp).toContain("__doof_stream_value___doof_stream_int(stream)");
+  });
+
+  it("keeps structurally typed streams header-visible without implements", () => {
+    const result = emitSplit(`
+      class Counter {
+        current: int = 0
+
+        next(): bool {
+          if this.current == 0 {
+            this.current = 1
+            return true
+          }
+          return false
+        }
+
+        value(): int => this.current
+      }
+
+      function readOnce(stream: Stream<int>): int | null {
+        if stream.next() {
+          return stream.value()
+        }
+        return null
+      }
+
+      const stream: Stream<int> = Counter()
+    `);
+
+    expect(result.hppCode).toContain("struct __doof_private_main_Counter;");
+    expect(result.hppCode).toContain("using __doof_stream_int = std::variant<std::shared_ptr<__doof_private_main_Counter>>;");
+    expect(result.hppCode).not.toContain("Users/");
   });
 
   it("lowers for-of over streams to next-driven loops", () => {

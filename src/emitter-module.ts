@@ -32,7 +32,7 @@ import type {
   CallExpression,
 } from "./ast.js";
 import type { ModuleSymbolTable, ClassSymbol, StructSymbol, ModuleSymbol } from "./types.js";
-import { findSharedDiscriminator, getResultShape, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
+import { classDeclarationHasStreamShape, findSharedDiscriminator, getResultShape, isAssignableTo, isJSONSerializable, isJsonValueType, isStreamSensitiveType, substituteTypeParams, typeContainsTypeVar, type ResolvedType } from "./checker-types.js";
 import type { EmitContext } from "./emitter-context.js";
 import { emitStatement, emitBlockStatements, isConstexprValue } from "./emitter-stmt.js";
 import { emitExpression, indent, emitIdentifierSafe, scanCapturedMutables } from "./emitter-expr.js";
@@ -830,6 +830,7 @@ function isHeaderVisibleClass(
   return cls.exported
     || cls.decl.typeParams.length > 0
     || cls.decl.implements_.length > 0
+    || classDeclarationHasStreamShape(cls.decl)
     || classDeclIsStreamSensitive(cls.decl)
     || headerSurfaceClassKeys.has(`${modulePath}:${cls.decl.name}`);
 }
@@ -1510,7 +1511,11 @@ function buildHeaderSurfaceClassKeySet(
   for (const cls of classified.classes) {
     const key = `${modulePath}:${cls.decl.name}`;
     classesByKey.set(key, cls);
-    if (cls.exported || cls.decl.typeParams.length > 0 || cls.decl.implements_.length > 0 || classDeclIsStreamSensitive(cls.decl)) {
+    if (cls.exported
+      || cls.decl.typeParams.length > 0
+      || cls.decl.implements_.length > 0
+      || classDeclarationHasStreamShape(cls.decl)
+      || classDeclIsStreamSensitive(cls.decl)) {
       result.add(key);
     }
   }

@@ -879,6 +879,44 @@ describe("e2e — case expressions", () => {
     }
   });
 
+  it("runs for-of over a structurally typed Stream<int>", () => {
+    const result = ctx.compileAndRun(`
+      class Counter {
+        current: int
+        end: int
+        currentValue: int = 0
+
+        next(): bool {
+          if this.current < this.end {
+            this.currentValue = this.current
+            this.current = this.current + 1
+            return true
+          }
+          return false
+        }
+
+        value(): int => this.currentValue
+      }
+
+      function sum(items: Stream<int>): int {
+        let total = 0
+        for item of items {
+          total = total + item
+        }
+        return total
+      }
+
+      function main(): int {
+        return sum(Counter(1, 4))
+      }
+    `);
+    if (result.exitCode !== -1) {
+      expect(result.exitCode).toBe(6);
+    } else {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+  });
+
   it("runs direct generic helper over Stream<int>", () => {
     const result = ctx.compileAndRun(`
       class Counter implements Stream<int> {

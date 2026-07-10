@@ -148,9 +148,11 @@ Current placement rules that matter for declaration-order bugs:
 - classes that participate in interface aliases, `Stream<T>` aliases, union
   type aliases, exported APIs, or generic/template surfaces remain header-visible
   so aliases and generated dispatch code refer to the same canonical namespaced C++ type
-- private Doof classes that remain header-visible use deterministic
-  local names such as `__doof_private_pkg_mod_Helper` within their module
-  namespace; extern classes always keep their native C++ name from the included header
+- private Doof classes that remain header-visible use deterministic names
+  derived from the logical emitted package/module namespace, such as
+  `__doof_private_pkg_mod_Helper`; generated names do not embed absolute
+  source filesystem paths
+- extern classes always keep their native C++ name from the included header
 - private top-level functions and variables in `.cpp` use `static` internal linkage rather than anonymous-namespace wrapping so out-of-line class methods can call them
 - the `.cpp` emits forward declarations for private helper functions before their definitions so private helper chains can reference later helpers in the same module
 - stream aliases and stream dispatch helpers stay header-visible because call sites need the alias plus the generated `next()`/`value()` dispatch surfaces during normal expression emission

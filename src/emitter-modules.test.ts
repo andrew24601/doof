@@ -1681,6 +1681,47 @@ describe("emitter-module — emitProject", () => {
     expect(mainModule?.hppCode).not.toContain("cardgame::cards");
   });
 
+  it("uses logical package namespaces for private structural stream classes", () => {
+    const result = emitProjectHelper(
+      {
+        "/workspace/app/main.do": `
+          import { query } from "../deps/sqlite/index"
+
+          function main(): int {
+            stream := query()
+            return if stream.next() then stream.value() else 0
+          }
+        `,
+        "/workspace/deps/sqlite/index.do": `
+          class RowStream {
+            next(): bool => false
+            value(): int => 0
+          }
+
+          export function query(): Stream<int> => RowStream()
+        `,
+      },
+      "/workspace/app/main.do",
+      {
+        packageOutputPaths: {
+          byRootDir: new Map([
+            ["/workspace/app", ""],
+            ["/workspace/deps/sqlite", ".packages/std/sqlite"],
+          ]),
+          namespaceNameByRootDir: new Map([
+            ["/workspace/app", "demo-app"],
+            ["/workspace/deps/sqlite", "std/sqlite"],
+          ]),
+        },
+      },
+    );
+
+    const sqliteModule = result.modules.find((module) => module.modulePath === "/workspace/deps/sqlite/index.do");
+    expect(sqliteModule?.hppCode).toContain("struct __doof_private_std__sqlite_index_RowStream;");
+    expect(sqliteModule?.hppCode).not.toContain("/workspace/");
+    expect(sqliteModule?.hppCode).not.toContain("Users_andrew");
+  });
+
   it("emits root-package modules under the package name from doof.json", () => {
     const result = emitProjectHelper(
       {

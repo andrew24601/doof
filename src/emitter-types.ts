@@ -65,7 +65,8 @@ export function emitLocalClassCppName(symbol: ClassSymbol | StructSymbol): strin
 }
 
 export function emitPrivateClassCppName(symbol: ClassSymbol | StructSymbol): string {
-  return `__doof_private_${mangleModulePathForCppName(symbol.module)}_${sanitizeCppIdentifierPart(symbol.name)}`;
+  const modulePrefix = mangleModuleNamespaceForCppName(symbol);
+  return `__doof_private_${modulePrefix}_${sanitizeCppIdentifierPart(symbol.name)}`;
 }
 
 export function emitClassForwardDeclName(symbol: ClassSymbol | StructSymbol): string {
@@ -87,6 +88,19 @@ function mangleModulePathForCppName(modulePath: string): string {
   const withoutExtension = modulePath.replace(/\.[^/.]+$/, "");
   const sanitized = sanitizeCppIdentifierPart(withoutExtension);
   return sanitized || "module";
+}
+
+function mangleModuleNamespaceForCppName(symbol: ClassSymbol | StructSymbol): string {
+  const namespace = symbol.emittedCppNamespace ?? emitModuleNamespace(symbol.module);
+  const components = namespace
+    .split("::")
+    .filter((component) => component.length > 0);
+  // The fallback application namespace is an implementation detail. Keep the
+  // historical short names for single-project output, while package-aware
+  // builds use logical package/module namespaces instead of filesystem paths.
+  const withoutAppRoot = components[0] === "app" ? components.slice(1) : components;
+  const prefix = withoutAppRoot.join("_").replace(/_+$/g, "");
+  return prefix || mangleModulePathForCppName(symbol.module);
 }
 
 function sanitizeCppIdentifierPart(value: string): string {

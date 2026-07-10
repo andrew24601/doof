@@ -932,11 +932,32 @@ function classImplementsInterface(source: ClassType, target: InterfaceType): boo
   return true;
 }
 
+/**
+ * Return whether a class declaration exposes the intrinsic Stream protocol.
+ *
+ * Stream is structural, so emitter decisions must use the same method shape
+ * that assignability uses even when the source omits `implements Stream<T>`.
+ */
+export function classDeclarationHasStreamShape(decl: ClassDeclaration): boolean {
+  const nextMethod = decl.methods.find((method) => method.name === "next" && !method.static_);
+  const valueMethod = decl.methods.find((method) => method.name === "value" && !method.static_);
+  if (!nextMethod || nextMethod.params.length !== 0 || !valueMethod || valueMethod.params.length !== 0) return false;
+
+  const nextMethodType = nextMethod.resolvedType;
+  const valueMethodType = valueMethod.resolvedType;
+  return !!nextMethodType
+    && nextMethodType.kind === "function"
+    && isAssignableTo(nextMethodType.returnType, BOOL_TYPE)
+    && !!valueMethodType
+    && valueMethodType.kind === "function";
+}
+
 function classImplementsStream(source: ClassType, target: StreamResolvedType): boolean {
   const classDecl = source.symbol.declaration;
-  const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_);
-  const valueMethod = classDecl.methods.find((method) => method.name === "value" && !method.static_);
-  if (!nextMethod || nextMethod.params.length !== 0 || !valueMethod || valueMethod.params.length !== 0) return false;
+  if (!classDeclarationHasStreamShape(classDecl)) return false;
+
+  const nextMethod = classDecl.methods.find((method) => method.name === "next" && !method.static_)!;
+  const valueMethod = classDecl.methods.find((method) => method.name === "value" && !method.static_)!;
 
   let nextMethodType = nextMethod.resolvedType;
   let valueMethodType = valueMethod.resolvedType;
