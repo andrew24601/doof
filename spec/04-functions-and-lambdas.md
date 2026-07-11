@@ -27,6 +27,26 @@ function factorial(n: int): int {
 }
 ```
 
+Block-bodied functions with a non-`void` return type must not fall through to
+their closing brace. Every reachable path must return a value, call `panic(...)`,
+or otherwise be unable to complete normally (for example, an unconditional
+`while true` loop). A missing `else`, a loop that can `break`, or a `case`
+without a wildcard or known exhaustive Result-arm pattern does not establish a
+return on every path.
+
+```javascript
+function choose(flag: bool): int {
+    if flag {
+        return 1
+    }
+    // ❌ Error: the function can reach the closing brace without returning
+}
+```
+
+`void` functions may fall through normally. Expression-bodied functions are
+already value-producing and are checked against their declared or inferred
+return type as usual.
+
 ### Return Type Inference
 
 The return type can be inferred from the body in unambiguous cases:

@@ -19,6 +19,7 @@ Use this base file as the entry point. Load only the reference file that matches
 - Keep code idiomatic: immutable by default, explicit types at boundaries, no JavaScript-style coercions.
 - Use intrinsic `Success<T>` / `Failure<E>` arms and their `Result<T, E>` union alias with `case`, `try`, declaration-`else`, `as`, or `!` for fallible flows. Use `panic(...)` only for programmer errors.
 - Plain `if` null checks do **not** narrow static types. Use explicit narrowing forms.
+- Block-bodied non-`void` functions must return a value on every reachable path.
 - Classes and structs are nominal. Interfaces are structural.
 - Prefer `readonly` for deeply immutable values and `:=` for immutable bindings with mutable interiors. `const` is deprecated and remains accepted temporarily with a warning.
 - Prefer `std/<name>` packages before inventing utility modules.

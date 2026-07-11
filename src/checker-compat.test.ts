@@ -717,6 +717,157 @@ describe("Return type validation", () => {
     expect(info.diagnostics).toHaveLength(0);
   });
 
+  it("rejects a block function that falls through without returning", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function main(): int {
+            println("Hello world")
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("must return a value on all paths");
+  });
+
+  it("rejects a block function when one conditional path falls through", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function choose(flag: bool): int {
+            if flag {
+              return 1
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("must return a value on all paths");
+  });
+
+  it("accepts a block function when every conditional path returns", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function choose(flag: bool): int {
+            if flag {
+              return 1
+            } else {
+              return 2
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("requires a wildcard case arm for definite returns", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function classify(value: int): int {
+            case value {
+              0 -> return 1
+              1 -> return 2
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("must return a value on all paths");
+  });
+
+  it("accepts a block function when every wildcard case path returns", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function classify(value: int): int {
+            case value {
+              0 -> return 1
+              _ -> return 2
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects a non-terminating loop that can break without returning", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function waitOrFail(): int {
+            while true {
+              break
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("must return a value on all paths");
+  });
+
+  it("accepts a block function that ends in panic", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function fail(): int {
+            panic("unreachable")
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("accepts a block function with a non-terminating loop", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function waitForever(): int {
+            while true {
+              println("waiting")
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
+  it("checks missing returns in methods too", () => {
+    const info = check(
+      {
+        "/main.do": `
+          class Counter {
+            value: int
+
+            getValue(): int {
+              println("reading")
+            }
+          }
+        `,
+      },
+      "/main.do",
+    );
+    expect(info.diagnostics).toHaveLength(1);
+    expect(info.diagnostics[0].message).toContain("must return a value on all paths");
+  });
+
   it("accepts widened return value", () => {
     const info = check(
       {

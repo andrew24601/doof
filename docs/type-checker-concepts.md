@@ -41,6 +41,36 @@ Validation anchors:
 - `src/checker-validation.test.ts`
 - `src/checker-inference.test.ts`
 
+## Definite Returns in Block Bodies
+
+Block-bodied functions and methods with an explicitly declared non-`void`
+return type must not complete normally. The checker performs conservative
+normal-completion analysis after statement checking: every reachable branch
+must return, panic, or be unable to complete normally. Bodyless native/imported
+callables are signature declarations and are excluded from this check.
+
+Primary modules:
+
+- `src/checker-control-flow.ts`
+- `src/checker-decl.ts`
+- `src/checker-stmt.ts`
+
+Keep aligned:
+
+- `if` chains require an exiting `else` path; statement-level `case` requires a
+  wildcard or known exhaustive Result-arm pattern before it can establish a
+  definite return
+- loops are fallthrough unless their condition is provably infinite and no
+  reachable `break` escapes; `for-of` remains fallthrough because the iterable
+  may be empty
+- `panic(...)` is recognized only when the call resolves to the builtin, so a
+  user-defined shadowing function does not suppress the diagnostic
+
+Validation anchors:
+
+- `src/checker-compat.test.ts`
+- `spec/04-functions-and-lambdas.md`
+
 ## Collection Annotation and Hashability Rules
 
 `Map`/`ReadonlyMap` and `Set`/`ReadonlySet` are checked in several contexts: variable declarations, fields, parameters, return types, aliases, interfaces, and same-site literal inference when type arguments are omitted.

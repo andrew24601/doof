@@ -84,6 +84,11 @@ function factorial(n: int): int {
 function add(a: int, b: int) => a + b
 ```
 
+Block-bodied functions with a non-`void` return type must return a value on
+every path. Falling through the closing brace is an error; `panic(...)` and an
+unconditional non-terminating loop count as non-fallthrough paths. `void`
+functions may complete normally.
+
 Return type inference works when the body is unambiguous.
 
 ### Calling Functions

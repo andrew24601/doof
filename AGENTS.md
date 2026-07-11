@@ -52,6 +52,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [checker-internal.ts](src/checker-internal.ts) (~130 lines) — Shared checker host contract and built-in checker constants
 - [checker-stmt.ts](src/checker-stmt.ts) — Statement dispatch, block checking, bindings, loops, else-narrow, and try statement entry
 - [checker-decl.ts](src/checker-decl.ts) — Function, class, and method checking
+- [checker-control-flow.ts](src/checker-control-flow.ts) — Conservative normal-completion analysis for definite returns
 - [checker-declared-values.ts](src/checker-declared-values.ts) — Shared declared-value/default resolution for bindings, parameters, and fields
 - [checker-member.ts](src/checker-member.ts) (~480 lines) — Member lookup, built-in members, JSON/metadata access, and positional field extraction
 - [checker-result.ts](src/checker-result.ts) (~200 lines) — Result arm scopes, catch expressions, try propagation, and binding retyping
@@ -180,6 +181,7 @@ src/
   checker-internal.ts           # Shared checker host contract and built-ins
   checker-stmt.ts               # Statement-level checking
   checker-decl.ts               # Function/class/method checking
+  checker-control-flow.ts       # Definite-return normal-completion analysis
   checker-declared-values.ts    # Shared binding/default-value resolution helpers
   checker-member.ts             # Member lookup and built-in member typing
   checker-result.ts             # Result/catch/try propagation helpers

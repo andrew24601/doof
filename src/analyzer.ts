@@ -910,6 +910,7 @@ function synthesizeExternFuncDecl(ext: ExternFunctionDeclaration): FunctionDecla
     params: ext.params,
     returnType: ext.returnType,
     body: emptyBlock,
+    bodyless: true,
     exported: ext.exported,
     static_: false,
     isolated_: false,

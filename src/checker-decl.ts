@@ -20,6 +20,7 @@ import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics
 import type { ModuleSymbolTable } from "./types.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { getUnsupportedDefaultExpressionReason } from "./default-expression.js";
+import { blockCanFallThrough } from "./checker-control-flow.js";
 import {
   getCollectionAwareAssignabilityTypes,
   resolveDeclaredType,
@@ -308,6 +309,15 @@ export function checkFunction(
   let inferredReturnType: ResolvedType;
   if (decl.body.kind === "block") {
     host.checkStatements(decl.body.statements, fnScope, table, info);
+    if (!decl.bodyless && declaredReturnType && declaredReturnType.kind !== "void" && declaredReturnType.kind !== "unknown"
+      && blockCanFallThrough(decl.body)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Function "${decl.name}" with return type "${typeToString(declaredReturnType)}" must return a value on all paths`,
+        span: decl.body.span,
+        module: table.path,
+      });
+    }
     inferredReturnType = declaredReturnType ?? VOID_TYPE;
   } else {
     inferredReturnType = host.inferExprType(decl.body, fnScope, table, info, declaredReturnType ?? undefined);
@@ -648,6 +658,15 @@ export function checkMethod(
 
   if (method.body.kind === "block") {
     host.checkStatements(method.body.statements, methodScope, table, info);
+    if (!method.bodyless && returnType && returnType.kind !== "void" && returnType.kind !== "unknown"
+      && blockCanFallThrough(method.body)) {
+      info.diagnostics.push({
+        severity: "error",
+        message: `Method "${method.name}" with return type "${typeToString(returnType)}" must return a value on all paths`,
+        span: method.body.span,
+        module: table.path,
+      });
+    }
   } else {
     const bodyType = host.inferExprType(method.body, methodScope, table, info);
     if (returnType && !isAssignableTo(bodyType, returnType)) {
