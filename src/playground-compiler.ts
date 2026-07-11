@@ -4,6 +4,7 @@ import type { FileSystem } from "./resolver.js";
 import { ModuleAnalyzer } from "./analyzer.js";
 import { emitModuleSplit } from "./emitter-module.js";
 import { collectSemanticDiagnostics } from "./pipeline-diagnostics.js";
+import { createBundledModuleResolver, withBundledStdlib, type BundledStdlibFiles } from "./stdlib.js";
 
 const MODULE_PATH = "/main.do";
 
@@ -26,6 +27,11 @@ export interface PlaygroundDiagnostic {
 export interface CompileResult {
   cpp: string;
   diagnostics: PlaygroundDiagnostic[];
+}
+
+export interface PlaygroundCompileOptions {
+  /** Browser-bundled stdlib sources keyed by package-relative path. */
+  stdlibFiles?: BundledStdlibFiles;
 }
 
 function fromDiagnostic(d: Diagnostic): PlaygroundDiagnostic {
@@ -52,7 +58,7 @@ function fromParseError(error: ParseError): PlaygroundDiagnostic {
   };
 }
 
-export function compileDoof(source: string): CompileResult {
+export function compileDoof(source: string, options: PlaygroundCompileOptions = {}): CompileResult {
   const diagnostics: PlaygroundDiagnostic[] = [];
 
   let lexerDiagnostics;
@@ -95,7 +101,9 @@ export function compileDoof(source: string): CompileResult {
     },
   };
 
-  const analyzer = new ModuleAnalyzer(vfs);
+  const analyzerFileSystem = withBundledStdlib(vfs, { files: options.stdlibFiles });
+  const resolver = createBundledModuleResolver(vfs, { files: options.stdlibFiles });
+  const analyzer = new ModuleAnalyzer(analyzerFileSystem, resolver);
   const analysisResult = analyzer.analyzeModule(MODULE_PATH);
   const semanticDiagnostics = collectSemanticDiagnostics(analysisResult);
   for (const d of semanticDiagnostics) {

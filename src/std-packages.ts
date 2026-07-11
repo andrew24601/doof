@@ -8,6 +8,10 @@ export const DOOF_STDLIB_ROOT_ENV = "DOOF_STDLIB_ROOT";
 
 export const DEFAULT_STD_VERSIONS: StdPackageVersions = STDLIB_PACKAGE_VERSIONS;
 
+function getDefaultEnvironment(): NodeJS.ProcessEnv {
+  return typeof process === "undefined" ? {} : process.env;
+}
+
 export function isStdPackageName(value: string): value is StdPackageName {
   return Object.hasOwn(DEFAULT_STD_VERSIONS, value);
 }
@@ -25,7 +29,7 @@ export function getImplicitStdDependencyConfig(packageName: string): { url: stri
   };
 }
 
-export function getStdlibRootOverride(env: NodeJS.ProcessEnv = process.env): string | null {
+export function getStdlibRootOverride(env: NodeJS.ProcessEnv = getDefaultEnvironment()): string | null {
   const configuredRoot = env[DOOF_STDLIB_ROOT_ENV]?.trim();
   if (!configuredRoot) {
     return null;
@@ -34,7 +38,10 @@ export function getStdlibRootOverride(env: NodeJS.ProcessEnv = process.env): str
   return resolveFsPath(configuredRoot);
 }
 
-export function resolveStdlibOverridePath(specifier: string, env: NodeJS.ProcessEnv = process.env): string | null {
+export function resolveStdlibOverridePath(
+  specifier: string,
+  env: NodeJS.ProcessEnv = getDefaultEnvironment(),
+): string | null {
   const shortName = getStdPackageShortName(specifier);
   if (!shortName) {
     return null;

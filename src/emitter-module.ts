@@ -3680,7 +3680,10 @@ function modulePathToIncludeFromModule(
   const fromCppNames = modulePathToCppNames(fromModulePath, baseDir, packageOutputPaths);
   const fromDir = nodePath.posix.dirname(fromCppNames.hppName);
   const toInclude = modulePathToInclude(toModulePath, baseDir, packageOutputPaths);
-  const relative = nodePath.posix.relative(fromDir, toInclude);
+  // The generated output names are relative paths. Anchor both sides before
+  // asking the path implementation for a relative path so browser path
+  // shims do not fall back to process.cwd().
+  const relative = nodePath.posix.relative(`/${fromDir}`, `/${toInclude}`);
   return relative === "" ? nodePath.posix.basename(toInclude) : relative;
 }
 

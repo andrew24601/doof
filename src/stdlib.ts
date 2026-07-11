@@ -16,8 +16,12 @@ export type BundledStdlibRemoteMaterializer = (
   cacheRoot?: string,
 ) => BundledStdlibMaterializedDependency;
 
+export type BundledStdlibFiles = ReadonlyMap<string, string>;
+
 export interface BundledStdlibOptions {
   cacheRoot?: string;
+  /** Source files keyed by package-relative paths such as "math/index.do". */
+  files?: BundledStdlibFiles;
   materializeRemoteDependency?: BundledStdlibRemoteMaterializer;
 }
 
@@ -89,6 +93,20 @@ class StdlibFS implements FileSystem {
     private readonly options: BundledStdlibOptions = {},
   ) {}
 
+  private readProvidedFile(virtualPath: string): string | null {
+    if (!virtualPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) return null;
+
+    const relativePath = virtualPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
+    return this.options.files?.get(relativePath) ?? null;
+  }
+
+  private hasProvidedFile(virtualPath: string): boolean {
+    if (!virtualPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) return false;
+
+    const relativePath = virtualPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
+    return this.options.files?.has(relativePath) ?? false;
+  }
+
   private tryMapVirtualStdPath(virtualPath: string): { realPath: string } | null {
     // virtualPath is normalized via toVirtualPath by callers
     if (!virtualPath.startsWith(`${BUNDLED_STDLIB_ROOT}/std/`)) return null;
@@ -134,6 +152,9 @@ class StdlibFS implements FileSystem {
 
   readFile(absolutePath: string): string | null {
     const normalizedPath = toVirtualPath(absolutePath);
+    const providedFile = this.readProvidedFile(normalizedPath);
+    if (providedFile !== null) return providedFile;
+
     const mapped = this.tryMapVirtualStdPath(normalizedPath);
     if (mapped) {
       const content = this.fallback.readFile(mapped.realPath);
@@ -153,6 +174,8 @@ class StdlibFS implements FileSystem {
       const rel = normalizedPath.slice((`${BUNDLED_STDLIB_ROOT}/std/`).length);
       if (!rel.includes("/")) return false;
     }
+
+    if (this.hasProvidedFile(normalizedPath)) return true;
 
     const mapped = this.tryMapVirtualStdPath(normalizedPath);
     if (mapped) {
@@ -190,8 +213,8 @@ export function createBundledModuleResolver(
   fileSystem: FileSystem,
   options: ResolverOptions & BundledStdlibOptions = {},
 ): ModuleResolver {
-  const { cacheRoot, materializeRemoteDependency, ...resolverOptions } = options;
-  return new ModuleResolver(withBundledStdlib(fileSystem, { cacheRoot, materializeRemoteDependency }), {
+  const { cacheRoot, files, materializeRemoteDependency, ...resolverOptions } = options;
+  return new ModuleResolver(withBundledStdlib(fileSystem, { cacheRoot, files, materializeRemoteDependency }), {
     ...resolverOptions,
     stdlibRoot: resolverOptions.stdlibRoot ?? BUNDLED_STDLIB_ROOT,
   });

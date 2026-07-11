@@ -19,6 +19,7 @@ const tmpDirs: string[] = [];
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   while (tmpDirs.length > 0) {
     const dir = tmpDirs.pop();
     if (dir) {
@@ -47,6 +48,12 @@ describe("std package metadata", () => {
     expect(resolveStdlibOverridePath("std/fs")).toBe("/workspace/doof-stdlib/fs");
     expect(resolveStdlibOverridePath("std/fs/runtime")).toBe("/workspace/doof-stdlib/fs/runtime");
     expect(resolveStdlibOverridePath("std/missing")).toBeNull();
+  });
+
+  it("does not require process when resolving in a browser runtime", () => {
+    vi.stubGlobal("process", undefined);
+
+    expect(resolveStdlibOverridePath("std/fs")).toBeNull();
   });
 
   it("finds an implicit local std dependency root when the override contains a package manifest", () => {

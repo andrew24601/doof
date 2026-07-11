@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest";
 import { compileDoof } from "./playground-compiler.js";
 
 describe("playground compiler", () => {
+  it("compiles imports from a browser-provided stdlib", () => {
+    const result = compileDoof(
+      `import { add } from "std/math"
+
+      function main() {
+        println(add(2, 3))
+      }`,
+      {
+        stdlibFiles: new Map([
+          ["math/index.do", "export function add(a: int, b: int): int => a + b"],
+        ]),
+      },
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.cpp).toContain("add(2, 3)");
+    expect(result.cpp).toContain('#include "__doof_stdlib__/std/math/index.hpp"');
+  });
+
   it("emits entry-module C++ using the module emitter", () => {
     const result = compileDoof(`
       function main() {

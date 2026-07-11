@@ -17,6 +17,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
 - `doof_runtime.h` — standalone C++ source template for the generated `doof_runtime.hpp`
 - `playground/` — browser-based playground app for trying the compiler interactively
+  - `playground/src/stdlib-files.ts` — Vite-bundled stdlib source map for browser compilation
 - `vscode-doof/` — VS Code extension sources
 
 ## `src/` by Concern

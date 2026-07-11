@@ -8,6 +8,30 @@ afterEach(() => {
 });
 
 describe("bundled stdlib overrides", () => {
+  it("maps browser-provided stdlib files through the virtual root", () => {
+    const fs = withBundledStdlib(new VirtualFS({}), {
+      files: new Map([
+        ["math/index.do", "export function add(a: int, b: int): int => a + b"],
+      ]),
+    });
+
+    expect(fs.readFile(`${BUNDLED_STDLIB_ROOT}/std/math/index.do`)).toBe(
+      "export function add(a: int, b: int): int => a + b",
+    );
+    expect(fs.fileExists(`${BUNDLED_STDLIB_ROOT}/std/math/index.do`)).toBe(true);
+    expect(fs.fileExists(`${BUNDLED_STDLIB_ROOT}/std/math/missing.do`)).toBe(false);
+  });
+
+  it("resolves browser-provided stdlib package barrels", () => {
+    const resolver = createBundledModuleResolver(new VirtualFS({}), {
+      files: new Map([["math/index.do", ""]]),
+    });
+
+    expect(resolver.resolve("std/math", "/app/main.do")).toBe(
+      `${BUNDLED_STDLIB_ROOT}/std/math/index.do`,
+    );
+  });
+
   it("resolves std imports from DOOF_STDLIB_ROOT", () => {
     vi.stubEnv(DOOF_STDLIB_ROOT_ENV, "/workspace/doof-stdlib");
 
