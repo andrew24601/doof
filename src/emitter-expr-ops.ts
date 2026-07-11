@@ -671,5 +671,9 @@ export function emitIndexExpression(expr: IndexExpression, ctx: EmitContext): st
     return `doof::map_at(${object}, ${index}, ${locationArgs})`;
   }
 
+  if (objType?.kind === "primitive" && objType.name === "string") {
+    return `doof::string_at(${object}, ${index}, ${locationArgs})`;
+  }
+
   return `${object}[${index}]`;
 }

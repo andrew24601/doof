@@ -14,7 +14,10 @@
 | `bool` | boolean |
 | `void` | unit type |
 
-`string.charAt(index)` returns a `char`. Convert it with `string(c)` when a one-character string is needed; `char` values also work with equality checks and string concatenation.
+`string[index]` and `string.charAt(index)` return a `char`. Both forms panic
+when the index is negative or outside the string's byte range. Convert the
+result with `string(c)` when a one-character string is needed; `char` values
+also work with equality checks and string concatenation.
 
 `Range` is the built-in finite integer range type created by `a..b` and
 `a..<b`. It can be stored, passed to functions, returned, and iterated with

@@ -418,6 +418,21 @@ describe("e2e — array safety", () => {
     expect(result.stderr).toContain("panic: main.do:4: Index out of bounds: 5");
   });
 
+  it("panics on out-of-bounds string indexing", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        i := "12"[2]
+        println(int(i))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("panic: main.do:3: Index out of bounds: 2");
+  });
+
   it("returns Failure on empty array pop", () => {
     const result = ctx.compileAndRun(`
       function main(): int {
@@ -1536,6 +1551,21 @@ describe("e2e — string methods", () => {
     } else {
       expect.unreachable(`Compile error: ${result.stderr}`);
     }
+  });
+
+  it("panics on out-of-bounds string.charAt", () => {
+    const result = ctx.compileAndRun(`
+      function main(): int {
+        c := "12".charAt(2)
+        println(int(c))
+        return 0
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("panic: main.do:3: Index out of bounds: 2");
   });
 });
 

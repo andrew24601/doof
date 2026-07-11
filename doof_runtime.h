@@ -1409,8 +1409,10 @@ inline std::shared_ptr<std::vector<std::string>> string_split(const std::string&
     return result;
 }
 
-inline char32_t string_charAt(const std::string& s, int32_t index) {
-    if (index < 0 || index >= static_cast<int32_t>(s.size())) return U'\0';
+inline char32_t string_at(const std::string& s, int32_t index, const char* file, int32_t line) {
+    if (index < 0 || index >= static_cast<int32_t>(s.size())) {
+        panic_at(file, line, "Index out of bounds: " + to_string(index));
+    }
     return static_cast<char32_t>(static_cast<unsigned char>(s[static_cast<size_t>(index)]));
 }
 

@@ -182,6 +182,7 @@ Strings support a `.length` property and the following built-in methods:
 |--------|-----------|-------------|
 | `.length` | `int` (property) | Number of bytes in the string |
 | `.indexOf(s)` | `(string): int` | Position of first occurrence, or `-1` |
+| `[index]` | `char` | Character at a byte index; panics if the index is out of bounds |
 | `.contains(s)` | `(string): bool` | Whether the string contains the substring |
 | `.startsWith(s)` | `(string): bool` | Whether the string starts with the prefix |
 | `.endsWith(s)` | `(string): bool` | Whether the string ends with the suffix |
@@ -195,7 +196,7 @@ Strings support a `.length` property and the following built-in methods:
 | `.replace(search, repl)` | `(string, string): string` | Replace first occurrence |
 | `.replaceAll(search, repl)` | `(string, string): string` | Replace all occurrences |
 | `.split(delim)` | `(string): string[]` | Split into array of strings |
-| `.charAt(index)` | `(int): char` | Character at index |
+| `.charAt(index)` | `(int): char` | Character at a byte index; panics if the index is out of bounds |
 | `.repeat(count)` | `(int): string` | Repeat string N times |
 
 ```javascript

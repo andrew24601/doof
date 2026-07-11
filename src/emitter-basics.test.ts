@@ -1553,7 +1553,7 @@ describe("emitter — string methods", () => {
         return s.repeat(3)
       }
     `);
-    expect(cpp).toContain("doof::string_charAt(");
+    expect(cpp).toContain('doof::string_at(s, 0, "main.do", 3)');
     expect(cpp).toContain("doof::string_repeat(");
   });
 

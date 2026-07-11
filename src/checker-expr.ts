@@ -1668,6 +1668,7 @@ function inferExprTypeInner(
       }
       if (objectType.kind === "array") return objectType.elementType;
       if (objectType.kind === "map") return objectType.valueType;
+      if (objectType.kind === "primitive" && objectType.name === "string") return CHAR_TYPE;
       return UNKNOWN_TYPE;
     }
 

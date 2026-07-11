@@ -685,6 +685,21 @@ describe("Expression type inference", () => {
     expect(ints.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("infers string index type as char", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function first(): char => "12"[0]
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+    const indexExpression = collectExprs(info.program).find((expr) => expr.kind === "index-expression");
+    expect(indexExpression?.resolvedType).toEqual({ kind: "primitive", name: "char" });
+  });
+
   it("infers nullable array and map optional index types", () => {
     const info = check(
       {

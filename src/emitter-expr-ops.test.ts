@@ -269,6 +269,17 @@ describe("emitter expression operators", () => {
     expect(cpp).toContain("if (values) return doof::map_at(values, key");
   });
 
+  it("emits string indexing", () => {
+    const cpp = emit(`
+      function main(): int {
+        i := "12"[0]
+        return 0
+      }
+    `);
+
+    expect(cpp).toContain('auto i = doof::string_at(std::string("12"), 0, "main.do", 3);');
+  });
+
   it("emits namespace and imported member references canonically", () => {
     const cpp = emitMulti({
       "/main.do": `

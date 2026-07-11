@@ -39,6 +39,8 @@ Strategy:
   bodiless extern declarations; raw `std::function` remains only for runtime
   internals
 - arrays, maps, and sets lower to shared runtime container wrappers
+- string indexing and `.charAt()` lower to the shared bounds-checked
+  `doof::string_at` runtime helper
 - `Range` lowers to `doof::Range`, preserving the lower bound and normalizing
   the upper bound to an exclusive value for member accessors
 

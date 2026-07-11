@@ -748,6 +748,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
     if (objType && objType.kind === "primitive" && objType.name === "string") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
+      const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "indexOf") return `doof::string_indexOf(${obj}, ${args})`;
       if (method === "contains") return `doof::string_contains(${obj}, ${args})`;
       if (method === "startsWith") return `doof::string_startsWith(${obj}, ${args})`;
@@ -765,7 +766,7 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       if (method === "replace") return `doof::string_replace(${obj}, ${args})`;
       if (method === "replaceAll") return `doof::string_replaceAll(${obj}, ${args})`;
       if (method === "split") return `doof::string_split(${obj}, ${args})`;
-      if (method === "charAt") return `doof::string_charAt(${obj}, ${args})`;
+      if (method === "charAt") return `doof::string_at(${obj}, ${args}, ${locationArgs})`;
       if (method === "repeat") return `doof::string_repeat(${obj}, ${args})`;
     }
 
