@@ -348,6 +348,7 @@ Validation anchors:
 Strategy:
 
 - arrays, maps, sets, and tuples lower to runtime-backed C++ container or tuple shapes
+- mutable array `.reserve(capacity)` lowers to `std::vector::reserve` through the shared runtime helper
 - destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature
 - collection behavior depends on both type lowering and statement or expression emission helpers
 

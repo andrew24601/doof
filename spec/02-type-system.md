@@ -221,6 +221,7 @@ Arrays support a `.length` property and the following built-in methods:
 |--------|--------------|-----------|-------------|
 | `.length` | both | `int` (property) | Number of elements |
 | `.push(element)` | mutable only | `(T): void` | Append an element |
+| `.reserve(capacity)` | mutable only | `(int): void` | Reserve backing capacity without changing the element count |
 | `.pop()` | mutable only | `(): Result<T, string>` | Remove and return the last element, or a failure message when empty |
 | `.contains(element)` | both | `(T): bool` | Whether the array contains the value |
 | `.indexOf(element)` | both | `(T): int` | Index of first matching element, or `-1` when absent |
@@ -232,7 +233,7 @@ Arrays support a `.length` property and the following built-in methods:
 | `.buildReadonly()` | mutable only | `(): readonly T[]` | Move-drain the array into a new readonly array (source is left empty) |
 | `.cloneMutable()` | both | `(): T[]` | Shallow-copy into a new mutable array |
 
-`push` and `pop` are rejected on `readonly T[]` arrays at compile time. `buildReadonly` is also rejected on readonly arrays — use `cloneMutable` then `buildReadonly` if needed.
+`push`, `reserve`, and `pop` are rejected on `readonly T[]` arrays at compile time. `buildReadonly` is also rejected on readonly arrays — use `cloneMutable` then `buildReadonly` if needed.
 
 ```javascript
 nums := [1, 2, 3, 4]

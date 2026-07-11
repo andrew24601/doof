@@ -12,6 +12,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `samples/` — example programs and larger package-style projects used as references and e2e coverage targets
 - `stdlib/` — bundled standard library sources and support assets
 - `scripts/` — helper build and packaging scripts for samples and app targets
+- `selfhost/` — Doof implementations of compiler components, currently the lexer and its Doof-native tests
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
 - `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
@@ -19,6 +20,11 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `playground/` — browser-based playground app for trying the compiler interactively
   - `playground/src/stdlib-files.ts` — Vite-bundled stdlib source map for browser compilation
 - `vscode-doof/` — VS Code extension sources
+
+## Self-Hosted Compiler Work
+
+- `selfhost/lexer.do` — performance-oriented lexer prototype; emits reserved value-array token structs with source spans, locations, and diagnostics
+- `selfhost/lexer.test.do` — Doof-native lexer tests covering hot-path tokens, keywords, literals, interpolation, positions, large inputs, and diagnostics
 
 ## `src/` by Concern
 

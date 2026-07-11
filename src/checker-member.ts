@@ -1012,6 +1012,11 @@ export function inferMemberType(
       return UNKNOWN_TYPE;
     }
     if (property === "push") return { kind: "function", params: [{ name: "element", type: elem }], returnType: VOID_TYPE };
+    if (objectType.readonly_ && property === "reserve") {
+      reportMemberDiagnostic(info, table, span, 'Method "reserve" is not available on readonly array');
+      return UNKNOWN_TYPE;
+    }
+    if (property === "reserve") return { kind: "function", params: [{ name: "capacity", type: INT_TYPE }], returnType: VOID_TYPE };
     if (objectType.readonly_ && property === "pop") {
       reportMemberDiagnostic(info, table, span, 'Method "pop" is not available on readonly array');
       return UNKNOWN_TYPE;

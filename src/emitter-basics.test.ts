@@ -1597,6 +1597,15 @@ describe("emitter — string methods", () => {
     expect(cpp).toContain("doof::array_pop(values)");
   });
 
+  it("emits array reserve via runtime helper", () => {
+    const cpp = emit(`
+      function prepare(values: int[]): void {
+        values.reserve(128)
+      }
+    `);
+    expect(cpp).toContain("doof::array_reserve(values, 128)");
+  });
+
   it("emits array contains and slice via runtime helpers", () => {
     const cpp = emit(`
       function hasValue(values: int[]): bool {

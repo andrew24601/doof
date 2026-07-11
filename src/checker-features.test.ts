@@ -5921,6 +5921,29 @@ describe("checker — string methods", () => {
     expect(cr.diagnostics[1].message).toContain('Method "pop" is not available on readonly array');
   });
 
+  it("resolves reserve() on mutable arrays", () => {
+    const cr = check({
+      "/main.do": `
+        function prepare(values: int[]): void {
+          values.reserve(128)
+        }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects reserve() on readonly arrays", () => {
+    const cr = check({
+      "/main.do": `
+        function prepare(values: readonly int[]): void {
+          values.reserve(128)
+        }
+      `,
+    }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(1);
+    expect(cr.diagnostics[0].message).toContain('Method "reserve" is not available on readonly array');
+  });
+
   it("resolves pop() type on mutable array as Result<T, string>", () => {
     const cr = check({ "/main.do": `
       function takeLast(a: int[]): Result<int, string> {

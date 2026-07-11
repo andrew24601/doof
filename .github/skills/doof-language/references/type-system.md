@@ -218,6 +218,7 @@ Common APIs:
 | --- | --- |
 | `.length` | element count |
 | `.push(value)` | mutable arrays only |
+| `.reserve(capacity)` | mutable arrays only; reserves backing capacity without changing the element count |
 | `.pop()` | `Result<T, string>` |
 | `.contains(value)` | membership test |
 | `.indexOf(value)` | first match or `-1` |

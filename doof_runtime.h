@@ -1457,6 +1457,16 @@ void array_require_min_size(const std::shared_ptr<std::vector<T>>& arr, int32_t 
 }
 
 template <typename T>
+void array_reserve(const std::shared_ptr<std::vector<T>>& arr, int32_t capacity) {
+    if (!arr) {
+        panic("Attempted to reserve capacity on a null array");
+    }
+    if (capacity > 0) {
+        arr->reserve(static_cast<size_t>(capacity));
+    }
+}
+
+template <typename T>
 Result<T, std::string> array_pop(const std::shared_ptr<std::vector<T>>& arr) {
     if (!arr) {
         return Failure<std::string>{"Attempted to pop from null array"};

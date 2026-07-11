@@ -47,6 +47,7 @@ Key reminders:
 - `if` expressions use `then`: `if ready then start() else wait()`.
 - `/` requires a floating operand. Use `\` for integer division.
 - `Map<K, V>` literals use `{ key: value }`. `Set<T>` literals use `[a, b, c]`.
+- Mutable arrays support `.reserve(capacity)` to pre-size backing storage without changing their length.
 - Runtime counters use `metricsIncrement(name: string, value: long)` and `metricsSnapshotPrometheus()`.
 
 ## Reference Map

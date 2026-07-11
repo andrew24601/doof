@@ -725,12 +725,14 @@ export function emitCallExpression(expr: CallExpression, ctx: EmitContext): stri
       return `${staticMethod}(${args})`;
     }
 
-    // Array methods: .push() → .push_back(), .pop()/contains()/slice() → runtime helpers
+    // Array methods: .push() → .push_back(), .reserve() → vector::reserve(),
+    // and the remaining methods → runtime helpers.
     if (objType && objType.kind === "array") {
       const obj = emitExpression(memberExpr.object, ctx);
       const method = memberExpr.property;
       const locationArgs = emitPanicLocationArgs(expr.span, ctx);
       if (method === "push") return `${obj}->push_back(${args})`;
+      if (method === "reserve") return `doof::array_reserve(${obj}, ${args})`;
       if (method === "pop") return `doof::array_pop(${obj})`;
       if (method === "contains") return `doof::array_contains(${obj}, ${args}, ${locationArgs})`;
       if (method === "includes") return `doof::array_contains(${obj}, ${args}, ${locationArgs})`;
