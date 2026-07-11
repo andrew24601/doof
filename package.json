@@ -9,6 +9,9 @@
   },
   "files": [
     "dist",
+    "doof_observer_platform.h",
+    "doof_observer_runtime.h",
+    "doof_runtime.h",
     "observer-ui",
     "README.md"
   ],

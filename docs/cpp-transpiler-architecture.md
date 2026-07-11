@@ -163,7 +163,7 @@ If the generated project layout changes, update this document and the tests in `
 
 Some features require dedicated support generation beyond ordinary statement or expression emission.
 
-- `src/emitter-runtime.ts` generates `doof_runtime.hpp`
+- `doof_runtime.h` is the checked-in C++ source template for generated `doof_runtime.hpp`; `doof_observer_platform.h` and `doof_observer_runtime.h` hold the optional observer support; `src/emitter-runtime.ts` composes them
 - `src/emitter-json.ts` generates JSON serialization and deserialization helpers
 - `src/emitter-json-value.ts` handles runtime coercion around `JsonValue`
 - `src/emitter-schema.ts` generates JSON Schema fragments for metadata surfaces

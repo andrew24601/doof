@@ -13,6 +13,9 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `stdlib/` — bundled standard library sources and support assets
 - `scripts/` — helper build and packaging scripts for samples and app targets
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
+- `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
+- `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
+- `doof_runtime.h` — standalone C++ source template for the generated `doof_runtime.hpp`
 - `playground/` — browser-based playground app for trying the compiler interactively
 - `vscode-doof/` — VS Code extension sources
 
@@ -105,7 +108,8 @@ Feature-specific helpers:
 - `emitter-json-value.ts` — runtime `JsonValue` coercion helpers for lowering boundaries
 - `emitter-schema.ts` — JSON Schema generation for metadata surfaces
 - `emitter-metadata.ts` — `.metadata` fields and `.invoke()` generation
-- `emitter-runtime.ts` — `doof_runtime.hpp` generation
+- `emitter-runtime.ts` — `doof_runtime.hpp` generation and observer feature composition
+- `runtime-assets.ts` — Node/browser loading and observer asset composition for the standalone C++ templates
 - `observer-assets.ts` — Node-side loader for observer UI assets embedded into generated runtime support
 
 ### CLI, Build, and Packaging
