@@ -18,10 +18,6 @@ export function emitRuntimeCoercion(sourceExpr: string, sourceType: ResolvedType
     return emitWrapJsonValue(sourceExpr, sourceType);
   }
 
-  if (sourceType.kind === "null") {
-    return emitNullForType(targetType);
-  }
-
   if (sourceType.kind === "success" && targetType.kind === "success") {
     const targetCpp = emitType(targetType);
     if (targetType.valueType.kind === "void") return `${targetCpp}{}`;
@@ -45,6 +41,10 @@ export function emitRuntimeCoercion(sourceExpr: string, sourceType: ResolvedType
 
   if (targetType.kind === "union") {
     return emitCoerceUnionTarget(sourceExpr, sourceType, targetType);
+  }
+
+  if (sourceType.kind === "null") {
+    return emitNullForType(targetType);
   }
 
   return sourceExpr;

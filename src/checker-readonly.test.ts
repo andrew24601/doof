@@ -60,6 +60,14 @@ function interfaceFieldType(table: ModuleSymbolTable, interfaceName: string, fie
   return field.resolvedType;
 }
 
+function declarationType(table: ModuleSymbolTable, name: string): ResolvedType {
+  const declaration = table.program.statements.find((statement) =>
+    "name" in statement && statement.name === name,
+  ) as { resolvedType?: ResolvedType } | undefined;
+  if (!declaration?.resolvedType) throw new Error(`Expected resolved declaration type ${name}`);
+  return declaration.resolvedType;
+}
+
 describe("checker readonly helpers", () => {
   it("applies deep readonly to collection types parsed from Doof declarations", () => {
     const { table } = setup(`
@@ -229,5 +237,122 @@ describe("checker readonly helpers", () => {
       .toBe("T");
     expect(typeToString(applyDeepReadonly(classFieldType(table, "ParsedTypes", "item"))))
       .toBe("Envelope<readonly int[]>");
+  });
+
+  it("applies deep readonly through every source-level wrapper", () => {
+    const { table } = setup(`
+      class Worker {
+        readonly id: int
+      }
+
+      interface Marker {
+        readonly id: int
+      }
+
+      class WrappedTypes {
+        tuple: Tuple<int[], Map<string, Set<int>>>
+        weakValue: weak Worker
+        pending: Promise<Map<string, int[]>>
+        actor: Actor<Worker>
+        success: Success<int[]>
+        failure: Failure<Set<int>>
+        json: JsonValue
+        marker: Marker
+      }
+
+      readonly metadata = Worker.metadata
+      readonly methods = metadata.methods
+    `);
+
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "tuple"))))
+      .toBe("Tuple<readonly int[], ReadonlyMap<string, ReadonlySet<int>>>");
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "weakValue"))))
+      .toBe("weak Worker");
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "pending"))))
+      .toBe("Promise<ReadonlyMap<string, readonly int[]>>");
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "actor"))))
+      .toBe("Actor<Worker>");
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "success"))))
+      .toBe("Success<readonly int[]>");
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "failure"))))
+      .toBe("Failure<ReadonlySet<int>>");
+    expect(typeToString(applyDeepReadonly(declarationType(table, "metadata"))))
+      .toBe("ClassMetadata<Worker>");
+    const methods = applyDeepReadonly(declarationType(table, "methods"));
+    if (methods.kind !== "array") throw new Error("Expected metadata.methods to be an array");
+    expect(typeToString(methods.elementType))
+      .toBe("MethodReflection<Worker>");
+
+    const json = applyDeepReadonly(classFieldType(table, "WrappedTypes", "json"));
+    expect(json.kind).toBe("union");
+    if (json.kind !== "union") throw new Error("Expected JsonValue to remain a union");
+    expect("jsonValue" in json && json.jsonValue).toBe(true);
+    expect(json.types.find((member) => member.kind === "array")).toMatchObject({
+      kind: "array",
+      readonly_: true,
+    });
+    expect(json.types.find((member) => member.kind === "map")).toMatchObject({
+      kind: "map",
+      readonly_: true,
+    });
+
+    expect(typeToString(applyDeepReadonly(classFieldType(table, "WrappedTypes", "marker"))))
+      .toBe("Marker");
+  });
+
+  it("walks source-level wrappers and reports their nested mutable values", () => {
+    const { host, table } = setup(`
+      class Immutable {
+        readonly id: int
+      }
+
+      class Mutable {
+        value: int
+      }
+
+      class WrapperFields {
+        mutableArray: int[]
+        mutableMap: Map<string, int>
+        mutableSet: Set<int>
+        tuple: Tuple<Mutable[], int>
+        readonlySet: ReadonlySet<int>
+        validTuple: Tuple<int, string>
+        weakValue: weak Immutable
+        pending: Promise<Immutable>
+        actor: Actor<Immutable>
+        result: Result<Immutable, Immutable>
+      }
+
+      readonly metadata = Immutable.metadata
+      readonly methods = metadata.methods
+    `);
+
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "mutableArray"), table)?.reason)
+      .toBe('array type "int[]" is mutable');
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "mutableMap"), table)?.reason)
+      .toBe('map type "Map<string, int>" is mutable');
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "mutableSet"), table)?.reason)
+      .toBe('set type "Set<int>" is mutable');
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "tuple"), table)?.reason)
+      .toBe('array type "Mutable[]" is mutable');
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "readonlySet"), table))
+      .toBeNull();
+    expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", "validTuple"), table))
+      .toBeNull();
+
+    for (const fieldName of [
+      "weakValue",
+      "pending",
+      "actor",
+      "result",
+    ]) {
+      expect(findDeepReadonlyViolation(host, classFieldType(table, "WrapperFields", fieldName), table))
+        .toBeNull();
+    }
+
+    expect(findDeepReadonlyViolation(host, declarationType(table, "metadata"), table)).toBeNull();
+    const methods = declarationType(table, "methods");
+    if (methods.kind !== "array") throw new Error("Expected metadata.methods to be an array");
+    expect(findDeepReadonlyViolation(host, methods.elementType, table)).toBeNull();
   });
 });
