@@ -12,7 +12,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `samples/` — example programs and larger package-style projects used as references and e2e coverage targets
 - `stdlib/` — bundled standard library sources and support assets
 - `scripts/` — helper build and packaging scripts for samples and app targets
-- `selfhost/` — Doof implementations of compiler components, currently the lexer and its Doof-native tests
+- `selfhost/` — Doof implementations of compiler front-end components and their Doof-native tests
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
 - `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
@@ -25,6 +25,9 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 
 - `selfhost/lexer.do` — performance-oriented lexer prototype; emits reserved value-array token structs with source spans, locations, and diagnostics
 - `selfhost/lexer.test.do` — Doof-native lexer tests covering hot-path tokens, keywords, literals, interpolation, positions, large inputs, and diagnostics
+- `selfhost/ast.do` — nominal self-hosted syntax-tree node classes, tagged with `kind` values and source spans
+- `selfhost/parser.do` — self-hosted recursive-descent parser with precedence-climbing expression parsing and core declaration/statement support
+- `selfhost/parser.test.do` — Doof-native parser tests for literals, precedence, postfix expressions, declarations, collections, control flow, and spans
 
 ## `src/` by Concern
 
