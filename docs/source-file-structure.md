@@ -28,6 +28,13 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/ast.do` — nominal self-hosted syntax-tree node classes, tagged with `kind` values and source spans
 - `selfhost/parser.do` — self-hosted recursive-descent parser with precedence-climbing expression parsing and core declaration/statement support
 - `selfhost/parser.test.do` — Doof-native parser tests for literals, precedence, postfix expressions, declarations, collections, control flow, and spans
+- `selfhost/semantic.do` — shared module symbols, semantic spans, resolved types, bindings, scopes, and diagnostics
+- `selfhost/resolver.do` — deterministic relative module-path resolution over caller-supplied source files
+- `selfhost/analyzer.do` — phased module symbol collection, import/export resolution, and named-type decoration
+- `selfhost/analyzer.test.do` — analyzer tests for imports, exports, and resolved named types
+- `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
+- `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
+- `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 
 ## `src/` by Concern
 

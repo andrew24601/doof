@@ -1,7 +1,14 @@
 // Syntax tree data structures for the self-hosted compiler front end.
 //
-// The tree intentionally mirrors src/ast.ts.  Semantic fields are not part of
-// this first self-hosted slice; the checker will add them once it is ported.
+// The tree intentionally mirrors src/ast.ts.  Semantic passes decorate these
+// nodes in place so later compiler phases do not re-resolve syntax.
+
+import {
+  ArrayResolvedType, Binding, ClassType, FunctionType as ResolvedFunctionType,
+  NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
+  UnknownType, VoidType,
+} from "./semantic"
+import type { ResolvedType } from "./semantic"
 
 export struct AstLocation {
   line: int
@@ -18,6 +25,7 @@ export class NamedType {
   kind: string
   name: string
   typeArgs: TypeAnnotation[]
+  resolvedSymbol: Symbol | null = null
   span: SourceSpan
 }
 
@@ -52,24 +60,28 @@ export type TypeAnnotation = NamedType | ArrayType | UnionType | FunctionType
 export class IntLiteral {
   kind: string
   value: int
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class LongLiteral {
   kind: string
   value: long
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class FloatLiteral {
   kind: string
   value: float
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class DoubleLiteral {
   kind: string
   value: double
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -78,29 +90,35 @@ export class StringLiteral {
   value: string
   parts: string[]
   interpolations: Expression[]
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class CharLiteral {
   kind: string
   value: char
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class BoolLiteral {
   kind: string
   value: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class NullLiteral {
   kind: string
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class Identifier {
   kind: string
   name: string
+  resolvedType: ResolvedType | null = null
+  resolvedBinding: Binding | null = null
   span: SourceSpan
 }
 
@@ -109,6 +127,7 @@ export class BinaryExpression {
   operator: string
   left: Expression
   right: Expression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -117,6 +136,7 @@ export class UnaryExpression {
   operator: string
   operand: Expression
   prefix: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -125,6 +145,7 @@ export class AssignmentExpression {
   operator: string
   target: Expression
   value: Expression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -134,6 +155,7 @@ export class MemberExpression {
   property: string
   optional: bool
   force: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -142,6 +164,7 @@ export class IndexExpression {
   object: Expression
   index: Expression
   optional: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -155,6 +178,7 @@ export class CallExpression {
   kind: string
   callee: Expression
   args: CallArgument[]
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -162,6 +186,7 @@ export class ArrayLiteral {
   kind: string
   elements: Expression[]
   readonly_: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -175,12 +200,14 @@ export class ObjectLiteral {
   kind: string
   properties: ObjectProperty[]
   spread: Expression | null
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class TupleLiteral {
   kind: string
   elements: Expression[]
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -191,6 +218,7 @@ export class LambdaExpression {
   body: Expression | Block
   parameterless: bool
   trailing: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -199,6 +227,7 @@ export class IfExpression {
   condition: Expression
   then_: Expression
   else_: Expression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -206,24 +235,28 @@ export class ConstructExpression {
   kind: string
   type_: string
   typeArgs: TypeAnnotation[]
-  args: ObjectProperty[] | Expression[]
+  args: ObjectProperty[]
   named: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class DotShorthand {
   kind: string
   name: string
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class ThisExpression {
   kind: string
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class CallerExpression {
   kind: string
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -239,6 +272,7 @@ export class Parameter {
   name: string
   type_: TypeAnnotation | null
   defaultValue: Expression | null
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -254,6 +288,7 @@ export class ConstDeclaration {
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -263,6 +298,7 @@ export class ReadonlyDeclaration {
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -272,6 +308,7 @@ export class ImmutableBinding {
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -280,6 +317,7 @@ export class LetDeclaration {
   name: string
   type_: TypeAnnotation | null
   value: Expression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -294,6 +332,7 @@ export class FunctionDeclaration {
   static_: bool
   isolated_: bool
   private_: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -414,6 +453,7 @@ export class ClassField {
   static_: bool
   readonly_: bool
   private_: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -431,6 +471,7 @@ export class InterfaceField {
   kind: string
   name: string
   type_: TypeAnnotation
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
