@@ -5,7 +5,7 @@
 // emitter modules.
 
 import {
-  ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, PrimitiveType, ResolvedType,
+  ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, PrimitiveType, ResolvedType, Symbol,
   NullType, TupleResolvedType, UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
 import type { AstFunctionType, ArrayType, NamedType, TypeAnnotation, UnionType } from "./ast"
@@ -21,6 +21,7 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
       if class_.name == "AstArrayType" { return "std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">" }
       if class_.name == "AstUnionType" { return "std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">" }
       if class_.name == "SemanticFunctionType" { return "std::shared_ptr<" + ownedName("FunctionType", class_.symbol.module, currentModulePath) + ">" }
+      if class_.symbol.native_ { return "std::shared_ptr<" + nativeCppName(class_.symbol) + ">" }
       return "std::shared_ptr<" + ownedName(class_.name, class_.symbol.module, currentModulePath) + ">"
     }
     enum_: EnumType -> { return ownedName(enum_.name, enum_.symbol.module, currentModulePath) }
@@ -66,10 +67,15 @@ function emitNamedAnnotation(annotation: NamedType, currentModulePath: string = 
   if annotation.name == "AstUnionType" { return "std::shared_ptr<" + ownedAnnotationName(annotation, "UnionType", currentModulePath) + ">" }
   if annotation.name == "AstNamedType" { return "std::shared_ptr<" + ownedAnnotationName(annotation, "NamedType", currentModulePath) + ">" }
   if annotation.name == "SemanticFunctionType" { return "std::shared_ptr<" + ownedAnnotationName(annotation, "FunctionType", currentModulePath) + ">" }
+  if annotation.resolvedSymbol != null && annotation.resolvedSymbol!.native_ { return "std::shared_ptr<" + nativeCppName(annotation.resolvedSymbol!) + ">" }
   if annotation.name == "Expression" { return "std::variant<" + expressionAlternatives(annotationModule(annotation), currentModulePath) + ">" }
   if annotation.name == "Statement" { return "std::variant<" + statementAlternatives(annotationModule(annotation), currentModulePath) + ">" }
   if annotation.name == "TypeAnnotation" { return "std::variant<std::shared_ptr<" + ownedAnnotationName(annotation, "NamedType", currentModulePath) + ">, std::shared_ptr<" + ownedAnnotationName(annotation, "ArrayType", currentModulePath) + ">, std::shared_ptr<" + ownedAnnotationName(annotation, "UnionType", currentModulePath) + ">, std::shared_ptr<" + ownedAnnotationName(annotation, "AstFunctionType", currentModulePath) + ">>" }
   return "std::shared_ptr<" + ownedAnnotationName(annotation, annotation.name, currentModulePath) + ">"
+}
+
+function nativeCppName(symbol: Symbol): string {
+  return "::" + (if symbol.nativeCppName == "" then symbol.name else symbol.nativeCppName)
 }
 
 function emitUnionAnnotation(annotation: UnionType, currentModulePath: string = ""): string {

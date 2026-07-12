@@ -173,6 +173,26 @@ export function testParsesNegatedDiagnosticCall(): void {
   parse("function f(): void { if !terminated { diagnostic(\"Unterminated block comment\", commentLine, commentColumn) } }")
 }
 
+export function testParsesNativeClassSurface(): void {
+  program := parse("export import class Client from \"<client.hpp>\" as native::Client { value: int get(): int static make(value: int): Client raw(): int => 7 label(): string { return \"ok\" } }")
+  case program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.exported, true)
+      Assert.equal(class_.native_, true)
+      Assert.equal(class_.nativeHeader, "<client.hpp>")
+      Assert.equal(class_.nativeCppName, "native::Client")
+      Assert.equal(class_.fields.length, 1)
+      Assert.equal(class_.methods.length, 4)
+      Assert.equal(class_.methods[0].bodyless, true)
+      Assert.equal(class_.methods[1].static_, true)
+      Assert.equal(class_.methods[1].bodyless, true)
+      Assert.equal(class_.methods[2].bodyless, false)
+      Assert.equal(class_.methods[3].bodyless, false)
+    }
+    _ -> { panic("expected native class declaration") }
+  }
+}
+
 export function testParsesSelfhostSemanticSources(): void {
   for path of [
     "selfhost/resolver.do", "selfhost/ast.do", "selfhost/semantic.do",

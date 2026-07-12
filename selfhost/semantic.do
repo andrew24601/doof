@@ -27,6 +27,9 @@ export class Symbol {
   module: string
   exported: bool
   originalName: string = ""
+  native_: bool = false
+  nativeHeader: string = ""
+  nativeCppName: string = ""
 }
 
 export class ImportBinding {

@@ -37,7 +37,9 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     tuple: TupleLiteral -> { value = emitTuple(tuple, context) }
     if_: IfExpression -> { value = emitIfExpression(if_, context) }
     construct: ConstructExpression -> { value = emitConstruct(construct, context) }
-    _: ThisExpression -> { value = "*this" }
+    _: ThisExpression -> {
+      value = if context.currentClassNative then "this->shared_from_this()" else "*this"
+    }
     _ -> { panic("Unsupported expression in initial C++ emitter") }
   }
   sourceType := expression.resolvedType
@@ -232,6 +234,23 @@ function emitMember(expression: MemberExpression, context: EmitContext): string 
       }
     }
     _ -> { }
+  }
+  staticObjectType := decoratedExpressionType(expression.object)
+  if staticObjectType != null {
+    case staticObjectType! {
+      class_: ClassType -> {
+        owner := findClass(context, class_.name)
+        if owner != null {
+          for method of owner!.methods {
+            if method.name == expression.property && method.static_ {
+              ownerName := if owner!.native_ then "::" + (if owner!.nativeCppName == "" then owner!.name else owner!.nativeCppName) else object
+              return ownerName + "::" + cppIdentifier(expression.property)
+            }
+          }
+        }
+      }
+      _ -> { }
+    }
   }
   case expression.object {
     identifier: Identifier -> {
@@ -574,15 +593,23 @@ function emitConstruct(expression: ConstructExpression, context: EmitContext): s
   class_ := findClass(context, expression.type_)
   if class_ == null { panic("Cannot construct unknown class " + expression.type_) }
   let cppName = expression.type_
+  let native = class_!.native_
+  if native { cppName = "::" + (if class_!.nativeCppName == "" then class_!.name else class_!.nativeCppName) }
   for imported of context.imports {
     if imported.localName == expression.type_ && imported.symbol != null {
-      cppName = "::" + exprModuleNamespaceFor(imported.symbol!.module) + "::" + emittedSymbolName(imported.symbol!)
+      if imported.symbol!.native_ {
+        cppName = "::" + (if imported.symbol!.nativeCppName == "" then imported.symbol!.name else imported.symbol!.nativeCppName)
+      } else {
+        cppName = "::" + exprModuleNamespaceFor(imported.symbol!.module) + "::" + emittedSymbolName(imported.symbol!)
+      }
     }
   }
   if expression.resolvedType != null {
     case expression.resolvedType! {
       resolved: ClassType -> {
-        if context.modulePath != "" && resolved.symbol.module != "" && resolved.symbol.module != context.modulePath {
+        if resolved.symbol.native_ {
+          cppName = "::" + (if resolved.symbol.nativeCppName == "" then resolved.symbol.name else resolved.symbol.nativeCppName)
+        } else if context.modulePath != "" && resolved.symbol.module != "" && resolved.symbol.module != context.modulePath {
           cppName = "::" + exprModuleNamespaceFor(resolved.symbol.module) + "::" + emittedSymbolName(resolved.symbol)
         }
       }
@@ -619,6 +646,7 @@ function emitConstruct(expression: ConstructExpression, context: EmitContext): s
       values = values + value
     }
   }
+  if native { return "std::make_shared<" + cppName + ">(" + values + ")" }
   return "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
 }
 

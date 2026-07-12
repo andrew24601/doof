@@ -21,6 +21,7 @@ export class HeaderPlan {
   typeAliases: string[] = []
   classForwardDeclarations: string[] = []
   moduleIncludes: string[] = []
+  nativeIncludes: string[] = []
   hasAstHelpers: bool = false
   hasMain: bool = false
   mainReturnsInt: bool = false
@@ -43,8 +44,13 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
   case statement {
     class_: ClassDeclaration -> {
       if class_.name == "Block" || class_.name == "IntLiteral" { plan.hasAstHelpers = true }
-      plan.classForwardDeclarations.push("struct " + class_.name + ";\n")
-      plan.classDefinitions.push(emitClassDeclaration(class_, context))
+      if class_.native_ {
+        include := if class_.nativeHeader == "" then class_.name + ".hpp" else class_.nativeHeader
+        addUnique(plan.nativeIncludes, include)
+      } else {
+        plan.classForwardDeclarations.push("struct " + class_.name + ";\n")
+        plan.classDefinitions.push(emitClassDeclaration(class_, context))
+      }
     }
     enum_: EnumDeclaration -> { plan.enumDefinitions.push(emitEnumDeclaration(enum_, context)) }
     alias: TypeAliasDeclaration -> { plan.typeAliases.push(emitTypeAlias(alias, context)) }
@@ -69,6 +75,10 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   result = result + "#include <memory>\n#include <optional>\n#include <string>\n"
   result = result + "#include <tuple>\n#include <type_traits>\n#include <variant>\n#include <vector>\n"
   result = result + "#include \"doof_runtime.hpp\"\n"
+  for include of plan.nativeIncludes {
+    if include.startsWith("<") { result = result + "#include " + include + "\n" }
+    else { result = result + "#include \"" + include + "\"\n" }
+  }
   for include of plan.moduleIncludes { result = result + "#include \"" + include + "\"\n" }
   result = result + "\n"
   result = result + "#ifndef DOOF_SELFHOST_COMMON_HELPERS\n#define DOOF_SELFHOST_COMMON_HELPERS\n"
@@ -125,6 +135,11 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   result = result + "namespace " + guardName + " {\n"
   for signature of plan.functionSignatures { result = result + "    " + signature }
   return result + "}\n"
+}
+
+function addUnique(values: string[], value: string): void {
+  for existing of values { if existing == value { return } }
+  values.push(value)
 }
 
 function expressionAlternativesForHeader(guardName: string): string {

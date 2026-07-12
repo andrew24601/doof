@@ -164,6 +164,7 @@ export class ModuleChecker {
       if parameter.defaultValue != null { checkExpression(parameter.defaultValue!, scope, optionalResolvedType(parameterType)) }
       declare(scope, Binding { name: parameter.name, kind: "parameter", type_: parameterType, mutable: false, span: checkerSemanticSpan(parameter.span), module: info!.path })
     }
+    if fn.bodyless { return functionValue }
     let actualReturn = voidType()
     let completes = true
     case fn.body {

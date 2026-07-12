@@ -94,7 +94,10 @@ export class ModuleAnalyzer {
   private function symbolFor(statement: Statement, module: string): Symbol | null {
     case statement {
       value: ClassDeclaration -> {
-        return Symbol { kind: "class", name: value.name, module, exported: value.exported }
+        return Symbol {
+          kind: "class", name: value.name, module, exported: value.exported,
+          native_: value.native_, nativeHeader: value.nativeHeader, nativeCppName: value.nativeCppName,
+        }
       }
       value: InterfaceDeclaration -> {
         return Symbol { kind: "interface", name: value.name, module, exported: value.exported }

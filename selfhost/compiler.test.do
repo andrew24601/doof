@@ -180,6 +180,24 @@ export function testEmitsFocusedLambdaBodyUnionSample(): void {
   assertNativeSelfhostSlice(["semantic.do", "ast.do", "samples/lambda-body-union.do"], "samples/lambda-body-union.do", "selfhost-lambda-body-union")
 }
 
+export function testCompilesAndRunsNativeClassInterop(): void {
+  try! writeText("/tmp/client.hpp", "#pragma once\n#include <cstdint>\n#include <memory>\nnamespace native { struct Client : std::enable_shared_from_this<Client> { int32_t value; explicit Client(int32_t value): value(value) {} int32_t get() { return value; } static std::shared_ptr<Client> make(int32_t value) { return std::make_shared<Client>(value); } std::shared_ptr<Client> same(); }; }\n")
+  result := compile([SourceFile {
+    path: "/native-main.do",
+    source: "import class Client from \"client.hpp\" as native::Client { value: int get(): int static make(value: int): Client same(): Client { return this } }\nfunction main(): int { client := Client { value: 4 }\nmade := Client.make(6)\nsame := client.same()\nreturn client.get() + made.get() + same.get() }",
+  }], "/native-main.do")
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  sourcePath := writeFocusedArtifact(result, "selfhost-native-class")
+  writeSelfhostRuntime()
+  binaryPath := "/tmp/doof-selfhost-native-class"
+  linked := try! run("clang++", ["-std=c++17", sourcePath, "-I", "/tmp", "-o", binaryPath])
+  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
+  Assert.equal(linked.exitCode, 0)
+  executed := try! run(binaryPath)
+  Assert.equal(executed.exitCode, 14)
+}
+
 export function testCompilesSelfhostParserSlice(): void {
   assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do"], "parser.do", "selfhost-parser")
 }

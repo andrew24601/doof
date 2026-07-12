@@ -100,6 +100,10 @@ export class CxxModuleEmitter {
       for statement of program.statements { source = source + emitSourceStatement(statement, context) }
     }
     source = source + "}\n"
+    nativeMethods := emitNativeClassMethods(programs, context)
+    if nativeMethods != "" {
+      source = source + "\nusing namespace ::" + namespaceName + ";\n\n" + nativeMethods
+    }
     if includeMain && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
     return ModuleEmission { header, source, headerName, sourceName }
   }
@@ -160,6 +164,7 @@ function emitSourceStatement(statement: Statement, context: EmitContext): string
       return emitFunctionDefinition(fn, context, if fn.name == "main" then "doof_main" else fn.name)
     }
     class_: ClassDeclaration -> {
+      if class_.native_ { return "" }
       let result = "\n"
       for method of class_.methods { result = result + emitClassMethodDefinition(class_, method, context) }
       return result
@@ -169,6 +174,32 @@ function emitSourceStatement(statement: Statement, context: EmitContext): string
     binding: ImmutableBinding -> { return emitValueDeclaration(binding, context) }
     let_: LetDeclaration -> { return emitValueDeclaration(let_, context) }
     export_: ExportDeclaration -> { return emitSourceStatement(export_.declaration, context) }
+    _ -> { return "" }
+  }
+  return ""
+}
+
+function emitNativeClassMethods(programs: Program[], context: EmitContext): string {
+  let result = ""
+  for program of programs {
+    for statement of program.statements {
+      result = result + emitNativeClassMethodsForStatement(statement, context)
+    }
+  }
+  return result
+}
+
+function emitNativeClassMethodsForStatement(statement: Statement, context: EmitContext): string {
+  case statement {
+    class_: ClassDeclaration -> {
+      if !class_.native_ { return "" }
+      let result = ""
+      for method of class_.methods {
+        if !method.bodyless { result = result + emitClassMethodDefinition(class_, method, context) }
+      }
+      return result
+    }
+    export_: ExportDeclaration -> { return emitNativeClassMethodsForStatement(export_.declaration, context) }
     _ -> { return "" }
   }
   return ""

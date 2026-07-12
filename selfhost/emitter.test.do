@@ -137,3 +137,15 @@ export function testPlansStableModuleNamesAndImportHeaders(): void {
   Assert.equal(plan.modules[1].namespaceName, "app_lib_math_")
   Assert.equal(plan.modules[1].headerName, "lib_math.hpp")
 }
+
+export function testEmitsNativeClassInterop(): void {
+  result := emit("import class Client from \"<client.hpp>\" as native::Client { value: int get(): int static make(value: int): Client same(): Client { return this } }\nfunction read(client: Client): Client => client\nfunction main(): int { client := Client { value: 4 }\nmade := Client.make(4)\nreturn client.get() + made.get() }")
+  Assert.equal(result.header.contains("#include <client.hpp>"), true)
+  Assert.equal(result.header.contains("struct Client"), false)
+  Assert.equal(result.header.contains("std::shared_ptr<::native::Client>"), true)
+  Assert.equal(result.source.contains("std::make_shared<::native::Client>(4)"), true)
+  Assert.equal(result.source.contains("::native::Client::make(4)"), true)
+  Assert.equal(result.source.contains("std::shared_ptr<::native::Client> native::Client::same()"), true)
+  Assert.equal(result.source.contains("this->shared_from_this()"), true)
+  Assert.equal(result.source.contains("client->get()"), true)
+}

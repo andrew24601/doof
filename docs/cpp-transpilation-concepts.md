@@ -110,6 +110,9 @@ Strategy:
   the native C++ class; the native header remains responsible for declaring
   those members and for providing `shared_from_this()` support when bare `this`
   is used
+- The self-hosted emitter follows the same native-class policy for inferred,
+  quoted, and angle-bracket headers, including static method scope calls and
+  constructor arguments from named class construction
 - when an exported generated type is part of a native interop surface, its own
   header also exposes the concrete field dependencies native code may dereference
   directly; ordinary Doof-only headers still prefer forward declarations

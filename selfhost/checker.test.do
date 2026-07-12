@@ -92,3 +92,8 @@ export function testDecoratesNestedNullableAssignmentTargets(): void {
     }
   }
 }
+
+export function testChecksNativeMethodsAndStaticMethods(): void {
+  result := checked("import class Client from \"client.hpp\" as native::Client { get(): int static make(): Client }\nfunction read(client: Client): int { made := Client.make()\nreturn client.get() + made.get() }")
+  Assert.equal(result.diagnostics.length, 0)
+}

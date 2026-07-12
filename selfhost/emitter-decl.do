@@ -31,6 +31,7 @@ export function emitFunctionSignature(fn: FunctionDeclaration, name: string = ""
 }
 
 export function emitFunctionDefinition(fn: FunctionDeclaration, context: EmitContext, name: string = ""): string {
+  if fn.bodyless { return "" }
   previousReturnVariantOptional := context.currentReturnVariantOptional
   previousFunctionName := context.currentFunctionName
   context.currentFunctionName = fn.name
@@ -110,6 +111,7 @@ function returnNeedsAstVariant(resolvedType: ResolvedType): bool {
 }
 
 export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContext): string {
+  if decl.native_ { return "" }
   let result = "struct " + decl.name + " {\n"
   for field of decl.fields {
     for name of field.names {
@@ -129,10 +131,13 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
 }
 
 export function emitClassMethodDefinition(owner: ClassDeclaration, method: FunctionDeclaration, context: EmitContext): string {
+  if method.bodyless { return "" }
   previous := context.currentClass
+  previousNative := context.currentClassNative
   previousReturnVariantOptional := context.currentReturnVariantOptional
   previousFunctionName := context.currentFunctionName
   context.currentClass = owner.name
+  context.currentClassNative = owner.native_
   context.currentFunctionName = method.name
   case method.resolvedType! {
     function_: FunctionType -> {
@@ -140,12 +145,14 @@ export function emitClassMethodDefinition(owner: ClassDeclaration, method: Funct
     }
     _ -> { context.currentReturnVariantOptional = false }
   }
-  let result = emitFunctionSignature(method, owner.name + "::" + method.name, context.modulePath) + " {\n"
+  ownerName := if owner.native_ then (if owner.nativeCppName == "" then owner.name else owner.nativeCppName) else owner.name
+  let result = emitFunctionSignature(method, ownerName + "::" + method.name, context.modulePath) + " {\n"
   case method.body {
     expression: Expression -> { result = result + "    return " + emitExpression(expression, context) + ";\n" }
     block: Block -> { result = result + emitBlock(block, 1, context) }
   }
   context.currentClass = previous
+  context.currentClassNative = previousNative
   context.currentReturnVariantOptional = previousReturnVariantOptional
   context.currentFunctionName = previousFunctionName
   return result + "}\n"

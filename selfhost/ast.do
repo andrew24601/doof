@@ -333,6 +333,7 @@ export class FunctionDeclaration {
   static_: bool
   isolated_: bool
   private_: bool
+  bodyless: bool = false
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -478,6 +479,9 @@ export class ClassDeclaration {
   methods: FunctionDeclaration[]
   exported: bool
   private_: bool
+  native_: bool = false
+  nativeHeader: string = ""
+  nativeCppName: string = ""
   span: SourceSpan
 }
 

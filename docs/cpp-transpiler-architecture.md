@@ -54,6 +54,14 @@ completed B3 graph gate. The header planner also emits `with_block` overloads fo
 expression variants and concrete expression nodes when promoting AST bodies to
 `Expression | Block` fields.
 
+The self-hosted emitter also supports the existing `import class` native
+interop surface. Native headers are emitted in generated headers, native class
+definitions are not regenerated, native classes retain their C++ qualified
+names and shared-pointer representation, and Doof-bodied native methods are
+defined out of line after the generated module namespace. Bodyless methods are
+checked as signatures only; a native class must declare any Doof-bodied method
+and provide `shared_from_this()` support when its body returns bare `this`.
+
 The monolithic project emitter includes an executable wrapper. A
 `main(args: string[]): int` entry receives process arguments through a generated
 `std::vector<std::string>` bridge. The B4 driver uses the bootstrap runtime's

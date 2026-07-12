@@ -185,6 +185,11 @@ export class Parser {
   private function parseExport(): Statement {
     start := location()
     expect(TokenType.Export)
+    if check(TokenType.Import) {
+      advance()
+      if check(TokenType.Class) { return parseNativeClass(true, start) }
+      fail("Expected class after export import")
+    }
     if check(TokenType.Const) { return parseConst(true) }
     if check(TokenType.Readonly) { return parseReadonly(true) }
     if check(TokenType.Function) { return parseFunction(true, false, false, false) }
@@ -275,14 +280,14 @@ export class Parser {
   private function makeFunctionExpression(name: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
     return FunctionDeclaration {
       kind: "function-declaration", name, typeParams, params, returnType, body: body,
-      exported, static_, isolated_, private_, span: span(start),
+      exported, static_, isolated_, private_, bodyless: false, span: span(start),
     }
   }
 
   private function makeFunctionBlock(name: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
     return FunctionDeclaration {
       kind: "function-declaration", name, typeParams, params, returnType, body: body,
-      exported, static_, isolated_, private_, span: span(start),
+      exported, static_, isolated_, private_, bodyless: false, span: span(start),
     }
   }
 
@@ -444,6 +449,7 @@ export class Parser {
   private function parseImport(): Statement {
     start := location()
     expect(TokenType.Import)
+    if check(TokenType.Class) { return parseNativeClass(false, start) }
     typeOnly := match(TokenType.Type)
     let specifiers: ImportSpecifier[] = []
     if match(TokenType.Star) {
@@ -466,6 +472,75 @@ export class Parser {
     sourceValue := text(expect(TokenType.StringLiteral))
     consumeSemicolon()
     return ImportDeclaration { kind: "import-declaration", specifiers, source: sourceValue, typeOnly, span: span(start) }
+  }
+
+  private function parseNativeClass(exported: bool, start: AstLocation): ClassDeclaration {
+    expect(TokenType.Class)
+    name := text(expect(TokenType.Identifier))
+    let headerPath = ""
+    if match(TokenType.From) { headerPath = text(expect(TokenType.StringLiteral)) }
+    let cppName = ""
+    if match(TokenType.As) { cppName = parseCppQualifiedName() }
+
+    expect(TokenType.LeftBrace)
+    let fields: ClassField[] = []
+    let methods: FunctionDeclaration[] = []
+    while !check(TokenType.RightBrace) && !atEnd() {
+      if (check(TokenType.Identifier) && peek(1).kind == TokenType.LeftParen) ||
+          (check(TokenType.Static) && peek(1).kind == TokenType.Identifier && peek(2).kind == TokenType.LeftParen) {
+        methods.push(parseNativeMethod())
+      } else {
+        fields.push(parseClassField(false, false))
+      }
+    }
+    expect(TokenType.RightBrace)
+    return ClassDeclaration {
+      kind: "class-declaration", name, typeParams: [], implements_: [], fields, methods,
+      exported, private_: false, native_: true, nativeHeader: headerPath, nativeCppName: cppName,
+      span: span(start),
+    }
+  }
+
+  private function parseNativeMethod(): FunctionDeclaration {
+    start := location()
+    static_ := match(TokenType.Static)
+    name := text(expect(TokenType.Identifier))
+    expect(TokenType.LeftParen)
+    params := parseParameters()
+    expect(TokenType.RightParen)
+    expect(TokenType.Colon)
+    returnType := parseTypeAnnotation()
+    if check(TokenType.Arrow) {
+      body := parseExpressionBody()
+      return FunctionDeclaration {
+        kind: "function-declaration", name, typeParams: [], params, returnType, body,
+        exported: false, static_, isolated_: false, private_: false, bodyless: false,
+        span: span(start),
+      }
+    }
+    if check(TokenType.LeftBrace) {
+      body := parseBlock()
+      return FunctionDeclaration {
+        kind: "function-declaration", name, typeParams: [], params, returnType, body,
+        exported: false, static_, isolated_: false, private_: false, bodyless: false,
+        span: span(start),
+      }
+    }
+    consumeSemicolon()
+    body := Block { kind: "block", statements: [], span: span(start) }
+    return FunctionDeclaration {
+      kind: "function-declaration", name, typeParams: [], params, returnType, body,
+      exported: false, static_, isolated_: false, private_: false, bodyless: true,
+      span: span(start),
+    }
+  }
+
+  private function parseCppQualifiedName(): string {
+    let result = text(expect(TokenType.Identifier))
+    while match(TokenType.DoubleColon) {
+      result = result + "::" + text(expect(TokenType.Identifier))
+    }
+    return result
   }
 
   private function parseReturn(): Statement {

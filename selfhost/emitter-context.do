@@ -14,6 +14,7 @@ export class EmitContext {
   namespaceImports: NamespaceBinding[] = []
   imports: ImportBinding[] = []
   currentClass: string = ""
+  currentClassNative: bool = false
   currentReturnVariantOptional: bool = false
   currentFunctionName: string = ""
 }

@@ -1,7 +1,7 @@
 import { Assert } from "std/assert"
 import { createAnalyzer } from "./analyzer"
 import { SourceFile } from "./semantic"
-import { FunctionDeclaration, NamedType } from "./ast"
+import { ClassDeclaration, FunctionDeclaration, NamedType } from "./ast"
 
 export function testResolvesImportsAndExports(): void {
   sources := [
@@ -45,4 +45,21 @@ export function testResolvesReExportsToDefiningModule(): void {
   Assert.equal(result.modules[1].reExports.length, 1)
   Assert.equal(result.modules[0].imports[0].symbol != null, true)
   Assert.equal(result.modules[0].imports[0].symbol!.module, "/math.do")
+}
+
+export function testRecordsNativeClassMetadata(): void {
+  result := createAnalyzer([SourceFile {
+    path: "/main.do",
+    source: "export import class Client from \"client.hpp\" as native::Client { get(): int }",
+  }]).analyze("/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+  case result.modules[0].program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.native_, true)
+      Assert.equal(result.modules[0].symbols[0].native_, true)
+      Assert.equal(result.modules[0].symbols[0].nativeHeader, "client.hpp")
+      Assert.equal(result.modules[0].symbols[0].nativeCppName, "native::Client")
+    }
+    _ -> { panic("expected native class declaration") }
+  }
 }
