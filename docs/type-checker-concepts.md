@@ -189,6 +189,34 @@ Validation anchors:
 - `src/checker-validation.test.ts`
 - `spec/02-type-system.md`
 
+## Self-Hosted Checker Method and Union Rules
+
+The self-hosted checker keeps class fields and methods in the same method
+scope. An unqualified method call inside a class method resolves as an
+implicit method binding, while an explicit receiver continues through normal
+member lookup. Assignability must test exact type equality before distributing
+over a union target; otherwise an identical union such as `Item | null` is
+incorrectly rejected as a member-wise assignment.
+
+Branch checking must visit every `then`, `else-if`, and `else` block even when
+an earlier branch already establishes the normal-completion result. Completion
+analysis may combine branch results after checking them; it must not use
+short-circuit boolean evaluation that skips AST decoration in later branches.
+
+Assignment checking must also decorate the assignment target expression itself,
+including member and index targets. The emitter uses that target decoration to
+select representation-level promotion when a non-null `ResolvedType` or AST
+union value is assigned into a nullable AST field.
+
+Primary modules:
+
+- `selfhost/checker.do`
+- `selfhost/checker-types.do`
+
+Validation anchors:
+
+- `selfhost/checker.test.do`
+
 ## Actor Boundary Safety
 
 Actor method calls are the checker surface where values cross actor domains.

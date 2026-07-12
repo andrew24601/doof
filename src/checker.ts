@@ -1148,6 +1148,10 @@ export class TypeChecker {
       { name: "metricsIncrement", params: [{ name: "name", type: STRING_TYPE }, { name: "value", type: LONG_TYPE }], returnType: VOID_TYPE },
       // metricsSnapshotPrometheus(): string — render current counters in Prometheus text format
       { name: "metricsSnapshotPrometheus", params: [], returnType: STRING_TYPE },
+      // Bootstrap filesystem helpers used by the self-hosted compiler driver.
+      { name: "readFile", params: [{ name: "path", type: STRING_TYPE }], returnType: STRING_TYPE },
+      { name: "writeFile", params: [{ name: "path", type: STRING_TYPE }, { name: "contents", type: STRING_TYPE }], returnType: VOID_TYPE },
+      { name: "absolutePath", params: [{ name: "path", type: STRING_TYPE }], returnType: STRING_TYPE },
     ];
 
     for (const b of builtins) {

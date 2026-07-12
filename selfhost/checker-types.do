@@ -1,12 +1,13 @@
 // Resolved-type utilities shared by the self-hosted checker.
 
 import {
-  ArrayResolvedType, ClassType, FunctionParamType, FunctionType,
+  ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
+  InterfaceType,
   NullType, PrimitiveType, ResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
 import type {
-  ArrayType as AstArrayType, FunctionType as AstFunctionType,
+  ArrayType as AstArrayType, AstFunctionType,
   NamedType as AstNamedType, TypeAnnotation, UnionType as AstUnionType,
 } from "./ast"
 
@@ -26,12 +27,35 @@ export function tupleType(elements: ResolvedType[]): ResolvedType {
   return TupleResolvedType { elements }
 }
 
+export function unionType(types: ResolvedType[]): ResolvedType {
+  let members: ResolvedType[] = []
+  for memberType of types {
+    case memberType {
+      union: UnionResolvedType -> {
+        for member of union.types { members.push(member) }
+      }
+      _ -> { members.push(memberType) }
+    }
+  }
+  if members.length == 0 { return unknownType() }
+  if members.length == 1 { return members[0] }
+  return UnionResolvedType { types: members }
+}
+
 export function functionType(params: FunctionParamType[], returnType: ResolvedType): ResolvedType {
   return FunctionType { params, returnType }
 }
 
 export function classType(name: string, symbol: Symbol): ClassType {
   return ClassType { name, symbol }
+}
+
+export function enumType(name: string, symbol: Symbol): EnumType {
+  return EnumType { name, symbol }
+}
+
+export function interfaceType(name: string, symbol: Symbol): InterfaceType {
+  return InterfaceType { name, symbol }
 }
 
 export function typeName(resolvedType: ResolvedType): string {
@@ -98,15 +122,54 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
         _ -> { return false }
       }
     }
+    leftUnion: UnionResolvedType -> {
+      case right {
+        rightUnion: UnionResolvedType -> {
+          if leftUnion.types.length != rightUnion.types.length { return false }
+          for leftMember of leftUnion.types {
+            let found = false
+            for rightMember of rightUnion.types {
+              if sameType(leftMember, rightMember) {
+                found = true
+                break
+              }
+            }
+            if !found { return false }
+          }
+          return true
+        }
+        _ -> { return false }
+      }
+    }
     _ -> { return false }
   }
+  return false
 }
 
 export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
   case value {
     _: UnknownType -> { return true }
+    valueUnion: UnionResolvedType -> {
+      // A value union is assignable only when every possible arm is accepted
+      // by the target. This is what makes `Expression | null` useful for
+      // aliases such as the self-hosted AST Expression union.
+      for valueMember of valueUnion.types {
+        if !isAssignable(valueMember, target) { return false }
+      }
+      return true
+    }
+    valueArray: ArrayResolvedType -> {
+      case target {
+        targetArray: ArrayResolvedType -> {
+          if targetArray.readonly_ == false && valueArray.readonly_ == true { return false }
+          return isAssignable(valueArray.elementType, targetArray.elementType)
+        }
+        _ -> { }
+      }
+    }
     _ -> { }
   }
+  if sameType(value, target) { return true }
   case target {
     _: UnknownType -> { return true }
     union: UnionResolvedType -> {
@@ -115,7 +178,6 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
     }
     _ -> { }
   }
-  if sameType(value, target) { return true }
   case value {
     primitiveValue: PrimitiveType -> {
       case target {
@@ -147,7 +209,7 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
 export function joinTypes(left: ResolvedType, right: ResolvedType): ResolvedType {
   if isAssignable(left, right) { return right }
   if isAssignable(right, left) { return left }
-  return UnionResolvedType { types: [left, right] }
+  return unionType([left, right])
 }
 
 export function isNumeric(resolvedType: ResolvedType): bool {
@@ -158,6 +220,7 @@ export function isNumeric(resolvedType: ResolvedType): bool {
     }
     _ -> { return false }
   }
+  return false
 }
 
 export function numericResult(left: ResolvedType, right: ResolvedType): ResolvedType {
@@ -175,7 +238,7 @@ export function typeFromAnnotation(annotation: TypeAnnotation): ResolvedType {
     union: AstUnionType -> {
       let members: ResolvedType[] = []
       for item of union.types { members.push(typeFromAnnotation(item)) }
-      return UnionResolvedType { types: members }
+      return unionType(members)
     }
     _: AstNamedType -> { return unknownType() }
     _: AstFunctionType -> { return unknownType() }

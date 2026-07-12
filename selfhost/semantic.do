@@ -26,6 +26,7 @@ export class Symbol {
   name: string
   module: string
   exported: bool
+  originalName: string = ""
 }
 
 export class ImportBinding {
@@ -54,6 +55,18 @@ export class PrimitiveType {
 
 export class ClassType {
   kind: string = "class"
+  name: string
+  symbol: Symbol
+}
+
+export class EnumType {
+  kind: string = "enum"
+  name: string
+  symbol: Symbol
+}
+
+export class InterfaceType {
+  kind: string = "interface"
   name: string
   symbol: Symbol
 }
@@ -98,7 +111,7 @@ export class UnknownType {
   kind: string = "unknown"
 }
 
-export type ResolvedType = PrimitiveType | ClassType | FunctionType |
+export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
   ArrayResolvedType | TupleResolvedType | UnionResolvedType |
   NullType | VoidType | UnknownType
 

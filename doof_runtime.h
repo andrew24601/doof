@@ -13,6 +13,8 @@
 #include <cmath>
 #include <exception>
 #include <functional>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <memory>
@@ -34,6 +36,33 @@
 /* __DOOF_OBSERVER_PLATFORM_SUPPORT__ */
 
 namespace doof {
+
+[[noreturn]] inline void panic(const std::string& msg);
+
+// Minimal synchronous filesystem surface used by the self-hosted compiler
+// driver.  Regular Doof programs can use std/fs; these helpers keep the
+// bootstrap executable independent of the bundled stdlib graph.
+inline std::string read_file(const std::string& path) {
+    std::ifstream input(path);
+    if (!input) {
+        panic("cannot read file: " + path);
+    }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return contents.str();
+}
+
+inline void write_file(const std::string& path, const std::string& contents) {
+    std::ofstream output(path);
+    if (!output) {
+        panic("cannot write file: " + path);
+    }
+    output << contents;
+}
+
+inline std::string absolute_path(const std::string& path) {
+    return std::filesystem::absolute(path).lexically_normal().string();
+}
 
 // ============================================================================
 // Metrics — process-local counters

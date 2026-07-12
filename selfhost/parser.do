@@ -16,7 +16,8 @@ import {
   IfStatement, WhileStatement, ForOfStatement, ForStatement, WithBinding,
   WithStatement, BreakStatement, ContinueStatement, ReturnStatement,
   YieldStatement, ExpressionStatement, DestructuringStatement, UnionType,
-  ArrayType, FunctionType, AssignmentExpression, BinaryExpression,
+  CaseArm, CaseStatement, CasePattern, TypePattern, ValuePattern, WildcardPattern,
+  ArrayType, AstFunctionType, AssignmentExpression, BinaryExpression,
   UnaryExpression, MemberExpression, IndexExpression, CallExpression,
   IntLiteral, LongLiteral, FloatLiteral, DoubleLiteral, ArrayLiteral,
   StringLiteral, CharLiteral, BoolLiteral, NullLiteral,
@@ -29,6 +30,7 @@ export class Parser {
   readonly source: string
   tokens: Token[] = []
   pos: int = 0
+  inForIterable: bool = false
 
   function parse(): Program {
     lexer := Lexer { source }
@@ -153,6 +155,7 @@ export class Parser {
     if check(TokenType.Return) { return parseReturn() }
     if check(TokenType.Yield) { return parseYield() }
     if check(TokenType.If) { return parseIfStatement() }
+    if check(TokenType.Case) { return parseCaseStatement() }
     if check(TokenType.While) { return parseWhile(null) }
     if check(TokenType.For) { return parseFor(null) }
     if check(TokenType.With) { return parseWith() }
@@ -263,15 +266,22 @@ export class Parser {
     returnType := parseOptionalType()
     if check(TokenType.Arrow) {
       body := parseExpressionBody()
-      return makeFunction(name, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
+      return makeFunctionExpression(name, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
     }
     body := parseBlock()
-    return makeFunction(name, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
+    return makeFunctionBlock(name, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
   }
 
-  private function makeFunction(name: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression | Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+  private function makeFunctionExpression(name: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
     return FunctionDeclaration {
-      kind: "function-declaration", name, typeParams, params, returnType, body,
+      kind: "function-declaration", name, typeParams, params, returnType, body: body,
+      exported, static_, isolated_, private_, span: span(start),
+    }
+  }
+
+  private function makeFunctionBlock(name: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+    return FunctionDeclaration {
+      kind: "function-declaration", name, typeParams, params, returnType, body: body,
       exported, static_, isolated_, private_, span: span(start),
     }
   }
@@ -411,9 +421,9 @@ export class Parser {
     while !check(TokenType.RightBrace) && !atEnd() {
       variantStart := location()
       variantName := text(expect(TokenType.Identifier))
-      let value: Expression | null = null
-      if match(TokenType.Equal) { value = parseExpression() }
-      variants.push(EnumVariant { kind: "enum-variant", name: variantName, value, span: span(variantStart) })
+      let enumValue: Expression | null = null
+      if match(TokenType.Equal) { enumValue = parseExpression() }
+      variants.push(EnumVariant { kind: "enum-variant", name: variantName, value: enumValue, span: span(variantStart) })
       if !match(TokenType.Comma) { consumeSemicolon() }
     }
     expect(TokenType.RightBrace)
@@ -463,11 +473,11 @@ export class Parser {
     expect(TokenType.Return)
     if check(TokenType.RightBrace) || check(TokenType.EndOfFile) || check(TokenType.Semicolon) {
       consumeSemicolon()
-      return ReturnStatement { kind: "return-statement", value: null, span: span(start) }
+      return ReturnStatement { kind: "return-statement", span: span(start) }
     }
     value := parseExpression()
     consumeSemicolon()
-    return ReturnStatement { kind: "return-statement", value, span: span(start) }
+    return ReturnStatement { kind: "return-statement", value: value, span: span(start) }
   }
 
   private function parseYield(): Statement {
@@ -499,6 +509,50 @@ export class Parser {
     return IfStatement { kind: "if-statement", condition, body, elseIfs, else_, span: span(start) }
   }
 
+  private function parseCaseStatement(): Statement {
+    start := location()
+    expect(TokenType.Case)
+    subject := parseExpression()
+    expect(TokenType.LeftBrace)
+    let arms: CaseArm[] = []
+    while !check(TokenType.RightBrace) && !atEnd() {
+      armStart := location()
+      let patterns: CasePattern[] = [parseCasePattern()]
+      while match(TokenType.Pipe) { patterns.push(parseCasePattern()) }
+      expect(TokenType.RightArrow)
+      body := if check(TokenType.LeftBrace) then parseBlock() else parseInlineCaseArm()
+      arms.push(CaseArm { kind: "case-arm", patterns, body, span: span(armStart) })
+      match(TokenType.Comma)
+    }
+    expect(TokenType.RightBrace)
+    consumeSemicolon()
+    return CaseStatement { kind: "case-statement", subject, arms, span: span(start) }
+  }
+
+  private function parseInlineCaseArm(): Block {
+    statement := parseStatement()
+    return Block { kind: "block", statements: [statement], span: statement.span }
+  }
+
+  private function parseCasePattern(): CasePattern {
+    start := location()
+    if match(TokenType.Underscore) {
+      if match(TokenType.Colon) {
+        typeValue := parseTypeAnnotation()
+        return TypePattern { kind: "type-pattern", name: "_", type_: typeValue, span: span(start) }
+      }
+      return WildcardPattern { kind: "wildcard-pattern", span: span(start) }
+    }
+    if check(TokenType.Identifier) && peek(1).kind == TokenType.Colon {
+      name := text(advance())
+      advance()
+      typeValue := parseTypeAnnotation()
+      return TypePattern { kind: "type-pattern", name, type_: typeValue, span: span(start) }
+    }
+    value := parseExpression()
+    return ValuePattern { kind: "value-pattern", value, span: span(start) }
+  }
+
   private function parseWhile(label: string | null): Statement {
     start := location()
     expect(TokenType.While)
@@ -516,7 +570,9 @@ export class Parser {
       let bindings: string[] = [text(advance())]
       while match(TokenType.Comma) { bindings.push(text(expect(TokenType.Identifier))) }
       expect(TokenType.Of)
+      inForIterable = true
       iterable := parseExpression()
+      inForIterable = false
       body := parseBlock()
       let then_: Block | null = null
       if match(TokenType.Then) { then_ = parseBlock() }
@@ -725,7 +781,7 @@ export class Parser {
       expect(TokenType.RightParen)
       expect(TokenType.Colon)
       returnType := parseTypeAnnotation()
-      return FunctionType { kind: "function-type", params, returnType, span: span(start) }
+      return AstFunctionType { kind: "function-type", params, returnType, span: span(start) }
     }
     nameToken := advance()
     if nameToken.kind != TokenType.Identifier && nameToken.kind != TokenType.Void && nameToken.kind != TokenType.Null {
@@ -961,7 +1017,7 @@ export class Parser {
         }
         expect(TokenType.Greater)
       }
-      if check(TokenType.LeftBrace) && startsWithUppercase(name) {
+      if check(TokenType.LeftBrace) && startsWithUppercase(name) && !inForIterable {
         return parseConstruction(start, name, typeArgs)
       }
       return Identifier { kind: "identifier", name, span: span(start) }
@@ -1061,10 +1117,10 @@ export class Parser {
     expect(TokenType.Arrow)
     if check(TokenType.LeftBrace) {
       body := parseBlock()
-      return LambdaExpression { kind: "lambda-expression", params: [], returnType: null, body, parameterless: true, trailing: false, span: span(start) }
+      return LambdaExpression { kind: "lambda-expression", params: [], returnType: null, body: body, parameterless: true, trailing: false, span: span(start) }
     }
     body := parseExpression()
-    return LambdaExpression { kind: "lambda-expression", params: [], returnType: null, body, parameterless: true, trailing: false, span: span(start) }
+    return LambdaExpression { kind: "lambda-expression", params: [], returnType: null, body: body, parameterless: true, trailing: false, span: span(start) }
   }
 
   private function parseObjectLiteral(): Expression {

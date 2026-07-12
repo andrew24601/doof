@@ -10,6 +10,7 @@ Use these detailed references alongside AGENTS.md:
 - [docs/type-checker-concepts.md](docs/type-checker-concepts.md) — cross-cutting checker semantics that must stay aligned across modules
 - [docs/cpp-transpiler-architecture.md](docs/cpp-transpiler-architecture.md) — current Phase 4 emitter architecture and generated-output flow
 - [docs/cpp-transpilation-concepts.md](docs/cpp-transpilation-concepts.md) — concept-by-concept notes on how Doof constructs lower to C++
+- [docs/selfhost-bootstrap-progress.md](docs/selfhost-bootstrap-progress.md) — concrete self-hosting milestones and acceptance checks
 
 AGENTS.md is the concise policy and maintenance guide. Keep detailed repository maps and transpiler notes in those docs.
 
@@ -82,6 +83,21 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [emitter-schema.ts](src/emitter-schema.ts) (~200 lines) — JSON Schema Draft 7 generation for class metadata
 - [emitter-metadata.ts](src/emitter-metadata.ts) (~200 lines) — C++ emission for .metadata field and .invoke() method
 - [emitter-runtime.ts](src/emitter-runtime.ts) (~350 lines) — doof_runtime.hpp generation
+
+The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
+
+- `emitter-context.do` — nominal declarations and current method-owner context
+- `emitter-names.do` — stable generated module namespaces and artifact names
+- `emitter-types.do` — C++ type lowering
+- `emitter-expr.do` — expression lowering
+- `emitter-stmt.do` — statement and control-flow lowering
+- `emitter-decl.do` — declaration lowering
+- `emitter-header.do` — header planning and rendering
+- `emitter-module.do` — `.hpp` / `.cpp` orchestration
+- `emitter-project.do` — monolithic bootstrap project emission
+- `compiler.do` — self-hosted graph checking and emission orchestration
+- `driver.do` — runnable B4/B5/B6 compiler driver and native filesystem boundary
+- `bootstrap.test.do` — maintained B2/B3 native syntax gates and B4/B5/B6 bootstrap acceptance tests
 
 **When a module grows too large:**
 1. Identify cohesive subsets of functionality
@@ -236,6 +252,7 @@ src/
   emitter-e2e-advanced.test.ts  # E2E tests: concurrency, try/catch, JSON, else-narrow
   emitter-e2e-combos.test.ts    # E2E tests: feature combinations & boundaries
   emitter-e2e-samples.test.ts   # E2E tests: emitted sample projects and package-style programs
+  selfhost-bootstrap.test.ts    # Native-toolchain syntax check for the emitted self-host source graph
   test-helpers.ts               # Shared test utilities (VirtualFS)
   index.ts                      # Public API exports
 ```

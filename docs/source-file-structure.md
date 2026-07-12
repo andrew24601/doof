@@ -30,11 +30,31 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/parser.test.do` — Doof-native parser tests for literals, precedence, postfix expressions, declarations, collections, control flow, and spans
 - `selfhost/semantic.do` — shared module symbols, semantic spans, resolved types, bindings, scopes, and diagnostics
 - `selfhost/resolver.do` — deterministic relative module-path resolution over caller-supplied source files
-- `selfhost/analyzer.do` — phased module symbol collection, import/export resolution, and named-type decoration
-- `selfhost/analyzer.test.do` — analyzer tests for imports, exports, and resolved named types
+- `selfhost/analyzer.do` — phased module symbol collection, import/re-export resolution, and named-type decoration
+- `selfhost/analyzer.test.do` — analyzer tests for imports, re-exports, and resolved named types
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
 - `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
+- `selfhost/compiler.do` — self-hosted graph checking and monolithic bootstrap emission orchestration
+- `selfhost/driver.do` — runnable B4 compiler driver with explicit source-graph and output-file arguments
+- `selfhost/compiler.test.do` — self-hosted compiler pipeline tests
+- `selfhost/bootstrap.test.do` — maintained B2/B3 native syntax gates, B4/B5 compiler bootstrap, and B6 two-stage smoke tests
+- `selfhost/samples/nullable-variant.do` — focused native-compilation fixture for nullable variant lowering
+- `selfhost/samples/nullable-ast-construction.do` — focused fixture for avoiding duplicate nullable AST-variant promotion
+- `selfhost/samples/nullable-alias-assignment.do` — focused fixture for nullable `Expression`/`Statement`-style alias assignment
+- `selfhost/samples/recursive-ast-union.do` — focused fixture for recursive AST-style union construction
+- `selfhost/samples/lambda-body-union.do` — focused fixture for `LambdaExpression` body union conversion
+- `selfhost/emitter-context.do` — graph-wide declarations, module identity, imports, and current method-owner context for emission
+- `selfhost/emitter-names.do` — stable generated module namespaces and artifact names
+- `selfhost/emitter-types.do` — self-hosted resolved-type to C++ type lowering
+- `selfhost/emitter-expr.do` — self-hosted expression lowering with expected-type context
+- `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
+- `selfhost/emitter-decl.do` — self-hosted function signatures, definitions, and value declarations
+- `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary
+- `selfhost/emitter-module.do` — self-hosted module planning, dependency includes, and split `.hpp` / `.cpp` orchestration
+- `selfhost/emitter-project.do` — monolithic first-bootstrap project emission
+- `selfhost/emitter.test.do` — native tests for the initial self-hosted emitter slice
+- `src/selfhost-bootstrap.test.ts` — native-toolchain syntax compilation of the TypeScript-emitted self-host source graph
 
 ## `src/` by Concern
 
@@ -129,6 +149,12 @@ Feature-specific helpers:
 - `emitter-runtime.ts` — `doof_runtime.hpp` generation and observer feature composition
 - `runtime-assets.ts` — Node/browser loading and observer asset composition for the standalone C++ templates
 - `observer-assets.ts` — Node-side loader for observer UI assets embedded into generated runtime support
+
+The self-hosted emitter is developed separately under `selfhost/`. Its first
+slice intentionally has a smaller scope than the TypeScript emitter and keeps
+header planning isolated from source, declaration, expression, and statement
+rendering. Extend the self-hosted modules in those ownership boundaries before
+adding logic to `emitter-module.do`.
 
 ### CLI, Build, and Packaging
 

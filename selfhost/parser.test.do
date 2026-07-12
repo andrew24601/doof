@@ -172,3 +172,18 @@ export function testParsesMemberComparisonInWhile(): void {
 export function testParsesNegatedDiagnosticCall(): void {
   parse("function f(): void { if !terminated { diagnostic(\"Unterminated block comment\", commentLine, commentColumn) } }")
 }
+
+export function testParsesSelfhostSemanticSources(): void {
+  for path of [
+    "selfhost/resolver.do", "selfhost/ast.do", "selfhost/semantic.do",
+    "selfhost/parser.do", "selfhost/analyzer.do", "selfhost/checker-types.do",
+    "selfhost/checker.do", "selfhost/emitter-context.do", "selfhost/emitter-types.do",
+    "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-decl.do",
+    "selfhost/emitter-header.do", "selfhost/emitter-module.do", "selfhost/emitter-project.do",
+    "selfhost/compiler.do",
+  ] {
+    source := try! readText(path)
+    parsed := parse(source)
+    Assert.equal(parsed.statements.length > 0, true)
+  }
+}

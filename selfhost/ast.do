@@ -4,8 +4,8 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ArrayResolvedType, Binding, ClassType, FunctionType as ResolvedFunctionType,
-  NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
+  ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType,
+  FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
   UnknownType, VoidType,
 } from "./semantic"
 import type { ResolvedType } from "./semantic"
@@ -42,7 +42,7 @@ export class UnionType {
   span: SourceSpan
 }
 
-export class FunctionType {
+export class AstFunctionType {
   kind: string
   params: FunctionTypeParam[]
   returnType: TypeAnnotation
@@ -55,7 +55,7 @@ export class FunctionTypeParam {
   span: SourceSpan
 }
 
-export type TypeAnnotation = NamedType | ArrayType | UnionType | FunctionType
+export type TypeAnnotation = NamedType | ArrayType | UnionType | AstFunctionType
 
 export class IntLiteral {
   kind: string
@@ -193,6 +193,7 @@ export class ArrayLiteral {
 export class ObjectProperty {
   name: string
   value: Expression | null
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -338,7 +339,7 @@ export class FunctionDeclaration {
 
 export class ReturnStatement {
   kind: string
-  value: Expression | null
+  value: Expression | null = null
   span: SourceSpan
 }
 
@@ -356,6 +357,41 @@ export class IfStatement {
   else_: Block | null
   span: SourceSpan
 }
+
+export class CaseStatement {
+  kind: string
+  subject: Expression
+  arms: CaseArm[]
+  span: SourceSpan
+}
+
+export class CaseArm {
+  kind: string
+  patterns: CasePattern[]
+  body: Block
+  span: SourceSpan
+}
+
+export class TypePattern {
+  kind: string
+  name: string
+  type_: TypeAnnotation
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
+export class WildcardPattern {
+  kind: string
+  span: SourceSpan
+}
+
+export class ValuePattern {
+  kind: string
+  value: Expression
+  span: SourceSpan
+}
+
+export type CasePattern = TypePattern | WildcardPattern | ValuePattern
 
 export class IfBranch {
   condition: Expression
@@ -496,6 +532,7 @@ export class TypeAliasDeclaration {
   typeParams: string[]
   type_: TypeAnnotation
   exported: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -545,7 +582,7 @@ export type Statement =
   ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration |
   FunctionDeclaration | ClassDeclaration | InterfaceDeclaration |
   EnumDeclaration | TypeAliasDeclaration | ImportDeclaration |
-  ExportDeclaration | ExportList | IfStatement | WhileStatement |
+  ExportDeclaration | ExportList | IfStatement | CaseStatement | WhileStatement |
   ForStatement | ForOfStatement | WithStatement | ReturnStatement |
   YieldStatement | BreakStatement | ContinueStatement | ExpressionStatement |
   DestructuringStatement | Block

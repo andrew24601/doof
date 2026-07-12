@@ -14,6 +14,66 @@ The emitter runs after parsing, module analysis, and type checking.
 
 The emitter relies on that decorated AST directly. It does not rebuild type tables during emission.
 
+## Self-Hosted Emitter Foundation
+
+The self-hosted compiler is beginning its own C++ emitter under `selfhost/`.
+It uses the TypeScript emitter as a source of tested behavior and architectural
+clues, but its C++ representation policy is intentionally independent.
+
+The initial slice is split into small modules:
+
+- `selfhost/emitter-context.do` owns nominal declarations and current method-owner context
+- `selfhost/emitter-types.do` owns resolved-type representation choices
+- `selfhost/emitter-expr.do` owns expression spelling and accepts expected-type context
+- `selfhost/emitter-stmt.do` owns block and control-flow layout
+- `selfhost/emitter-decl.do` owns reusable function signatures and definitions
+- `selfhost/emitter-header.do` owns header planning and rendering
+- `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
+- `selfhost/emitter-module.do` owns single-module `.hpp` / `.cpp` orchestration
+- `selfhost/emitter-project.do` combines the checked module graph into a monolithic bootstrap artifact
+- `selfhost/compiler.do` checks every analyzed module before invoking project emission
+- `selfhost/driver.do` provides the B4/B5/B6 command-line and file boundary and writes generated C++ artifacts
+
+The header planner stores rendered signatures and other small planning facts,
+not AST unions. This keeps implementation-only front-end types from leaking
+into generated C++ headers and leaves room for a future dependency planner.
+The self-hosted module planner derives stable namespaces and direct import and
+re-export header dependencies from logical source paths. `emitModuleGraph(...)`
+renders separate `.hpp` / `.cpp` pairs with guarded shared helpers, local class
+forward declarations, and defining-module qualification for named, namespace,
+and re-exported symbols. The maintained B3 acceptance test compiles all 18
+self-hosted modules as separate translation units.
+The current foundation covers a checked core of primitives, arrays, tuples,
+operators, calls, bindings, returns, conditionals, functions, classes, named
+construction, enum/type-alias declarations, assignments, range-based loops,
+and variant `case` statements. Expected-type context is used at the emission
+boundary for nullable multi-arm variant promotion, while the checker remains
+responsible for decorating assignment targets. Interfaces remain a subsequent
+slice; imports and multi-module dependency planning are covered by the
+completed B3 graph gate. The header planner also emits `with_block` overloads for both existing
+expression variants and concrete expression nodes when promoting AST bodies to
+`Expression | Block` fields.
+
+The monolithic project emitter includes an executable wrapper. A
+`main(args: string[]): int` entry receives process arguments through a generated
+`std::vector<std::string>` bridge. The B4 driver uses the bootstrap runtime's
+small native surface (`readFile`, `writeFile`, and `absolutePath`) to load an
+explicit source-file graph, invoke the self-hosted compiler, and write a
+header, source file, and adjacent `doof_runtime.hpp`.
+
+`src/selfhost-bootstrap.test.ts` compiles the TypeScript bootstrap emitter's
+18-module self-host source graph with the native C++ toolchain. The
+`selfhost/bootstrap.test.do` B2/B3 tests provide the corresponding self-hosted
+monolithic and split translation-unit checks, while its B4 test links and runs
+the generated driver and then compiles and runs the generated target program.
+Its B5 test feeds the complete driver-inclusive graph back through that
+generated compiler, links the resulting compiler, and verifies another
+generated target program. The B6 path feeds that generated compiler's output
+back through the same graph, links the next compiler, and verifies a second
+target program. The bootstrap runtime explicitly preserves both
+`char` and `char32_t` string conversion because the self-hosted lexer indexes
+source strings while compiling its own emitter and driver.
+
 ## Primary Entry Points
 
 The current emitter entry surface is `src/emitter-module.ts`.

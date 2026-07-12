@@ -13,10 +13,11 @@ import {
 import {
   ArrayType, AstLocation, ClassDeclaration, ConstDeclaration, EnumDeclaration,
   Block, ExportDeclaration, ExportList, ForOfStatement, ForStatement, FunctionDeclaration,
-  FunctionType, IfStatement, ImmutableBinding, InterfaceDeclaration, LetDeclaration,
+  AstFunctionType, IfStatement, ImmutableBinding, InterfaceDeclaration, LetDeclaration,
   NamedImport, NamedType, NamespaceImport, ReadonlyDeclaration, ReturnStatement,
   YieldStatement, WhileStatement, WithStatement, BreakStatement, ContinueStatement,
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
+  CaseStatement,
 } from "./ast"
 import type { ImportDeclaration, Program, SourceSpan, Statement, TypeAnnotation } from "./ast"
 
@@ -27,6 +28,7 @@ export class ModuleInfo {
   exports: Symbol[] = []
   imports: ImportBinding[] = []
   namespaceImports: NamespaceBinding[] = []
+  reExports: string[] = []
   diagnostics: Diagnostic[] = []
 }
 
@@ -117,6 +119,7 @@ export class ModuleAnalyzer {
       }
       _ -> { return null }
     }
+    return null
   }
 
   private function resolveImports(info: ModuleInfo): void {
@@ -165,6 +168,22 @@ export class ModuleAnalyzer {
     for statement of info.program.statements {
       case statement {
         list: ExportList -> {
+          if list.source != null {
+            sourcePath := resolver.resolve(info.path, list.source!)
+            source := analyzeModule(sourcePath)
+            info.reExports.push(sourcePath)
+            for specifier of list.specifiers {
+              let exported: Symbol | null = null
+              if source != null { exported = findExport(source!, specifier.name) }
+              if exported == null {
+                addError(info, "Module '" + list.source! + "' does not export '" + specifier.name + "'", specifier.span)
+              } else {
+                exportedName := if specifier.alias == null then specifier.name else specifier.alias!
+                info.exports.push(Symbol { kind: exported!.kind, name: exportedName, module: exported!.module, exported: true, originalName: if exported!.originalName == "" then exported!.name else exported!.originalName })
+              }
+            }
+            continue
+          }
           for specifier of list.specifiers {
             local := findSymbol(info, specifier.name)
             if local != null {
@@ -229,7 +248,7 @@ export class ModuleAnalyzer {
       }
       array: ArrayType -> { visitType(array.elementType, info) }
       union: UnionType -> { for member of union.types { visitType(member, info) } }
-      function_: FunctionType -> {
+      function_: AstFunctionType -> {
         for parameter of function_.params { visitType(parameter.type_, info) }
         visitType(function_.returnType, info)
       }
@@ -248,6 +267,7 @@ export class ModuleAnalyzer {
     export_: ExportDeclaration | null = null,
     import_: ImportDeclaration | null = null,
     if_: IfStatement | null = null,
+    case_: CaseStatement | null = null,
     while_: WhileStatement | null = null,
     for_: ForStatement | null = null,
     forOf: ForOfStatement | null = null,

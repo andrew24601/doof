@@ -123,6 +123,21 @@ describe("emitter — immutable bindings (:=)", () => {
   });
 });
 
+describe("emitter — bootstrap filesystem builtins", () => {
+  it("maps driver file helpers to the native runtime", () => {
+    const cpp = emit(`
+      function main(): void {
+        path := absolutePath("input.do")
+        source := readFile(path)
+        writeFile("output.cpp", source)
+      }
+    `);
+    expect(cpp).toContain("doof::absolute_path(std::string(\"input.do\"))");
+    expect(cpp).toContain("doof::read_file(path)");
+    expect(cpp).toContain("doof::write_file(std::string(\"output.cpp\"), source)");
+  });
+});
+
 describe("emitter — let declarations", () => {
   it("emits auto for let", () => {
     const cpp = emit(`

@@ -83,6 +83,23 @@ describe("Variable type inference", () => {
 // ============================================================================
 
 describe("Identifier resolution", () => {
+  it("resolves self-host bootstrap filesystem builtins", () => {
+    const info = check(
+      {
+        "/main.do": `
+          function main(): void {
+            path := absolutePath("input.do")
+            source := readFile(path)
+            writeFile("output.cpp", source)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(info.diagnostics).toHaveLength(0);
+  });
+
   it("resolves metrics builtins", () => {
     const info = check(
       {

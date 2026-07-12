@@ -41,6 +41,10 @@ Strategy:
 - arrays, maps, and sets lower to shared runtime container wrappers
 - string indexing and `.charAt()` lower to the shared bounds-checked
   `doof::string_at` runtime helper
+- `char` literals lower to escaped C++ universal character literals in the
+  self-hosted emitter, so their spelling remains stable when a generated
+  compiler parses and emits its own source; the bootstrap runtime provides
+  explicit one-character conversions for both C++ `char` and `char32_t`
 - `Range` lowers to `doof::Range`, preserving the lower bound and normalizing
   the upper bound to an exclusive value for member accessors
 
@@ -48,11 +52,14 @@ Primary modules:
 
 - `src/emitter-types.ts`
 - `src/emitter-defaults.ts`
+- `selfhost/emitter-expr.do`
+- `selfhost/driver.do`
 
 Validation anchors:
 
 - `src/emitter-basics.test.ts`
 - `src/emitter-advanced.test.ts`
+- `selfhost/bootstrap.test.do`
 - `spec/02-type-system.md`
 
 ### Nullability and Unions
@@ -62,6 +69,10 @@ Strategy:
 - nullable shapes are lowered differently depending on runtime representation
 - pointer-like nullability uses pointer/null forms when possible
 - value-like nullable unions, including `Struct | null`, use optional or variant-style lowering
+- when checked source types are non-null but the emitted AST field or call
+  parameter is a nullable multi-arm union, the self-hosted emitter promotes the
+  value through `doof::optional_value(...)`; the checker must decorate the
+  target expression so this decision is available at the emission boundary
 - broader unions use generated `std::variant` shapes and explicit extraction or coercion helpers
 
 Primary modules:

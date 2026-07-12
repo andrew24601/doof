@@ -33,3 +33,16 @@ export function testDecoratesNamedTypes(): void {
     _ -> { panic("expected a function") }
   }
 }
+
+export function testResolvesReExportsToDefiningModule(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { sum } from \"./index\"\nfunction main(): int => sum(1, 2)" },
+    SourceFile { path: "/index.do", source: "export { add as sum } from \"./math\"" },
+    SourceFile { path: "/math.do", source: "export function add(a: int, b: int): int => a + b" },
+  ]
+  result := createAnalyzer(sources).analyze("/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.modules[1].reExports.length, 1)
+  Assert.equal(result.modules[0].imports[0].symbol != null, true)
+  Assert.equal(result.modules[0].imports[0].symbol!.module, "/math.do")
+}
