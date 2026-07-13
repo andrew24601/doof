@@ -33,4 +33,30 @@ function makeBlockBody(): Expression {
   }
 }
 
+function makeShorthandExpressionBody(): Expression {
+  body: Expression := IntLiteral { kind: "int-literal", value: 1, span: span() }
+  return LambdaExpression {
+    kind: "lambda-expression",
+    params: [],
+    returnType: null,
+    body,
+    parameterless: true,
+    trailing: false,
+    span: span(),
+  }
+}
+
+function makeShorthandBlockBody(): Expression {
+  body := Block { kind: "block", statements: [], span: span() }
+  return LambdaExpression {
+    kind: "lambda-expression",
+    params: [],
+    returnType: null,
+    body,
+    parameterless: true,
+    trailing: false,
+    span: span(),
+  }
+}
+
 function main(): int => 0

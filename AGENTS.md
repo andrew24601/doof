@@ -86,6 +86,11 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 
 The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 
+- `parser.do` — parser façade, token state, diagnostics, and public parse entry points
+- `parser-declarations.do` — declaration, class, interface, enum, import, and export parsing
+- `parser-statements.do` — statement, control-flow, try, destructuring, and case-pattern parsing
+- `parser-types.do` — type annotation parsing
+- `parser-expressions.do` — precedence-climbing expression and literal parsing
 - `emitter-context.do` — nominal declarations and current method-owner context
 - `emitter-names.do` — stable generated module namespaces and artifact names
 - `emitter-types.do` — C++ type lowering

@@ -208,14 +208,24 @@ including member and index targets. The emitter uses that target decoration to
 select representation-level promotion when a non-null `ResolvedType` or AST
 union value is assigned into a nullable AST field.
 
+The self-hosted pipeline preserves `class` versus `struct` on
+`ClassDeclaration` and its analyzed symbol. Both nominal kinds use `ClassType`
+for member checking, but the symbol kind remains authoritative for downstream
+reference-versus-value lowering. Struct symbols are predeclared like classes
+and remain excluded from interface implementation discovery in v1.
+
 Primary modules:
 
 - `selfhost/checker.do`
 - `selfhost/checker-types.do`
+- `selfhost/analyzer.do`
+- `selfhost/parser-declarations.do`
 
 Validation anchors:
 
 - `selfhost/checker.test.do`
+- `selfhost/parser.test.do`
+- `selfhost/emitter.test.do`
 
 ## Actor Boundary Safety
 

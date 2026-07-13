@@ -14,6 +14,22 @@ The emitter runs after parsing, module analysis, and type checking.
 
 The emitter relies on that decorated AST directly. It does not rebuild type tables during emission.
 
+### Self-Hosted Pre-Emission Contract
+
+The self-hosted compiler makes this boundary explicit in `selfhost/compiler.do`:
+it checks the complete analyzed module graph, then runs
+`validateCheckedTypes(...)` before calling the module emitter. The validator
+walks declarations, annotations, bindings, patterns, and expressions,
+including nested generic arguments. Any missing decoration or `UnknownType`
+produces diagnostics and the compilation has no emission result.
+
+The self-hosted emitter therefore consumes resolved types and checker-attached
+declaration targets (`resolvedFunction`, `resolvedConstructor`,
+`resolvedClass`, and `resolvedStaticOwner`). It does not scan declarations,
+resolve raw type annotations, or recover from unknown types while rendering.
+Module import planning remains an output-layout concern; semantic lookup and
+validation belong entirely to analysis and checking.
+
 ## Self-Hosted Emitter Foundation
 
 The self-hosted compiler is beginning its own C++ emitter under `selfhost/`.
@@ -24,14 +40,18 @@ The initial slice is split into small modules:
 
 - `selfhost/emitter-context.do` owns nominal declarations and current method-owner context
 - `selfhost/emitter-types.do` owns resolved-type representation choices
-- `selfhost/emitter-expr.do` owns expression spelling and accepts expected-type context
+- `selfhost/emitter-expr.do` owns decorated-AST dispatch and accepts expected-type context
+- `selfhost/emitter-expr-utils.do` owns shared type decoration and nullable-promotion helpers
+- `selfhost/emitter-expr-literals.do` owns literal, array, object, tuple, and string spelling
+- `selfhost/emitter-expr-ops.do` owns assignment, operators, member access, and indexing
+- `selfhost/emitter-expr-calls.do` owns calls, native constructors, and class construction
+- `selfhost/emitter-expr-control.do` owns `if`, `case`, and dot-shorthand lowering
 - `selfhost/emitter-stmt.do` owns block and control-flow layout
 - `selfhost/emitter-decl.do` owns reusable function signatures and definitions
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
-- `selfhost/emitter-module.do` owns single-module `.hpp` / `.cpp` orchestration
-- `selfhost/emitter-project.do` combines the checked module graph into a monolithic bootstrap artifact
-- `selfhost/compiler.do` checks every analyzed module before invoking project emission
+- `selfhost/emitter-module.do` owns module-graph planning and `.hpp` / `.cpp` orchestration
+- `selfhost/compiler.do` checks every analyzed module before invoking split module emission
 - `selfhost/driver.do` provides the B4/B5/B6 command-line and file boundary and writes generated C++ artifacts
 
 The header planner stores rendered signatures and other small planning facts,
@@ -48,9 +68,10 @@ operators, calls, bindings, returns, conditionals, functions, classes, named
 construction, enum/type-alias declarations, assignments, range-based loops,
 and variant `case` statements. Expected-type context is used at the emission
 boundary for nullable multi-arm variant promotion, while the checker remains
-responsible for decorating assignment targets. Interfaces remain a subsequent
-slice; imports and multi-module dependency planning are covered by the
-completed B3 graph gate. The header planner also emits `with_block` overloads for both existing
+responsible for decorating assignment targets. The self-hosted slice now also
+discovers structural interface implementations, emits variant aliases, and
+dispatches interface members with `std::visit`; imports and multi-module
+dependency planning are covered by the completed B3 graph gate. The header planner also emits `with_block` overloads for both existing
 expression variants and concrete expression nodes when promoting AST bodies to
 `Expression | Block` fields.
 
@@ -62,17 +83,23 @@ defined out of line after the generated module namespace. Bodyless methods are
 checked as signatures only; a native class must declare any Doof-bodied method
 and provide `shared_from_this()` support when its body returns bare `this`.
 
-The monolithic project emitter includes an executable wrapper. A
+The split module emitter places the executable wrapper in the entry module. A
 `main(args: string[]): int` entry receives process arguments through a generated
-`std::vector<std::string>` bridge. The B4 driver uses the bootstrap runtime's
-small native surface (`readFile`, `writeFile`, and `absolutePath`) to load an
-explicit source-file graph, invoke the self-hosted compiler, and write a
-header, source file, and adjacent `doof_runtime.hpp`.
+`std::vector<std::string>` bridge. The B4 driver exposes file contents through
+the `std/fs`-shaped `readText` / `writeText` surface and retains only native
+path/discovery helpers while it loads an explicit source-file graph, including
+bare modules supplied with `--module <specifier> <path>`, invokes the
+self-hosted compiler, and writes every module's header/source pair plus an
+adjacent `doof_runtime.hpp` to the output directory. It copies that file from
+the canonical runtime header used to build the compiler, with
+`DOOF_RUNTIME_HEADER` available as a relocation override, so the TypeScript and
+self-hosted compilers share one runtime implementation. Package manifests and
+automatic `std/*` discovery remain outside this bootstrap slice.
 
 `src/selfhost-bootstrap.test.ts` compiles the TypeScript bootstrap emitter's
-18-module self-host source graph with the native C++ toolchain. The
-`selfhost/bootstrap.test.do` B2/B3 tests provide the corresponding self-hosted
-monolithic and split translation-unit checks, while its B4 test links and runs
+17-module self-host source graph with the native C++ toolchain. The
+`selfhost/bootstrap.test.do` B3 test provides the corresponding self-hosted
+split translation-unit check, while its B4 test links and runs
 the generated driver and then compiles and runs the generated target program.
 Its B5 test feeds the complete driver-inclusive graph back through that
 generated compiler, links the resulting compiler, and verifies another
@@ -87,7 +114,7 @@ source strings while compiling its own emitter and driver.
 The current emitter entry surface is `src/emitter-module.ts`.
 
 - `emitModuleSplit(...)` emits one Doof module as a `.hpp` / `.cpp` pair
-- `emitProject(...)` emits the full project output, including runtime and support files
+- `emitProject(...)` emits the full TypeScript project output, including split module files, runtime, and support files
 
 Those entry points coordinate the rest of the emitter and are the place to start when the generated project shape is wrong.
 
@@ -234,6 +261,10 @@ Some features require dedicated support generation beyond ordinary statement or 
 - `doof_runtime.h` is the checked-in C++ source template for generated `doof_runtime.hpp`; `doof_observer_platform.h` and `doof_observer_runtime.h` hold the optional observer support; `src/emitter-runtime.ts` composes them
 - `src/emitter-json.ts` generates JSON serialization and deserialization helpers
 - `src/emitter-json-value.ts` handles runtime coercion around `JsonValue`
+- The self-hosted emitter follows the same ordered-map representation:
+  intrinsic `JsonValue` lowers to the runtime carrier, JSON object literals
+  lower to `doof::ordered_map<std::string, doof::JsonValue>`, and generated
+  `toJsonObject()` methods preserve declaration order.
 - `src/emitter-schema.ts` generates JSON Schema fragments for metadata surfaces
 - `src/emitter-metadata.ts` generates `.metadata` and `.invoke()` support
 - `src/emitter-narrowing.ts` handles `as`-narrowing and extraction from narrowed values

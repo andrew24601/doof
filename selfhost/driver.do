@@ -3,102 +3,244 @@
 // The driver keeps filesystem access at the native-runtime boundary.  The
 // compiler itself still receives ordinary SourceFile values, so this surface
 // exercises the same resolver, analyzer, checker, and emitter used by the
-// in-memory tests. Source files after the output prefix complete the graph.
+// in-memory tests. The resolver asks this driver for source text only after an
+// import is encountered. --module remains an explicit mapping for external
+// modules, while local and std/* paths are resolved from their roots.
 
-import { compile } from "./compiler"
+import { compileWithLoader } from "./compiler"
+import { ModuleEmission } from "./emitter-module"
+import { CliRequest, ModuleSource, cliUsage, parseCli } from "./cli"
+import { environmentValue, joinPath, readProjectSpec } from "./project"
+import { SourceLoader } from "./resolver"
 import { Diagnostic, SourceFile } from "./semantic"
+import { exists, readText, writeText } from "std/fs"
+
+import function runtimeHeaderSourcePath(): string from "doof_runtime.hpp" as doof::runtime_header_source_path
 
 function driverWithExtension(path: string): string {
   if path.endsWith(".do") { return path }
   return path + ".do"
 }
 
-function driverParentDirectory(path: string): string {
-  let end = path.length - 1
-  while end >= 0 && path[end] == '/' { end = end - 1 }
-  while end >= 0 && path[end] != '/' { end = end - 1 }
-  if end <= 0 { return "/" }
-  return path.substring(0, end)
-}
-
-function driverBasename(path: string): string {
-  let end = path.length - 1
-  while end >= 0 && path[end] != '/' { end = end - 1 }
-  return path.substring(end + 1, path.length)
-}
-
-function hasPath(paths: string[], path: string): bool {
-  for existing of paths { if existing == path { return true } }
-  return false
-}
-
-function loadSources(entry: string, extraPaths: string[]): SourceFile[] {
-  let paths: string[] = [entry]
-  for extra of extraPaths {
-    path := absolutePath(extra)
-    if !hasPath(paths, path) { paths.push(path) }
+function driverLogicalPath(path: string): string {
+  withExtension := driverWithExtension(path)
+  if withExtension.startsWith("/") {
+    return driverSelfhostSuffix(withExtension)
   }
-  let sources: SourceFile[] = []
+  return "/" + withExtension
+}
+
+function driverExternalLogicalPath(specifier: string): string {
+  withExtension := driverWithExtension(specifier)
+  if withExtension.startsWith("/") { return withExtension }
+  return "/" + withExtension
+}
+
+function driverSelfhostSuffix(path: string): string {
+  marker := "/selfhost/"
   let index = 0
-  while index < paths.length {
-    path := paths[index]
+  while index + marker.length <= path.length {
+    if path.substring(index, index + marker.length) == marker {
+      return path.substring(index, path.length)
+    }
     index = index + 1
-    source := readFile(path)
-    sources.push(SourceFile { path, source })
   }
-  return sources
+  return path
 }
 
-function runtimeHeader(): string {
-  return "#pragma once\n" +
-    "#include <filesystem>\n" +
-    "#include <fstream>\n" +
-    "#include <iostream>\n" +
-    "#include <sstream>\n" +
-    "#include <stdexcept>\n" +
-    "#include <string>\n" +
-    "#include <utility>\n" +
-    "#include <vector>\n" +
-    "namespace doof {\n" +
-    "[[noreturn]] inline void panic(const std::string& message);\n" +
-    "template <typename T> std::string to_string(const T& value) { return std::to_string(value); }\n" +
-    "inline std::string to_string(const std::string& value) { return value; }\n" +
-    "inline std::string to_string(const char& value) { return std::string(1, value); }\n" +
-    "inline std::string to_string(const char32_t& value) { return std::string(1, static_cast<char>(value)); }\n" +
-    "inline void println(const std::string& value) { std::cout << value << std::endl; }\n" +
-    "inline std::string read_file(const std::string& path) { std::ifstream input(path); if (!input) throw std::runtime_error(\"cannot read file: \" + path); std::ostringstream contents; contents << input.rdbuf(); return contents.str(); }\n" +
-    "inline void write_file(const std::string& path, const std::string& contents) { std::ofstream output(path); if (!output) throw std::runtime_error(\"cannot write file: \" + path); output << contents; }\n" +
-    "inline std::string absolute_path(const std::string& path) { return std::filesystem::absolute(path).lexically_normal().string(); }\n" +
-    "[[noreturn]] inline void panic(const std::string& message) { throw std::runtime_error(message); }\n" +
-    "}\n"
+function driverOutputPath(directory: string, name: string): string {
+  if directory.endsWith("/") { return directory + name }
+  return directory + "/" + name
+}
+
+function materializeStdlibSupport(outputDirectory: string, stdlibRoot: string, modules: ModuleEmission[]): void {
+  if stdlibRoot == "" { return }
+  let copiedJson = false
+  let copiedFs = false
+  let copiedPath = false
+  let copiedBlob = false
+  for module of modules {
+    if module.modulePath.startsWith("/std/json/") && !copiedJson {
+      nativePath := joinPath(joinPath(absolutePath(stdlibRoot), "json"), "native_json.hpp")
+      try! writeText(driverOutputPath(outputDirectory, "native_json.hpp"), try! readText(nativePath))
+      copiedJson = true
+    }
+    if module.modulePath == "/std/fs/index.do" && !copiedFs {
+      fsRoot := joinPath(absolutePath(stdlibRoot), "fs")
+      try! writeText(driverOutputPath(outputDirectory, "native_fs.hpp"), try! readText(joinPath(fsRoot, "native_fs.hpp")))
+      try! writeText(driverOutputPath(outputDirectory, "types.hpp"),
+        "#pragma once\n#include \"std_blob_types.hpp\"\n#include \"std_fs_types.hpp\"\n#include \"std_time_index.hpp\"\nusing EntryKind = ::app_std_fs_types_::EntryKind;\nusing IoError = ::app_std_fs_types_::IoError;\nusing Endian = ::app_std_blob_types_::Endian;\nusing TextEncoding = ::app_std_blob_types_::TextEncoding;\nusing EncodingError = ::app_std_blob_types_::EncodingError;\nusing Instant = ::app_std_time_index_::Instant;\nnamespace doof_fs { using EntryKind = ::app_std_fs_types_::EntryKind; using IoError = ::app_std_fs_types_::IoError; using Instant = ::app_std_time_index_::Instant; using ::app_std_fs_types_::IoError_name; }\n")
+      copiedFs = true
+    }
+    if module.modulePath == "/std/path/index.do" && !copiedPath {
+      pathRoot := joinPath(absolutePath(stdlibRoot), "path")
+      try! writeText(driverOutputPath(outputDirectory, "native_path.hpp"), try! readText(joinPath(pathRoot, "native_path.hpp")))
+      copiedPath = true
+    }
+    if module.modulePath == "/std/blob/index.do" && !copiedBlob {
+      blobRoot := joinPath(absolutePath(stdlibRoot), "blob")
+      try! writeText(driverOutputPath(outputDirectory, "native_blob.hpp"), try! readText(joinPath(blobRoot, "native_blob.hpp")))
+      copiedBlob = true
+    }
+  }
+}
+
+class DriverSourceMapping {
+  logicalPath: string
+  diskPath: string
+}
+
+class DriverSourceRoot {
+  logicalPrefix: string
+  diskRoot: string
+}
+
+class DriverSourceState {
+  localMappings: DriverSourceMapping[]
+  localRoots: DriverSourceRoot[]
+  moduleSources: ModuleSource[]
+  stdlibRoot: string
+}
+
+let configuredDriverSourceState: DriverSourceState = DriverSourceState {
+  localMappings: [],
+  localRoots: [],
+  moduleSources: [],
+  stdlibRoot: "",
+}
+
+function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
+  return DriverSourceMapping { logicalPath, diskPath: absolutePath(diskPath) }
+}
+
+function driverSourceDiskPath(
+  logicalPath: string,
+  localMappings: DriverSourceMapping[],
+  localRoots: DriverSourceRoot[],
+  moduleSources: ModuleSource[],
+  stdlibRoot: string,
+): string {
+  for mapping of localMappings {
+    if mapping.logicalPath == logicalPath { return mapping.diskPath }
+  }
+  for mapping of moduleSources {
+    if driverExternalLogicalPath(mapping.specifier) == logicalPath {
+      return absolutePath(driverWithExtension(mapping.sourcePath))
+    }
+  }
+  for root of localRoots {
+    if logicalPath == root.logicalPrefix { return root.diskRoot }
+    prefix := root.logicalPrefix + "/"
+    if logicalPath.startsWith(prefix) {
+      return joinPath(root.diskRoot, logicalPath.substring(prefix.length, logicalPath.length))
+    }
+  }
+  if logicalPath.startsWith("/std/") && stdlibRoot != "" {
+    return joinPath(absolutePath(stdlibRoot), logicalPath.substring(5, logicalPath.length))
+  }
+  return logicalPath
+}
+
+function loadDriverSource(
+  logicalPath: string,
+  localMappings: DriverSourceMapping[],
+  localRoots: DriverSourceRoot[],
+  moduleSources: ModuleSource[],
+  stdlibRoot: string,
+): SourceFile | null {
+  diskPath := driverSourceDiskPath(logicalPath, localMappings, localRoots, moduleSources, stdlibRoot)
+  if !exists(diskPath) { return null }
+  source := readText(diskPath) else {
+    return null
+  }
+  return SourceFile { path: logicalPath, source }
+}
+
+function configuredDriverSource(logicalPath: string): SourceFile | null => loadDriverSource(
+  logicalPath,
+  configuredDriverSourceState.localMappings,
+  configuredDriverSourceState.localRoots,
+  configuredDriverSourceState.moduleSources,
+  configuredDriverSourceState.stdlibRoot,
+)
+
+function driverSelfhostDiskRoot(path: string): string {
+  marker := "/selfhost/"
+  let index = 0
+  while index + marker.length <= path.length {
+    if path.substring(index, index + marker.length) == marker {
+      return path.substring(0, index + marker.length - 1)
+    }
+    index = index + 1
+  }
+  return ""
+}
+
+function sourceLoaderForRequest(entryPath: string, extraPaths: string[], moduleSources: ModuleSource[], stdlibRoot: string): SourceLoader {
+  let localMappings: DriverSourceMapping[] = [driverSourceMapping(driverLogicalPath(entryPath), entryPath)]
+  let localRoots: DriverSourceRoot[] = []
+  selfhostRoot := driverSelfhostDiskRoot(entryPath)
+  if selfhostRoot != "" {
+    localRoots.push(DriverSourceRoot { logicalPrefix: "/selfhost", diskRoot: selfhostRoot })
+  }
+  for path of extraPaths {
+    absolute := absolutePath(driverWithExtension(path))
+    localMappings.push(driverSourceMapping(driverLogicalPath(absolute), absolute))
+  }
+  configuredDriverSourceState = DriverSourceState { localMappings, localRoots, moduleSources, stdlibRoot }
+  return configuredDriverSource
+}
+
+function materializeRuntimeHeader(outputDirectory: string): void {
+  // The canonical header is both the compiler's runtime dependency and the
+  // source asset copied into generated projects. The override supports moving
+  // a compiler binary independently from the header it was built against.
+  let sourcePath = environmentValue("DOOF_RUNTIME_HEADER")
+  if sourcePath == "" { sourcePath = runtimeHeaderSourcePath() }
+  try! writeText(driverOutputPath(outputDirectory, "doof_runtime.hpp"), try! readText(sourcePath))
 }
 
 function printDiagnostics(diagnostics: Diagnostic[]): void {
   for diagnostic of diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
 }
 
-function main(args: string[]): int {
-  if args.length < 2 {
-    println("usage: doof-selfhost <entry.do> <output-prefix> [source.do ...]")
-    return 2
-  }
-
-  entry := driverWithExtension(absolutePath(args[0]))
-  prefix := absolutePath(args[1])
-  let extraPaths: string[] = []
-  for i of 2..<args.length { extraPaths.push(args[i]) }
-  result := compile(loadSources(entry, extraPaths), entry)
+function emitRequest(request: CliRequest): int {
+  project := readProjectSpec(request.entry)
+  entryPath := joinPath(project.rootDirectory, project.entry)
+  entry := driverLogicalPath(entryPath)
+  stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
+  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot)
+  result := compileWithLoader([], entry, loader)
   if result.diagnostics.length > 0 {
     printDiagnostics(result.diagnostics)
     return 1
   }
+  if request.command == "check" { return 0 }
   if result.emission == null { panic("self-hosted compiler produced no emission") }
 
+  outputDirectory := if request.outputDirectory == ""
+    then joinPath(project.rootDirectory, project.buildDirectory)
+    else absolutePath(request.outputDirectory)
   emission := result.emission!
-  headerName := driverBasename(prefix) + ".hpp"
-  source := emission.source.replaceAll("#include \"selfhost.hpp\"", "#include \"" + headerName + "\"")
-  writeFile(prefix + ".hpp", emission.header)
-  writeFile(prefix + ".cpp", source)
-  writeFile(driverParentDirectory(prefix) + "/doof_runtime.hpp", runtimeHeader())
+  for module of emission.modules {
+    try! writeText(driverOutputPath(outputDirectory, module.headerName), module.header)
+    try! writeText(driverOutputPath(outputDirectory, module.sourceName), module.source)
+  }
+  materializeStdlibSupport(outputDirectory, environmentValue("DOOF_STDLIB_ROOT"), emission.modules)
+  materializeRuntimeHeader(outputDirectory)
   return 0
+}
+
+function main(args: string[]): int {
+  parsed := parseCli(args)
+  if parsed.help {
+    println(cliUsage())
+    return 0
+  }
+  if parsed.error != "" {
+    println("error: " + parsed.error)
+    println(cliUsage())
+    return 2
+  }
+  return emitRequest(parsed.request!)
 }

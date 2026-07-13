@@ -234,6 +234,7 @@ export async function runTestCommand(options: RunTestCommandOptions): Promise<Ru
   const groups = groupTestsByModule(selected);
   let passed = 0;
   let failed = 0;
+  const testTimeoutMs = parseTestTimeoutMs();
 
   // Coverage accumulators keyed by module *path* to avoid integer-ID collisions across groups.
   const coverageHitsByPath = new Map<string, Set<number>>();
@@ -292,7 +293,7 @@ export async function runTestCommand(options: RunTestCommandOptions): Promise<Ru
       try {
         const stdoutBuf = execFileSync(binary, [test.id], {
           stdio: "pipe",
-          timeout: 30000,
+          timeout: testTimeoutMs,
           cwd: executionRoot,
           env: options.compiler.env ?? process.env,
         });
@@ -334,6 +335,11 @@ export async function runTestCommand(options: RunTestCommandOptions): Promise<Ru
     passed,
     failed,
   };
+}
+
+function parseTestTimeoutMs(): number {
+  const configured = Number.parseInt(process.env.DOOF_TEST_TIMEOUT_MS ?? "30000", 10);
+  return Number.isFinite(configured) && configured > 0 ? configured : 30000;
 }
 
 function collectTestFiles(dirPath: string, results: string[]): void {

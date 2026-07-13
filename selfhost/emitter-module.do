@@ -1,17 +1,17 @@
 // Module-level orchestration for the self-hosted C++ emitter.
 //
-// This module emitter supports both the monolithic B2 artifact and the first
-// split-module B3 graph artifacts. Include planning stays at this boundary so
-// expression and statement emitters remain independent of module layout.
+// Include planning stays at this boundary so expression and statement emitters
+// remain independent of module layout. Every analyzed module becomes its own
+// header/source pair; there is no project-wide emission mode.
 
 import {
   ClassDeclaration, ConstDeclaration, ExportDeclaration, FunctionDeclaration,
   ImmutableBinding, LetDeclaration, Program, ReadonlyDeclaration, Statement,
 } from "./ast"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
-import { createEmitContext, createEmitContextForModule, createEmitContextForPrograms, EmitContext } from "./emitter-context"
-import { emitClassMethodDefinition, emitFunctionDefinition, emitValueDeclaration } from "./emitter-decl"
-import { HeaderPlan, planHeader, planHeaders, renderHeader } from "./emitter-header"
+import { createEmitContext, createEmitContextForModule, EmitContext } from "./emitter-context"
+import { emitClassMethodDefinition, emitFunctionDefinition, emitGeneratedJsonMethods, emitStaticClassFieldDefinitions, emitValueDeclaration } from "./emitter-decl"
+import { HeaderPlan, planHeader, renderHeader } from "./emitter-header"
 import { moduleHeaderName, moduleNamespace, moduleSourceName } from "./emitter-names"
 import { ImportBinding, NamespaceBinding } from "./semantic"
 
@@ -28,8 +28,6 @@ export class ModuleGraphPlan {
 }
 
 // Plan the names and direct header dependencies before split-module emission.
-// The current project emitter remains monolithic; this plan is the stable seam
-// that later B3 rendering can consume without changing expression lowering.
 export function planModuleGraph(result: AnalysisResult): ModuleGraphPlan {
   plan := ModuleGraphPlan {}
   for info of result.modules {
@@ -54,6 +52,7 @@ function addInclude(module: ModulePlan, sourceModule: string): void {
 }
 
 export class ModuleEmission {
+  modulePath: string
   header: string
   source: string
   headerName: string
@@ -82,22 +81,21 @@ export class CxxModuleEmitter {
     return emitPlanned([program], context, plan, includeMain, moduleIncludes)
   }
 
-  function emitPrograms(programs: Program[], includeMain: bool = false): ModuleEmission {
-    context := createEmitContextForPrograms(programs)
-    plan := planHeaders(programs, context)
-    return emitPlanned(programs, context, plan, includeMain)
-  }
-
   private function emitPlanned(programs: Program[], context: EmitContext, plan: HeaderPlan, includeMain: bool, moduleIncludes: string[] = []): ModuleEmission {
     headerName := if headerNameOverride == "" then moduleName + ".hpp" else headerNameOverride
     sourceName := if sourceNameOverride == "" then moduleName + ".cpp" else sourceNameOverride
     namespaceName := if namespaceNameOverride == "" then moduleName + "_" else namespaceNameOverride
     plan.moduleIncludes = moduleIncludes
     header := renderHeader(plan, namespaceName)
-    let source = "#include \"" + headerName + "\"\n#include <cmath>\n\n"
+    let source = "#include \"" + headerName + "\"\n#include <cmath>\n"
+    for include of moduleIncludes { source = source + "#include \"" + include + "\"\n" }
+    source = source + "\n"
     source = source + "namespace " + namespaceName + " {\n"
+    source = source + emitImportedNamespaces(context)
     for program of programs {
-      for statement of program.statements { source = source + emitSourceStatement(statement, context) }
+      for statement of program.statements {
+        source = source + emitSourceStatement(statement, context)
+      }
     }
     source = source + "}\n"
     nativeMethods := emitNativeClassMethods(programs, context)
@@ -105,12 +103,31 @@ export class CxxModuleEmitter {
       source = source + "\nusing namespace ::" + namespaceName + ";\n\n" + nativeMethods
     }
     if includeMain && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
-    return ModuleEmission { header, source, headerName, sourceName }
+    return ModuleEmission { modulePath: context.modulePath, header, source, headerName, sourceName }
   }
 }
 
-// Emit one header/source pair per analyzed module while keeping the existing
-// monolithic project emitter available for the B2 bootstrap artifact.
+function emitImportedNamespaces(context: EmitContext): string {
+  let namespaces: string[] = []
+  for imported of context.imports {
+    namespace := moduleNamespace(imported.sourceModule)
+    addNamespace(namespaces, namespace)
+  }
+  for imported of context.namespaceImports {
+    namespace := moduleNamespace(imported.sourceModule)
+    addNamespace(namespaces, namespace)
+  }
+  let result = ""
+  for namespace of namespaces { result = result + "using namespace ::" + namespace + ";\n" }
+  return result
+}
+
+function addNamespace(namespaces: string[], namespace: string): void {
+  for existing of namespaces { if existing == namespace { return } }
+  namespaces.push(namespace)
+}
+
+// Emit one header/source pair for every analyzed module.
 export function emitModuleGraph(result: AnalysisResult, entry: string = ""): ModuleGraphEmission {
   graph := ModuleGraphEmission {}
   plan := planModuleGraph(result)
@@ -165,8 +182,11 @@ function emitSourceStatement(statement: Statement, context: EmitContext): string
     }
     class_: ClassDeclaration -> {
       if class_.native_ { return "" }
-      let result = "\n"
-      for method of class_.methods { result = result + emitClassMethodDefinition(class_, method, context) }
+      let result = "\n" + emitStaticClassFieldDefinitions(class_, context)
+      if class_.typeParams.length == 0 {
+        for method of class_.methods { result = result + emitClassMethodDefinition(class_, method, context) }
+      }
+      result = result + emitGeneratedJsonMethods(class_, context)
       return result
     }
     const_: ConstDeclaration -> { return emitValueDeclaration(const_, context) }

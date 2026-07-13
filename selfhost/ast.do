@@ -4,9 +4,9 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType,
+  ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, ResultResolvedType, StreamResolvedType,
   FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
-  UnknownType, VoidType,
+  UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import type { ResolvedType } from "./semantic"
 
@@ -26,6 +26,7 @@ export class NamedType {
   name: string
   typeArgs: TypeAnnotation[]
   resolvedSymbol: Symbol | null = null
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -33,12 +34,14 @@ export class ArrayType {
   kind: string
   elementType: TypeAnnotation
   readonly_: bool
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
 export class UnionType {
   kind: string
   types: TypeAnnotation[]
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -46,6 +49,7 @@ export class AstFunctionType {
   kind: string
   params: FunctionTypeParam[]
   returnType: TypeAnnotation
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -155,6 +159,7 @@ export class MemberExpression {
   property: string
   optional: bool
   force: bool
+  resolvedStaticOwner: ClassDeclaration | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -178,6 +183,8 @@ export class CallExpression {
   kind: string
   callee: Expression
   args: CallArgument[]
+  resolvedFunction: FunctionDeclaration | null = null
+  resolvedConstructor: FunctionDeclaration | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -238,6 +245,7 @@ export class ConstructExpression {
   typeArgs: TypeAnnotation[]
   args: ObjectProperty[]
   named: bool
+  resolvedClass: ClassDeclaration | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -245,6 +253,9 @@ export class ConstructExpression {
 export class DotShorthand {
   kind: string
   name: string
+  resolvedShorthandOwnerName: string = ""
+  resolvedShorthandOwnerKind: string = ""
+  resolvedShorthandOwnerModule: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -266,7 +277,7 @@ export type Expression =
   CharLiteral | BoolLiteral | NullLiteral | Identifier | BinaryExpression |
   UnaryExpression | AssignmentExpression | MemberExpression | IndexExpression |
   CallExpression | ArrayLiteral | ObjectLiteral | TupleLiteral |
-  LambdaExpression | IfExpression | ConstructExpression | DotShorthand |
+  LambdaExpression | IfExpression | CaseExpression | ConstructExpression | DotShorthand |
   ThisExpression | CallerExpression
 
 export class Parameter {
@@ -309,6 +320,7 @@ export class ImmutableBinding {
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
+  else_: Block | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -334,6 +346,9 @@ export class FunctionDeclaration {
   isolated_: bool
   private_: bool
   bodyless: bool = false
+  native_: bool = false
+  nativeHeader: string = ""
+  nativeCppName: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -341,6 +356,7 @@ export class FunctionDeclaration {
 export class ReturnStatement {
   kind: string
   value: Expression | null = null
+  resolvedExpectedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -359,6 +375,14 @@ export class IfStatement {
   span: SourceSpan
 }
 
+export class CaseExpression {
+  kind: string
+  subject: Expression
+  arms: CaseExpressionArm[]
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
 export class CaseStatement {
   kind: string
   subject: Expression
@@ -369,7 +393,14 @@ export class CaseStatement {
 export class CaseArm {
   kind: string
   patterns: CasePattern[]
-  body: Block
+  body: Expression | Block
+  span: SourceSpan
+}
+
+export class CaseExpressionArm {
+  kind: string
+  patterns: CasePattern[]
+  body: Expression
   span: SourceSpan
 }
 
@@ -377,6 +408,7 @@ export class TypePattern {
   kind: string
   name: string
   type_: TypeAnnotation
+  resolvedPatternKind: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -470,9 +502,17 @@ export class DestructuringStatement {
   span: SourceSpan
 }
 
+// Statement-level Result propagation used by std/json and std/fs.
+export class TryStatement {
+  kind: string
+  binding: ImmutableBinding | ExpressionStatement
+  span: SourceSpan
+}
+
 export class ClassDeclaration {
   kind: string
   name: string
+  struct_: bool = false
   typeParams: string[]
   implements_: NamedType[]
   fields: ClassField[]
@@ -482,6 +522,7 @@ export class ClassDeclaration {
   native_: bool = false
   nativeHeader: string = ""
   nativeCppName: string = ""
+  resolvedSymbol: Symbol | null = null
   span: SourceSpan
 }
 
@@ -504,6 +545,7 @@ export class InterfaceDeclaration {
   fields: InterfaceField[]
   methods: FunctionDeclaration[]
   exported: bool
+  resolvedSymbol: Symbol | null = null
   span: SourceSpan
 }
 
@@ -589,7 +631,7 @@ export type Statement =
   ExportDeclaration | ExportList | IfStatement | CaseStatement | WhileStatement |
   ForStatement | ForOfStatement | WithStatement | ReturnStatement |
   YieldStatement | BreakStatement | ContinueStatement | ExpressionStatement |
-  DestructuringStatement | Block
+  DestructuringStatement | TryStatement | Block
 
 export class Program {
   kind: string

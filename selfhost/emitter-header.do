@@ -5,23 +5,29 @@
 // or statement emission.
 
 import {
-  ClassDeclaration, EnumDeclaration, ExportDeclaration, FunctionDeclaration,
+  ClassDeclaration, EnumDeclaration, ExportDeclaration, FunctionDeclaration, InterfaceDeclaration,
   Program, Statement, TypeAliasDeclaration,
 } from "./ast"
 import { EmitContext } from "./emitter-context"
-import { emitClassDeclaration, emitFunctionDeclaration } from "./emitter-decl"
+import { emitClassDeclaration, emitFunctionDeclaration, emitInterfaceAlias } from "./emitter-decl"
 import { emitExpression } from "./emitter-expr"
 import { emitType } from "./emitter-types"
-import { FunctionType, PrimitiveType } from "./semantic"
+import { FunctionType, ImportBinding, PrimitiveType } from "./semantic"
+import { moduleHeaderName, moduleNamespace } from "./emitter-names"
 
 export class HeaderPlan {
   functionSignatures: string[] = []
   classDefinitions: string[] = []
+  interfaceAliases: string[] = []
   enumDefinitions: string[] = []
   typeAliases: string[] = []
   classForwardDeclarations: string[] = []
+  typeOnlyForwardDeclarations: string[] = []
+  typeOnlyModuleIncludes: string[] = []
   moduleIncludes: string[] = []
   nativeIncludes: string[] = []
+  nativeAliases: string[] = []
+  nativeNamespaces: string[] = []
   hasAstHelpers: bool = false
   hasMain: bool = false
   mainReturnsInt: bool = false
@@ -37,6 +43,24 @@ export function planHeaders(programs: Program[], context: EmitContext): HeaderPl
   for program of programs {
     for statement of program.statements { collect(statement, plan, context) }
   }
+  for imported of context.imports {
+    if !imported.typeOnly { continue }
+    if hasNonTypeOnlyImport(context.imports, imported.sourceModule) { continue }
+    includeName := moduleHeaderName(imported.sourceModule)
+    addUnique(plan.typeOnlyModuleIncludes, includeName)
+    if imported.symbol != null && (imported.symbol!.kind == "class" || imported.symbol!.kind == "struct") {
+      declaration := "namespace " + moduleNamespace(imported.symbol!.module) + " { struct " + imported.symbol!.name + "; }\n"
+      addUnique(plan.typeOnlyForwardDeclarations, declaration)
+    }
+  }
+  for namespace of plan.nativeNamespaces {
+    for imported of context.imports {
+      if imported.symbol != null {
+        alias := if imported.symbol!.kind == "function" then "namespace " + namespace + " { using ::" + (if imported.symbol!.native_ then imported.symbol!.nativeCppName else moduleNamespace(imported.symbol!.module) + "::" + imported.symbol!.name) + "; }\n" else "namespace " + namespace + " { using " + imported.symbol!.name + " = ::" + (if imported.symbol!.native_ then imported.symbol!.nativeCppName else moduleNamespace(imported.symbol!.module) + "::" + imported.symbol!.name) + "; }\n"
+        addUnique(plan.nativeAliases, alias)
+      }
+    }
+  }
   return plan
 }
 
@@ -48,20 +72,27 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
         include := if class_.nativeHeader == "" then class_.name + ".hpp" else class_.nativeHeader
         addUnique(plan.nativeIncludes, include)
       } else {
-        plan.classForwardDeclarations.push("struct " + class_.name + ";\n")
+        if class_.typeParams.length == 0 { plan.classForwardDeclarations.push("struct " + class_.name + ";\n") }
         plan.classDefinitions.push(emitClassDeclaration(class_, context))
       }
     }
+    interface_: InterfaceDeclaration -> { plan.interfaceAliases.push(emitInterfaceAlias(interface_, context)) }
     enum_: EnumDeclaration -> { plan.enumDefinitions.push(emitEnumDeclaration(enum_, context)) }
     alias: TypeAliasDeclaration -> { plan.typeAliases.push(emitTypeAlias(alias, context)) }
     fn: FunctionDeclaration -> {
+      if fn.native_ {
+        if fn.nativeHeader != "" { addUnique(plan.nativeIncludes, fn.nativeHeader) }
+        namespace := nativeNamespace(fn.nativeCppName)
+        if namespace != "" { addUnique(plan.nativeNamespaces, namespace) }
+        return
+      }
       if fn.name == "main" {
         plan.hasMain = true
         plan.mainReturnsInt = functionReturnsInt(fn)
         plan.mainAcceptsArgs = fn.params.length == 1
-        plan.functionSignatures.push(emitFunctionDeclaration(fn, "doof_main", context.modulePath))
+        plan.functionSignatures.push(emitFunctionDeclaration(fn, "doof_main", context.modulePath, context))
       } else {
-        plan.functionSignatures.push(emitFunctionDeclaration(fn, "", context.modulePath))
+        plan.functionSignatures.push(emitFunctionDeclaration(fn, "", context.modulePath, context))
       }
     }
     export_: ExportDeclaration -> { collect(export_.declaration, plan, context) }
@@ -75,11 +106,14 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   result = result + "#include <memory>\n#include <optional>\n#include <string>\n"
   result = result + "#include <tuple>\n#include <type_traits>\n#include <variant>\n#include <vector>\n"
   result = result + "#include \"doof_runtime.hpp\"\n"
+  for include of plan.moduleIncludes {
+    if !containsValue(plan.typeOnlyModuleIncludes, include) { result = result + "#include \"" + include + "\"\n" }
+  }
+  for alias of plan.nativeAliases { result = result + alias }
   for include of plan.nativeIncludes {
     if include.startsWith("<") { result = result + "#include " + include + "\n" }
     else { result = result + "#include \"" + include + "\"\n" }
   }
-  for include of plan.moduleIncludes { result = result + "#include \"" + include + "\"\n" }
   result = result + "\n"
   result = result + "#ifndef DOOF_SELFHOST_COMMON_HELPERS\n#define DOOF_SELFHOST_COMMON_HELPERS\n"
   result = result + "namespace doof {\n"
@@ -109,6 +143,8 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   result = result + "template <typename T> T unwrap_optional(const std::optional<T>& value) { return value.value(); }\n"
   result = result + "template <typename T> T pop(const std::shared_ptr<std::vector<T>>& value) { T result = value->back(); value->pop_back(); return result; }\n"
   result = result + "}\n#endif\n\n"
+  for declaration of plan.typeOnlyForwardDeclarations { result = result + declaration }
+  if plan.typeOnlyForwardDeclarations.length > 0 { result = result + "\n" }
   result = result + "namespace " + guardName + " {\n"
   for declaration of plan.classForwardDeclarations { result = result + "    " + declaration }
   result = result + "}\n\n"
@@ -122,14 +158,15 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
     result = result + "}\n\n"
   }
   result = result + "namespace " + guardName + " {\n"
+  for alias of plan.interfaceAliases { result = result + "    " + alias }
   for definition of plan.enumDefinitions { result = result + "    " + definition }
   for definition of plan.classDefinitions { result = result + "    " + definition }
   for alias of plan.typeAliases { result = result + "    " + alias }
   result = result + "}\n\n"
   if plan.hasAstHelpers {
     result = result + "namespace doof {\n"
-    result = result + "template <typename T> auto resolved_type(const std::shared_ptr<T>& value) -> decltype(value->resolvedType) { return value->resolvedType; }\n"
-    result = result + "inline auto resolved_type(const std::variant<" + expressionAlternativesForHeader(guardName) + ">& value) { return std::visit([](const auto& item) { return item->resolvedType; }, value); }\n"
+    result = result + "template <typename T> decltype(auto) resolved_type(const std::shared_ptr<T>& value) { return (value->resolvedType); }\n"
+    result = result + "inline decltype(auto) resolved_type(const std::variant<" + expressionAlternativesForHeader(guardName) + ">& value) { return std::visit([](const auto& item) -> decltype(auto) { return (item->resolvedType); }, value); }\n"
     result = result + "}\n\n"
   }
   result = result + "namespace " + guardName + " {\n"
@@ -142,8 +179,31 @@ function addUnique(values: string[], value: string): void {
   values.push(value)
 }
 
+function hasNonTypeOnlyImport(imports: ImportBinding[], sourceModule: string): bool {
+  for imported of imports {
+    if imported.sourceModule == sourceModule && !imported.typeOnly { return true }
+  }
+  return false
+}
+
+function containsValue(values: string[], value: string): bool {
+  for existing of values { if existing == value { return true } }
+  return false
+}
+
+function nativeNamespace(cppName: string): string {
+  let separator = -1
+  for i of 0..<cppName.length {
+    if i + 1 < cppName.length && cppName.substring(i, i + 2) == "::" {
+      separator = i
+    }
+  }
+  if separator < 0 { return "" }
+  return cppName.substring(0, separator)
+}
+
 function expressionAlternativesForHeader(guardName: string): string {
-  return "std::shared_ptr<" + guardName + "::IntLiteral>, std::shared_ptr<" + guardName + "::LongLiteral>, std::shared_ptr<" + guardName + "::FloatLiteral>, std::shared_ptr<" + guardName + "::DoubleLiteral>, std::shared_ptr<" + guardName + "::StringLiteral>, std::shared_ptr<" + guardName + "::CharLiteral>, std::shared_ptr<" + guardName + "::BoolLiteral>, std::shared_ptr<" + guardName + "::NullLiteral>, std::shared_ptr<" + guardName + "::Identifier>, std::shared_ptr<" + guardName + "::BinaryExpression>, std::shared_ptr<" + guardName + "::UnaryExpression>, std::shared_ptr<" + guardName + "::AssignmentExpression>, std::shared_ptr<" + guardName + "::MemberExpression>, std::shared_ptr<" + guardName + "::IndexExpression>, std::shared_ptr<" + guardName + "::CallExpression>, std::shared_ptr<" + guardName + "::ArrayLiteral>, std::shared_ptr<" + guardName + "::ObjectLiteral>, std::shared_ptr<" + guardName + "::TupleLiteral>, std::shared_ptr<" + guardName + "::LambdaExpression>, std::shared_ptr<" + guardName + "::IfExpression>, std::shared_ptr<" + guardName + "::ConstructExpression>, std::shared_ptr<" + guardName + "::DotShorthand>, std::shared_ptr<" + guardName + "::ThisExpression>, std::shared_ptr<" + guardName + "::CallerExpression>"
+  return "std::shared_ptr<" + guardName + "::IntLiteral>, std::shared_ptr<" + guardName + "::LongLiteral>, std::shared_ptr<" + guardName + "::FloatLiteral>, std::shared_ptr<" + guardName + "::DoubleLiteral>, std::shared_ptr<" + guardName + "::StringLiteral>, std::shared_ptr<" + guardName + "::CharLiteral>, std::shared_ptr<" + guardName + "::BoolLiteral>, std::shared_ptr<" + guardName + "::NullLiteral>, std::shared_ptr<" + guardName + "::Identifier>, std::shared_ptr<" + guardName + "::BinaryExpression>, std::shared_ptr<" + guardName + "::UnaryExpression>, std::shared_ptr<" + guardName + "::AssignmentExpression>, std::shared_ptr<" + guardName + "::MemberExpression>, std::shared_ptr<" + guardName + "::IndexExpression>, std::shared_ptr<" + guardName + "::CallExpression>, std::shared_ptr<" + guardName + "::ArrayLiteral>, std::shared_ptr<" + guardName + "::ObjectLiteral>, std::shared_ptr<" + guardName + "::TupleLiteral>, std::shared_ptr<" + guardName + "::LambdaExpression>, std::shared_ptr<" + guardName + "::IfExpression>, std::shared_ptr<" + guardName + "::CaseExpression>, std::shared_ptr<" + guardName + "::ConstructExpression>, std::shared_ptr<" + guardName + "::DotShorthand>, std::shared_ptr<" + guardName + "::ThisExpression>, std::shared_ptr<" + guardName + "::CallerExpression>"
 }
 
 function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext): string {
@@ -155,7 +215,13 @@ function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext)
     if i + 1 < declaration.variants.length { result = result + "," }
     result = result + "\n"
   }
-  return result + "};\n"
+  result = result + "};\n"
+  result = result + "inline const char* " + declaration.name + "_name(" + declaration.name + " value) {\n"
+  result = result + "  switch (value) {\n"
+  for variant of declaration.variants {
+    result = result + "    case " + declaration.name + "::" + variant.name + ": return \"" + variant.name + "\";\n"
+  }
+  return result + "  }\n  return \"\";\n}\n"
 }
 
 function emitTypeAlias(alias: TypeAliasDeclaration, context: EmitContext): string {

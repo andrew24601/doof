@@ -26,19 +26,26 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/lexer.do` — performance-oriented lexer prototype; emits reserved value-array token structs with source spans, locations, and diagnostics
 - `selfhost/lexer.test.do` — Doof-native lexer tests covering hot-path tokens, keywords, literals, interpolation, positions, large inputs, and diagnostics
 - `selfhost/ast.do` — nominal self-hosted syntax-tree node classes, tagged with `kind` values and source spans
-- `selfhost/parser.do` — self-hosted recursive-descent parser with precedence-climbing expression parsing and core declaration/statement support
+- `selfhost/parser.do` — self-hosted parser façade, token state, diagnostics, and public parse entry points
+- `selfhost/parser-declarations.do` — self-hosted declaration, class, interface, enum, import, and export parsing
+- `selfhost/parser-statements.do` — self-hosted statement, control-flow, try, destructuring, and case-pattern parsing
+- `selfhost/parser-types.do` — self-hosted type annotation parsing
+- `selfhost/parser-expressions.do` — self-hosted precedence-climbing expression, literal, lambda, and construction parsing
 - `selfhost/parser.test.do` — Doof-native parser tests for literals, precedence, postfix expressions, declarations, collections, control flow, and spans
 - `selfhost/semantic.do` — shared module symbols, semantic spans, resolved types, bindings, scopes, and diagnostics
-- `selfhost/resolver.do` — deterministic relative module-path resolution over caller-supplied source files
+- `selfhost/resolver.do` — deterministic relative and rooted bare-module resolution over in-memory sources or a demand-driven source loader
+- `selfhost/resolver.test.do` — resolver tests for barrel probing, explicit mappings, and cached loader requests
 - `selfhost/analyzer.do` — phased module symbol collection, import/re-export resolution, and named-type decoration
 - `selfhost/analyzer.test.do` — analyzer tests for imports, re-exports, and resolved named types
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
 - `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
-- `selfhost/compiler.do` — self-hosted graph checking and monolithic bootstrap emission orchestration
-- `selfhost/driver.do` — runnable B4 compiler driver with explicit source-graph and output-file arguments
+- `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
+- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`emit`, `check`, project-directory entrypoints, and explicit `--module` mappings)
+- `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
+- `selfhost/driver.do` — native filesystem/JSON runtime boundary and output handling for the self-hosted CLI
 - `selfhost/compiler.test.do` — self-hosted compiler pipeline tests
-- `selfhost/bootstrap.test.do` — maintained B2/B3 native syntax gates, B4/B5 compiler bootstrap, and B6 two-stage smoke tests
+- `selfhost/bootstrap.test.do` — maintained B3 native split-emission gate, B4/B5 compiler bootstrap, and B6 two-stage smoke tests
 - `selfhost/samples/nullable-variant.do` — focused native-compilation fixture for nullable variant lowering
 - `selfhost/samples/nullable-ast-construction.do` — focused fixture for avoiding duplicate nullable AST-variant promotion
 - `selfhost/samples/nullable-alias-assignment.do` — focused fixture for nullable `Expression`/`Statement`-style alias assignment
@@ -47,12 +54,16 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-context.do` — graph-wide declarations, module identity, imports, and current method-owner context for emission
 - `selfhost/emitter-names.do` — stable generated module namespaces and artifact names
 - `selfhost/emitter-types.do` — self-hosted resolved-type to C++ type lowering
-- `selfhost/emitter-expr.do` — self-hosted expression lowering with expected-type context
+- `selfhost/emitter-expr.do` — self-hosted decorated-AST expression dispatcher
+- `selfhost/emitter-expr-utils.do` — shared self-hosted expression type and promotion helpers
+- `selfhost/emitter-expr-literals.do` — self-hosted literal, array, object, tuple, and string lowering
+- `selfhost/emitter-expr-ops.do` — self-hosted assignment, operator, member, and index lowering
+- `selfhost/emitter-expr-calls.do` — self-hosted call, constructor, and class construction lowering
+- `selfhost/emitter-expr-control.do` — self-hosted conditional, case, and dot-shorthand lowering
 - `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
 - `selfhost/emitter-decl.do` — self-hosted function signatures, definitions, and value declarations
 - `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary
 - `selfhost/emitter-module.do` — self-hosted module planning, dependency includes, and split `.hpp` / `.cpp` orchestration
-- `selfhost/emitter-project.do` — monolithic first-bootstrap project emission
 - `selfhost/emitter.test.do` — native tests for the initial self-hosted emitter slice
 - `src/selfhost-bootstrap.test.ts` — native-toolchain syntax compilation of the TypeScript-emitted self-host source graph
 

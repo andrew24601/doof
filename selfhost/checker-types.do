@@ -3,8 +3,8 @@
 import {
   ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
   InterfaceType,
-  NullType, PrimitiveType, ResolvedType, Symbol, TupleResolvedType,
-  UnionResolvedType, UnknownType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import type {
   ArrayType as AstArrayType, AstFunctionType,
@@ -23,31 +23,67 @@ export function arrayType(element: ResolvedType, readonly_: bool = false): Resol
   return ArrayResolvedType { elementType: element, readonly_ }
 }
 
+export function mapType(key: ResolvedType, value: ResolvedType, readonly_: bool = false): ResolvedType {
+  return MapResolvedType { keyType: key, valueType: value, readonly_ }
+}
+
+export function streamType(element: ResolvedType): ResolvedType {
+  return StreamResolvedType { elementType: element }
+}
+
+export function jsonValueType(): ResolvedType { return JsonValueResolvedType {} }
+
+export function isJsonValueType(resolvedType: ResolvedType): bool {
+  case resolvedType {
+    _: JsonValueResolvedType -> { return true }
+    _ -> { return false }
+  }
+  return false
+}
+
+export function jsonObjectType(): ResolvedType { return mapType(primitive("string"), jsonValueType()) }
+
+export function resultType(value: ResolvedType, error: ResolvedType): ResolvedType { return ResultResolvedType { valueType: value, errorType: error } }
+
 export function tupleType(elements: ResolvedType[]): ResolvedType {
   return TupleResolvedType { elements }
 }
 
 export function unionType(types: ResolvedType[]): ResolvedType {
   let members: ResolvedType[] = []
+  let aliasName = ""
+  let aliasModule = ""
+  let hasAdditionalMember = false
   for memberType of types {
     case memberType {
       union: UnionResolvedType -> {
+        if !hasAdditionalMember && aliasName == "" {
+          aliasName = union.aliasName
+          aliasModule = union.aliasModule
+        }
         for member of union.types { members.push(member) }
       }
-      _ -> { members.push(memberType) }
+      _ -> {
+        if memberType.kind != "null" { aliasName = ""; aliasModule = ""; hasAdditionalMember = true }
+        members.push(memberType)
+      }
     }
   }
   if members.length == 0 { return unknownType() }
   if members.length == 1 { return members[0] }
-  return UnionResolvedType { types: members }
+  return UnionResolvedType { types: members, aliasName, aliasModule }
 }
 
 export function functionType(params: FunctionParamType[], returnType: ResolvedType): ResolvedType {
   return FunctionType { params, returnType }
 }
 
-export function classType(name: string, symbol: Symbol): ClassType {
-  return ClassType { name, symbol }
+export function typeParameter(name: string): ResolvedType {
+  return TypeParameterType { name }
+}
+
+export function classType(name: string, symbol: Symbol, typeArgs: ResolvedType[] = []): ClassType {
+  return ClassType { name, symbol, typeArgs }
 }
 
 export function enumType(name: string, symbol: Symbol): EnumType {
@@ -61,9 +97,23 @@ export function interfaceType(name: string, symbol: Symbol): InterfaceType {
 export function typeName(resolvedType: ResolvedType): string {
   case resolvedType {
     primitive_: PrimitiveType -> { return primitive_.name }
-    class_: ClassType -> { return class_.name }
+    class_: ClassType -> {
+      if class_.typeArgs.length == 0 { return class_.name }
+      let result = class_.name + "<"
+      for i of 0..<class_.typeArgs.length {
+        if i > 0 { result = result + ", " }
+        result = result + typeName(class_.typeArgs[i])
+      }
+      return result + ">"
+    }
+    enum_: EnumType -> { return enum_.name }
+    interface_: InterfaceType -> { return interface_.name }
     function_: FunctionType -> { return "function" }
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly " else "") + typeName(array.elementType) + "[]" }
+    map: MapResolvedType -> { return (if map.readonly_ then "readonly " else "") + "Map<" + typeName(map.keyType) + ", " + typeName(map.valueType) + ">" }
+    stream: StreamResolvedType -> { return "Stream<" + typeName(stream.elementType) + ">" }
+    _: JsonValueResolvedType -> { return "JsonValue" }
+    result: ResultResolvedType -> { return "Result<" + typeName(result.valueType) + ", " + typeName(result.errorType) + ">" }
     tuple: TupleResolvedType -> {
       let result = "("
       for i of 0..<tuple.elements.length {
@@ -83,6 +133,7 @@ export function typeName(resolvedType: ResolvedType): string {
     _: NullType -> { return "null" }
     _: VoidType -> { return "void" }
     _: UnknownType -> { return "unknown" }
+    parameter: TypeParameterType -> { return parameter.name }
   }
   return "unknown"
 }
@@ -95,6 +146,26 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
         rightArray: ArrayResolvedType -> {
           return leftArray.readonly_ == rightArray.readonly_ && sameType(leftArray.elementType, rightArray.elementType)
         }
+        _ -> { return false }
+      }
+    }
+    leftMap: MapResolvedType -> {
+      case right {
+        rightMap: MapResolvedType -> {
+          return leftMap.readonly_ == rightMap.readonly_ && sameType(leftMap.keyType, rightMap.keyType) && sameType(leftMap.valueType, rightMap.valueType)
+        }
+        _ -> { return false }
+      }
+    }
+    leftStream: StreamResolvedType -> {
+      case right {
+        rightStream: StreamResolvedType -> { return sameType(leftStream.elementType, rightStream.elementType) }
+        _ -> { return false }
+      }
+    }
+    leftResult: ResultResolvedType -> {
+      case right {
+        rightResult: ResultResolvedType -> { return sameType(leftResult.valueType, rightResult.valueType) && sameType(leftResult.errorType, rightResult.errorType) }
         _ -> { return false }
       }
     }
@@ -118,6 +189,17 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
             if !sameType(leftFunction.params[i].type_, rightFunction.params[i].type_) { return false }
           }
           return sameType(leftFunction.returnType, rightFunction.returnType)
+        }
+        _ -> { return false }
+      }
+    }
+    leftClass: ClassType -> {
+      case right {
+        rightClass: ClassType -> {
+          return leftClass.symbol.module == rightClass.symbol.module &&
+            leftClass.symbol.name == rightClass.symbol.name &&
+            leftClass.typeArgs.length == rightClass.typeArgs.length &&
+            sameTypeArguments(leftClass.typeArgs, rightClass.typeArgs)
         }
         _ -> { return false }
       }
@@ -148,6 +230,12 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
 
 export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
   case value {
+    _: TypeParameterType -> {
+      case target {
+        _: TypeParameterType -> { return sameType(value, target) }
+        _ -> { }
+      }
+    }
     _: UnknownType -> { return true }
     valueUnion: UnionResolvedType -> {
       // A value union is assignable only when every possible arm is accepted
@@ -167,10 +255,48 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
         _ -> { }
       }
     }
+    valueMap: MapResolvedType -> {
+      case target {
+        targetMap: MapResolvedType -> {
+          if targetMap.readonly_ == false && valueMap.readonly_ == true { return false }
+          return sameType(valueMap.keyType, targetMap.keyType) && isAssignable(valueMap.valueType, targetMap.valueType)
+        }
+        _ -> { }
+      }
+    }
+    valueStream: StreamResolvedType -> {
+      case target {
+        targetStream: StreamResolvedType -> { return isAssignable(valueStream.elementType, targetStream.elementType) }
+        _ -> { }
+      }
+    }
+    _: JsonValueResolvedType -> {
+      return sameType(value, target)
+    }
     _ -> { }
   }
   if sameType(value, target) { return true }
   case target {
+    _: JsonValueResolvedType -> { return isJsonValueAssignable(value) }
+    _ -> { }
+  }
+  case value {
+    class_: ClassType -> {
+      case target {
+        interface_: InterfaceType -> {
+          for implementation of interface_.symbol.implementations {
+            if implementation.module == class_.symbol.module && implementation.name == class_.symbol.name { return true }
+          }
+          return false
+        }
+        _: StreamResolvedType -> { return true }
+        _ -> { }
+      }
+    }
+    _ -> { }
+  }
+  case target {
+    _: TypeParameterType -> { return true }
     _: UnknownType -> { return true }
     union: UnionResolvedType -> {
       for member of union.types { if isAssignable(value, member) { return true } }
@@ -183,6 +309,7 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
       case target {
         primitiveTarget: PrimitiveType -> {
           if primitiveValue.name == "int" && primitiveTarget.name == "long" { return true }
+          if primitiveValue.name == "int" && primitiveTarget.name == "byte" { return true }
           if primitiveValue.name == "float" && primitiveTarget.name == "double" { return true }
         }
         _ -> { }
@@ -202,6 +329,31 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
       }
     }
     _ -> { }
+  }
+  return false
+}
+
+function sameTypeArguments(left: ResolvedType[], right: ResolvedType[]): bool {
+  for i of 0..<left.length {
+    if !sameType(left[i], right[i]) { return false }
+  }
+  return true
+}
+
+function isJsonValueAssignable(value: ResolvedType): bool {
+  case value {
+    _: UnknownType -> { return true }
+    _: JsonValueResolvedType -> { return true }
+    _: NullType -> { return true }
+    primitiveValue: PrimitiveType -> {
+      return primitiveValue.name == "byte" || primitiveValue.name == "int" || primitiveValue.name == "long" ||
+        primitiveValue.name == "float" || primitiveValue.name == "double" || primitiveValue.name == "string" || primitiveValue.name == "char" || primitiveValue.name == "bool"
+    }
+    // Collection literals are checked contextually by the checker. A typed
+    // collection value is not implicitly a JsonValue in this bootstrap type
+    // model; keeping this boundary strict prevents recovery conversions from
+    // masking missing collection element information.
+    _ -> { return false }
   }
   return false
 }

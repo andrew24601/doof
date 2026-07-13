@@ -24,6 +24,13 @@ The most important implementation detail is shared across nearly every concept: 
 
 When a transpilation bug appears, first verify whether the semantic decoration is already wrong before changing the emitter.
 
+For the self-hosted compiler this is a hard contract, not only a convention.
+`selfhost/compiler.do` rejects the graph before emission if any declaration,
+annotation, binding, pattern, or expression is missing resolved information or
+contains `UnknownType`, including nested generic arguments. The self-hosted
+emitter then consumes those decorations directly; it has no declaration scans,
+raw-annotation resolution, or unknown-type fallback path.
+
 ## Types and Runtime Shapes
 
 ### Primitive and Composite Types
@@ -73,7 +80,15 @@ Strategy:
   parameter is a nullable multi-arm union, the self-hosted emitter promotes the
   value through `doof::optional_value(...)`; the checker must decorate the
   target expression so this decision is available at the emission boundary
-- broader unions use generated `std::variant` shapes and explicit extraction or coercion helpers
+- broader unions use one flattened `std::variant` shape and explicit extraction
+  or coercion helpers; aggregate aliases such as `Expression` are spliced into
+  the outer alternative list rather than producing nested variants
+- self-hosted aggregate alternatives use stable canonical ordering so equivalent
+  unions such as `Expression | Block` and `Block | Expression` reuse the same
+  generated carrier shape
+- named construction applies the same contextual union promotion to explicit
+  and shorthand properties; `LambdaExpression.body` uses `doof::with_block(...)`
+  for both `body: value` and `body`
 
 Primary modules:
 
@@ -81,12 +96,15 @@ Primary modules:
 - `src/emitter-json-value.ts`
 - `src/emitter-narrowing.ts`
 - `src/emitter-expr-ops.ts`
+- `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
 
 - `src/emitter-advanced.test.ts`
 - `src/emitter-e2e-advanced.test.ts`
 - `spec/02-type-system.md`
+- `selfhost/compiler.test.do`
+- `selfhost/samples/lambda-body-union.do`
 
 ## Functions, Lambdas, and Generic Calls
 
@@ -218,6 +236,9 @@ Strategy:
 - constructor and field initialization order is emitted explicitly
 - positional and named construction forms are normalized into the generated constructor call shape; classes emit `std::make_shared<T>(...)` while structs emit direct value construction
 - member access uses `->` for classes and `.` for structs
+- the self-hosted parser and analyzer retain the nominal kind on declarations
+  and symbols; self-hosted type, construction, member, `this`, and JSON lowering
+  all consult that symbol kind
 - a static `constructor` method returning the nominal type, or `Result<Nominal, E>`,
   becomes the direct-construction target (`Type(...)` and `Type { ... }` emit
   `Type::constructor(...)`), except inside that type's own `constructor` body
@@ -388,6 +409,9 @@ Strategy:
 
 - each Doof module is emitted as a generated header/source pair
 - project emission also writes runtime and target-specific support files
+- self-hosted project emission copies the canonical runtime header used to
+  build the compiler rather than rendering a second implementation;
+  `DOOF_RUNTIME_HEADER` overrides its source path for relocated binaries
 - the emitted project layout is designed to be consumed by the CLI build pipeline rather than by a separate handwritten build integration layer
 - `build.target = "wasm"` adds `doof_wasm.cpp`, which exposes entry-module exported functions as JSON-string C ABI wrappers and is compiled as an extra generated native source
 

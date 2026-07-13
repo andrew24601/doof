@@ -1,5 +1,5 @@
 import { Assert } from "std/assert"
-import { createAnalyzer } from "./analyzer"
+import { createAnalyzer, createAnalyzerWithLoader } from "./analyzer"
 import { SourceFile } from "./semantic"
 import { ClassDeclaration, FunctionDeclaration, NamedType } from "./ast"
 
@@ -14,6 +14,17 @@ export function testResolvesImportsAndExports(): void {
   Assert.equal(result.modules[0].imports.length, 1)
   Assert.equal(result.modules[0].imports[0].localName, "add")
   Assert.equal(result.modules[0].imports[0].symbol != null, true)
+}
+
+export function testResolvesExplicitBareModuleSources(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { add } from \"vendor/math\"\nfunction main(): int => add(1, 2)" },
+    SourceFile { path: "/vendor/math.do", source: "export function add(a: int, b: int): int => a + b" },
+  ]
+  result := createAnalyzer(sources).analyze("/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.modules.length, 2)
+  Assert.equal(result.modules[0].imports[0].sourceModule, "/vendor/math.do")
 }
 
 export function testDecoratesNamedTypes(): void {
@@ -62,4 +73,26 @@ export function testRecordsNativeClassMetadata(): void {
     }
     _ -> { panic("expected native class declaration") }
   }
+}
+
+export function testAnalyzesOnlyTransitiveSourcesWithLoader(): void {
+  let requested: string[] = []
+  loader := (path: string): SourceFile | null => {
+    requested.push(path)
+    if path == "/math.do" {
+      return SourceFile { path, source: "export function add(left: int, right: int): int => left + right" }
+    }
+    if path == "/unused.do" {
+      return SourceFile { path, source: "this is not valid Doof" }
+    }
+    return null
+  }
+  result := createAnalyzerWithLoader([
+    SourceFile { path: "/main.do", source: "import { add } from \"./math\"\nfunction main(): int => add(1, 2)" },
+  ], loader).analyze("/main.do")
+
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.modules.length, 2)
+  Assert.equal(requested.length, 1)
+  Assert.equal(requested[0], "/math.do")
 }

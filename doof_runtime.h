@@ -39,29 +39,38 @@ namespace doof {
 
 [[noreturn]] inline void panic(const std::string& msg);
 
-// Minimal synchronous filesystem surface used by the self-hosted compiler
-// driver.  Regular Doof programs can use std/fs; these helpers keep the
-// bootstrap executable independent of the bundled stdlib graph.
-inline std::string read_file(const std::string& path) {
-    std::ifstream input(path);
-    if (!input) {
-        panic("cannot read file: " + path);
-    }
-    std::ostringstream contents;
-    contents << input.rdbuf();
-    return contents.str();
-}
-
-inline void write_file(const std::string& path, const std::string& contents) {
-    std::ofstream output(path);
-    if (!output) {
-        panic("cannot write file: " + path);
-    }
-    output << contents;
-}
-
 inline std::string absolute_path(const std::string& path) {
     return std::filesystem::absolute(path).lexically_normal().string();
+}
+
+inline bool is_directory(const std::string& path) {
+    return std::filesystem::is_directory(std::filesystem::path(path));
+}
+
+inline std::string file_name(const std::string& path) {
+    return std::filesystem::path(path).filename().string();
+}
+
+inline std::string join_path(const std::string& directory, const std::string& name) {
+    return (std::filesystem::path(directory) / std::filesystem::path(name)).lexically_normal().string();
+}
+
+inline std::string environment_value(const std::string& name) {
+    const char* value = std::getenv(name.c_str());
+    return value == nullptr ? std::string() : std::string(value);
+}
+
+inline std::string relative_path(const std::string& root, const std::string& path) {
+    return std::filesystem::relative(
+        std::filesystem::path(path),
+        std::filesystem::path(root)
+    ).lexically_normal().string();
+}
+
+// Let self-hosted compiler binaries materialize the exact runtime header they
+// were built against instead of maintaining a second runtime implementation.
+inline std::string runtime_header_source_path() {
+    return std::filesystem::absolute(std::filesystem::path(__FILE__)).lexically_normal().string();
 }
 
 // ============================================================================
@@ -793,6 +802,13 @@ inline E& failure_error(Result<T, E>& result) { return std::get<Failure<E>>(resu
 template <typename T, typename E>
 inline const E& failure_error(const Result<T, E>& result) { return std::get<Failure<E>>(result).error; }
 
+template <typename T>
+struct StreamBase {
+    virtual ~StreamBase() = default;
+    virtual bool next() = 0;
+    virtual T value() = 0;
+};
+
 template <typename Target, typename Source>
 inline std::optional<Target> checked_numeric_as(Source value) {
     static_assert(std::is_arithmetic_v<Target>, "checked_numeric_as target must be numeric");
@@ -1022,6 +1038,42 @@ inline const std::string& json_as_string(const JsonValue& value) {
     const auto* result = std::get_if<std::string>(&json_storage(value));
     if (result == nullptr) panic("Expected JSON string");
     return *result;
+}
+
+inline JsonObject json_object(const JsonValue& value) {
+    const auto* object = std::get_if<JsonObject>(&json_storage(value));
+    if (object == nullptr || !*object) panic("Expected JSON object");
+    return *object;
+}
+
+inline JsonValue json_field(const JsonObject& object, const std::string& name) {
+    if (!object) panic("Expected JSON object");
+    const auto found = object->find(name);
+    if (found == object->end()) return JsonValue(nullptr);
+    return found->second;
+}
+
+inline bool json_has(const JsonObject& object, const std::string& name) {
+    return object && object->find(name) != object->end();
+}
+
+inline std::string json_string(const JsonValue& value) {
+    return json_as_string(value);
+}
+
+// Small JSON reader used by the self-hosted project driver.  The normal
+// std/json package remains the public Doof API; this native slice only needs
+// manifest objects, strings, arrays, numbers, booleans, and null.
+inline std::string project_manifest_path(const std::string& requested) {
+    std::filesystem::path current = is_directory(requested) ? std::filesystem::path(requested) : std::filesystem::path(requested).parent_path();
+    if (current.empty()) current = std::filesystem::current_path();
+    while (true) {
+        const auto candidate = current / "doof.json";
+        if (std::filesystem::is_regular_file(candidate)) return candidate.lexically_normal().string();
+        const auto parent = current.parent_path();
+        if (parent == current) return std::string();
+        current = parent;
+    }
 }
 
 inline bool json_is_lenient_boolean(const JsonValue& value) {

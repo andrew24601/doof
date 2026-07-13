@@ -9,10 +9,12 @@ import { collectSemanticDiagnostics, throwIfErrorDiagnostics } from "./pipeline-
 import { RealFS, resolveCompilerToolchain, tryFindCompilerToolchain } from "./cli-core.js";
 
 const SELFHOST_MODULES = [
-  "lexer.do", "ast.do", "parser.do", "semantic.do", "resolver.do", "analyzer.do",
+  "lexer.do", "ast.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "semantic.do", "resolver.do", "analyzer.do",
   "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do",
+  "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do",
+  "emitter-expr-calls.do", "emitter-expr-control.do",
   "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do",
-  "emitter-names.do", "emitter-module.do", "emitter-project.do", "compiler.do",
+  "emitter-names.do", "emitter-module.do", "compiler.do",
 ];
 
 describe("self-host bootstrap artifacts", () => {

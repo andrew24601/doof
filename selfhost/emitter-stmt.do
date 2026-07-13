@@ -9,13 +9,13 @@ import {
   ReadonlyDeclaration, ConstDeclaration, ReturnStatement, Statement,
   WhileStatement, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   Identifier, BreakStatement, ContinueStatement, ForOfStatement, ForStatement, BinaryExpression,
-  NamedType, UnionType,
+  TryStatement,
 } from "./ast"
 import type { TypeAnnotation } from "./ast"
-import { FunctionType, ResolvedType, UnionResolvedType } from "./semantic"
-import { EmitContext, findFunction } from "./emitter-context"
+import { InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType } from "./semantic"
+import { EmitContext } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { emitAnnotation, emitType } from "./emitter-types"
+import { emitType } from "./emitter-types"
 
 export function emitBlock(block: Block, level: int, context: EmitContext): string {
   let result = ""
@@ -28,10 +28,13 @@ export function emitBlock(block: Block, level: int, context: EmitContext): strin
 export function emitStatement(statement: Statement, level: int = 1, context: EmitContext): string {
   ind := indent(level)
   case statement {
-    const_: ConstDeclaration -> { return emitLocalDeclaration(ind, const_.name, const_.type_, const_.resolvedType, const_.value, context, true) }
-    readonly_: ReadonlyDeclaration -> { return emitLocalDeclaration(ind, readonly_.name, readonly_.type_, readonly_.resolvedType, readonly_.value, context, true) }
-    binding: ImmutableBinding -> { return emitLocalDeclaration(ind, binding.name, binding.type_, binding.resolvedType, binding.value, context, true) }
-    let_: LetDeclaration -> { return emitLocalDeclaration(ind, let_.name, let_.type_, let_.resolvedType, let_.value, context, false) }
+    const_: ConstDeclaration -> { return emitLocalDeclaration(ind, const_.name, const_.type_, const_.resolvedType!, const_.value, context, true) }
+    readonly_: ReadonlyDeclaration -> { return emitLocalDeclaration(ind, readonly_.name, readonly_.type_, readonly_.resolvedType!, readonly_.value, context, true) }
+    binding: ImmutableBinding -> {
+      if binding.else_ != null { return emitBindingElse(binding, level, context) }
+      return emitLocalDeclaration(ind, binding.name, binding.type_, binding.resolvedType!, binding.value, context, true)
+    }
+    let_: LetDeclaration -> { return emitLocalDeclaration(ind, let_.name, let_.type_, let_.resolvedType!, let_.value, context, false) }
     return_: ReturnStatement -> { return ind + emitReturn(return_, context) }
     expression: ExpressionStatement -> { return ind + emitExpression(expression.expression, context) + ";\n" }
     if_: IfStatement -> { return emitIf(if_, level, context) }
@@ -39,6 +42,7 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
     while_: WhileStatement -> { return emitWhile(while_, level, context) }
     forOf: ForOfStatement -> { return emitForOf(forOf, level, context) }
     for_: ForStatement -> { return emitFor(for_, level, context) }
+    try_: TryStatement -> { return emitTry(try_, level, context) }
     _: BreakStatement -> { return ind + "break;\n" }
     _: ContinueStatement -> { return ind + "continue;\n" }
     block: Block -> { return emitBlock(block, level, context) }
@@ -47,46 +51,72 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
   return ""
 }
 
-function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotation | null, resolvedType: ResolvedType | null, value: Expression, context: EmitContext, readonly_: bool): string {
-  let typeText = "auto"
-  if annotation != null {
-    case annotation! {
-      _: UnionType -> { typeText = emitAnnotation(annotation!, context.modulePath) }
-      named: NamedType -> {
-        if named.name == "Expression" || named.name == "Statement" || named.name == "TypeAnnotation" { typeText = emitAnnotation(annotation!, context.modulePath) }
+function emitBindingElse(binding: ImmutableBinding, level: int, context: EmitContext): string {
+  ind := indent(level)
+  if binding.else_ == null { return emitLocalDeclaration(ind, binding.name, binding.type_, binding.resolvedType!, binding.value, context, true) }
+  context.tryCounter = context.tryCounter + 1
+  temporaryName := "_binding_value_" + string(context.tryCounter)
+  if binding.value.resolvedType != null && isSingleOptional(binding.value.resolvedType!) {
+    let output = ind + "auto " + temporaryName + " = " + emitExpression(binding.value, context) + ";\n"
+    output = output + ind + "if (doof::is_null(" + temporaryName + ")) {\n"
+    output = output + emitBlock(binding.else_!, level + 1, context)
+    output = output + ind + "}\n"
+    return output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::unwrap_optional(" + temporaryName + ");\n"
+  }
+  let output = ind + "auto " + temporaryName + " = " + emitExpression(binding.value, context) + ";\n"
+  output = output + ind + "if (doof::is_failure(" + temporaryName + ")) {\n"
+  output = output + emitBlock(binding.else_!, level + 1, context)
+  output = output + ind + "}\n"
+  return output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::success_value(" + temporaryName + ");\n"
+}
+
+function isSingleOptional(resolvedType: ResolvedType): bool {
+  case resolvedType {
+    union_: UnionResolvedType -> {
+      let hasNull = false
+      let nonNull = 0
+      for member of union_.types {
+        if member.kind == "null" { hasNull = true }
+        else { nonNull = nonNull + 1 }
       }
-      _ -> { }
+      return hasNull && nonNull == 1
     }
+    _ -> { return false }
   }
-  if annotation != null {
-    case annotation! {
-      _: UnionType -> { if resolvedType != null { typeText = emitType(resolvedType!, context.modulePath) } }
-      _ -> { }
-    }
+  return false
+}
+
+function emitTry(statement: TryStatement, level: int, context: EmitContext): string {
+  ind := indent(level)
+  context.tryCounter = context.tryCounter + 1
+  temporaryName := "_try_value_" + string(context.tryCounter)
+  let value: Expression = Identifier { kind: "identifier", name: "<try>", span: statement.span }
+  case statement.binding {
+    binding: ImmutableBinding -> { value = binding.value }
+    expression: ExpressionStatement -> { value = expression.expression }
   }
+  if context.currentReturnErrorType != "" {
+      errorType := context.currentReturnErrorType
+      let output = ind + "auto " + temporaryName + " = " + emitExpression(value, context) + ";\n"
+      output = output + ind + "if (doof::is_failure(" + temporaryName + ")) return doof::Failure<" + errorType + ">{doof::failure_error(" + temporaryName + ")};\n"
+      case statement.binding {
+        binding: ImmutableBinding -> {
+          output = output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::success_value(" + temporaryName + ");\n"
+        }
+        _: ExpressionStatement -> { }
+      }
+      return output
+  }
+  panic("try expression is outside a Result-returning function")
+  return ""
+}
+
+function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotation | null, resolvedType: ResolvedType | null, value: Expression, context: EmitContext, readonly_: bool): string {
+  if resolvedType == null { panic("Local declaration was not resolved before emission") }
+  let typeText = if annotation == null then "auto" else emitType(resolvedType!, context.modulePath)
   let prefix = if readonly_ then "const " else ""
   let expected: ResolvedType | null = resolvedType
   let valueText = emitExpression(value, context, expected)
-  case value {
-    null_: NullLiteral -> {
-      if annotation != null {
-        case annotation! {
-          union_: UnionType -> {
-            for member of union_.types {
-              case member {
-                named: NamedType -> {
-                  if named.name == "Expression" || named.name == "Statement" || named.name == "TypeAnnotation" { valueText = "std::monostate{}" }
-                }
-                _ -> { }
-              }
-            }
-          }
-          _ -> { }
-        }
-      }
-    }
-    _ -> { }
-  }
   return ind + prefix + typeText + " " + cppIdentifier(name) + " = " + valueText + ";\n"
 }
 
@@ -97,10 +127,9 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
   subject := "_case_subject"
   let result = ind + "{\n" + inner + "auto " + subject + " = " + emitExpression(statement.subject, context) + ";\n"
   let previous = false
-  // A type-pattern case is always a discriminated union in the self-hosted
-  // source graph.  The checker may represent a type alias as an unknown
-  // wrapper while it is being bootstrapped, so pattern presence is the more
-  // reliable emission signal than the subject decoration alone.
+  // The checker has already classified the subject and each type pattern.
+  // Pattern presence selects the discriminated-union lowering for aliases
+  // whose carrier is not recoverable from the subject alone.
   variant := hasTypePattern(statement) || isVariantCaseType(caseSubjectType(statement.subject))
 
   for arm of statement.arms {
@@ -110,15 +139,11 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
       let isWildcard = false
       case pattern {
         type_: TypePattern -> {
-          let aliasName = ""
-          case type_.type_ {
-            named: NamedType -> { aliasName = named.name }
-            _ -> { }
-          }
-          if aliasName == "Expression" {
+          if type_.resolvedPatternKind == "expression" || type_.resolvedPatternKind == "statement" || type_.resolvedPatternKind == "type-annotation" {
             condition = "doof::is_expression(" + subject + ")"
             if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = doof::expression_value(" + subject + ");\n" }
-          } else if variant && type_.resolvedType != null {
+          } else if variant {
+            if type_.resolvedType == null { panic("Case pattern has no resolved type") }
             typeName := emitType(type_.resolvedType!, context.modulePath)
             condition = "std::holds_alternative<" + typeName + ">(" + subject + ")"
             if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = std::get<" + typeName + ">(" + subject + ");\n" }
@@ -137,7 +162,10 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
         result = result + if previous then ind + "else if (" + condition + ") {\n" else inner + "if (" + condition + ") {\n"
       }
       if binding != "" { result = result + bodyIndent + binding }
-      result = result + emitBlock(arm.body, level + 2, context) + ind + "}\n"
+      case arm.body {
+        block: Block -> { result = result + emitBlock(block, level + 2, context) + ind + "}\n" }
+        _: Expression -> { panic("Expression case arm reached statement emitter") }
+      }
       previous = true
       if isWildcard { return result + ind + "}\n" }
     }
@@ -183,14 +211,7 @@ function hasTypePattern(statement: CaseStatement): bool {
 
 function emitReturn(statement: ReturnStatement, context: EmitContext): string {
   if statement.value == null { return "return;\n" }
-  let expected: ResolvedType | null = null
-  function_ := findFunction(context, context.currentFunctionName)
-  if function_ != null && function_!.resolvedType != null {
-    case function_!.resolvedType! {
-      resolved: FunctionType -> { expected = resolved.returnType }
-      _ -> { }
-    }
-  }
+  expected := statement.resolvedExpectedType
   let value = emitExpression(statement.value!, context, expected)
   let nullValue = false
   case statement.value! {
@@ -242,6 +263,25 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
     _ -> { }
   }
   iterable := emitExpression(statement.iterable, context)
+  if statement.iterable.resolvedType != null {
+    case statement.iterable.resolvedType! {
+      _: StreamResolvedType -> {
+        return ind + "while (" + iterable + "->next()) {\n" +
+          ind + "    const auto " + name + " = " + iterable + "->value();\n" +
+          emitBlock(statement.body, level + 1, context) + ind + "}\n"
+      }
+      _ -> { }
+    }
+  }
+  if statement.bindings.length > 1 {
+    let names = ""
+    for i of 0..<statement.bindings.length {
+      if i > 0 { names = names + ", " }
+      names = names + cppIdentifier(statement.bindings[i])
+    }
+    return ind + "for (const auto& [" + names + "] : *" + iterable + ") {\n" +
+      emitBlock(statement.body, level + 1, context) + ind + "}\n"
+  }
   return ind + "for (const auto& " + name + " : *" + iterable + ") {\n" +
     emitBlock(statement.body, level + 1, context) + ind + "}\n"
 }

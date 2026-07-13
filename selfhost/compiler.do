@@ -4,19 +4,29 @@
 // Emission consumes decorated ASTs, so allowing an unchecked dependency into
 // the project emitter would turn a front-end omission into a C++ failure.
 
-import { AnalysisResult, ModuleInfo, createAnalyzer } from "./analyzer"
-import { emitProject } from "./emitter-project"
-import { ModuleEmission } from "./emitter-module"
-import { createChecker, ModuleChecker } from "./checker"
+import { AnalysisResult, ModuleInfo, createAnalyzerWithLoader } from "./analyzer"
+import { emitModuleGraph, ModuleGraphEmission } from "./emitter-module"
+import { createChecker, ModuleChecker, validateCheckedTypes } from "./checker"
+import { SourceLoader } from "./resolver"
 import { CheckResult, Diagnostic, SourceFile } from "./semantic"
 
 export class Compilation {
-  emission: ModuleEmission | null
+  emission: ModuleGraphEmission | null
   diagnostics: Diagnostic[]
 }
 
+function compilerNoSourceLoader(path: string): SourceFile | null => null
+
 export function compile(sources: SourceFile[], entry: string): Compilation {
-  analysis := createAnalyzer(sources).analyze(entry)
+  return compileInternal(sources, entry, compilerNoSourceLoader)
+}
+
+export function compileWithLoader(sources: SourceFile[], entry: string, loader: SourceLoader): Compilation {
+  return compileInternal(sources, entry, loader)
+}
+
+function compileInternal(sources: SourceFile[], entry: string, loader: SourceLoader): Compilation {
+  analysis := createAnalyzerWithLoader(sources, loader).analyze(entry)
   let diagnostics: Diagnostic[] = []
   for diagnostic of analysis.diagnostics { diagnostics.push(diagnostic) }
 
@@ -32,7 +42,11 @@ export function compile(sources: SourceFile[], entry: string): Compilation {
   if diagnostics.length > 0 {
     return Compilation { emission: null, diagnostics }
   }
-  return Compilation { emission: emitProject(analysis), diagnostics }
+  for diagnostic of validateCheckedTypes(analysis) { diagnostics.push(diagnostic) }
+  if diagnostics.length > 0 {
+    return Compilation { emission: null, diagnostics }
+  }
+  return Compilation { emission: emitModuleGraph(analysis, entry), diagnostics }
 }
 
 // Analyzer discovery order is driven by import syntax, not by a fixed source

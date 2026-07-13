@@ -336,6 +336,8 @@ export function emitAssignmentExpression(expr: AssignmentExpression, ctx: EmitCo
     }
   } else if (expr.target.kind === "identifier" && ctx.capturedMutables?.has(expr.target.name)) {
     target = `(*${emitIdentifierSafe(expr.target.name)})`;
+  } else if (expr.target.kind === "member-expression") {
+    target = emitMemberExpressionLValue(expr.target, ctx);
   } else {
     target = emitExpression(expr.target, ctx);
   }
@@ -357,6 +359,25 @@ export function emitAssignmentExpression(expr: AssignmentExpression, ctx: EmitCo
     default:
       throw new Error(`Unhandled assignment operator in emitter: ${expr.operator}`);
   }
+}
+
+/**
+ * Emit a member target without losing the reference through variant
+ * visitation.  Ordinary member reads return values, but checker decoration
+ * writes through fields such as `Expression.resolvedType`; the visitor must
+ * therefore return the concrete field as an lvalue.
+ */
+function emitMemberExpressionLValue(expr: MemberExpression, ctx: EmitContext): string {
+  const prop = emitIdentifierSafe(expr.property);
+  const object = emitExpression(expr.object, ctx);
+  const objType = expr.object.resolvedType;
+
+  if (objType && (objType.kind === "interface" || objType.kind === "stream" || isVariantUnionType(objType))) {
+    return `std::visit([](auto&& _obj) -> decltype(auto) { return (_obj->${prop}); }, ${object})`;
+  }
+
+  const accessor = objType && isPointerType(objType) ? "->" : ".";
+  return `${object}${accessor}${prop}`;
 }
 
 function getBinaryPrecedence(operator: string): number {

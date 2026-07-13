@@ -5,8 +5,7 @@ import { createChecker } from "./checker"
 import { AnalysisResult } from "./analyzer"
 import { Program } from "./ast"
 import { SourceFile } from "./semantic"
-import { ModuleEmission, emitModule, ModuleGraphPlan, planModuleGraph } from "./emitter-module"
-import { emitProject } from "./emitter-project"
+import { ModuleEmission, ModuleGraphEmission, emitModule, emitModuleGraph, ModuleGraphPlan, planModuleGraph } from "./emitter-module"
 
 function emit(source: string): ModuleEmission {
   return emitSources([SourceFile { path: "/main.do", source }], "/main.do")
@@ -30,7 +29,7 @@ function emitFile(path: string): ModuleEmission {
   ], "/main.do")
 }
 
-function emitAstProject(): ModuleEmission {
+function emitAstProject(): ModuleGraphEmission {
   ast := try! readText("selfhost/ast.do")
   semantic := try! readText("selfhost/semantic.do")
   analysis := createAnalyzer([
@@ -41,7 +40,7 @@ function emitAstProject(): ModuleEmission {
   checker := createChecker(analysis)
   Assert.equal(checker.check("/main.do").diagnostics.length, 0)
   Assert.equal(checker.check("/semantic.do").diagnostics.length, 0)
-  return emitProject(analysis)
+  return emitModuleGraph(analysis, "/main.do")
 }
 
 function findProgram(analysis: AnalysisResult, path: string): Program | null {
@@ -74,6 +73,22 @@ export function testEmitsClassesMethodsAndConstruction(): void {
   Assert.equal(result.source.contains("std::make_shared<Point>(Point{4})"), true)
 }
 
+export function testEmitsStructThisByValue(): void {
+  result := emit("struct Point { length, kind, resolvedType, span, push, value: int\nfunction copy(): Point => this }\nstruct Methods { startsWith(): int => 1\npop(): int => 2 }\nfunction read(point: Point): int => point.length + point.kind + point.resolvedType + point.span + point.push + point.value\nfunction invoke(methods: Methods): int => methods.startsWith() + methods.pop()")
+  Assert.equal(result.source.contains("return *this;"), true)
+  Assert.equal(result.source.contains("std::shared_ptr<Point>(this"), false)
+  for name of ["length", "kind", "resolvedType", "span", "push", "value"] {
+    Assert.equal(result.source.contains("point." + name), true)
+  }
+  Assert.equal(result.source.contains("doof::length(point)"), false)
+  Assert.equal(result.source.contains("doof::span(point)"), false)
+  Assert.equal(result.source.contains("point->push_back"), false)
+  Assert.equal(result.source.contains("methods.startsWith()"), true)
+  Assert.equal(result.source.contains("methods.pop()"), true)
+  Assert.equal(result.source.contains("doof::starts_with(methods"), false)
+  Assert.equal(result.source.contains("doof::pop(methods"), false)
+}
+
 export function testEmitsVariantCaseBindings(): void {
   result := emit("class Left { value: int }\nclass Right { value: int }\nfunction main(value: Left | Right): int { case value { left: Left -> { return left.value } _ -> { return 0 } }\nreturn 0 }")
   Assert.equal(result.source.contains("std::holds_alternative<std::shared_ptr<Left>>(_case_subject)"), true)
@@ -90,9 +105,10 @@ export function testEmitsSelfhostAstModule(): void {
 
 export function testEmitsSelfhostAstAndSemanticProject(): void {
   result := emitAstProject()
-  Assert.equal(result.header.contains("struct Program"), true)
-  Assert.equal(result.header.contains("struct Symbol"), true)
-  Assert.equal(result.header.contains("namespace selfhost_"), true)
+  Assert.equal(result.modules.length, 2)
+  Assert.equal(result.modules[0].header.contains("struct Program"), true)
+  Assert.equal(result.modules[1].header.contains("struct Symbol"), true)
+  Assert.equal(result.modules[0].header.contains("namespace app_main_"), true)
 }
 
 export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
@@ -148,4 +164,29 @@ export function testEmitsNativeClassInterop(): void {
   Assert.equal(result.source.contains("std::shared_ptr<::native::Client> native::Client::same()"), true)
   Assert.equal(result.source.contains("this->shared_from_this()"), true)
   Assert.equal(result.source.contains("client->get()"), true)
+}
+
+export function testEmitsInterfaceVariantsAndDispatch(): void {
+  result := emit("interface Drawable { value: int\nrender(): int }\nclass Point implements Drawable { readonly value: int\nfunction render(): int => value }\nfunction read(shape: Drawable): int => shape.render()\nfunction main(): int { point := Point { value: 5 }\nshape: Drawable := point\nreturn read(shape) + shape.value }")
+  Assert.equal(result.header.contains("using Drawable = std::variant<std::shared_ptr<Point>>;"), true)
+  Assert.equal(result.source.contains("const Drawable shape = point;"), true)
+  Assert.equal(result.source.contains("std::visit([&](auto&& _obj) { return _obj->render(); }, shape)"), true)
+  Assert.equal(result.source.contains("std::visit([](auto&& _obj) { return _obj->value; }, shape)"), true)
+}
+
+export function testEmitsIntrinsicJsonValueLiterals(): void {
+  result := emit("function main(): JsonValue { payload: JsonValue := { name: \"Ada\", values: [1, true] }\nreturn payload }")
+  Assert.equal(result.header.contains("doof::JsonValue"), true)
+  Assert.equal(result.source.contains("doof::ordered_map<std::string, doof::JsonValue>"), true)
+  Assert.equal(result.source.contains("doof::json_value"), true)
+}
+
+export function testParsesNativeJsonFunctionSurface(): void {
+  native := emit("export import function formatJsonValue(value: JsonValue): string from \"<json.hpp>\" as doof_json::format")
+  Assert.equal(native.header.contains("#include <json.hpp>"), true)
+  result := emitSources([
+    SourceFile { path: "/main.do", source: "import { formatJsonValue } from \"./json\"\nfunction main(): string => formatJsonValue({ ok: true })" },
+    SourceFile { path: "/json.do", source: "export import function formatJsonValue(value: JsonValue): string from \"<json.hpp>\" as doof_json::format" },
+  ], "/main.do")
+  Assert.equal(result.source.contains("doof_json::format"), true)
 }

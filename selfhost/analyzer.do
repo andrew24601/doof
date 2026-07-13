@@ -5,7 +5,7 @@
 // responsibilities separate makes the later checker independent of parsing.
 
 import { Parser } from "./parser"
-import { ModuleResolver } from "./resolver"
+import { ModuleResolver, SourceLoader } from "./resolver"
 import {
   Diagnostic, ImportBinding, NamespaceBinding, SemanticLocation, SemanticSpan,
   SourceFile, Symbol,
@@ -19,7 +19,7 @@ import {
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
   CaseStatement,
 } from "./ast"
-import type { ImportDeclaration, Program, SourceSpan, Statement, TypeAnnotation } from "./ast"
+import type { ImportDeclaration, Program, SourceSpan, Statement, TryStatement, TypeAnnotation } from "./ast"
 
 export class ModuleInfo {
   path: string
@@ -37,7 +37,7 @@ export class AnalysisResult {
   diagnostics: Diagnostic[] = []
 }
 
-readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null"]
+readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "Map", "ReadonlyMap", "Result", "Stream"]
 
 export class ModuleAnalyzer {
   resolver: ModuleResolver
@@ -86,8 +86,17 @@ export class ModuleAnalyzer {
     for statement of info.program.statements {
       symbol := symbolFor(statement, info.path)
       if symbol == null { continue }
+      decorateDeclarationSymbol(statement, symbol!)
       info.symbols.push(symbol!)
       if symbol!.exported { info.exports.push(symbol!) }
+    }
+  }
+
+  private function decorateDeclarationSymbol(statement: Statement, symbol: Symbol): void {
+    case statement {
+      class_: ClassDeclaration -> { class_.resolvedSymbol = symbol }
+      interface_: InterfaceDeclaration -> { interface_.resolvedSymbol = symbol }
+      _ -> { }
     }
   }
 
@@ -95,7 +104,7 @@ export class ModuleAnalyzer {
     case statement {
       value: ClassDeclaration -> {
         return Symbol {
-          kind: "class", name: value.name, module, exported: value.exported,
+          kind: if value.struct_ then "struct" else "class", name: value.name, module, exported: value.exported,
           native_: value.native_, nativeHeader: value.nativeHeader, nativeCppName: value.nativeCppName,
         }
       }
@@ -103,7 +112,10 @@ export class ModuleAnalyzer {
         return Symbol { kind: "interface", name: value.name, module, exported: value.exported }
       }
       value: FunctionDeclaration -> {
-        return Symbol { kind: "function", name: value.name, module, exported: value.exported }
+        return Symbol {
+          kind: "function", name: value.name, module, exported: value.exported,
+          native_: value.native_, nativeHeader: value.nativeHeader, nativeCppName: value.nativeCppName,
+        }
       }
       value: TypeAliasDeclaration -> {
         return Symbol { kind: "type-alias", name: value.name, module, exported: value.exported }
@@ -212,50 +224,59 @@ export class ModuleAnalyzer {
     case statement {
       fn: FunctionDeclaration -> { visitFunctionTypes(fn, info) }
       class_: ClassDeclaration -> {
-        for annotation of class_.implements_ { visitType(annotation, info) }
-        for field of class_.fields { if field.type_ != null { visitType(field.type_!, info) } }
-        for method of class_.methods { visitFunctionTypes(method, info) }
+        for annotation of class_.implements_ { visitType(annotation, info, class_.typeParams) }
+        for field of class_.fields { if field.type_ != null { visitType(field.type_!, info, class_.typeParams) } }
+        for method of class_.methods { visitFunctionTypes(method, info, class_.typeParams) }
       }
       interface_: InterfaceDeclaration -> {
-        for field of interface_.fields { visitType(field.type_, info) }
-        for method of interface_.methods { visitFunctionTypes(method, info) }
+        for field of interface_.fields { visitType(field.type_, info, interface_.typeParams) }
+        for method of interface_.methods { visitFunctionTypes(method, info, interface_.typeParams) }
       }
-      alias: TypeAliasDeclaration -> { visitType(alias.type_, info) }
-      const_: ConstDeclaration -> { if const_.type_ != null { visitType(const_.type_!, info) } }
-      readonly_: ReadonlyDeclaration -> { if readonly_.type_ != null { visitType(readonly_.type_!, info) } }
-      binding: ImmutableBinding -> { if binding.type_ != null { visitType(binding.type_!, info) } }
-      let_: LetDeclaration -> { if let_.type_ != null { visitType(let_.type_!, info) } }
+      alias: TypeAliasDeclaration -> { visitType(alias.type_, info, alias.typeParams) }
+      const_: ConstDeclaration -> { if const_.type_ != null { visitType(const_.type_!, info, []) } }
+      readonly_: ReadonlyDeclaration -> { if readonly_.type_ != null { visitType(readonly_.type_!, info, []) } }
+      binding: ImmutableBinding -> { if binding.type_ != null { visitType(binding.type_!, info, []) } }
+      let_: LetDeclaration -> { if let_.type_ != null { visitType(let_.type_!, info, []) } }
       _ -> { }
     }
   }
 
-  private function visitFunctionTypes(fn: FunctionDeclaration, info: ModuleInfo): void {
-    for parameter of fn.params { if parameter.type_ != null { visitType(parameter.type_!, info) } }
-    if fn.returnType != null { visitType(fn.returnType!, info) }
+  private function visitFunctionTypes(fn: FunctionDeclaration, info: ModuleInfo, ownerTypeParams: string[] = []): void {
+    let typeParams: string[] = []
+    for parameter of ownerTypeParams { typeParams.push(parameter) }
+    for parameter of fn.typeParams { typeParams.push(parameter) }
+    for parameter of fn.params { if parameter.type_ != null { visitType(parameter.type_!, info, typeParams) } }
+    if fn.returnType != null { visitType(fn.returnType!, info, typeParams) }
   }
 
-  private function visitType(annotation: TypeAnnotation, info: ModuleInfo): void {
+  private function visitType(annotation: TypeAnnotation, info: ModuleInfo, typeParams: string[] = []): void {
     case annotation {
       named: NamedType -> {
-        if !isBuiltin(named.name) {
+        if !isBuiltin(named.name) && !containsTypeParam(typeParams, named.name) {
           let symbol: Symbol | null = findSymbol(info, named.name)
           if symbol == null {
             for imported of info.imports {
               if imported.localName == named.name { symbol = imported.symbol; break }
             }
           }
+          if symbol == null { symbol = findExport(info, named.name) }
           if symbol == null { addError(info, "Unknown type '" + named.name + "'", named.span) }
           named.resolvedSymbol = symbol
         }
-        for argument of named.typeArgs { visitType(argument, info) }
+        for argument of named.typeArgs { visitType(argument, info, typeParams) }
       }
-      array: ArrayType -> { visitType(array.elementType, info) }
-      union: UnionType -> { for member of union.types { visitType(member, info) } }
+      array: ArrayType -> { visitType(array.elementType, info, typeParams) }
+      union: UnionType -> { for member of union.types { visitType(member, info, typeParams) } }
       function_: AstFunctionType -> {
-        for parameter of function_.params { visitType(parameter.type_, info) }
-        visitType(function_.returnType, info)
+        for parameter of function_.params { visitType(parameter.type_, info, typeParams) }
+        visitType(function_.returnType, info, typeParams)
       }
     }
+  }
+
+  private function containsTypeParam(typeParams: string[], name: string): bool {
+    for typeParam of typeParams { if typeParam == name { return true } }
+    return false
   }
 
   private function findModule(path: string): ModuleInfo | null {
@@ -284,8 +305,14 @@ export class ModuleAnalyzer {
   ): void { }
 }
 
+function analyzerNoSourceLoader(path: string): SourceFile | null => null
+
 export function createAnalyzer(sources: SourceFile[]): ModuleAnalyzer {
-  return ModuleAnalyzer { resolver: ModuleResolver { sources } }
+  return ModuleAnalyzer { resolver: ModuleResolver { sources, loader: analyzerNoSourceLoader } }
+}
+
+export function createAnalyzerWithLoader(sources: SourceFile[], loader: SourceLoader): ModuleAnalyzer {
+  return ModuleAnalyzer { resolver: ModuleResolver { sources, loader } }
 }
 
 function findSymbol(info: ModuleInfo, name: string): Symbol | null {
