@@ -25,15 +25,16 @@ export class CliParseResult {
 }
 
 export function cliUsage(): string {
-  return "usage: doof-selfhost <build|emit|check> [entry.do|package-dir] [options]\n" +
+  return "usage: doof-selfhost <build|package|emit|check> [entry.do|package-dir] [options]\n" +
     "\n" +
     "commands:\n" +
-    "  build  emit generated C++ and build the executable\n" +
-    "  emit   check the source graph and write generated C++\n" +
-    "  check  check the source graph without writing output\n" +
+    "  build   emit generated C++ and build the executable\n" +
+    "  package build an optimized executable in the package dist directory\n" +
+    "  emit    check the source graph and write generated C++\n" +
+    "  check   check the source graph without writing output\n" +
     "\n" +
     "options:\n" +
-    "  -o, --output-directory <path>  directory for emitted module files\n" +
+    "  -o, --output-directory <path>  output root (package uses <path>/release)\n" +
     "  --compiler <path>           C++ compiler command (default: CXX or c++)\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
     "  --module <specifier> <path> map an external import to a source file\n" +
@@ -47,7 +48,7 @@ export function parseCli(args: string[]): CliParseResult {
   }
 
   command := args[0]
-  if command != "build" && command != "emit" && command != "check" {
+  if command != "build" && command != "package" && command != "emit" && command != "check" {
     return CliParseResult { request: null, error: "unknown command '" + command + "'" }
   }
   request := CliRequest { command, entry: if args.length < 2 then "." else args[1] }

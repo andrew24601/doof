@@ -63,3 +63,23 @@ export function testPreservesAbsoluteNativePaths(): void {
   Assert.equal(plan.arguments.contains("/opt/native.cpp"), true)
   Assert.equal(plan.arguments.contains("/opt/include"), true)
 }
+
+export function testAddsReleaseDefaultsBeforeManifestFlags(): void {
+  plan := planNativeCompile(
+    "clang++",
+    "/tmp/generated",
+    "/tmp/dist/demo",
+    [],
+    NativeBuildPlan {
+      defines: ["APP_RELEASE=1"],
+      compilerFlags: ["-O3"],
+    },
+    true,
+  )
+  Assert.equal(plan.arguments[0], "-std=c++17")
+  Assert.equal(plan.arguments[1], "-O2")
+  Assert.equal(plan.arguments[2], "-DNDEBUG")
+  Assert.equal(plan.arguments[3], "-DAPP_RELEASE=1")
+  Assert.equal(plan.arguments.contains("-O3"), true)
+  Assert.equal(plan.outputPath, "/tmp/dist/demo")
+}

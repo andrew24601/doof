@@ -343,6 +343,15 @@ export function testRunsSelfhostCompilerDriver(): void {
   Assert.equal(manifestEmit.exitCode, 0)
   Assert.equal((try! readText(manifestProject + "/generated/" + moduleHeaderName("/tmp/doof-selfhost-manifest-project/src/main.do"))).length > 0, true)
 
+  packaged := try! run(driverBinary, ["package", manifestProject, "--compiler", "clang++"])
+  if packaged.exitCode != 0 { println(decodeUtf8(packaged.stdout)!) }
+  if packaged.exitCode != 0 { println(decodeUtf8(packaged.stderr)!) }
+  Assert.equal(packaged.exitCode, 0)
+  Assert.equal(exists(manifestProject + "/generated/release/doof_runtime.hpp"), true)
+  Assert.equal(exists(manifestProject + "/dist/manifest-demo"), true)
+  packagedProgram := try! run(manifestProject + "/dist/manifest-demo")
+  Assert.equal(packagedProgram.exitCode, 7)
+
 }
 
 export function testTwoStageBootstrapsSelfhostCompiler(): void {

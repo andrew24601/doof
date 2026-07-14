@@ -306,7 +306,13 @@ function buildOutputName(projectName: string): string {
   return projectName.replaceAll("/", "-").replaceAll("\\", "-")
 }
 
-function buildProject(request: CliRequest, outputDirectory: string, projectName: string, project: ProjectEmission): int {
+function buildProject(
+  request: CliRequest,
+  outputDirectory: string,
+  outputPath: string,
+  project: ProjectEmission,
+  release: bool = false,
+): int {
   if project.nativeBuild.pkgConfigPackages.length > 0 {
     println("error: self-hosted build does not yet resolve pkg-config packages")
     return 1
@@ -314,8 +320,7 @@ function buildProject(request: CliRequest, outputDirectory: string, projectName:
   let compiler = request.compiler
   if compiler == "" { compiler = environmentValue("CXX") }
   if compiler == "" { compiler = "c++" }
-  outputPath := driverOutputPath(outputDirectory, buildOutputName(projectName))
-  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild)
+  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release)
   exitCode := runNativeCompiler(plan.compiler, plan.arguments)
   if exitCode != 0 {
     println("error: native compiler exited with code " + string(exitCode))
@@ -345,9 +350,12 @@ function emitRequest(request: CliRequest): int {
   if request.command == "check" { return 0 }
   if result.emission == null { panic("self-hosted compiler produced no emission") }
 
-  outputDirectory := if request.outputDirectory == ""
+  buildDirectory := if request.outputDirectory == ""
     then joinPath(project.rootDirectory, project.buildDirectory)
     else absolutePath(request.outputDirectory)
+  outputDirectory := if request.command == "package"
+    then joinPath(buildDirectory, "release")
+    else buildDirectory
   rootManifest := PackageManifest {
     name: project.name,
     manifestPath: project.manifestPath,
@@ -361,7 +369,14 @@ function emitRequest(request: CliRequest): int {
   materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
   if request.command == "build" {
-    return buildProject(request, outputDirectory, project.name, emission)
+    outputPath := driverOutputPath(outputDirectory, buildOutputName(project.name))
+    return buildProject(request, outputDirectory, outputPath, emission)
+  }
+  if request.command == "package" {
+    distDirectory := joinPath(project.rootDirectory, "dist")
+    ensureOutputDirectory(distDirectory)
+    outputPath := driverOutputPath(distDirectory, buildOutputName(project.name))
+    return buildProject(request, outputDirectory, outputPath, emission, true)
   }
   return 0
 }

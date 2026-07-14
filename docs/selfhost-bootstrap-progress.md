@@ -126,6 +126,8 @@ doof-selfhost check main.do --source math.do
 doof-selfhost emit main.do -o build --source math.do
 doof-selfhost check path/to/package
 doof-selfhost emit path/to/package
+doof-selfhost build path/to/package
+doof-selfhost package path/to/package
 ```
 
 `--source` is repeatable for explicit source files used by relative imports. A
@@ -173,7 +175,12 @@ copied verbatim from the canonical `doof_runtime.h` used to build the compiler;
 relocated. Reached acquired-package manifests now register normalized native
 build inputs. The project emitter materializes those inputs and the self-hosted
 `build` command compiles generated plus native sources with package-stable
-namespaces, including host frameworks and root-project settings. Declared
+namespaces, including host frameworks and root-project settings. The
+self-hosted `package` command materializes its independent release graph under
+`<buildDir>/release`, prepends `-O2` and `NDEBUG` before package compiler flags,
+and links the final executable into package-root `dist/`. With `package`, `-o`
+overrides the build-state root while the artifact remains in the package's
+`dist/` directory. Declared
 package dependencies, pkg-config resolution, and remote stdlib fallback remain
 future CLI layers.
 

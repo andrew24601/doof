@@ -21,8 +21,15 @@ export function planNativeCompile(
   outputPath: string,
   modules: ModuleEmission[],
   native: NativeBuildPlan,
+  release: bool = false,
 ): NativeCompilePlan {
   let arguments: string[] = ["-std=c++17"]
+  // Release defaults precede manifest flags so packages can intentionally
+  // override optimization while still receiving the NDEBUG contract.
+  if release {
+    arguments.push("-O2")
+    arguments.push("-DNDEBUG")
+  }
   for define of native.defines { arguments.push("-D" + define) }
   arguments.push("-I")
   arguments.push(outputDirectory)

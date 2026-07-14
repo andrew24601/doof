@@ -33,6 +33,14 @@ export function testParsesBuildCompiler(): void {
   Assert.equal(result.request!.compiler, "clang++")
 }
 
+export function testParsesPackageCompiler(): void {
+  result := parseCli(["package", "main.do", "--compiler", "clang++"])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request != null, true)
+  Assert.equal(result.request!.command, "package")
+  Assert.equal(result.request!.compiler, "clang++")
+}
+
 export function testAllowsManifestDefaults(): void {
   result := parseCli(["emit", "main.do"])
   Assert.equal(result.error, "")

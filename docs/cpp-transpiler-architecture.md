@@ -116,12 +116,17 @@ branching on package names. Reached manifest identity also configures the
 canonical namespace planner before emission, so generated types match native
 package headers. The `build` command then passes the materialized plan to
 `selfhost/native-build.do` and executes the selected compiler without a shell.
+The bootstrap `package` command uses the same explicit plan beneath
+`<buildDir>/release`, prepends the GCC-compatible `-O2` and `NDEBUG` release
+defaults before manifest flags, and links the final executable directly into
+the root package's `dist/` directory.
 
 `src/selfhost-bootstrap.test.ts` compiles the TypeScript bootstrap emitter's
 17-module self-host source graph with the native C++ toolchain. The
 `selfhost/bootstrap.test.do` B3 test provides the corresponding self-hosted
 split translation-unit check, while its B4 test links and runs
-the generated driver and then compiles and runs the generated target program.
+the generated driver, packages and runs a release executable from `dist/`, and
+then compiles and runs the generated target program.
 That B4 acceptance also checks and builds `samples/http-client` through the
 complete macOS `std/http`/WebSocket graph; its deterministic localhost runtime
 leg is opt-in via `DOOF_HTTP_RUNTIME_TEST=1` for network-restricted runners.
