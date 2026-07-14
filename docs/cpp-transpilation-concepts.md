@@ -240,6 +240,7 @@ Primary modules:
 - `selfhost/emitter-monomorphize.do`
 - `selfhost/emitter-module.do`
 - `selfhost/emitter-decl.do`
+- `selfhost/emitter-json.do`
 - `selfhost/emitter-expr-calls.do`
 
 Validation anchors:

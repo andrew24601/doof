@@ -10,6 +10,7 @@ import { NativeBuildPlan } from "./package-manifest"
 /** A complete native compiler invocation for one emitted executable. */
 export class NativeCompilePlan {
   compiler: string
+  precompiledHeaderArguments: string[] = []
   arguments: string[] = []
   outputPath: string
 }
@@ -22,6 +23,7 @@ export function planNativeCompile(
   modules: ModuleEmission[],
   native: NativeBuildPlan,
   release: bool = false,
+  platform: string = "",
 ): NativeCompilePlan {
   let arguments: string[] = ["-std=c++17"]
   // Release defaults precede manifest flags so packages can intentionally
@@ -38,6 +40,26 @@ export function planNativeCompile(
     arguments.push(resolveBuildPath(outputDirectory, includePath))
   }
   for flag of native.compilerFlags { arguments.push(flag) }
+  let precompiledHeaderArguments: string[] = []
+  // The runtime dominates repeated parsing in larger generated projects. Build
+  // it once, but avoid paying the PCH startup cost for a single module.
+  if modules.length > 1 {
+    runtimeHeader := resolveBuildPath(outputDirectory, "doof_runtime.hpp")
+    clangPch := usesClangPrecompiledHeader(compiler, platform)
+    pchPath := runtimeHeader + if clangPch then ".pch" else ".gch"
+    for argument of arguments { precompiledHeaderArguments.push(argument) }
+    precompiledHeaderArguments.push("-x")
+    precompiledHeaderArguments.push("c++-header")
+    precompiledHeaderArguments.push(runtimeHeader)
+    precompiledHeaderArguments.push("-o")
+    precompiledHeaderArguments.push(pchPath)
+    // GCC discovers an adjacent .gch when the header is the first include.
+    // Clang's explicit flag is more reliable for arbitrary output paths.
+    if clangPch {
+      arguments.push("-include-pch")
+      arguments.push(pchPath)
+    }
+  }
   for module of modules {
     arguments.push(resolveBuildPath(outputDirectory, module.sourceName))
   }
@@ -55,7 +77,16 @@ export function planNativeCompile(
   for flag of native.linkerFlags { arguments.push(flag) }
   arguments.push("-o")
   arguments.push(outputPath)
-  return NativeCompilePlan { compiler, arguments, outputPath }
+  return NativeCompilePlan { compiler, precompiledHeaderArguments, arguments, outputPath }
+}
+
+function usesClangPrecompiledHeader(compiler: string, platform: string): bool {
+  name := compiler.toLowerCase()
+  if name.contains("clang") { return true }
+  if name.contains("g++") || name.contains("gcc") { return false }
+  // The default c++ driver is Clang on Apple hosts and conventionally GCC on
+  // other supported hosts. Explicit compiler names take precedence above.
+  return platform == "macos"
 }
 
 function resolveBuildPath(outputDirectory: string, path: string): string {

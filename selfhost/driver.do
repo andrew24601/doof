@@ -320,7 +320,14 @@ function buildProject(
   let compiler = request.compiler
   if compiler == "" { compiler = environmentValue("CXX") }
   if compiler == "" { compiler = "c++" }
-  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release)
+  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release, hostPlatform())
+  if plan.precompiledHeaderArguments.length > 0 {
+    pchExitCode := runNativeCompiler(plan.compiler, plan.precompiledHeaderArguments)
+    if pchExitCode != 0 {
+      println("error: native compiler failed to build the precompiled runtime header with code " + string(pchExitCode))
+      return pchExitCode
+    }
+  }
   exitCode := runNativeCompiler(plan.compiler, plan.arguments)
   if exitCode != 0 {
     println("error: native compiler exited with code " + string(exitCode))

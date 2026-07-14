@@ -47,6 +47,7 @@ export function testPlansGeneratedAndManifestNativeSources(): void {
     "-o", "/tmp/generated/demo",
   ]
   Assert.equal(plan.arguments.length, expected.length)
+  Assert.equal(plan.precompiledHeaderArguments.length, 0)
   for index of 0..<expected.length {
     Assert.equal(plan.arguments[index], expected[index])
   }
@@ -82,4 +83,45 @@ export function testAddsReleaseDefaultsBeforeManifestFlags(): void {
   Assert.equal(plan.arguments[3], "-DAPP_RELEASE=1")
   Assert.equal(plan.arguments.contains("-O3"), true)
   Assert.equal(plan.outputPath, "/tmp/dist/demo")
+}
+
+export function testPlansClangPrecompiledRuntimeForMultiModuleBuilds(): void {
+  modules := [
+    ModuleEmission { modulePath: "/one.do", header: "", source: "", headerName: "one.hpp", sourceName: "one.cpp" },
+    ModuleEmission { modulePath: "/two.do", header: "", source: "", headerName: "two.hpp", sourceName: "two.cpp" },
+  ]
+  plan := planNativeCompile(
+    "c++",
+    "/tmp/generated",
+    "/tmp/generated/demo",
+    modules,
+    NativeBuildPlan { defines: ["DEBUG_BUILD=1"], compilerFlags: ["-Wconversion"] },
+    false,
+    "macos",
+  )
+
+  Assert.equal(plan.precompiledHeaderArguments.contains("c++-header"), true)
+  Assert.equal(plan.precompiledHeaderArguments.contains("/tmp/generated/doof_runtime.hpp"), true)
+  Assert.equal(plan.precompiledHeaderArguments.contains("/tmp/generated/doof_runtime.hpp.pch"), true)
+  Assert.equal(plan.precompiledHeaderArguments.contains("-DDEBUG_BUILD=1"), true)
+  Assert.equal(plan.precompiledHeaderArguments.contains("-Wconversion"), true)
+  Assert.equal(plan.arguments.contains("-include-pch"), true)
+  Assert.equal(plan.arguments.contains("/tmp/generated/doof_runtime.hpp.pch"), true)
+}
+
+export function testPlansGccAdjacentPrecompiledRuntime(): void {
+  modules := [
+    ModuleEmission { modulePath: "/one.do", header: "", source: "", headerName: "one.hpp", sourceName: "one.cpp" },
+    ModuleEmission { modulePath: "/two.do", header: "", source: "", headerName: "two.hpp", sourceName: "two.cpp" },
+  ]
+  plan := planNativeCompile(
+    "g++",
+    "/tmp/generated",
+    "/tmp/generated/demo",
+    modules,
+    NativeBuildPlan {},
+  )
+
+  Assert.equal(plan.precompiledHeaderArguments.contains("/tmp/generated/doof_runtime.hpp.gch"), true)
+  Assert.equal(plan.arguments.contains("-include-pch"), false)
 }

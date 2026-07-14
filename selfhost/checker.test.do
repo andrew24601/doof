@@ -30,6 +30,28 @@ export function testChecksArrayAndStringSearchMembers(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksSupportedJsonDeserializationSurface(): void {
+  result := checked("class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksJsonDeserializationBeforeClassDeclaration(): void {
+  result := checked("function parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)\nclass Config { name: string\ncount = 10 }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsJsonDeserializationForUnsupportedFields(): void {
+  result := checked("class Handler { values: int[] }\nfunction parse(value: JsonValue): Result<Handler, string> => Handler.fromJsonValue(value)")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message, "Type \"Handler\" does not support automatic JSON deserialization")
+}
+
+export function testRejectsLenientJsonDeserializationUntilSupported(): void {
+  result := checked("class Config { name: string }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value, true)")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message, "Too many arguments")
+}
+
 export function testChecksReadonlyArrayLiteralAndReadonlyField(): void {
   result := checked("class Request { readonly headers: int[] }\nfunction use(values: readonly int[]): int => values.length\nfunction main(): int { values := readonly [1, 2]\nrequest := Request { headers: values }\nreturn use(request.headers) }")
   Assert.equal(result.diagnostics.length, 0)

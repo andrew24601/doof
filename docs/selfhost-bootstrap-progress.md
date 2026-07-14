@@ -1,6 +1,6 @@
 # Self-Hosted Compiler Bootstrap Progress
 
-Status date: 2026-07-13
+Status date: 2026-07-14
 
 This document tracks the path from the Doof implementation of the compiler to
 a compiler that can rebuild itself. The TypeScript compiler remains the
@@ -30,7 +30,12 @@ multi-module program.
 The bootstrap is complete for the current self-hosted language slice. The
 self-hosted checker and emitter now include the intrinsic `JsonValue` carrier,
 ordered JSON object/array lowering, native function-import syntax, and
-generated `toJsonObject()` support. Array and string `contains` / `indexOf`
+generated `toJsonObject()` support. Non-generic classes and structs whose
+instance fields are primitives, `JsonValue`, or nullable primitives now also
+receive strict `fromJsonValue()` generation with required-field checks,
+defaults, field-specific type failures, and value/reference-correct `Result`
+payloads. The optional lenient argument remains outside this strict slice.
+Array and string `contains` / `indexOf`
 calls now use the canonical runtime helpers, and declaration-`else` supports
 typed bindings, failure capture, nullable narrowing, discard handlers, and
 handler-exit validation. Escaping lambdas now preserve mutable
@@ -215,9 +220,10 @@ Work through these in order, keeping all existing gates green after each step:
 3. **Split the checker.** Extract statement, declaration, control-flow, member,
    Result, and generic responsibilities before expanding the supported language
    surface further.
-4. **Complete JSON deserialization parity.** Add self-hosted `fromJsonValue()`
-   field validation, lenient conversion, interface/union dispatch, and native
-   `std/json` support-file materialization.
+4. **Complete JSON deserialization parity.** Extend the strict primitive
+   class/struct slice with nested values and collections, then add lenient
+   conversion, interface/union dispatch, and native `std/json` support-file
+   materialization.
 5. **Complete package-aware module loading.** Resolve package identity and
    dependency manifests, then align generated namespaces with the TypeScript
    compiler's package-relative rules.

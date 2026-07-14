@@ -282,9 +282,9 @@ export function testParsesGenericNativeFunction(): void {
 export function testParsesSelfhostSemanticSources(): void {
   for path of [
     "selfhost/resolver.do", "selfhost/ast.do", "selfhost/semantic.do",
-    "selfhost/parser.do", "selfhost/parser-declarations.do", "selfhost/parser-statements.do", "selfhost/parser-types.do", "selfhost/parser-expressions.do", "selfhost/analyzer.do", "selfhost/checker-types.do",
+    "selfhost/parser.do", "selfhost/parser-declarations.do", "selfhost/parser-statements.do", "selfhost/parser-types.do", "selfhost/parser-expressions.do", "selfhost/analyzer.do", "selfhost/checker-types.do", "selfhost/json-semantics.do",
     "selfhost/checker.do", "selfhost/emitter-context.do", "selfhost/emitter-types.do",
-    "selfhost/emitter-expr-utils.do", "selfhost/emitter-expr-literals.do", "selfhost/emitter-expr-ops.do", "selfhost/emitter-expr-calls.do", "selfhost/emitter-expr-control.do", "selfhost/emitter-expr-lambda.do", "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-decl.do",
+    "selfhost/emitter-expr-utils.do", "selfhost/emitter-expr-literals.do", "selfhost/emitter-expr-ops.do", "selfhost/emitter-expr-calls.do", "selfhost/emitter-expr-control.do", "selfhost/emitter-expr-lambda.do", "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-json.do", "selfhost/emitter-decl.do",
     "selfhost/emitter-header.do", "selfhost/emitter-module.do",
     "selfhost/compiler.do",
   ] {

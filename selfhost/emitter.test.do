@@ -119,6 +119,33 @@ export function testEmitsClassesMethodsAndConstruction(): void {
   Assert.equal(result.source.contains("std::make_shared<Point>(Point{4})"), true)
 }
 
+export function testEmitsStrictPrimitiveJsonDeserialization(): void {
+  result := emit("class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)")
+  Assert.equal(result.header.contains("static doof::Result<std::shared_ptr<Config>, std::string> fromJsonValue(const doof::JsonValue& _json);"), true)
+  Assert.equal(result.source.contains("const auto* _object = doof::json_as_object(_json);"), true)
+  Assert.equal(result.source.contains("Missing required field \\\"name\\\""), true)
+  Assert.equal(result.source.contains("Field \\\"enabled\\\" expected boolean but got"), true)
+  Assert.equal(result.source.contains("_field_count = 10;"), true)
+  Assert.equal(result.source.contains("_field_notes = std::nullopt;"), true)
+  Assert.equal(result.source.contains("doof::json_is_null(_iterator_notes->second)"), true)
+  Assert.equal(result.source.contains("std::make_shared<Config>(Config{_field_name, _field_enabled, _field_count, _field_notes})"), true)
+}
+
+export function testEmitsStructJsonDeserializationByValue(): void {
+  result := emit("struct Point { x: int\ny: double }\nfunction parse(value: JsonValue): Result<Point, string> => Point.fromJsonValue(value)")
+  Assert.equal(result.header.contains("static doof::Result<Point, std::string> fromJsonValue(const doof::JsonValue& _json);"), true)
+  Assert.equal(result.source.contains("return doof::Success<Point>{Point{_field_x, _field_y}};"), true)
+  Assert.equal(result.source.contains("std::make_shared<Point>"), false)
+}
+
+export function testPreservesJsonCollectionSerialization(): void {
+  result := emit("class Payload { items: JsonValue[]\nvalues: Map<string, JsonValue> }\nfunction serialize(value: Payload): JsonObject => value.toJsonObject()")
+  Assert.equal(result.header.contains("doof::JsonObject toJsonObject() const;"), true)
+  Assert.equal(result.header.contains("fromJsonValue"), false)
+  Assert.equal(result.source.contains("doof::json_value(this->items)"), true)
+  Assert.equal(result.source.contains("doof::json_value(this->values)"), true)
+}
+
 export function testEmitsStructThisByValue(): void {
   result := emit("struct Point { length, kind, resolvedType, span, push, value: int\nfunction copy(): Point => this }\nstruct Methods { startsWith(): int => 1\npop(): int => 2 }\nfunction read(point: Point): int => point.length + point.kind + point.resolvedType + point.span + point.push + point.value\nfunction invoke(methods: Methods): int => methods.startsWith() + methods.pop()")
   Assert.equal(result.source.contains("return *this;"), true)
@@ -162,6 +189,7 @@ export function testEmitsSelfhostAstAndSemanticProject(): void {
 
 export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
   result := emit("function square(value: double): double => value ** value")
+  Assert.equal(result.header.startsWith("#pragma once\n#include \"doof_runtime.hpp\"\n"), true)
   Assert.equal(result.header.contains("#include <cmath>"), true)
   Assert.equal(result.source.contains("std::pow(value, value)"), true)
 }

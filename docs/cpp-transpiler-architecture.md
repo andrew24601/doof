@@ -50,6 +50,9 @@ The initial slice is split into small modules:
 - `selfhost/emitter-expr-lambda.do` owns closure capture discovery, escaping mutable boxing, and `doof::callback` construction
 - `selfhost/emitter-stmt.do` owns block and control-flow layout
 - `selfhost/emitter-decl.do` owns reusable function signatures and definitions
+- `selfhost/json-semantics.do` owns shared checker/emitter eligibility for
+  compiler-generated JSON methods
+- `selfhost/emitter-json.do` owns automatic JSON method declarations and definitions
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
 - `selfhost/emitter-module.do` owns module-graph planning and `.hpp` / `.cpp` orchestration
@@ -116,6 +119,12 @@ branching on package names. Reached manifest identity also configures the
 canonical namespace planner before emission, so generated types match native
 package headers. The `build` command then passes the materialized plan to
 `selfhost/native-build.do` and executes the selected compiler without a shell.
+For projects with more than one generated module, that plan first compiles
+`doof_runtime.hpp` as a precompiled header with the same language, define,
+include, optimization, and manifest compiler flags as the final build. Generated
+headers keep the runtime as their first include: Clang consumes an explicit
+`.pch`, while GCC discovers the adjacent `.gch`. Single-module builds skip the
+extra PCH step because its setup cost is unlikely to amortize.
 The bootstrap `package` command uses the same explicit plan beneath
 `<buildDir>/release`, prepends the GCC-compatible `-O2` and `NDEBUG` release
 defaults before manifest flags, and links the final executable directly into

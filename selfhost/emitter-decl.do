@@ -8,7 +8,7 @@ import {
   ImmutableBinding, LetDeclaration, ReadonlyDeclaration,
 } from "./ast"
 import {
-  ArrayResolvedType, ClassType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  ArrayResolvedType, ClassType, FunctionType, InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
 import { EmitContext } from "./emitter-context"
@@ -18,6 +18,7 @@ import { emitContextType, emitType, specializeEmitType } from "./emitter-types"
 import { scanCapturedMutablesInBlock, scanCapturedMutablesInExpression } from "./emitter-expr-lambda"
 import { moduleNamespace } from "./emitter-names"
 import { MethodInstantiation } from "./emitter-monomorphize"
+import { emitGeneratedJsonDeclarations } from "./emitter-json"
 
 export function emitFunctionSignature(fn: FunctionDeclaration, name: string = "", modulePath: string = "", includeDefaults: bool = false, defaultContext: EmitContext | null = null, ownerTypeParams: string[] = []): string {
   let functionType = checkedFunctionType(fn)
@@ -221,7 +222,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
       result = result + "    " + templatePrefix(method.typeParams) + staticPrefix + emitFunctionSignature(method, "", context.modulePath, true, context, decl.typeParams) + ";\n"
     }
   }
-  if canGenerateJsonMethods(decl) { result = result + "    doof::JsonObject toJsonObject() const;\n" }
+  result = result + emitGeneratedJsonDeclarations(decl, context)
   return result + "};\n"
 }
 
@@ -243,33 +244,6 @@ function fieldTypeTextForEmission(field: ClassField, resolvedType: ResolvedType,
 function hasInstanceFields(decl: ClassDeclaration): bool {
   for field of decl.fields { if !field.static_ { return true } }
   return false
-}
-
-export function emitGeneratedJsonMethods(owner: ClassDeclaration, context: EmitContext): string {
-  if !canGenerateJsonMethods(owner) { return "" }
-  let result = "doof::JsonObject " + owner.name + "::toJsonObject() const {\n"
-  result = result + "    auto _json = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();\n"
-  for field of owner.fields {
-    for name of field.names {
-      if field.resolvedType != null {
-        result = result + "    (*_json)[\"" + name + "\"] = " + emitJsonField("this->" + cppIdentifier(name), field.resolvedType!, context) + ";\n"
-      }
-    }
-  }
-  return result + "    return _json;\n}\n"
-}
-
-function canGenerateJsonMethods(owner: ClassDeclaration): bool {
-  if owner.native_ || owner.typeParams.length > 0 { return false }
-  for field of owner.fields {
-    if field.resolvedType != null {
-      case field.resolvedType! {
-        _: ClassType -> { return false }
-        _ -> { }
-      }
-    }
-  }
-  return true
 }
 
 export function emitStaticClassFieldDefinitions(owner: ClassDeclaration, context: EmitContext): string {
@@ -329,30 +303,6 @@ function templatePrefix(typeParams: string[]): string {
     result = result + "typename " + typeParams[i]
   }
   return result + ">\n"
-}
-
-function emitJsonField(value: string, resolvedType: ResolvedType, context: EmitContext): string {
-  case resolvedType {
-    _: JsonValueResolvedType -> { return value }
-    _: NullType -> { return "doof::json_value(nullptr)" }
-    primitive: PrimitiveType -> {
-      if primitive.name == "char" { return "doof::json_value(std::string(1, static_cast<char>(" + value + ")))" }
-      if primitive.name == "byte" { return "doof::json_value(static_cast<int32_t>(" + value + "))" }
-      return "doof::json_value(" + value + ")"
-    }
-    array: ArrayResolvedType -> {
-      if array.elementType.kind == "json-value" { return "doof::json_value(" + value + ")" }
-    }
-    map: MapResolvedType -> {
-      if map.keyType.kind == "primitive" && map.valueType.kind == "json-value" { return "doof::json_value(" + value + ")" }
-    }
-    class_: ClassType -> {
-      if class_.symbol.native_ { return "doof::json_value(nullptr)" }
-      return "doof::json_value(" + value + (if class_.symbol.kind == "struct" then "." else "->") + "toJsonObject())"
-    }
-    _ -> { }
-  }
-  return "doof::json_value(nullptr)"
 }
 
 export function emitInterfaceAlias(decl: InterfaceDeclaration, context: EmitContext): string {

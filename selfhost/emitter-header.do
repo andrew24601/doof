@@ -212,10 +212,11 @@ function addNativeSymbolAlias(symbol: Symbol, namespace: string, plan: HeaderPla
 
 export function renderHeader(plan: HeaderPlan, guardName: string): string {
   let result = "#pragma once\n"
+  // Keep the runtime as the first header so GCC can consume its adjacent .gch.
+  result = result + "#include \"doof_runtime.hpp\"\n"
   result = result + "#include <cstdint>\n#include <cmath>\n#include <functional>\n"
   result = result + "#include <memory>\n#include <optional>\n#include <string>\n"
   result = result + "#include <tuple>\n#include <type_traits>\n#include <variant>\n#include <vector>\n"
-  result = result + "#include \"doof_runtime.hpp\"\n"
   for include of plan.moduleIncludes {
     if !containsValue(plan.typeOnlyModuleIncludes, include) { result = result + "#include \"" + include + "\"\n" }
   }

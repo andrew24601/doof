@@ -639,6 +639,28 @@ export function testCompilesAndRunsEscapingMutableLambda(): void {
   Assert.equal(executed.exitCode, 3)
 }
 
+export function testCompilesAndRunsStrictJsonDeserialization(): void {
+  result := compile([SourceFile {
+    path: "/json-deserialization.do",
+    source: "class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction main(): int { config := Config.fromJsonValue({ name: \"Ada\", enabled: true }) else { return 90 }\nignored := Config.fromJsonValue({ name: 4, enabled: true }) else error { if error.contains(\"Field \\\"name\\\" expected string\") { return config.count }\nreturn 91 }\nreturn 92 }",
+  }], "/json-deserialization.do")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  binaryPath := "/tmp/doof-selfhost-json-deserialization"
+  let nativeArgs: string[] = ["-std=c++17"]
+  for sourcePath of sourcePaths { nativeArgs.push(sourcePath) }
+  nativeArgs.push("-o")
+  nativeArgs.push(binaryPath)
+  linked := try! run("clang++", nativeArgs)
+  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
+  Assert.equal(linked.exitCode, 0)
+  executed := try! run(binaryPath)
+  Assert.equal(executed.exitCode, 10)
+}
+
 export function testCompilesAndRunsNativeClassInterop(): void {
   try! writeText("/tmp/client.hpp", "#pragma once\n#include <cstdint>\n#include <memory>\nnamespace native { struct Client : std::enable_shared_from_this<Client> { int32_t value; explicit Client(int32_t value): value(value) {} int32_t get() { return value; } static std::shared_ptr<Client> make(int32_t value) { return std::make_shared<Client>(value); } std::shared_ptr<Client> same(); }; }\n")
   result := compile([SourceFile {
@@ -693,21 +715,21 @@ export function testCompilesSelfhostAnalyzerSlice(): void {
 }
 
 export function testCompilesSelfhostCheckerSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do"], "checker.do", "selfhost-checker")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "json-semantics.do", "checker.do"], "checker.do", "selfhost-checker")
 }
 
 export function testCompilesSelfhostEmitterExprSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-expr.do", "selfhost-emitter-expr")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "json-semantics.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-expr.do", "selfhost-emitter-expr")
 }
 
 export function testCompilesSelfhostEmitterStmtSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-stmt.do", "selfhost-emitter-stmt")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "json-semantics.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-stmt.do", "selfhost-emitter-stmt")
 }
 
 export function testCompilesSelfhostEmitterDeclSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do"], "emitter-decl.do", "selfhost-emitter-decl")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "json-semantics.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-json.do", "emitter-decl.do"], "emitter-decl.do", "selfhost-emitter-decl")
 }
 
 export function testCompilesSelfhostEmitterHeaderSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do"], "emitter-header.do", "selfhost-emitter-header")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "json-semantics.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-json.do", "emitter-decl.do", "emitter-header.do"], "emitter-header.do", "selfhost-emitter-header")
 }

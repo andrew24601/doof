@@ -38,6 +38,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/analyzer.do` — phased module symbol collection, import/re-export resolution, and named-type decoration
 - `selfhost/analyzer.test.do` — analyzer tests for imports, re-exports, and resolved named types
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
+- `selfhost/json-semantics.do` — shared checker/emitter eligibility for automatic JSON methods
 - `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 - `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
@@ -72,6 +73,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-expr-control.do` — self-hosted conditional, case, and dot-shorthand lowering
 - `selfhost/emitter-expr-lambda.do` — self-hosted lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
+- `selfhost/emitter-json.do` — self-hosted automatic JSON method declarations and definitions
 - `selfhost/emitter-decl.do` — self-hosted function signatures, definitions, and value declarations
 - `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary
 - `selfhost/emitter-module.do` — self-hosted module planning, dependency includes, and split `.hpp` / `.cpp` orchestration

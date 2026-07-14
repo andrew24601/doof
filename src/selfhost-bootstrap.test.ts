@@ -10,10 +10,10 @@ import { RealFS, resolveCompilerToolchain, tryFindCompilerToolchain } from "./cl
 
 const SELFHOST_MODULES = [
   "lexer.do", "ast.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "semantic.do", "resolver.do", "analyzer.do",
-  "checker-types.do", "checker.do", "emitter-context.do", "emitter-monomorphize.do", "emitter-types.do",
+  "checker-types.do", "json-semantics.do", "checker.do", "emitter-context.do", "emitter-monomorphize.do", "emitter-types.do",
   "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do",
   "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do",
-  "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do",
+  "emitter-expr.do", "emitter-stmt.do", "emitter-json.do", "emitter-decl.do", "emitter-header.do",
   "emitter-names.do", "emitter-module.do", "compiler.do",
 ];
 

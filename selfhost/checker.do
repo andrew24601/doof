@@ -34,6 +34,7 @@ import {
   nullType, numericResult, primitive, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
+import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
 
 export class ModuleChecker {
   result: AnalysisResult
@@ -1326,19 +1327,22 @@ export class ModuleChecker {
         return unknownType()
       }
       class_: ClassType -> {
-        if property == "toJsonObject" {
-          return functionType([], jsonObjectType())
-        }
-        if property == "fromJsonValue" {
-          return functionType([
-            FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
-            FunctionParamType { name: "lenient", type_: primitive("bool"), hasDefault: true },
-          ], resultType(object, primitive("string")))
-        }
         declaration := declarationFor(result, class_.symbol)
         if declaration == null { return unknownType() }
         case declaration! {
           classDeclaration: ClassDeclaration -> {
+            if property == "toJsonObject" && canGenerateJsonSerialization(classDeclaration) {
+              return functionType([], jsonObjectType())
+            }
+            if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration) {
+              return functionType([
+                FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
+              ], resultType(object, primitive("string")))
+            }
+            if property == "toJsonObject" || property == "fromJsonValue" {
+              typeError("Type \"" + classDeclaration.name + "\" does not support automatic JSON " + (if property == "toJsonObject" then "serialization" else "deserialization"), span)
+              return unknownType()
+            }
             for field of classDeclaration.fields {
               for name of field.names {
                 if name == property {
@@ -2205,6 +2209,7 @@ function staticMemberOwner(objectType: ResolvedType, property: string, result: A
       if declaration != null {
         case declaration! {
           classDeclaration: ClassDeclaration -> {
+            if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration) { return classDeclaration }
             for method of classDeclaration.methods { if method.name == property && method.static_ { return classDeclaration } }
             for field of classDeclaration.fields {
               for name of field.names { if name == property && field.static_ { return classDeclaration } }
