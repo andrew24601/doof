@@ -57,6 +57,61 @@ export function testChecksReadonlyArrayLiteralAndReadonlyField(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksActorCreationSyncAsyncPromiseAndRetire(): void {
+  result := checked("class Worker { value: int\nfunction add(amount: int): int { this.value = this.value + amount\nreturn this.value } }\nfunction run(): int { worker: Actor<Worker> := Actor<Worker>(1)\nvalue := worker.add(2)\npromise: Promise<int> := async worker.add(3)\nasyncValue := try! promise.get()\nstate: Worker := retire worker\nreturn value + asyncValue + state.value }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsNonActorAsyncAndRetire(): void {
+  asyncResult := checked("function value(): int => 1\npromise := async value()")
+  Assert.equal(asyncResult.diagnostics.length > 0, true)
+  Assert.equal(asyncResult.diagnostics[0].message.contains("actor method calls"), true)
+  retireResult := checked("value := retire 1")
+  Assert.equal(retireResult.diagnostics.length > 0, true)
+  Assert.equal(retireResult.diagnostics[0].message.contains("Cannot retire non-actor"), true)
+}
+
+export function testRejectsSameBindingUseAfterRetireButAllowsShadowing(): void {
+  used := checked("class Worker { function value(): int => 1 }\nfunction run(): int { worker := Actor<Worker>()\nretire worker\nreturn worker.value() }")
+  Assert.equal(used.diagnostics.length > 0, true)
+  Assert.equal(used.diagnostics[0].message.contains("after it has been retired"), true)
+
+  shadowed := checked("class Worker { function value(): int => 1 }\nfunction run(): int { worker := Actor<Worker>()\nretire worker\nif true { worker := Actor<Worker>()\nvalue := worker.value()\nretire worker\nreturn value }\nreturn 0 }")
+  Assert.equal(shadowed.diagnostics.length, 0)
+}
+
+export function testValidatesActorBoundaryPayloads(): void {
+  mutableResult := checked("class Payload { value: int }\nclass Worker { function accept(payload: Payload): void {} }\nworker := Actor<Worker>()\npayload := Payload { value: 1 }\nworker.accept(payload)")
+  Assert.equal(mutableResult.diagnostics.length > 0, true)
+  Assert.equal(mutableResult.diagnostics[0].message.contains("field \"value\" is mutable"), true)
+
+  readonlyResult := checked("class Payload { readonly value: int }\nclass Worker { function accept(payload: Payload): int => payload.value }\nworker := Actor<Worker>()\npayload := Payload { value: 1 }\nvalue := worker.accept(payload)")
+  Assert.equal(readonlyResult.diagnostics.length, 0)
+}
+
+export function testValidatesNestedAndGenericActorBoundaryPayloads(): void {
+  nested := checked("class Worker { function accept(payload: Payload): void {} }\nclass Payload { readonly actor: Actor<Worker> }\nworker := Actor<Worker>()\npayload := Payload { actor: worker }\nworker.accept(payload)")
+  Assert.equal(nested.diagnostics.length > 0, true)
+  Assert.equal(nested.diagnostics[0].message.contains("Actor<T> references"), true)
+
+  generic := checked("class Worker { function echo<T>(value: T): T => value }\nworker := Actor<Worker>()\nother := Actor<Worker>()\nresult := worker.echo<Actor<Worker> >(other)")
+  Assert.equal(generic.diagnostics.length > 0, true)
+  Assert.equal(generic.diagnostics[0].message.contains("Actor<T> references"), true)
+}
+
+export function testChecksPromiseVoidGet(): void {
+  result := checked("function settle(promise: Promise<void>): Result<void, string> => promise.get()")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksActorAffineCallbackMembers(): void {
+  result := checked("function use(callback: (value: int): int): Promise<int> => callback.post(1)\nfunction notify(callback: (value: int): void): void { callback.dispatch(1) }")
+  Assert.equal(result.diagnostics.length, 0)
+  invalid := checked("function use(callback: (value: int): int): void { callback.dispatch(1) }")
+  Assert.equal(invalid.diagnostics.length > 0, true)
+  Assert.equal(invalid.diagnostics[0].message.contains("void-returning callbacks"), true)
+}
+
 export function testChecksExplicitGenericNamedCall(): void {
   result := checked("function create<T>(value: T, count: int = 1): T => value\nfunction main(): string => create<string>{ value: \"ok\" }")
   Assert.equal(result.diagnostics.length, 0)

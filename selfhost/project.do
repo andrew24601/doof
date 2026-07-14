@@ -6,7 +6,7 @@
 
 import { readText } from "std/fs"
 import { parseJsonValue } from "std/json"
-import { NativeBuildPlan, parsePackageManifest } from "./package-manifest"
+import { NativeBuildPlan, PackageResource, parsePackageManifest } from "./package-manifest"
 
 export import function projectManifestPath(path: string): string from "doof_runtime.hpp" as doof::project_manifest_path
 export import function isDirectory(path: string): bool from "doof_runtime.hpp" as doof::is_directory
@@ -26,6 +26,7 @@ export class ProjectSpec {
   entry: string
   buildDirectory: string
   hasManifest: bool
+  resources: PackageResource[] = []
   nativeBuild: NativeBuildPlan
 }
 
@@ -42,6 +43,7 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
       entry: fallbackEntry,
       buildDirectory: "build",
       hasManifest: false,
+      resources: [],
       nativeBuild: NativeBuildPlan {},
     }
   }
@@ -69,6 +71,7 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
     entry,
     buildDirectory,
     hasManifest: true,
+    resources: packageManifest.resources,
     nativeBuild: packageManifest.nativeBuild,
   }
 }

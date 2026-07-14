@@ -1,7 +1,7 @@
 // Call, native-constructor, and class-construction lowering.
 
 import { CallArgument, CallExpression, ConstructExpression, Expression, Identifier, MemberExpression, ObjectProperty, ThisExpression } from "./ast"
-import { ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, StreamResolvedType, Symbol } from "./semantic"
+import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, StreamResolvedType, Symbol } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
@@ -9,6 +9,7 @@ import { decoratedExpressionType, emittedSymbolName, emitExpectedExpression, exp
 import { emitContextType, emitType } from "./emitter-types"
 import { specializeEmitType } from "./emitter-types"
 import { classInstantiationKey, functionInstantiationKey, methodInstantiationKey } from "./emitter-monomorphize"
+import { emitSyncActorCall } from "./emitter-expr-actor"
 
 export function emitCall(expression: CallExpression, context: EmitContext, expected: ResolvedType | null = null): string {
   case expression.callee {
@@ -25,6 +26,17 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             value := emitExpression(expression.args[0].value, context, valueType)
             return "doof::" + identifier.name + "<" + emitType(valueType, context.modulePath) + ">{ " + value + " }"
           }
+          _ -> { }
+        }
+      }
+    }
+    _ -> { }
+  }
+  case expression.callee {
+    member: MemberExpression -> {
+      if member.object.resolvedType != null {
+        case member.object.resolvedType! {
+          actor: ActorType -> { return emitSyncActorCall(expression, member, actor, context) }
           _ -> { }
         }
       }
@@ -263,12 +275,6 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         _ -> { }
       }
       let argument = emitExpectedExpression(expression.args[i].value, context, expected)
-      if expression.callee.kind == "identifier" && i == 2 {
-        case expression.callee {
-          identifier: Identifier -> { if identifier.name == "makeLambda" { argument = "doof::with_block(" + argument + ")" } }
-          _ -> { }
-        }
-      }
       result = result + argument
     }
     if functionDeclaration != null {
@@ -392,8 +398,15 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
         }
       } else if field.defaultValue != null { value = emitExpression(field.defaultValue!, context, field.resolvedType) }
       else { value = "{}" }
-      if expression.type_ == "FunctionDeclaration" && name == "body" { value = "doof::with_block(" + value + ")" }
-      if expression.type_ == "LambdaExpression" && name == "body" && property != null { value = "doof::with_block(" + value + ")" }
+      if expression.type_ == "FunctionDeclaration" && name == "body" {
+        value = "doof::variant_promote<" + emitContextType(field.resolvedType!, context) + ">(" + value + ")"
+      }
+      if expression.type_ == "LambdaExpression" && name == "body" && property != null {
+        value = "doof::variant_promote<" + emitContextType(field.resolvedType!, context) + ">(" + value + ")"
+      }
+      if expression.type_ == "AsyncExpression" && name == "expression" && property != null {
+        value = "doof::variant_promote<" + emitContextType(field.resolvedType!, context) + ">(" + value + ")"
+      }
       // Shorthand fields have no expression node, so they cannot pass their
       // expected type through emitExpression's central promotion path.
       if property != null && property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = "doof::optional_value(" + value + ")" }

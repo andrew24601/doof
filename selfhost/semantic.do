@@ -91,6 +91,16 @@ export class FunctionParamType {
   hasDefault: bool
 }
 
+export class ActorType {
+  kind: string = "actor"
+  innerClass: ClassType
+}
+
+export class PromiseType {
+  kind: string = "promise"
+  valueType: ResolvedType
+}
+
 export class ArrayResolvedType {
   kind: string = "array"
   elementType: ResolvedType
@@ -129,11 +139,6 @@ export class TupleResolvedType {
 export class UnionResolvedType {
   kind: string = "union"
   types: ResolvedType[]
-  // Preserves the nominal identity of recursive semantic aliases such as
-  // ResolvedType after union flattening, so the emitter can use the checked
-  // alias representation without re-reading its source annotation.
-  aliasName: string = ""
-  aliasModule: string = ""
 }
 
 export class NullType {
@@ -157,7 +162,7 @@ export class TypeParameterType {
 }
 
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
-  ArrayResolvedType | MapResolvedType | StreamResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
+  ActorType | PromiseType | ArrayResolvedType | MapResolvedType | StreamResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
   NullType | VoidType | UnknownType | TypeParameterType
 
 export class TypeSubstitution {

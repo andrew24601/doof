@@ -1085,6 +1085,13 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("call_callback_unchecked");
     expect(header).toContain("class ApplicationDomain final");
     expect(header).toContain("wait_and_dispatch_one");
+    expect(header).toContain("inline bool starts_with");
+    expect(header).toContain("std::variant<T...> unwrap_optional");
+    expect(header).toContain("T pop(const std::shared_ptr<std::vector<T>>& value)");
+    expect(header).toContain("bool variant_is(const std::variant<Source...>& value)");
+    expect(header).toContain("Target variant_narrow(const std::variant<Source...>& value)");
+    expect(header).toContain("Target variant_promote(const std::variant<Source...>& value)");
+    expect(header).toContain("decltype(auto) resolved_type(const std::variant<T...>& value)");
   });
 
   it("generates std::variant stringification support", () => {

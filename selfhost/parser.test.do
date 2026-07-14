@@ -3,9 +3,10 @@ import { readText } from "std/fs"
 import { Parser, parse } from "./parser"
 import {
   IntLiteral, DoubleLiteral, BinaryExpression, CallExpression,
-  MemberExpression, FunctionDeclaration, ClassDeclaration, ArrayLiteral,
+  MemberExpression, FunctionDeclaration, ClassDeclaration, ArrayLiteral, Block,
   IfStatement, ExpressionStatement, ImmutableBinding,
-  StringLiteral, LambdaExpression,
+  StringLiteral, LambdaExpression, AsyncExpression, RetireExpression,
+  ActorCreationExpression, InterfaceDeclaration,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
@@ -109,6 +110,74 @@ export function testParsesExplicitGenericCalls(): void {
       }
       _ -> { panic("expected expression statement") }
     }
+  }
+}
+
+export function testParsesActorConcurrencyExpressions(): void {
+  program := parse("worker := Actor<Worker>(42)\npromise := async worker.run()\nstate := retire worker\n")
+  case program.statements[0] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        actor: ActorCreationExpression -> { Assert.equal(actor.className, "Worker"); Assert.equal(actor.args.length, 1) }
+        _ -> { panic("expected actor creation") }
+      }
+    }
+    _ -> { panic("expected actor binding") }
+  }
+  case program.statements[1] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        async_: AsyncExpression -> {
+          case async_.expression {
+            inner: Expression -> {
+              case inner {
+                call: CallExpression -> { Assert.equal(call.kind, "call-expression") }
+                _ -> { panic("expected async call") }
+              }
+            }
+            _ -> { panic("expected async call") }
+          }
+        }
+        _ -> { panic("expected async expression") }
+      }
+    }
+    _ -> { panic("expected promise binding") }
+  }
+  case program.statements[2] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        retire_: RetireExpression -> { Assert.equal(retire_.actor.kind, "identifier") }
+        _ -> { panic("expected retire expression") }
+      }
+    }
+    _ -> { panic("expected retired state binding") }
+  }
+}
+
+export function testParsesAsyncBlockForSemanticDiagnostic(): void {
+  case first("async { return 42 }") {
+    statement: ExpressionStatement -> {
+      case statement.expression {
+        async_: AsyncExpression -> {
+          case async_.expression {
+            block: Block -> { Assert.equal(block.kind, "block") }
+            _ -> { panic("expected async block") }
+          }
+        }
+        _ -> { panic("expected async expression") }
+      }
+    }
+    _ -> { panic("expected expression statement") }
+  }
+}
+
+export function testPreservesReadonlyInterfaceFields(): void {
+  case first("interface Payload { readonly value: int\nmutable: string }") {
+    interface_: InterfaceDeclaration -> {
+      Assert.equal(interface_.fields[0].readonly_, true)
+      Assert.equal(interface_.fields[1].readonly_, false)
+    }
+    _ -> { panic("expected interface declaration") }
   }
 }
 

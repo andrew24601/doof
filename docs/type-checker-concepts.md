@@ -198,6 +198,11 @@ member lookup. Assignability must test exact type equality before distributing
 over a union target; otherwise an identical union such as `Item | null` is
 incorrectly rejected as a member-wise assignment.
 
+`UnionResolvedType` is structural: nested unions are flattened to their
+resolved members, and source alias names/modules are not retained as semantic
+emission hints. The emitter must derive a C++ carrier from those members rather
+than switching on aliases from the self-host source graph.
+
 Branch checking must visit every `then`, `else-if`, and `else` block even when
 an earlier branch already establishes the normal-completion result. Completion
 analysis may combine branch results after checking them; it must not use
@@ -247,6 +252,10 @@ Primary modules:
 - `src/checker-actor-boundary.ts`
 - `src/checker-readonly.ts`
 - `src/checker-types.ts`
+- `selfhost/checker.do`
+- `selfhost/checker-actor-boundary.do`
+- `selfhost/checker-actor-lifecycle.do`
+- `selfhost/checker-types.do`
 
 Keep aligned:
 
@@ -262,6 +271,7 @@ Keep aligned:
 Validation anchors:
 
 - `src/checker-features.test.ts`
+- `selfhost/checker.test.do`
 - `spec/10-concurrency.md`
 
 ## Result Propagation and Binding Retyping

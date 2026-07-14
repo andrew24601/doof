@@ -4,7 +4,7 @@
 // single decorated-AST dispatch point and the public identifier helper used
 // by statement and declaration emission.
 
-import { ArrayLiteral, AssignmentExpression, BinaryExpression, BoolLiteral, CallExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
+import { ActorCreationExpression, ArrayLiteral, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
 import { ClassType, ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
@@ -14,6 +14,7 @@ import { emitCaseExpression, emitDotShorthand, emitIfExpression } from "./emitte
 import { emitLambdaExpression } from "./emitter-expr-lambda"
 import { decoratedExpressionType, needsNullableVariantPromotion } from "./emitter-expr-utils"
 import { emitClassInnerType } from "./emitter-types"
+import { emitActorCreation, emitAsyncActorCall, emitRetireActor } from "./emitter-expr-actor"
 
 export function emitExpression(expression: Expression, context: EmitContext, expected: ResolvedType | null = null): string {
   let value = ""
@@ -40,6 +41,9 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     if_: IfExpression -> { value = emitIfExpression(if_, context) }
     case_: CaseExpression -> { value = emitCaseExpression(case_, context, expected) }
     construct: ConstructExpression -> { value = emitConstruct(construct, context) }
+    async_: AsyncExpression -> { value = emitAsyncActorCall(async_, context) }
+    retire_: RetireExpression -> { value = emitRetireActor(retire_, context) }
+    actor: ActorCreationExpression -> { value = emitActorCreation(actor, context) }
     dot: DotShorthand -> { value = emitDotShorthand(dot, context) }
     this_: ThisExpression -> {
       let structThis = false

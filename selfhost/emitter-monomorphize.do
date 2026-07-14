@@ -5,17 +5,17 @@
 // so C++ emission never delegates Doof specialization to C++ templates.
 
 import {
-  ArrayLiteral, AssignmentExpression, BinaryExpression, Block, CallExpression, CaseExpression, CaseStatement,
+  ActorCreationExpression, ArrayLiteral, AssignmentExpression, AsyncExpression, BinaryExpression, Block, CallExpression, CaseExpression, CaseStatement,
   ClassDeclaration, ClassField, ConstDeclaration, ConstructExpression, DestructuringStatement, ExportDeclaration, Expression,
   ExpressionStatement, ForOfStatement, ForStatement, FunctionDeclaration, Identifier, IfExpression, IfStatement,
   ImmutableBinding, IndexExpression, InterfaceDeclaration, LambdaExpression, LetDeclaration, MemberExpression, ObjectLiteral, Program,
-  ReadonlyDeclaration, ReturnStatement, Statement, StringLiteral, TryStatement, TupleLiteral, UnaryExpression,
+  ReadonlyDeclaration, RetireExpression, ReturnStatement, Statement, StringLiteral, TryStatement, TupleLiteral, UnaryExpression,
   WhileStatement, WithStatement, YieldStatement,
 } from "./ast"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import { isAssignable, sameType, substituteTypeParams, typeName } from "./checker-types"
 import {
-  ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResolvedType, ResultResolvedType,
+  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, PromiseType, ResolvedType, ResultResolvedType,
   StreamResolvedType, TupleResolvedType, TypeParameterType, TypeSubstitution, UnionResolvedType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
@@ -287,6 +287,14 @@ function collectExpression(expression: Expression, modulePath: string, analysis:
     if_: IfExpression -> { collectExpression(if_.condition, modulePath, analysis, plan, names, arguments); collectExpression(if_.then_, modulePath, analysis, plan, names, arguments); collectExpression(if_.else_, modulePath, analysis, plan, names, arguments) }
     case_: CaseExpression -> { collectExpression(case_.subject, modulePath, analysis, plan, names, arguments); for arm of case_.arms { collectExpression(arm.body, modulePath, analysis, plan, names, arguments) } }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { collectExpression(property.value!, modulePath, analysis, plan, names, arguments) } } }
+    async_: AsyncExpression -> {
+      case async_.expression {
+        block: Block -> { collectBlock(block, modulePath, analysis, plan, names, arguments) }
+        inner: Expression -> { collectExpression(inner, modulePath, analysis, plan, names, arguments) }
+      }
+    }
+    retire_: RetireExpression -> { collectExpression(retire_.actor, modulePath, analysis, plan, names, arguments) }
+    actor: ActorCreationExpression -> { for argument of actor.args { collectExpression(argument, modulePath, analysis, plan, names, arguments) } }
     _ -> { }
   }
 }
@@ -312,6 +320,8 @@ function collectType(type_: ResolvedType, analysis: AnalysisResult, plan: Instan
     map: MapResolvedType -> { collectType(map.keyType, analysis, plan); collectType(map.valueType, analysis, plan) }
     stream: StreamResolvedType -> { collectType(stream.elementType, analysis, plan); addInterface(plan, "", "Stream", [stream.elementType]) }
     result: ResultResolvedType -> { collectType(result.valueType, analysis, plan); collectType(result.errorType, analysis, plan) }
+    actor: ActorType -> { collectType(actor.innerClass, analysis, plan) }
+    promise: PromiseType -> { collectType(promise.valueType, analysis, plan) }
     tuple: TupleResolvedType -> { for element of tuple.elements { collectType(element, analysis, plan) } }
     union_: UnionResolvedType -> { for member of union_.types { collectType(member, analysis, plan) } }
     function_: FunctionType -> {
@@ -369,6 +379,8 @@ function collectNativeTemplateClasses(type_: ResolvedType, plan: InstantiationPl
     map: MapResolvedType -> { collectNativeTemplateClasses(map.keyType, plan); collectNativeTemplateClasses(map.valueType, plan) }
     stream: StreamResolvedType -> { collectNativeTemplateClasses(stream.elementType, plan) }
     result_: ResultResolvedType -> { collectNativeTemplateClasses(result_.valueType, plan); collectNativeTemplateClasses(result_.errorType, plan) }
+    actor: ActorType -> { collectNativeTemplateClasses(actor.innerClass, plan) }
+    promise: PromiseType -> { collectNativeTemplateClasses(promise.valueType, plan) }
     tuple: TupleResolvedType -> { for element of tuple.elements { collectNativeTemplateClasses(element, plan) } }
     union_: UnionResolvedType -> { for member of union_.types { collectNativeTemplateClasses(member, plan) } }
     function_: FunctionType -> {
@@ -605,6 +617,8 @@ function containsTypeParameter(type_: ResolvedType): bool {
     map: MapResolvedType -> { return containsTypeParameter(map.keyType) || containsTypeParameter(map.valueType) }
     stream: StreamResolvedType -> { return containsTypeParameter(stream.elementType) }
     result: ResultResolvedType -> { return containsTypeParameter(result.valueType) || containsTypeParameter(result.errorType) }
+    actor: ActorType -> { return containsTypeParameter(actor.innerClass) }
+    promise: PromiseType -> { return containsTypeParameter(promise.valueType) }
     tuple: TupleResolvedType -> { return containsTypeParameters(tuple.elements) }
     union_: UnionResolvedType -> { return containsTypeParameters(union_.types) }
     function_: FunctionType -> {
@@ -630,6 +644,8 @@ function canonicalTypeKey(type_: ResolvedType): string {
     map: MapResolvedType -> { return (if map.readonly_ then "readonly-map:" else "map:") + canonicalTypeKey(map.keyType) + ":" + canonicalTypeKey(map.valueType) }
     stream: StreamResolvedType -> { return "stream:" + canonicalTypeKey(stream.elementType) }
     result: ResultResolvedType -> { return "result:" + canonicalTypeKey(result.valueType) + ":" + canonicalTypeKey(result.errorType) }
+    actor: ActorType -> { return "actor:" + canonicalTypeKey(actor.innerClass) }
+    promise: PromiseType -> { return "promise:" + canonicalTypeKey(promise.valueType) }
     tuple: TupleResolvedType -> { return "tuple:" + concreteTypeListKey(tuple.elements) }
     union_: UnionResolvedType -> { return "union:" + concreteTypeListKey(union_.types) }
     _ -> { return typeName(type_) }
@@ -645,6 +661,8 @@ function mangleType(type_: ResolvedType): string {
     map: MapResolvedType -> { return (if map.readonly_ then "readonly_map_" else "map_") + mangleType(map.keyType) + "_" + mangleType(map.valueType) }
     stream: StreamResolvedType -> { return "stream_" + mangleType(stream.elementType) }
     result: ResultResolvedType -> { return "result_" + mangleType(result.valueType) + "_" + mangleType(result.errorType) }
+    actor: ActorType -> { return "actor_" + mangleType(actor.innerClass) }
+    promise: PromiseType -> { return "promise_" + mangleType(promise.valueType) }
     tuple: TupleResolvedType -> { return "tuple_" + concreteTypeListMangle(tuple.elements) }
     union_: UnionResolvedType -> { return "union_" + concreteTypeListMangle(union_.types) }
     _ -> { return sanitize(typeName(type_)) }

@@ -2,6 +2,48 @@ import { Assert } from "std/assert"
 import { readText } from "std/fs"
 import { NativeBuildPlan, mergeNativeBuildPlans, parsePackageManifest } from "./package-manifest"
 
+export function testParsesAndNormalizesExecutableResources(): void {
+  manifest := try! parsePackageManifest(
+    "{\"name\":\"doof\",\"resources\":[{\"from\":\"doof_runtime.h\",\"to\":\".\"},\"assets\"]}",
+    "/compiler/doof.json",
+    "/compiler",
+    "macos",
+  )
+
+  Assert.equal(manifest.resources.length, 2)
+  Assert.equal(manifest.resources[0].sourcePath, "/compiler/doof_runtime.h")
+  Assert.equal(manifest.resources[0].destination, "")
+  Assert.equal(manifest.resources[1].sourcePath, "/compiler/assets")
+  Assert.equal(manifest.resources[1].destination, "assets")
+}
+
+export function testUsesBuildResourcesWhenRootResourcesAreAbsent(): void {
+  manifest := try! parsePackageManifest(
+    "{\"build\":{\"resources\":[\"assets\"]}}",
+    "/app/doof.json",
+    "/app",
+    "linux",
+  )
+
+  Assert.equal(manifest.resources.length, 1)
+  Assert.equal(manifest.resources[0].sourcePath, "/app/assets")
+  Assert.equal(manifest.resources[0].destination, "assets")
+}
+
+export function testRejectsExecutableResourceDestinationsOutsideResourceDirectory(): void {
+  result := parsePackageManifest(
+    "{\"resources\":[{\"from\":\"runtime.h\",\"to\":\"../runtime.h\"}]}",
+    "/bad/doof.json",
+    "/bad",
+    "linux",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "resources[0].to must stay within the executable resource directory")
+    return
+  }
+  panic("expected invalid resource destination failure")
+}
+
 export function testParsesAndNormalizesBaseNativeInputs(): void {
   manifest := try! parsePackageManifest(
     "{\"name\":\"std/time\",\"build\":{\"native\":{\"includePaths\":[\"include\"],\"sourceFiles\":[\"./doof_time.cpp\"],\"extraCopyPaths\":[\"doof_time.hpp\"],\"defines\":[\"DOOF_TIME=1\"]}}}",

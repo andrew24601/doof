@@ -5,7 +5,7 @@
 // emitter modules.
 
 import {
-  ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
+  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
   NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
@@ -60,6 +60,14 @@ function lowerRegisteredTypes(type_: ResolvedType, context: EmitContext): Resolv
     map: MapResolvedType -> { return MapResolvedType { keyType: lowerRegisteredTypes(map.keyType, context), valueType: lowerRegisteredTypes(map.valueType, context), readonly_: map.readonly_ } }
     stream: StreamResolvedType -> { return StreamResolvedType { elementType: lowerRegisteredTypes(stream.elementType, context) } }
     result_: ResultResolvedType -> { return ResultResolvedType { valueType: lowerRegisteredTypes(result_.valueType, context), errorType: lowerRegisteredTypes(result_.errorType, context) } }
+    actor: ActorType -> {
+      lowered := lowerRegisteredTypes(actor.innerClass, context)
+      case lowered {
+        class_: ClassType -> { return ActorType { innerClass: class_ } }
+        _ -> { return actor }
+      }
+    }
+    promise: PromiseType -> { return PromiseType { valueType: lowerRegisteredTypes(promise.valueType, context) } }
     tuple: TupleResolvedType -> {
       let elements: ResolvedType[] = []
       for element of tuple.elements { elements.push(lowerRegisteredTypes(element, context)) }
@@ -68,7 +76,7 @@ function lowerRegisteredTypes(type_: ResolvedType, context: EmitContext): Resolv
     union_: UnionResolvedType -> {
       let members: ResolvedType[] = []
       for member of union_.types { members.push(lowerRegisteredTypes(member, context)) }
-      return UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+      return UnionResolvedType { types: members }
     }
     function_: FunctionType -> {
       let parameters: FunctionParamType[] = []
@@ -118,6 +126,8 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     stream: StreamResolvedType -> { return concreteName("Stream", [stream.elementType]) }
     _: JsonValueResolvedType -> { return "doof::JsonValue" }
     result: ResultResolvedType -> { return "doof::Result<" + emitType(result.valueType, currentModulePath) + ", " + emitType(result.errorType, currentModulePath) + ">" }
+    actor: ActorType -> { return "std::shared_ptr<doof::Actor<" + emitClassInnerType(actor.innerClass, currentModulePath) + ">>" }
+    promise: PromiseType -> { return "doof::Promise<" + emitType(promise.valueType, currentModulePath) + ">" }
     tuple: TupleResolvedType -> { return emitTupleType(tuple, currentModulePath) }
     union_: UnionResolvedType -> { return emitUnionType(union_, currentModulePath) }
     _: NullType -> { return "std::monostate" }
@@ -145,15 +155,11 @@ function nativeCppName(symbol: Symbol): string {
   return "::" + (if symbol.nativeCppName == "" then symbol.name else symbol.nativeCppName)
 }
 
-function expressionAlternatives(ownerModule: string = "", currentModulePath: string = ""): string {
+function expressionAlternatives(ownerModule: string, currentModulePath: string): string {
   return "std::shared_ptr<" + ownedName("IntLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LongLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FloatLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DoubleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("StringLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CharLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BoolLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("NullLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Identifier", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BinaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("AssignmentExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("MemberExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IndexExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ObjectLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TupleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LambdaExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ConstructExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DotShorthand", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ThisExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallerExpression", ownerModule, currentModulePath) + ">"
 }
 
-function typeAnnotationAlternatives(ownerModule: string = "", currentModulePath: string = ""): string {
-  return "std::shared_ptr<" + ownedName("NamedType", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", ownerModule, currentModulePath) + ">"
-}
-
-function statementAlternatives(ownerModule: string = "", currentModulePath: string = ""): string {
+function statementAlternatives(ownerModule: string, currentModulePath: string): string {
   return "std::shared_ptr<" + ownedName("ConstDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReadonlyDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImmutableBinding", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LetDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FunctionDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ClassDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("InterfaceDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("EnumDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TypeAliasDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportList", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WhileStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForOfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WithStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReturnStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("YieldStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BreakStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ContinueStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExpressionStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DestructuringStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TryStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Block", ownerModule, currentModulePath) + ">"
 }
 
@@ -189,14 +195,6 @@ function emitTupleType(tuple: TupleResolvedType, currentModulePath: string = "")
 }
 
 function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""): string {
-  if union_.aliasModule == "/selfhost/semantic.do" && union_.aliasName == "ResolvedType" {
-    return semanticResolvedTypeVariant(currentModulePath, containsNull(union_))
-  }
-  if union_.aliasModule == "/selfhost/ast.do" && union_.aliasName == "Expression" { return astAliasVariant(expressionAlternatives("/selfhost/ast.do", currentModulePath), containsNull(union_)) }
-  if union_.aliasModule == "/selfhost/ast.do" && union_.aliasName == "Statement" { return astAliasVariant(statementAlternatives("/selfhost/ast.do", currentModulePath), containsNull(union_)) }
-  if union_.aliasModule == "/selfhost/ast.do" && union_.aliasName == "TypeAnnotation" { return astAliasVariant(typeAnnotationAlternatives("/selfhost/ast.do", currentModulePath), containsNull(union_)) }
-  if union_.aliasModule == "/selfhost/ast.do" && union_.aliasName == "CasePattern" { return "std::variant<std::shared_ptr<" + ownedName("TypePattern", "/selfhost/ast.do", currentModulePath) + ">, std::shared_ptr<" + ownedName("WildcardPattern", "/selfhost/ast.do", currentModulePath) + ">, std::shared_ptr<" + ownedName("ValuePattern", "/selfhost/ast.do", currentModulePath) + ">>" }
-  if union_.aliasModule == "/selfhost/ast.do" && union_.aliasName == "ImportSpecifier" { return "std::variant<std::shared_ptr<" + ownedName("NamedImport", "/selfhost/ast.do", currentModulePath) + ">, std::shared_ptr<" + ownedName("NamespaceImport", "/selfhost/ast.do", currentModulePath) + ">>" }
   if union_.types.length == 0 {
     panic("Cannot emit empty resolved union in " + currentModulePath)
   }
@@ -212,12 +210,7 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
   // nullable values use optional; larger unions retain an explicit variant.
   if hasNull && nonNull.length == 1 {
     case nonNull[0] {
-      class_: ClassType -> {
-        if class_.name == "Expression" { return "std::variant<std::monostate, " + expressionAlternatives(class_.symbol.module, currentModulePath) + ">" }
-        if class_.name == "Statement" { return "std::variant<std::monostate, " + statementAlternatives(class_.symbol.module, currentModulePath) + ">" }
-        if class_.name == "TypeAnnotation" { return "std::variant<std::monostate, std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", class_.symbol.module, currentModulePath) + ">>" }
-        return emitType(nonNull[0], currentModulePath)
-      }
+      _: ClassType -> { return emitType(nonNull[0], currentModulePath) }
       _: ArrayResolvedType -> { return emitType(nonNull[0], currentModulePath) }
       _: PrimitiveType -> { return "std::optional<" + emitType(nonNull[0], currentModulePath) + ">" }
       _ -> { }
@@ -228,7 +221,7 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
   let hasMember = false
   if hasNull { result = result + "std::monostate"; hasMember = true }
   for member of nonNull {
-    memberText := emitUnionMember(member, currentModulePath)
+    memberText := emitType(member, currentModulePath)
     if hasMember { result = result + ", " }
     result = result + memberText
     hasMember = true
@@ -239,20 +232,8 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
   return result + ">"
 }
 
-function containsNull(union_: UnionResolvedType): bool {
-  for member of union_.types {
-    if member.kind == "null" { return true }
-    case member {
-      nested: UnionResolvedType -> { if containsNull(nested) { return true } }
-      _ -> { }
-    }
-  }
-  return false
-}
-
-// Resolved aliases can retain union members as nested semantic unions.  C++
-// variants cannot use those nested carriers without changing visit and
-// construction semantics, so canonicalize to one leaf-member list here.
+// Keep lowering defensive against nested compound types even though the
+// checker normally flattens unions as it constructs them.
 function flattenUnionMembers(types: ResolvedType[]): ResolvedType[] {
   let result: ResolvedType[] = []
   for member of types {
@@ -266,56 +247,9 @@ function flattenUnionMembers(types: ResolvedType[]): ResolvedType[] {
   return result
 }
 
-function semanticResolvedTypeVariant(currentModulePath: string, nullable: bool): string {
-  let result = "std::variant<"
-  if nullable { result = result + "std::monostate, " }
-  result = result + semanticResolvedTypeAlternatives(currentModulePath)
-  return result + ">"
-}
-
-function astAliasVariant(alternatives: string, nullable: bool): string {
-  let result = "std::variant<"
-  if nullable { result = result + "std::monostate, " }
-  return result + alternatives + ">"
-}
-
-function semanticResolvedTypeAlternatives(currentModulePath: string): string {
-  owner := "/selfhost/semantic.do"
-  return "std::shared_ptr<" + ownedName("PrimitiveType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("ClassType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("EnumType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("InterfaceType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("FunctionType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("MapResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("StreamResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("JsonValueResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("ResultResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("TupleResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionResolvedType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("NullType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("VoidType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnknownType", owner, currentModulePath) + ">, std::shared_ptr<" + ownedName("TypeParameterType", owner, currentModulePath) + ">"
-}
-
-function emitUnionMember(member: ResolvedType, currentModulePath: string = ""): string {
-  case member {
-    class_: ClassType -> {
-      if class_.name == "Expression" { return expressionAlternatives(class_.symbol.module, currentModulePath) }
-      if class_.name == "Statement" { return statementAlternatives(class_.symbol.module, currentModulePath) }
-      if class_.name == "TypeAnnotation" { return "std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", class_.symbol.module, currentModulePath) + ">" }
-      return emitType(member, currentModulePath)
-    }
-    _ -> { return emitType(member, currentModulePath) }
-  }
-  return "void"
-}
-
 function ownedName(name: string, ownerModule: string, currentModulePath: string): string {
-  effective := effectiveOwner(name, ownerModule)
-  if effective == "" || effective == currentModulePath || currentModulePath == "" { return name }
-  return "::" + typeModuleNamespaceFor(effective) + "::" + name
-}
-
-function effectiveOwner(name: string, ownerModule: string): string {
-  if ownerModule != "" { return ownerModule }
-  for astName of ["AstLocation", "SourceSpan", "NamedType", "ArrayType", "UnionType", "AstFunctionType", "FunctionTypeParam", "IntLiteral", "LongLiteral", "FloatLiteral", "DoubleLiteral", "StringLiteral", "CharLiteral", "BoolLiteral", "NullLiteral", "Identifier", "BinaryExpression", "UnaryExpression", "AssignmentExpression", "MemberExpression", "IndexExpression", "CallArgument", "CallExpression", "ArrayLiteral", "ObjectProperty", "ObjectLiteral", "TupleLiteral", "LambdaExpression", "IfExpression", "CaseExpression", "CaseExpressionArm", "ConstructExpression", "DotShorthand", "ThisExpression", "CallerExpression", "Expression", "Parameter", "Block", "ConstDeclaration", "ReadonlyDeclaration", "ImmutableBinding", "LetDeclaration", "FunctionDeclaration", "ReturnStatement", "YieldStatement", "IfStatement", "CaseStatement", "TryStatement", "CaseArm", "TypePattern", "WildcardPattern", "ValuePattern", "IfBranch", "WhileStatement", "ForStatement", "ForOfStatement", "WithBinding", "WithStatement", "BreakStatement", "ContinueStatement", "ExpressionStatement", "DestructuringStatement", "ClassDeclaration", "ClassField", "InterfaceDeclaration", "InterfaceField", "EnumDeclaration", "EnumVariant", "TypeAliasDeclaration", "NamedImport", "NamespaceImport", "ImportDeclaration", "ExportDeclaration", "ExportSpecifier", "ExportList", "Statement", "TypeAnnotation"] {
-    if astName == name { return "/selfhost/ast.do" }
-  }
-  for semanticNameValue of ["SemanticLocation", "SemanticSpan", "Diagnostic", "Symbol", "ImportBinding", "NamespaceBinding", "SourceFile", "PrimitiveType", "ClassType", "EnumType", "InterfaceType", "FunctionType", "FunctionParamType", "ArrayResolvedType", "MapResolvedType", "StreamResolvedType", "JsonValueResolvedType", "ResultResolvedType", "TupleResolvedType", "UnionResolvedType", "NullType", "VoidType", "UnknownType", "Binding", "Scope", "CheckResult", "ResolvedType"] {
-    if semanticNameValue == name { return "/selfhost/semantic.do" }
-  }
-  return ""
-}
-
-function semanticName(name: string, currentModulePath: string): string {
-  return ownedName(name, "/selfhost/semantic.do", currentModulePath)
+  if ownerModule == "" || ownerModule == currentModulePath || currentModulePath == "" { return name }
+  return "::" + typeModuleNamespaceFor(ownerModule) + "::" + name
 }
 
 function typeModuleNamespaceFor(path: string): string {

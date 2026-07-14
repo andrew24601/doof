@@ -81,8 +81,8 @@ Strategy:
   value through `doof::optional_value(...)`; the checker must decorate the
   target expression so this decision is available at the emission boundary
 - broader unions use one flattened `std::variant` shape and explicit extraction
-  or coercion helpers; aggregate aliases such as `Expression` are spliced into
-  the outer alternative list rather than producing nested variants
+  or coercion helpers; the self-hosted emitter derives the carrier from the
+  flattened resolved members rather than matching particular alias names
 - self-hosted class-field lowering keeps the emitted carrier aligned with its
   initializer: when a nullable aggregate alias default emits
   `std::monostate{}`, a missing leading `std::monostate` alternative is restored
@@ -94,7 +94,8 @@ Strategy:
   and shorthand properties; explicit values flow through `emitExpression`,
   while shorthand properties use their checker-decorated property type because
   they have no expression node. `LambdaExpression.body` uses
-  `doof::with_block(...)` for both `body: value` and `body`
+  the type-directed `doof::variant_promote<Target>(...)` helper for both
+  `body: value` and `body`
 
 Primary modules:
 
@@ -202,12 +203,13 @@ Strategy:
   `doof::Promise<R>`
 - `async` is actor-call-only and lowers to `Actor<T>::call_async`
 - `retire actor` lowers to `Actor<T>::retire()` and returns the inner actor state
-- actor-related forms are lowered through the same lambda-focused emission surface rather than through a separate compiler phase
+- actor-related forms share the expression phase, with the self-hosted lowering isolated in `emitter-expr-actor.do`
 
 Primary modules:
 
 - `src/emitter-expr-lambda.ts`
 - `src/emitter-context.ts`
+- `selfhost/emitter-expr-actor.do`
 - `selfhost/emitter-expr-lambda.do`
 - `selfhost/emitter-context.do`
 
@@ -215,6 +217,8 @@ Validation anchors:
 
 - `src/emitter-constructs.test.ts`
 - `src/emitter-e2e-features.test.ts`
+- `selfhost/emitter.test.do`
+- `selfhost/compiler.test.do`
 - `spec/04-functions-and-lambdas.md`
 - `spec/10-concurrency.md`
 
@@ -453,9 +457,12 @@ Strategy:
 
 - each Doof module is emitted as a generated header/source pair
 - project emission also writes runtime and target-specific support files
-- self-hosted project emission copies the canonical runtime header used to
-  build the compiler rather than rendering a second implementation;
-  `DOOF_RUNTIME_HEADER` overrides its source path for relocated binaries
+- native `main` wrappers catch uncaught `doof::Panic` values at the process
+  boundary, report `panic: <message>` on stderr, and abort; this applies to
+  `void` and integer entry points both with and without process arguments
+- self-hosted project emission loads the packaged `doof_runtime.h` executable
+  resource and copies it as `doof_runtime.hpp` rather than rendering a second
+  implementation; `DOOF_RUNTIME_HEADER` remains a development override
 - self-hosted native package inputs are planned explicitly from reached
   manifests and copied beneath stable logical package roots, so equal native
   filenames from different packages do not collide

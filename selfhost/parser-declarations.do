@@ -281,6 +281,7 @@ export function parseInterface(parser: Parser, exported: bool): Statement {
   let methods: FunctionDeclaration[] = []
   while !parser.check(TokenType.RightBrace) && !parser.atEnd() {
     memberStart := parser.location()
+    readonly_ := parser.match(TokenType.Readonly)
     memberName := parser.text(parser.expect(TokenType.Identifier))
     if parser.check(TokenType.LeftParen) {
       parser.expect(TokenType.LeftParen)
@@ -299,7 +300,7 @@ export function parseInterface(parser: Parser, exported: bool): Statement {
       parser.expect(TokenType.Colon)
       typeValue := parser.parseTypeAnnotation()
       parser.consumeSemicolon()
-      fields.push(InterfaceField { kind: "interface-field", name: memberName, type_: typeValue, span: parser.span(memberStart) })
+      fields.push(InterfaceField { kind: "interface-field", name: memberName, type_: typeValue, readonly_, span: parser.span(memberStart) })
     }
   }
   parser.expect(TokenType.RightBrace)

@@ -8,7 +8,7 @@ import {
   ImmutableBinding, LetDeclaration, ReadonlyDeclaration,
 } from "./ast"
 import {
-  ArrayResolvedType, ClassType, FunctionType, InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
 import { EmitContext } from "./emitter-context"
@@ -160,6 +160,8 @@ function ensureKnown(resolvedType: ResolvedType, owner: string): void {
       for parameter of function_.params { ensureKnown(parameter.type_, owner + " callback parameter") }
       ensureKnown(function_.returnType, owner + " callback return")
     }
+    actor: ActorType -> { ensureKnown(actor.innerClass, owner + " actor state") }
+    promise: PromiseType -> { ensureKnown(promise.valueType, owner + " promise value") }
     _ -> { }
   }
 }

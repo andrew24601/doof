@@ -91,11 +91,14 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `parser-statements.do` — statement, control-flow, try, destructuring, and case-pattern parsing
 - `parser-types.do` — type annotation parsing
 - `parser-expressions.do` — precedence-climbing expression and literal parsing
+- `checker-actor-boundary.do` — actor-call boundary validation after generic substitution
+- `checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `emitter-context.do` — nominal declarations and current method-owner context
 - `emitter-names.do` — stable generated module namespaces and artifact names
 - `emitter-monomorphize.do` — whole-program concrete generic instantiation discovery and naming
 - `emitter-types.do` — C++ type lowering
 - `emitter-expr.do` — expression lowering
+- `emitter-expr-actor.do` — actor construction, calls, async calls, and retirement lowering
 - `emitter-expr-lambda.do` — lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `emitter-stmt.do` — statement and control-flow lowering
 - `json-semantics.do` — shared eligibility for compiler-generated JSON methods
@@ -107,8 +110,8 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `native-build.do` — native compiler invocation planning for materialized projects
 - `compiler.do` — self-hosted graph checking and emission orchestration
 - `module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings
-- `package-manifest.do` — normalized package identity and host-platform `build.native` manifest parsing
-- `driver.do` — runnable B4/B5/B6 compiler driver and native filesystem boundary
+- `package-manifest.do` — normalized package identity, executable resources, and host-platform `build.native` manifest parsing
+- `driver.do` — runnable B4/B5/B6 compiler driver, executable-resource uptake, and native filesystem boundary
 - `bootstrap.test.do` — maintained B2/B3 native syntax gates and B4/B5/B6 bootstrap acceptance tests
 
 **When a module grows too large:**

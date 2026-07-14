@@ -4,7 +4,7 @@
 
 import { Assert } from "std/assert"
 import { decodeUtf8 } from "std/blob"
-import { exists, mkdir, readText, writeText } from "std/fs"
+import { exists, mkdir, readText, remove, writeText } from "std/fs"
 import { ExecOptions, run } from "std/os"
 import { currentWorkingDirectory } from "std/path"
 import { Compilation, compileWithLoader } from "./compiler"
@@ -50,7 +50,9 @@ function writeSelfhostJsonSupport(): void {
 }
 
 function writeRuntime(): void {
-  try! writeText("/tmp/doof_runtime.hpp", try! readText("doof_runtime.h"))
+  runtime := try! readText("doof_runtime.h")
+  try! writeText("/tmp/doof_runtime.hpp", runtime)
+  try! writeText("/tmp/doof_runtime.h", runtime)
 }
 
 function writeBootstrapStdFsSupport(): void {
@@ -210,8 +212,9 @@ export function testRunsSelfhostCompilerDriver(): void {
   if !exists(nativeTimeProject + "/src") { try! mkdir(nativeTimeProject + "/src") }
   try! writeText(
     nativeTimeProject + "/doof.json",
-    "{\n  \"name\": \"native-time-demo\",\n  \"build\": {\n    \"entry\": \"src/main.do\",\n    \"native\": {\n      \"sourceFiles\": [\"native.cpp\"],\n      \"extraCopyPaths\": [\"native.hpp\"],\n      \"defines\": [\"ROOT_NATIVE_VALUE=11\"]\n    }\n  }\n}\n",
+    "{\n  \"name\": \"native-time-demo\",\n  \"resources\": [{ \"from\": \"compiler.txt\", \"to\": \".\" }],\n  \"build\": {\n    \"entry\": \"src/main.do\",\n    \"native\": {\n      \"sourceFiles\": [\"native.cpp\"],\n      \"extraCopyPaths\": [\"native.hpp\"],\n      \"defines\": [\"ROOT_NATIVE_VALUE=11\"]\n    }\n  }\n}\n",
   )
+  try! writeText(nativeTimeProject + "/compiler.txt", "build resource")
   try! writeText(
     nativeTimeProject + "/src/main.do",
     "import { Instant } from \"std/time\"\nimport function nativeRootValue(): int from \"native.hpp\"\nfunction main(): int {\n  if nativeRootValue() == 11 && Instant.now().toEpochNanos() > 0L { return 0 }\n  return 1\n}\n",
@@ -228,6 +231,7 @@ export function testRunsSelfhostCompilerDriver(): void {
   )
   if builtNativeTime.exitCode != 0 { println(firstStderrLines(decodeUtf8(builtNativeTime.stderr)!, 20)) }
   Assert.equal(builtNativeTime.exitCode, 0)
+  Assert.equal(try! readText(nativeTimeProject + "/build/compiler.txt"), "build resource")
   ranNativeTime := try! run(nativeTimeProject + "/build/native-time-demo")
   Assert.equal(ranNativeTime.exitCode, 0)
 
@@ -332,7 +336,8 @@ export function testRunsSelfhostCompilerDriver(): void {
   manifestEntry := manifestProject + "/src/main.do"
   if !exists(manifestProject) { try! mkdir(manifestProject) }
   if !exists(manifestProject + "/src") { try! mkdir(manifestProject + "/src") }
-  try! writeText(manifestProject + "/doof.json", "{\n  \"name\": \"manifest-demo\",\n  \"build\": { \"entry\": \"src/main.do\", \"buildDir\": \"generated\" }\n}\n")
+  try! writeText(manifestProject + "/doof.json", "{\n  \"name\": \"manifest-demo\",\n  \"resources\": [{ \"from\": \"compiler.txt\", \"to\": \".\" }],\n  \"build\": { \"entry\": \"src/main.do\", \"buildDir\": \"generated\" }\n}\n")
+  try! writeText(manifestProject + "/compiler.txt", "package resource")
   try! writeText(manifestEntry, "function main(): int => 7\n")
   manifestCheck := try! run(driverBinary, ["check", manifestProject])
   if manifestCheck.exitCode != 0 { println(decodeUtf8(manifestCheck.stdout)!) }
@@ -349,16 +354,42 @@ export function testRunsSelfhostCompilerDriver(): void {
   Assert.equal(packaged.exitCode, 0)
   Assert.equal(exists(manifestProject + "/generated/release/doof_runtime.hpp"), true)
   Assert.equal(exists(manifestProject + "/dist/manifest-demo"), true)
+  Assert.equal(try! readText(manifestProject + "/dist/compiler.txt"), "package resource")
   packagedProgram := try! run(manifestProject + "/dist/manifest-demo")
   Assert.equal(packagedProgram.exitCode, 7)
 
 }
 
+export function testSelfhostBuildAndPackageCopyExecutableResources(): void {
+  driverBinary := buildSeedDriver("/tmp/doof-selfhost-resource-driver")
+  projectRoot := "/tmp/doof-selfhost-resource-project"
+  if !exists(projectRoot) { try! mkdir(projectRoot) }
+  try! writeText(
+    projectRoot + "/doof.json",
+    "{\n  \"name\": \"resource-demo\",\n  \"resources\": [{ \"from\": \"compiler.txt\", \"to\": \".\" }],\n  \"build\": { \"entry\": \"main.do\" }\n}\n",
+  )
+  try! writeText(projectRoot + "/main.do", "function main(): int => 0\n")
+  try! writeText(projectRoot + "/compiler.txt", "compiler resource")
+
+  built := try! run(driverBinary, ["build", projectRoot, "--compiler", "clang++"])
+  if built.exitCode != 0 { println(firstStderrLines(decodeUtf8(built.stderr)!, 20)) }
+  Assert.equal(built.exitCode, 0)
+  Assert.equal(try! readText(projectRoot + "/build/compiler.txt"), "compiler resource")
+
+  packaged := try! run(driverBinary, ["package", projectRoot, "--compiler", "clang++"])
+  if packaged.exitCode != 0 { println(firstStderrLines(decodeUtf8(packaged.stderr)!, 20)) }
+  Assert.equal(packaged.exitCode, 0)
+  Assert.equal(exists(projectRoot + "/dist/resource-demo"), true)
+  Assert.equal(try! readText(projectRoot + "/dist/compiler.txt"), "compiler resource")
+}
+
 export function testTwoStageBootstrapsSelfhostCompiler(): void {
   seedCompiler := buildSeedDriver("/tmp/doof-selfhost-bootstrap-seed")
   firstCompiler := buildNextCompiler(seedCompiler, "/tmp/doof-selfhost-b5-autodiscovered")
+  try! remove("/tmp/doof-selfhost-b5-autodiscovered/doof_runtime.hpp")
   assertCompilerEmitsRunnableProgram(firstCompiler, "b5")
 
   secondCompiler := buildNextCompiler(firstCompiler, "/tmp/doof-selfhost-b6-autodiscovered")
+  try! remove("/tmp/doof-selfhost-b6-autodiscovered/doof_runtime.hpp")
   assertCompilerEmitsRunnableProgram(secondCompiler, "b6")
 }

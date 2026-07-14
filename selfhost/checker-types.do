@@ -1,9 +1,9 @@
 // Resolved-type utilities shared by the self-hosted checker.
 
 import {
-  ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
+  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
   InterfaceType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import type {
@@ -45,33 +45,27 @@ export function jsonObjectType(): ResolvedType { return mapType(primitive("strin
 
 export function resultType(value: ResolvedType, error: ResolvedType): ResolvedType { return ResultResolvedType { valueType: value, errorType: error } }
 
+export function actorType(innerClass: ClassType): ResolvedType { return ActorType { innerClass } }
+
+export function promiseType(valueType: ResolvedType): ResolvedType { return PromiseType { valueType } }
+
 export function tupleType(elements: ResolvedType[]): ResolvedType {
   return TupleResolvedType { elements }
 }
 
 export function unionType(types: ResolvedType[]): ResolvedType {
   let members: ResolvedType[] = []
-  let aliasName = ""
-  let aliasModule = ""
-  let hasAdditionalMember = false
   for memberType of types {
     case memberType {
       union: UnionResolvedType -> {
-        if !hasAdditionalMember && aliasName == "" {
-          aliasName = union.aliasName
-          aliasModule = union.aliasModule
-        }
         for member of union.types { members.push(member) }
       }
-      _ -> {
-        if memberType.kind != "null" { aliasName = ""; aliasModule = ""; hasAdditionalMember = true }
-        members.push(memberType)
-      }
+      _ -> { members.push(memberType) }
     }
   }
   if members.length == 0 { return unknownType() }
   if members.length == 1 { return members[0] }
-  return UnionResolvedType { types: members, aliasName, aliasModule }
+  return UnionResolvedType { types: members }
 }
 
 export function functionType(params: FunctionParamType[], returnType: ResolvedType, typeParams: string[] = []): ResolvedType {
@@ -85,6 +79,12 @@ export function applyDeepReadonly(type_: ResolvedType): ResolvedType {
     map: MapResolvedType -> { return mapType(applyDeepReadonly(map.keyType), applyDeepReadonly(map.valueType), true) }
     stream: StreamResolvedType -> { return streamType(applyDeepReadonly(stream.elementType)) }
     result: ResultResolvedType -> { return resultType(applyDeepReadonly(result.valueType), applyDeepReadonly(result.errorType)) }
+    actor: ActorType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of actor.innerClass.typeArgs { typeArgs.push(applyDeepReadonly(argument)) }
+      return actorType(classType(actor.innerClass.name, actor.innerClass.symbol, typeArgs))
+    }
+    promise: PromiseType -> { return promiseType(applyDeepReadonly(promise.valueType)) }
     tuple: TupleResolvedType -> {
       let elements: ResolvedType[] = []
       for element of tuple.elements { elements.push(applyDeepReadonly(element)) }
@@ -93,7 +93,7 @@ export function applyDeepReadonly(type_: ResolvedType): ResolvedType {
     union_: UnionResolvedType -> {
       let members: ResolvedType[] = []
       for member of union_.types { members.push(applyDeepReadonly(member)) }
-      result := UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+      result := UnionResolvedType { types: members }
       return result
     }
     class_: ClassType -> {
@@ -124,6 +124,12 @@ export function substituteTypeParams(type_: ResolvedType, names: string[], argum
     map: MapResolvedType -> { return mapType(substituteTypeParams(map.keyType, names, arguments), substituteTypeParams(map.valueType, names, arguments), map.readonly_) }
     stream: StreamResolvedType -> { return streamType(substituteTypeParams(stream.elementType, names, arguments)) }
     result: ResultResolvedType -> { return resultType(substituteTypeParams(result.valueType, names, arguments), substituteTypeParams(result.errorType, names, arguments)) }
+    actor: ActorType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of actor.innerClass.typeArgs { typeArgs.push(substituteTypeParams(argument, names, arguments)) }
+      return actorType(classType(actor.innerClass.name, actor.innerClass.symbol, typeArgs))
+    }
+    promise: PromiseType -> { return promiseType(substituteTypeParams(promise.valueType, names, arguments)) }
     tuple: TupleResolvedType -> {
       let elements: ResolvedType[] = []
       for element of tuple.elements { elements.push(substituteTypeParams(element, names, arguments)) }
@@ -132,7 +138,7 @@ export function substituteTypeParams(type_: ResolvedType, names: string[], argum
     union_: UnionResolvedType -> {
       let members: ResolvedType[] = []
       for member of union_.types { members.push(substituteTypeParams(member, names, arguments)) }
-      return UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+      return UnionResolvedType { types: members }
     }
     class_: ClassType -> {
       let typeArgs: ResolvedType[] = []
@@ -200,6 +206,8 @@ export function typeName(resolvedType: ResolvedType): string {
     stream: StreamResolvedType -> { return "Stream<" + typeName(stream.elementType) + ">" }
     _: JsonValueResolvedType -> { return "JsonValue" }
     result: ResultResolvedType -> { return "Result<" + typeName(result.valueType) + ", " + typeName(result.errorType) + ">" }
+    actor: ActorType -> { return "Actor<" + typeName(actor.innerClass) + ">" }
+    promise: PromiseType -> { return "Promise<" + typeName(promise.valueType) + ">" }
     tuple: TupleResolvedType -> {
       let result = "("
       for i of 0..<tuple.elements.length {
@@ -252,6 +260,18 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
     leftResult: ResultResolvedType -> {
       case right {
         rightResult: ResultResolvedType -> { return sameType(leftResult.valueType, rightResult.valueType) && sameType(leftResult.errorType, rightResult.errorType) }
+        _ -> { return false }
+      }
+    }
+    leftActor: ActorType -> {
+      case right {
+        rightActor: ActorType -> { return sameType(leftActor.innerClass, rightActor.innerClass) }
+        _ -> { return false }
+      }
+    }
+    leftPromise: PromiseType -> {
+      case right {
+        rightPromise: PromiseType -> { return sameType(leftPromise.valueType, rightPromise.valueType) }
         _ -> { return false }
       }
     }
@@ -364,6 +384,18 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
     valueStream: StreamResolvedType -> {
       case target {
         targetStream: StreamResolvedType -> { return isAssignable(valueStream.elementType, targetStream.elementType) }
+        _ -> { }
+      }
+    }
+    valueActor: ActorType -> {
+      case target {
+        targetActor: ActorType -> { return sameType(valueActor.innerClass, targetActor.innerClass) }
+        _ -> { }
+      }
+    }
+    valuePromise: PromiseType -> {
+      case target {
+        targetPromise: PromiseType -> { return isAssignable(valuePromise.valueType, targetPromise.valueType) }
         _ -> { }
       }
     }

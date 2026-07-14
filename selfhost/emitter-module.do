@@ -387,13 +387,13 @@ function emitNativeClassMethodsForStatement(statement: Statement, context: EmitC
   return ""
 }
 
+// Translate an uncaught Doof panic into a stable process-boundary diagnostic.
 function emitMainWrapper(moduleName: string, plan: HeaderPlan): string {
-  if plan.mainAcceptsArgs {
-    if plan.mainReturnsInt {
-      return "\nint main(int argc, char** argv) { std::vector<std::string> args; for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]); return " + moduleName + "::doof_main(std::make_shared<std::vector<std::string>>(std::move(args))); }\n"
-    }
-    return "\nint main(int argc, char** argv) { std::vector<std::string> args; for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]); " + moduleName + "::doof_main(std::make_shared<std::vector<std::string>>(std::move(args))); return 0; }\n"
-  }
-  if plan.mainReturnsInt { return "\nint main() { return " + moduleName + "::doof_main(); }\n" }
-  return "\nint main() { " + moduleName + "::doof_main(); return 0; }\n"
+  signature := if plan.mainAcceptsArgs then "int main(int argc, char** argv)" else "int main()"
+  argumentSetup := if plan.mainAcceptsArgs then "std::vector<std::string> args; for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]); " else ""
+  call := if plan.mainAcceptsArgs then moduleName + "::doof_main(std::make_shared<std::vector<std::string>>(std::move(args)))" else moduleName + "::doof_main()"
+  success := if plan.mainReturnsInt then "return " + call + ";" else call + "; return 0;"
+  panicHandler := "catch (const doof::Panic& _panic) { std::cerr << \"panic: \" << _panic.what() << std::endl; std::abort(); }"
+  actorSetup := "auto& __doof_application_domain = doof::detail::ApplicationDomain::shared(); doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain); "
+  return "\n" + signature + " { try { " + actorSetup + argumentSetup + success + " } " + panicHandler + " }\n"
 }

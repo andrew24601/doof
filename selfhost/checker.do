@@ -5,9 +5,9 @@
 // functions, classes, operators, calls, and conservative return analysis.
 
 import {
-  ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
+  ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -26,15 +26,18 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
+  AsyncExpression, RetireExpression, ActorCreationExpression,
 } from "./ast"
 import type { Parameter } from "./ast"
 import {
-  applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
+  actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
-  nullType, numericResult, primitive, sameType, tupleType, typeName, unionType,
+  nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
+import { findActorBoundaryViolation } from "./checker-actor-boundary"
+import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-actor-lifecycle"
 
 export class ModuleChecker {
   result: AnalysisResult
@@ -49,7 +52,12 @@ export class ModuleChecker {
     discoverInterfaceImplementations(result)
     moduleScope = Scope { parent: null }
     predeclareModuleBindings(info!, moduleScope!, result)
-    for statement of info!.program.statements { checkStatement(statement, moduleScope!) }
+    let retiredActors: Binding[] = []
+    for statement of info!.program.statements {
+      checkStatement(statement, moduleScope!)
+      reportRetiredActorUses(statement, retiredActors, info!.path, diagnostics)
+      collectRetiredActorBindings(statement, retiredActors)
+    }
     validateInterfaces(info!)
     return CheckResult { diagnostics }
   }
@@ -68,10 +76,6 @@ export class ModuleChecker {
         aliasScope := Scope { parent: scope }
         for typeParam of alias.typeParams { aliasScope.typeParams.push(typeParam) }
         resolvedAlias := resolveType(alias.type_, info!, aliasScope)
-        case resolvedAlias {
-          union_: UnionResolvedType -> { union_.aliasName = alias.name; union_.aliasModule = info!.path }
-          _ -> { }
-        }
         alias.resolvedType = optionalResolvedType(resolvedAlias)
         return true
       }
@@ -408,6 +412,7 @@ export class ModuleChecker {
   private function checkBlock(block: Block, parent: Scope): bool {
     scope := Scope { parent }
     let completes = true
+    let retiredActors: Binding[] = []
     for statement of block.statements {
       if completes {
         completes = checkStatement(statement, scope)
@@ -418,6 +423,8 @@ export class ModuleChecker {
         // knows the block cannot complete normally.
         let ignored = checkStatement(statement, scope)
       }
+      reportRetiredActorUses(statement, retiredActors, info!.path, diagnostics)
+      collectRetiredActorBindings(statement, retiredActors)
     }
     return completes
   }
@@ -604,6 +611,60 @@ export class ModuleChecker {
       }
       case_: CaseExpression -> { return finish(expression, checkCaseExpression(case_, scope, expected)) }
       construct: ConstructExpression -> { return checkConstruct(construct, scope, expected) }
+      async_: AsyncExpression -> {
+        case async_.expression {
+          block: Block -> {
+            checkBlock(block, scope)
+            typeError("`async` is only valid for actor method calls; use a temporary actor for background work", async_.span)
+            return finish(expression, promiseType(unknownType()))
+          }
+          inner: Expression -> {
+            innerType := checkExpression(inner, scope, null)
+            let actorCall = false
+            case inner {
+              call: CallExpression -> {
+                case call.callee {
+                  member: MemberExpression -> {
+                    if member.object.resolvedType != null {
+                      case member.object.resolvedType! {
+                        _: ActorType -> { actorCall = true }
+                        _ -> { }
+                      }
+                    }
+                  }
+                  _ -> { }
+                }
+              }
+              _ -> { }
+            }
+            if !actorCall { typeError("`async` is only valid for actor method calls; use a temporary actor for background work", async_.span) }
+            return finish(expression, promiseType(innerType))
+          }
+        }
+      }
+      retire_: RetireExpression -> {
+        retiredType := checkExpression(retire_.actor, scope, null)
+        case retiredType {
+          actor: ActorType -> { return finish(expression, actor.innerClass) }
+          _ -> { typeError("Cannot retire non-actor type \"" + typeName(retiredType) + "\"", retire_.span); return finish(expression, unknownType()) }
+        }
+      }
+      actorCreation: ActorCreationExpression -> {
+        symbol := symbolFor(info!, actorCreation.className)
+        if symbol == null || symbol!.kind != "class" {
+          for argument of actorCreation.args { checkExpression(argument, scope, null) }
+          typeError("Actor requires a class type; \"" + actorCreation.className + "\" is not a class", actorCreation.span)
+          return finish(expression, unknownType())
+        }
+        inner := classType(actorCreation.className, symbol!)
+        constructorMethod := constructorForClass(inner, result)
+        for i of 0..<actorCreation.args.length {
+          let expectedArgument: ResolvedType | null = null
+          if constructorMethod != null && i < constructorMethod!.params.length { expectedArgument = constructorMethod!.params[i].resolvedType }
+          checkExpression(actorCreation.args[i], scope, expectedArgument)
+        }
+        return finish(expression, actorType(inner))
+      }
       _: ThisExpression -> { return finish(expression, currentThisType(scope)) }
       _ -> { return finish(expression, unknownType()) }
     }
@@ -966,6 +1027,7 @@ export class ModuleChecker {
             if !isAssignable(actual, expected) { typeError("Argument " + string(i + 1) + " has type " + typeName(actual) + "; expected " + typeName(expected), expression.args[i].span) }
           }
         }
+        validateActorMethodBoundary(expression, effectiveFunction)
         return finish(expression, effectiveFunction.returnType)
       }
       class_: ClassType -> {
@@ -985,6 +1047,40 @@ export class ModuleChecker {
       _ -> { typeError("Expression of type " + typeName(calleeType) + " is not callable", expression.span); return finish(expression, unknownType()) }
     }
     return finish(expression, unknownType())
+  }
+
+  // Actor calls validate the effective method signature after generic
+  // substitution; ordinary calls on the same class remain local calls.
+  private function validateActorMethodBoundary(expression: CallExpression, method: FunctionType): void {
+    let actor: ActorType | null = null
+    case expression.callee {
+      member: MemberExpression -> {
+        if member.object.resolvedType != null {
+          case member.object.resolvedType! {
+            actorType_: ActorType -> { actor = actorType_ }
+            _ -> { }
+          }
+        }
+      }
+      _ -> { }
+    }
+    if actor == null { return }
+    for parameter of method.params {
+      violation := findActorBoundaryViolation(result, parameter.type_)
+      if violation != null {
+        typeError(
+          "Actor method parameter \"" + parameter.name + "\" of type \"" + typeName(parameter.type_) + "\" cannot cross actor boundary for \"" + typeName(actor!) + "\": " + violation!.reason,
+          expression.span,
+        )
+      }
+    }
+    returnViolation := findActorBoundaryViolation(result, method.returnType)
+    if returnViolation != null {
+      typeError(
+        "Actor method return type \"" + typeName(method.returnType) + "\" cannot cross actor boundary for \"" + typeName(actor!) + "\": " + returnViolation!.reason,
+        expression.span,
+      )
+    }
   }
 
   private function checkArray(expression: ArrayLiteral, scope: Scope, expected: ResolvedType | null): ResolvedType {
@@ -1188,6 +1284,18 @@ export class ModuleChecker {
           if named.typeArgs.length != 1 { typeError("Stream requires one type argument", named.span); return decorateType(annotation, unknownType()) }
           return decorateType(annotation, streamType(resolveType(named.typeArgs[0], module, scope)))
         }
+        if named.name == "Actor" {
+          if named.typeArgs.length != 1 { typeError("Actor requires one type argument", named.span); return decorateType(annotation, unknownType()) }
+          inner := resolveType(named.typeArgs[0], module, scope)
+          case inner {
+            class_: ClassType -> { return decorateType(annotation, actorType(class_)) }
+            _ -> { typeError("Actor requires a class type", named.span); return decorateType(annotation, unknownType()) }
+          }
+        }
+        if named.name == "Promise" {
+          if named.typeArgs.length != 1 { typeError("Promise requires one type argument", named.span); return decorateType(annotation, unknownType()) }
+          return decorateType(annotation, promiseType(resolveType(named.typeArgs[0], module, scope)))
+        }
         if named.name == "Result" {
           if named.typeArgs.length != 2 { typeError("Result requires two type arguments", named.span); return decorateType(annotation, unknownType()) }
           return decorateType(annotation, resultType(resolveType(named.typeArgs[0], module, scope), resolveType(named.typeArgs[1], module, scope)))
@@ -1213,10 +1321,6 @@ export class ModuleChecker {
               let typeArgs: ResolvedType[] = []
               for argument of named.typeArgs { typeArgs.push(resolveType(argument, module, scope)) }
               resolvedAlias = substituteTypeParams(resolvedAlias, alias.typeParams, typeArgs)
-              case resolvedAlias {
-                union_: UnionResolvedType -> { union_.aliasName = alias.name; union_.aliasModule = symbol!.module }
-                _ -> { }
-              }
               return decorateType(annotation, resolvedAlias)
             }
             _ -> { return decorateType(annotation, unknownType()) }
@@ -1273,6 +1377,11 @@ export class ModuleChecker {
     case object {
       function_: FunctionType -> {
         if property == "call" { return function_ }
+        if property == "post" { return functionType(function_.params, promiseType(function_.returnType)) }
+        if property == "dispatch" {
+          if function_.returnType.kind != "void" { typeError("Method \"dispatch\" is only available on void-returning callbacks", span); return unknownType() }
+          return functionType(function_.params, voidType())
+        }
         return unknownType()
       }
       union: UnionResolvedType -> {
@@ -1310,6 +1419,11 @@ export class ModuleChecker {
       stream: StreamResolvedType -> {
         if property == "next" { return functionType([], primitive("bool")) }
         if property == "value" { return functionType([], stream.elementType) }
+        return unknownType()
+      }
+      actor: ActorType -> { return memberType(actor.innerClass, property, span) }
+      promise: PromiseType -> {
+        if property == "get" { return functionType([], resultType(promise.valueType, primitive("string"))) }
         return unknownType()
       }
       enum_: EnumType -> {
@@ -1654,6 +1768,14 @@ function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, result:
         return mapType(key, value, named.name == "ReadonlyMap")
       }
       if named.name == "Stream" && named.typeArgs.length >= 1 { return streamType(resolveAnnotation(named.typeArgs[0], info, result, typeParams)) }
+      if named.name == "Actor" && named.typeArgs.length == 1 {
+        inner := resolveAnnotation(named.typeArgs[0], info, result, typeParams)
+        case inner {
+          class_: ClassType -> { return actorType(class_) }
+          _ -> { return unknownType() }
+        }
+      }
+      if named.name == "Promise" && named.typeArgs.length == 1 { return promiseType(resolveAnnotation(named.typeArgs[0], info, result, typeParams)) }
       if named.name == "Result" && named.typeArgs.length >= 2 {
         let value: ResolvedType | null = null
         let error: ResolvedType | null = null
@@ -2396,6 +2518,14 @@ function validateExpression(expression: Expression, module: string, diagnostics:
         if property.value != null { validateExpression(property.value!, module, diagnostics) }
       }
     }
+    async_: AsyncExpression -> {
+      case async_.expression {
+        block: Block -> { validateBlock(block, module, diagnostics) }
+        inner: Expression -> { validateExpression(inner, module, diagnostics) }
+      }
+    }
+    retire_: RetireExpression -> { validateExpression(retire_.actor, module, diagnostics) }
+    actor: ActorCreationExpression -> { for argument of actor.args { validateExpression(argument, module, diagnostics) } }
     identifier: Identifier -> {
       if identifier.resolvedBinding == null { addValidationError(module, identifier.span, "Identifier '" + identifier.name + "' has no resolved binding", diagnostics) }
       else { validateResolved(identifier.resolvedBinding!.type_, identifier.span, module, "binding " + identifier.name, diagnostics) }
@@ -2435,6 +2565,8 @@ function validateResolved(resolvedType: ResolvedType | null, span: SourceSpan, m
     map: MapResolvedType -> { validateResolved(map.keyType, span, module, owner + " key", diagnostics); validateResolved(map.valueType, span, module, owner + " value", diagnostics) }
     stream: StreamResolvedType -> { validateResolved(stream.elementType, span, module, owner + " element", diagnostics) }
     result: ResultResolvedType -> { validateResolved(result.valueType, span, module, owner + " success", diagnostics); validateResolved(result.errorType, span, module, owner + " error", diagnostics) }
+    actor: ActorType -> { validateResolved(optionalResolvedType(actor.innerClass), span, module, owner + " actor state", diagnostics) }
+    promise: PromiseType -> { validateResolved(promise.valueType, span, module, owner + " promise value", diagnostics) }
     tuple: TupleResolvedType -> { for item of tuple.elements { validateResolved(item, span, module, owner + " tuple element", diagnostics) } }
     union_: UnionResolvedType -> {
       if union_.types.length == 0 { addValidationError(module, span, "Empty resolved union for " + owner, diagnostics) }

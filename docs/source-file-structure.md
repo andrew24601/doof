@@ -40,15 +40,17 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
 - `selfhost/json-semantics.do` — shared checker/emitter eligibility for automatic JSON methods
 - `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
+- `selfhost/checker-actor-boundary.do` — post-substitution actor-call boundary validation for deeply immutable payloads and actor-affine callbacks
+- `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 - `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
 - `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `emit`, `check`, project-directory entrypoints, and explicit `--module` mappings)
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
-- `selfhost/package-manifest.do` — normalized package identity and host-platform `build.native` manifest parsing
+- `selfhost/package-manifest.do` — normalized package identity, root executable resources, and host-platform `build.native` manifest parsing
 - `selfhost/emitter-project.do` — package-relative generated support files, native-copy paths, and output native-build planning
 - `selfhost/native-build.do` — output-relative native path resolution and GCC-compatible compile/link argument planning
-- `selfhost/driver.do` — native filesystem/JSON runtime boundary and generic project materialization for the self-hosted CLI
+- `selfhost/driver.do` — native filesystem/JSON runtime boundary, executable-resource uptake, and generic project materialization for the self-hosted CLI
 - `selfhost/compiler.test.do` — self-hosted compiler pipeline tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
 - `selfhost/package-manifest.test.do` — native manifest parsing, platform merge, validation, and real-stdlib tests
@@ -71,6 +73,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-expr-ops.do` — self-hosted assignment, operator, member, and index lowering
 - `selfhost/emitter-expr-calls.do` — self-hosted call, constructor, and class construction lowering
 - `selfhost/emitter-expr-control.do` — self-hosted conditional, case, and dot-shorthand lowering
+- `selfhost/emitter-expr-actor.do` — self-hosted actor construction, sync/async call, and retirement lowering
 - `selfhost/emitter-expr-lambda.do` — self-hosted lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
 - `selfhost/emitter-json.do` — self-hosted automatic JSON method declarations and definitions

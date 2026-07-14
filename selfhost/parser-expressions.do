@@ -10,6 +10,7 @@ import {
   StringLiteral, CharLiteral, BoolLiteral, NullLiteral,
   ThisExpression, CallerExpression, IfExpression, LambdaExpression,
   TupleLiteral, ObjectLiteral, ConstructExpression, DotShorthand,
+  AsyncExpression, RetireExpression, ActorCreationExpression,
 } from "./ast"
 import type { Expression, TypeAnnotation } from "./ast"
 
@@ -122,7 +123,29 @@ export function parseUnary(parser: Parser): Expression {
     operand := parseUnary(parser)
     return UnaryExpression { kind: "unary-expression", operator, operand, prefix: true, span: SourceSpan { start, end: operand.span.end } }
   }
+  if parser.check(TokenType.Async) {
+    start := parser.location()
+    parser.advance()
+    if parser.check(TokenType.LeftBrace) {
+      block := parser.parseBlock()
+      return AsyncExpression { kind: "async-expression", expression: block, span: SourceSpan { start, end: block.span.end } }
+    }
+    expression := parsePostfix(parser)
+    return makeAsyncExpression(expression, start)
+  }
+  if parser.check(TokenType.Retire) {
+    start := parser.location()
+    parser.advance()
+    actor := parseUnary(parser)
+    return RetireExpression { kind: "retire-expression", actor, span: SourceSpan { start, end: actor.span.end } }
+  }
   return parsePostfix(parser)
+}
+
+// Keep the Expression alias conversion at a typed function boundary so the
+// generated C++ promotes its flattened variant into Expression | Block.
+function makeAsyncExpression(expression: Expression, start: AstLocation): AsyncExpression {
+  return AsyncExpression { kind: "async-expression", expression: expression, span: SourceSpan { start, end: expression.span.end } }
 }
 
 function parseIfExpression(parser: Parser): Expression {
@@ -249,6 +272,19 @@ function parsePrimary(parser: Parser): Expression {
   }
   if parser.check(TokenType.Identifier) {
     name := parser.text(parser.advance())
+    if name == "Actor" && parser.check(TokenType.Less) {
+      parser.advance()
+      className := parser.text(parser.expect(TokenType.Identifier, "Expected actor class name"))
+      parser.expect(TokenType.Greater)
+      parser.expect(TokenType.LeftParen)
+      let args: Expression[] = []
+      while !parser.check(TokenType.RightParen) && !parser.atEnd() {
+        args.push(parser.parseExpression())
+        if !parser.match(TokenType.Comma) { break }
+      }
+      parser.expect(TokenType.RightParen)
+      return ActorCreationExpression { kind: "actor-creation-expression", className, args, span: parser.span(start) }
+    }
     if parser.check(TokenType.Dot) {
       parser.advance()
       property := parser.text(parser.expect(TokenType.Identifier, "Expected member name"))

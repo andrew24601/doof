@@ -6,11 +6,11 @@
 // values and those boxes into the actor-affine doof::callback wrapper.
 
 import {
-  ArrayLiteral, AssignmentExpression, BinaryExpression, Block, CallExpression,
+  ActorCreationExpression, ArrayLiteral, AssignmentExpression, AsyncExpression, BinaryExpression, Block, CallExpression,
   CaseExpression, CaseStatement, ConstDeclaration, ConstructExpression, Expression,
   ExpressionStatement, ForOfStatement, ForStatement, Identifier, IfExpression,
   IfStatement, ImmutableBinding, IndexExpression, LambdaExpression,
-  LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration, ReturnStatement,
+  LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration, RetireExpression, ReturnStatement,
   Statement, StringLiteral, TryStatement, TupleLiteral, UnaryExpression,
   WhileStatement, WithStatement,
 } from "./ast"
@@ -208,6 +208,14 @@ function scanExpressionForLambdas(expression: Expression, result: string[]): voi
     case_: CaseExpression -> { scanExpressionForLambdas(case_.subject, result)
       for arm of case_.arms { scanExpressionForLambdas(arm.body, result) } }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { scanExpressionForLambdas(property.value!, result) } } }
+    async_: AsyncExpression -> {
+      case async_.expression {
+        block: Block -> { scanBlockForLambdas(block, result) }
+        inner: Expression -> { scanExpressionForLambdas(inner, result) }
+      }
+    }
+    retire_: RetireExpression -> { scanExpressionForLambdas(retire_.actor, result) }
+    actor: ActorCreationExpression -> { for argument of actor.args { scanExpressionForLambdas(argument, result) } }
     _ -> { }
   }
 }
@@ -303,6 +311,14 @@ function collectExpressionCaptures(expression: Expression, bodyStart: int, bodyE
     case_: CaseExpression -> { collectExpressionCaptures(case_.subject, bodyStart, bodyEnd, result, mutableOnly)
       for arm of case_.arms { collectExpressionCaptures(arm.body, bodyStart, bodyEnd, result, mutableOnly) } }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { collectExpressionCaptures(property.value!, bodyStart, bodyEnd, result, mutableOnly) } } }
+    async_: AsyncExpression -> {
+      case async_.expression {
+        block: Block -> { collectBlockCaptures(block, bodyStart, bodyEnd, result, mutableOnly) }
+        inner: Expression -> { collectExpressionCaptures(inner, bodyStart, bodyEnd, result, mutableOnly) }
+      }
+    }
+    retire_: RetireExpression -> { collectExpressionCaptures(retire_.actor, bodyStart, bodyEnd, result, mutableOnly) }
+    actor: ActorCreationExpression -> { for argument of actor.args { collectExpressionCaptures(argument, bodyStart, bodyEnd, result, mutableOnly) } }
     _ -> { }
   }
 }

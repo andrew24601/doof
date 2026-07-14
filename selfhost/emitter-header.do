@@ -35,7 +35,6 @@ export class HeaderPlan {
   nativeIncludes: string[] = []
   nativeAliases: string[] = []
   nativeNamespaces: string[] = []
-  hasAstHelpers: bool = false
   hasMain: bool = false
   mainReturnsInt: bool = false
   mainAcceptsArgs: bool = false
@@ -109,7 +108,6 @@ function isNativeAliasType(symbol: Symbol): bool {
 function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): void {
   case statement {
     class_: ClassDeclaration -> {
-      if class_.name == "Block" || class_.name == "IntLiteral" { plan.hasAstHelpers = true }
       if class_.native_ {
         include := if class_.nativeHeader == "" then class_.name + ".hpp" else class_.nativeHeader
         addUnique(plan.nativeIncludes, include)
@@ -228,46 +226,9 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
     else { result = result + "#include \"" + include + "\"\n" }
   }
   result = result + "\n"
-  result = result + "#ifndef DOOF_SELFHOST_COMMON_HELPERS\n#define DOOF_SELFHOST_COMMON_HELPERS\n"
-  result = result + "namespace doof {\n"
-  result = result + "inline bool ends_with(const std::string& value, const std::string& suffix) { return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0; }\n"
-  result = result + "inline bool starts_with(const std::string& value, const std::string& prefix) { return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0; }\n"
-  result = result + "inline std::string substring(const std::string& value, int32_t start, int32_t end) { return value.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)); }\n"
-  result = result + "inline std::string substring(const std::string& value, int32_t start) { return value.substr(static_cast<size_t>(start)); }\n"
-  result = result + "inline std::string replace_all(std::string value, const std::string& oldValue, const std::string& newValue) { size_t position = 0; while ((position = value.find(oldValue, position)) != std::string::npos) { value.replace(position, oldValue.size(), newValue); position += newValue.size(); } return value; }\n"
-  result = result + "inline bool contains(const std::string& value, const std::string& part) { return value.find(part) != std::string::npos; }\n"
-  result = result + "inline int32_t length(const std::string& value) { return static_cast<int32_t>(value.size()); }\n"
-  result = result + "inline std::string trim(const std::string& value) { const auto start = value.find_first_not_of(\" \\t\\r\\n\"); if (start == std::string::npos) return std::string(); const auto end = value.find_last_not_of(\" \\t\\r\\n\"); return value.substr(start, end - start + 1); }\n"
-  result = result + "inline std::string repeat(const std::string& value, int32_t count) { std::string result; for (int32_t i = 0; i < count; ++i) result += value; return result; }\n"
-  result = result + "template <typename T> int32_t length(const std::shared_ptr<std::vector<T>>& value) { return static_cast<int32_t>(value->size()); }\n"
-  result = result + "template <typename T> auto length(const std::shared_ptr<T>& value) -> decltype(static_cast<int32_t>(value->length)) { return static_cast<int32_t>(value->length); }\n"
-  result = result + "template <typename T> bool is_null(const std::shared_ptr<T>& value) { return value == nullptr; }\n"
-  result = result + "template <typename T> bool is_null(const std::optional<T>& value) { return !value.has_value(); }\n"
-  result = result + "template <typename... T> bool is_null(const std::variant<std::monostate, T...>& value) { return std::holds_alternative<std::monostate>(value); }\n"
-  result = result + "template <typename... T> std::string kind(const std::variant<std::shared_ptr<T>...>& value) { return std::visit([](const auto& item) { return item->kind; }, value); }\n"
-  result = result + "template <typename... T> std::string kind(const std::variant<std::monostate, std::shared_ptr<T>...>& value) { return std::visit([](const auto& item) { using Item = std::decay_t<decltype(item)>; if constexpr (std::is_same_v<Item, std::monostate>) { return std::string(\"null\"); } else { return item->kind; } }, value); }\n"
-  result = result + "template <typename T> auto kind(const std::shared_ptr<T>& value) -> decltype(value->kind) { return value->kind; }\n"
-  result = result + "template <typename... T> auto span(const std::variant<std::shared_ptr<T>...>& value) { return std::visit([](const auto& item) { return item->span; }, value); }\n"
-  result = result + "template <typename T> auto span(const std::shared_ptr<T>& value) { return value->span; }\n"
-  result = result + "template <typename... T> const std::variant<std::monostate, T...>& optional_value(const std::variant<std::monostate, T...>& value) { return value; }\n"
-  result = result + "template <typename... T> std::variant<std::monostate, T...> optional_value(const std::variant<T...>& value) { return std::visit([](const auto& item) -> std::variant<std::monostate, T...> { return item; }, value); }\n"
-  result = result + "template <typename... T> std::variant<T...> unwrap_optional(const std::variant<std::monostate, T...>& value) { return std::visit([](const auto& item) -> std::variant<T...> { using Item = std::decay_t<decltype(item)>; if constexpr (std::is_same_v<Item, std::monostate>) { throw std::runtime_error(\"unexpected null optional\"); } else { return item; } }, value); }\n"
-  result = result + "template <typename T> std::shared_ptr<T> unwrap_optional(const std::shared_ptr<T>& value) { return value; }\n"
-  result = result + "template <typename T> T unwrap_optional(const std::optional<T>& value) { return value.value(); }\n"
-  result = result + "template <typename T> T pop(const std::shared_ptr<std::vector<T>>& value) { T result = value->back(); value->pop_back(); return result; }\n"
-  result = result + "}\n#endif\n\n"
   result = result + "namespace " + guardName + " {\n"
   for declaration of plan.classForwardDeclarations { result = result + "    " + declaration }
   result = result + "}\n\n"
-  if plan.hasAstHelpers {
-    result = result + "namespace doof {\n"
-    result = result + "template <typename... T> std::variant<T..., std::shared_ptr<" + guardName + "::Block>> with_block(const std::variant<T...>& value) { return std::visit([](const auto& item) -> std::variant<T..., std::shared_ptr<" + guardName + "::Block>> { return item; }, value); }\n"
-    result = result + "template <typename T> std::variant<" + expressionAlternativesForHeader(guardName) + ", std::shared_ptr<" + guardName + "::Block>> with_block(const std::shared_ptr<T>& value) { return value; }\n"
-    result = result + "inline std::variant<" + expressionAlternativesForHeader(guardName) + ", std::shared_ptr<" + guardName + "::Block>> with_block(const std::shared_ptr<" + guardName + "::Block>& value) { return value; }\n"
-    result = result + "inline bool is_expression(const std::variant<" + expressionAlternativesForHeader(guardName) + ", std::shared_ptr<" + guardName + "::Block>>& value) { return !std::holds_alternative<std::shared_ptr<" + guardName + "::Block>>(value); }\n"
-    result = result + "inline std::variant<" + expressionAlternativesForHeader(guardName) + "> expression_value(const std::variant<" + expressionAlternativesForHeader(guardName) + ", std::shared_ptr<" + guardName + "::Block>>& value) { return std::visit([](const auto& item) -> std::variant<" + expressionAlternativesForHeader(guardName) + "> { using Item = std::decay_t<decltype(item)>; if constexpr (std::is_same_v<Item, std::shared_ptr<" + guardName + "::Block>>) { return std::variant<" + expressionAlternativesForHeader(guardName) + ">{}; } else { return item; } }, value); }\n"
-    result = result + "}\n\n"
-  }
   result = result + "namespace " + guardName + " {\n"
   for alias of plan.interfaceAliases { result = result + "    " + alias }
   for definition of plan.enumDefinitions { result = result + "    " + definition }
@@ -277,12 +238,6 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   for alias of plan.typeAliases { result = result + "    " + alias }
   for signature of plan.functionSignatures { result = result + "    " + signature }
   result = result + "}\n\n"
-  if plan.hasAstHelpers {
-    result = result + "namespace doof {\n"
-    result = result + "template <typename T> decltype(auto) resolved_type(const std::shared_ptr<T>& value) { return (value->resolvedType); }\n"
-    result = result + "inline decltype(auto) resolved_type(const std::variant<" + expressionAlternativesForHeader(guardName) + ">& value) { return std::visit([](const auto& item) -> decltype(auto) { return (item->resolvedType); }, value); }\n"
-    result = result + "}\n\n"
-  }
   result = result + "namespace " + guardName + " {\n"
   for definition of plan.exportedValueDefinitions { result = result + "    " + definition }
   for definition of plan.genericFunctionDefinitions { result = result + definition }
@@ -319,10 +274,6 @@ function nativeNamespace(cppName: string): string {
   }
   if separator < 0 { return "" }
   return cppName.substring(0, separator)
-}
-
-function expressionAlternativesForHeader(guardName: string): string {
-  return "std::shared_ptr<" + guardName + "::IntLiteral>, std::shared_ptr<" + guardName + "::LongLiteral>, std::shared_ptr<" + guardName + "::FloatLiteral>, std::shared_ptr<" + guardName + "::DoubleLiteral>, std::shared_ptr<" + guardName + "::StringLiteral>, std::shared_ptr<" + guardName + "::CharLiteral>, std::shared_ptr<" + guardName + "::BoolLiteral>, std::shared_ptr<" + guardName + "::NullLiteral>, std::shared_ptr<" + guardName + "::Identifier>, std::shared_ptr<" + guardName + "::BinaryExpression>, std::shared_ptr<" + guardName + "::UnaryExpression>, std::shared_ptr<" + guardName + "::AssignmentExpression>, std::shared_ptr<" + guardName + "::MemberExpression>, std::shared_ptr<" + guardName + "::IndexExpression>, std::shared_ptr<" + guardName + "::CallExpression>, std::shared_ptr<" + guardName + "::ArrayLiteral>, std::shared_ptr<" + guardName + "::ObjectLiteral>, std::shared_ptr<" + guardName + "::TupleLiteral>, std::shared_ptr<" + guardName + "::LambdaExpression>, std::shared_ptr<" + guardName + "::IfExpression>, std::shared_ptr<" + guardName + "::CaseExpression>, std::shared_ptr<" + guardName + "::ConstructExpression>, std::shared_ptr<" + guardName + "::DotShorthand>, std::shared_ptr<" + guardName + "::ThisExpression>, std::shared_ptr<" + guardName + "::CallerExpression>"
 }
 
 function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext): string {

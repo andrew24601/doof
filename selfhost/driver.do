@@ -13,13 +13,12 @@ import { NativePackageInput, ProjectEmission, planProjectEmission } from "./emit
 import { ModuleNamespaceMapping } from "./emitter-names"
 import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
 import { planNativeCompile } from "./native-build"
-import { PackageManifest, parsePackageManifest } from "./package-manifest"
-import { environmentValue, joinPath, parentPath, readProjectSpec } from "./project"
+import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
+import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
 import { Diagnostic, SourceFile } from "./semantic"
-import { exists, isDirectory, mkdir, readBlob, readDir, readText, writeBlob, writeText } from "std/fs"
+import { exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
 
-import function runtimeHeaderSourcePath(): string from "doof_runtime.hpp" as doof::runtime_header_source_path
 import function hostPlatform(): string from "doof_runtime.hpp" as doof::host_platform
 import function runNativeCompiler(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command
 
@@ -293,13 +292,24 @@ function materializeProject(outputDirectory: string, project: ProjectEmission): 
   }
 }
 
+function materializeExecutableResources(resources: PackageResource[], outputDirectory: string): void {
+  for resource of resources {
+    destinationRoot := driverOutputPath(outputDirectory, resource.destination)
+    outputPath := if isDirectory(resource.sourcePath)
+      then destinationRoot
+      else driverOutputPath(destinationRoot, fileName(resource.sourcePath))
+    materializeNativeCopy(resource.sourcePath, outputPath)
+  }
+}
+
 function materializeRuntimeHeader(outputDirectory: string): void {
-  // The canonical header is both the compiler's runtime dependency and the
-  // source asset copied into generated projects. The override supports moving
-  // a compiler binary independently from the header it was built against.
+  // Packaged compilers carry the canonical header as an executable resource.
+  // The override remains useful when developing against an alternate runtime.
   let sourcePath = environmentValue("DOOF_RUNTIME_HEADER")
-  if sourcePath == "" { sourcePath = runtimeHeaderSourcePath() }
-  try! writeText(driverOutputPath(outputDirectory, "doof_runtime.hpp"), try! readText(sourcePath))
+  runtimeSource := if sourcePath == ""
+    then readTextResource("doof_runtime.h")
+    else readText(sourcePath)
+  try! writeText(driverOutputPath(outputDirectory, "doof_runtime.hpp"), try! runtimeSource)
 }
 
 function buildOutputName(projectName: string): string {
@@ -377,13 +387,16 @@ function emitRequest(request: CliRequest): int {
   materializeRuntimeHeader(outputDirectory)
   if request.command == "build" {
     outputPath := driverOutputPath(outputDirectory, buildOutputName(project.name))
+    materializeExecutableResources(project.resources, outputDirectory)
     return buildProject(request, outputDirectory, outputPath, emission)
   }
   if request.command == "package" {
     distDirectory := joinPath(project.rootDirectory, "dist")
     ensureOutputDirectory(distDirectory)
     outputPath := driverOutputPath(distDirectory, buildOutputName(project.name))
-    return buildProject(request, outputDirectory, outputPath, emission, true)
+    exitCode := buildProject(request, outputDirectory, outputPath, emission, true)
+    if exitCode == 0 { materializeExecutableResources(project.resources, distDirectory) }
+    return exitCode
   }
   return 0
 }

@@ -23,6 +23,7 @@
 #include <queue>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -117,12 +118,6 @@ inline std::string relative_path(const std::string& root, const std::string& pat
         std::filesystem::path(path),
         std::filesystem::path(root)
     ).lexically_normal().string();
-}
-
-// Let self-hosted compiler binaries materialize the exact runtime header they
-// were built against instead of maintaining a second runtime implementation.
-inline std::string runtime_header_source_path() {
-    return std::filesystem::absolute(std::filesystem::path(__FILE__)).lexically_normal().string();
 }
 
 // ============================================================================
@@ -1554,6 +1549,187 @@ inline std::string string_repeat(const std::string& s, int32_t count) {
     std::string result;
     result.reserve(s.size() * static_cast<size_t>(count));
     for (int32_t i = 0; i < count; ++i) result += s;
+    return result;
+}
+
+// Module-independent lowering helpers used by the self-hosted emitter. Generic
+// variant operations keep these helpers independent of generated nominal types.
+inline bool ends_with(const std::string& value, const std::string& suffix) {
+    return string_endsWith(value, suffix);
+}
+
+inline bool starts_with(const std::string& value, const std::string& prefix) {
+    return string_startsWith(value, prefix);
+}
+
+inline std::string substring(const std::string& value, int32_t start, int32_t end) {
+    return value.substr(static_cast<size_t>(start), static_cast<size_t>(end - start));
+}
+
+inline std::string substring(const std::string& value, int32_t start) {
+    return value.substr(static_cast<size_t>(start));
+}
+
+inline std::string replace_all(std::string value, const std::string& oldValue, const std::string& newValue) {
+    return string_replaceAll(value, oldValue, newValue);
+}
+
+inline bool contains(const std::string& value, const std::string& part) {
+    return string_contains(value, part);
+}
+
+inline int32_t length(const std::string& value) {
+    return static_cast<int32_t>(value.size());
+}
+
+inline std::string trim(const std::string& value) {
+    return string_trim(value);
+}
+
+inline std::string repeat(const std::string& value, int32_t count) {
+    return string_repeat(value, count);
+}
+
+template <typename T>
+int32_t length(const std::shared_ptr<std::vector<T>>& value) {
+    return static_cast<int32_t>(value->size());
+}
+
+template <typename T>
+auto length(const std::shared_ptr<T>& value) -> decltype(static_cast<int32_t>(value->length)) {
+    return static_cast<int32_t>(value->length);
+}
+
+template <typename T>
+bool is_null(const std::shared_ptr<T>& value) {
+    return value == nullptr;
+}
+
+template <typename T>
+bool is_null(const std::optional<T>& value) {
+    return !value.has_value();
+}
+
+template <typename... T>
+bool is_null(const std::variant<std::monostate, T...>& value) {
+    return std::holds_alternative<std::monostate>(value);
+}
+
+template <typename... T>
+std::string kind(const std::variant<std::shared_ptr<T>...>& value) {
+    return std::visit([](const auto& item) { return item->kind; }, value);
+}
+
+template <typename... T>
+std::string kind(const std::variant<std::monostate, std::shared_ptr<T>...>& value) {
+    return std::visit([](const auto& item) {
+        using Item = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<Item, std::monostate>) {
+            return std::string("null");
+        } else {
+            return item->kind;
+        }
+    }, value);
+}
+
+template <typename T>
+auto kind(const std::shared_ptr<T>& value) -> decltype(value->kind) {
+    return value->kind;
+}
+
+template <typename... T>
+auto span(const std::variant<std::shared_ptr<T>...>& value) {
+    return std::visit([](const auto& item) { return item->span; }, value);
+}
+
+template <typename T>
+auto span(const std::shared_ptr<T>& value) {
+    return value->span;
+}
+
+template <typename Candidate, typename Variant>
+struct is_variant_alternative;
+
+template <typename Candidate, typename... Alternatives>
+struct is_variant_alternative<Candidate, std::variant<Alternatives...>>
+    : std::bool_constant<(std::is_same_v<Candidate, Alternatives> || ...)> {};
+
+template <typename Target, typename... Source>
+bool variant_is(const std::variant<Source...>& value) {
+    return std::visit([](const auto& item) {
+        using Item = std::decay_t<decltype(item)>;
+        return is_variant_alternative<Item, Target>::value;
+    }, value);
+}
+
+template <typename Target, typename... Source>
+Target variant_narrow(const std::variant<Source...>& value) {
+    return std::visit([](const auto& item) -> Target {
+        using Item = std::decay_t<decltype(item)>;
+        if constexpr (is_variant_alternative<Item, Target>::value) {
+            return item;
+        } else {
+            throw std::runtime_error("variant does not hold a requested alternative");
+        }
+    }, value);
+}
+
+template <typename Target, typename... Source>
+Target variant_promote(const std::variant<Source...>& value) {
+    return std::visit([](const auto& item) -> Target { return item; }, value);
+}
+
+template <typename Target, typename Source>
+Target variant_promote(const Source& value) {
+    return Target{value};
+}
+
+template <typename T>
+decltype(auto) resolved_type(const std::shared_ptr<T>& value) {
+    return (value->resolvedType);
+}
+
+template <typename... T>
+decltype(auto) resolved_type(const std::variant<T...>& value) {
+    return std::visit([](const auto& item) -> decltype(auto) { return (item->resolvedType); }, value);
+}
+
+template <typename... T>
+const std::variant<std::monostate, T...>& optional_value(const std::variant<std::monostate, T...>& value) {
+    return value;
+}
+
+template <typename... T>
+std::variant<std::monostate, T...> optional_value(const std::variant<T...>& value) {
+    return std::visit([](const auto& item) -> std::variant<std::monostate, T...> { return item; }, value);
+}
+
+template <typename... T>
+std::variant<T...> unwrap_optional(const std::variant<std::monostate, T...>& value) {
+    return std::visit([](const auto& item) -> std::variant<T...> {
+        using Item = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<Item, std::monostate>) {
+            throw std::runtime_error("unexpected null optional");
+        } else {
+            return item;
+        }
+    }, value);
+}
+
+template <typename T>
+std::shared_ptr<T> unwrap_optional(const std::shared_ptr<T>& value) {
+    return value;
+}
+
+template <typename T>
+T unwrap_optional(const std::optional<T>& value) {
+    return value.value();
+}
+
+template <typename T>
+T pop(const std::shared_ptr<std::vector<T>>& value) {
+    T result = value->back();
+    value->pop_back();
     return result;
 }
 

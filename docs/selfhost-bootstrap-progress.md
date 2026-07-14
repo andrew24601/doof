@@ -99,9 +99,9 @@ Remaining architectural risks are:
   and remote acquisition are not yet aligned with the TypeScript compiler;
   progress is tracked in
   [selfhost-module-acquisition-plan.md](selfhost-module-acquisition-plan.md).
-- `selfhost/checker.do` remains large enough that new feature work should first
-  extract focused checker modules matching the ownership boundaries used by the
-  TypeScript implementation.
+- Actor boundary and lifecycle validation now live in focused checker modules;
+  further checker feature work should continue extracting similarly cohesive
+  ownership boundaries from `selfhost/checker.do`.
 
 ## Completed milestones
 
@@ -118,6 +118,8 @@ Remaining architectural risks are:
 
 Completed language/emitter coverage includes nominal classes, named
 construction, enums, aliases, nullable AST unions, branch-aware checking,
+actor construction, synchronous and asynchronous actor calls, promises,
+retirement, actor-call boundary safety, and conservative use-after-retire checks,
 cross-module imports and re-exports, native C++ class imports, and focused
 native C++ compilation tests.
 
@@ -174,10 +176,12 @@ When the entry is a package directory, the driver walks upward to `doof.json`,
 uses `build.entry` (defaulting to `main.do`) and `build.buildDir` (defaulting to
 `build`), and loads only package-local `.do` files reached by imports. `-o`
 still overrides the output directory. Emission writes one `<module>.hpp` /
-`<module>.cpp` pair per source module plus `doof_runtime.hpp`. The runtime is
-copied verbatim from the canonical `doof_runtime.h` used to build the compiler;
-`DOOF_RUNTIME_HEADER` can override that asset path when a compiler binary is
-relocated. Reached acquired-package manifests now register normalized native
+`<module>.cpp` pair per source module plus `doof_runtime.hpp`. The root manifest
+packages canonical `doof_runtime.h` beside the compiler, and the driver reads it
+through the standard executable-resource directory; `DOOF_RUNTIME_HEADER`
+remains a development override. Self-hosted build/package parsing and
+materialization also preserve root-package executable resources. Reached
+acquired-package manifests now register normalized native
 build inputs. The project emitter materializes those inputs and the self-hosted
 `build` command compiles generated plus native sources with package-stable
 namespaces, including host frameworks and root-project settings. The

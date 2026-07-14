@@ -4,7 +4,7 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, ResultResolvedType, StreamResolvedType,
+  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, ResultResolvedType, StreamResolvedType,
   FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
   UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
@@ -274,13 +274,35 @@ export class CallerExpression {
   span: SourceSpan
 }
 
+export class AsyncExpression {
+  kind: string
+  expression: Expression | Block
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
+export class RetireExpression {
+  kind: string
+  actor: Expression
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
+export class ActorCreationExpression {
+  kind: string
+  className: string
+  args: Expression[]
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
 export type Expression =
   IntLiteral | LongLiteral | FloatLiteral | DoubleLiteral | StringLiteral |
   CharLiteral | BoolLiteral | NullLiteral | Identifier | BinaryExpression |
   UnaryExpression | AssignmentExpression | MemberExpression | IndexExpression |
   CallExpression | ArrayLiteral | ObjectLiteral | TupleLiteral |
   LambdaExpression | IfExpression | CaseExpression | ConstructExpression | DotShorthand |
-  ThisExpression | CallerExpression
+  ThisExpression | CallerExpression | AsyncExpression | RetireExpression | ActorCreationExpression
 
 export class Parameter {
   name: string
@@ -556,6 +578,7 @@ export class InterfaceField {
   kind: string
   name: string
   type_: TypeAnnotation
+  readonly_: bool = false
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }

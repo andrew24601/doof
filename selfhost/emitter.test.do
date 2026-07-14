@@ -62,7 +62,38 @@ export function testKeepsHeaderAndSourceSeparate(): void {
   Assert.equal(result.header.contains("int32_t add(int32_t a, int32_t b);"), true)
   Assert.equal(result.header.contains("return a + b"), false)
   Assert.equal(result.source.contains("int32_t add(int32_t a, int32_t b)"), true)
-  Assert.equal(result.source.contains("int main() { return main_::doof_main(); }"), true)
+  Assert.equal(result.source.contains("doof::detail::ApplicationDomain::shared()"), true)
+  Assert.equal(result.source.contains("doof::detail::ActiveActorScope __doof_application_scope"), true)
+  Assert.equal(result.source.contains("return main_::doof_main();"), true)
+}
+
+export function testEmitsActorCreationCallsPromiseAndRetirement(): void {
+  result := emit("class Worker { value: int\nfunction add(amount: int): int { this.value = this.value + amount\nreturn this.value } }\nfunction main(): int { worker := Actor<Worker>(1)\nfirst := worker.add(2)\npromise := async worker.add(3)\nsecond := try! promise.get()\nstate := retire worker\nreturn first + second + state.value }")
+  Assert.equal(result.source.contains("std::make_shared<doof::Actor<Worker>>(Worker{1})"), true)
+  Assert.equal(result.source.contains("->template call_sync<int32_t>"), true)
+  Assert.equal(result.source.contains("->template call_async<int32_t>"), true)
+  Assert.equal(result.source.contains("promise.get()"), true)
+  Assert.equal(result.source.contains("worker->retire()"), true)
+}
+
+export function testEmitsVoidActorCallsAndPromiseAnnotation(): void {
+  result := emit("class Worker { value: int\nfunction set(value: int): void { this.value = value } }\nfunction create(): Actor<Worker> => Actor<Worker>(0)\nfunction run(worker: Actor<Worker>): Promise<void> => async worker.set(2)")
+  Assert.equal(result.header.contains("std::shared_ptr<doof::Actor<Worker>> create()"), true)
+  Assert.equal(result.header.contains("doof::Promise<void> run"), true)
+  Assert.equal(result.source.contains("call_async<void>"), true)
+}
+
+export function testMainWrapperReportsPanicsForEverySupportedSignature(): void {
+  intMain := emit("function main(): int => 0").source
+  voidMain := emit("function main(): void { }").source
+  intArgsMain := emit("function main(args: string[]): int => args.length").source
+  voidArgsMain := emit("function main(args: string[]): void { println(string(args.length)) }").source
+
+  for source of [intMain, voidMain, intArgsMain, voidArgsMain] {
+    Assert.equal(source.contains("catch (const doof::Panic& _panic)"), true)
+    Assert.equal(source.contains("std::cerr << \"panic: \" << _panic.what() << std::endl;"), true)
+    Assert.equal(source.contains("std::abort();"), true)
+  }
 }
 
 export function testEmitsCheckedCoreExpressions(): void {
@@ -174,6 +205,10 @@ export function testEmitsSelfhostAstModule(): void {
   Assert.equal(result.header.contains("struct Program"), true)
   Assert.equal(result.header.contains("struct FunctionDeclaration"), true)
   Assert.equal(result.header.contains("std::shared_ptr"), true)
+  Assert.equal(result.header.contains("with_block"), false)
+  Assert.equal(result.header.contains("is_expression"), false)
+  Assert.equal(result.header.contains("expression_value"), false)
+  Assert.equal(result.header.contains("resolved_type"), false)
 }
 
 export function testEmitsSelfhostAstAndSemanticProject(): void {
@@ -190,6 +225,8 @@ export function testEmitsSelfhostAstAndSemanticProject(): void {
 export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
   result := emit("function square(value: double): double => value ** value")
   Assert.equal(result.header.startsWith("#pragma once\n#include \"doof_runtime.hpp\"\n"), true)
+  Assert.equal(result.header.contains("DOOF_SELFHOST_COMMON_HELPERS"), false)
+  Assert.equal(result.header.contains("inline bool starts_with"), false)
   Assert.equal(result.header.contains("#include <cmath>"), true)
   Assert.equal(result.source.contains("std::pow(value, value)"), true)
 }

@@ -20,3 +20,19 @@ export function testReadsRootProjectNativeBuildThroughPackageManifestModel(): vo
   Assert.equal(project.nativeBuild.frameworks.length, 1)
   Assert.equal(project.nativeBuild.frameworks[0], "Foundation")
 }
+
+export function testReadsRootProjectExecutableResources(): void {
+  root := "/tmp/doof-selfhost-project-resource-test"
+  if !exists(root) { try! mkdir(root) }
+  try! writeText(
+    root + "/doof.json",
+    "{\"name\":\"resource-root\",\"resources\":[{\"from\":\"doof_runtime.h\",\"to\":\".\"}],\"build\":{\"entry\":\"main.do\"}}",
+  )
+  try! writeText(root + "/main.do", "function main(): int => 0")
+  try! writeText(root + "/doof_runtime.h", "runtime")
+
+  project := readProjectSpec(root, "macos")
+  Assert.equal(project.resources.length, 1)
+  Assert.equal(project.resources[0].sourcePath, root + "/doof_runtime.h")
+  Assert.equal(project.resources[0].destination, "")
+}

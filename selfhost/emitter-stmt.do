@@ -180,8 +180,10 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
       case pattern {
         type_: TypePattern -> {
           if type_.resolvedPatternKind == "expression" || type_.resolvedPatternKind == "statement" || type_.resolvedPatternKind == "type-annotation" {
-            condition = "doof::is_expression(" + subject + ")"
-            if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = doof::expression_value(" + subject + ");\n" }
+            if type_.resolvedType == null { panic("Case pattern has no resolved type") }
+            typeName := emitType(type_.resolvedType!, context.modulePath)
+            condition = "doof::variant_is<" + typeName + ">(" + subject + ")"
+            if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = doof::variant_narrow<" + typeName + ">(" + subject + ");\n" }
           } else if isResultCasePattern(type_) {
             case type_.resolvedType! {
               resultType: ResultResolvedType -> {

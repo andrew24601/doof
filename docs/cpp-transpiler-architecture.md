@@ -47,6 +47,7 @@ The initial slice is split into small modules:
 - `selfhost/emitter-expr-ops.do` owns assignment, operators, member access, and indexing
 - `selfhost/emitter-expr-calls.do` owns calls, native constructors, and class construction
 - `selfhost/emitter-expr-control.do` owns `if`, `case`, and dot-shorthand lowering
+- `selfhost/emitter-expr-actor.do` owns actor construction, sync/async method calls, and retirement
 - `selfhost/emitter-expr-lambda.do` owns closure capture discovery, escaping mutable boxing, and `doof::callback` construction
 - `selfhost/emitter-stmt.do` owns block and control-flow layout
 - `selfhost/emitter-decl.do` owns reusable function signatures and definitions
@@ -56,6 +57,7 @@ The initial slice is split into small modules:
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
 - `selfhost/emitter-module.do` owns module-graph planning and `.hpp` / `.cpp` orchestration
+- executable wrappers establish the shared application domain and active actor scope before invoking `doof_main`
 - `selfhost/emitter-project.do` owns package-relative native copies, generated-header mirrors, and output native-build paths
 - `selfhost/native-build.do` resolves materialized native paths and owns GCC-compatible compile/link argument planning
 - `selfhost/compiler.do` checks every analyzed module before invoking split module emission
@@ -68,10 +70,15 @@ not AST unions. This keeps implementation-only front-end types from leaking
 into generated C++ headers and leaves room for a future dependency planner.
 The self-hosted module planner derives stable namespaces and direct import and
 re-export header dependencies from logical source paths. `emitModuleGraph(...)`
-renders separate `.hpp` / `.cpp` pairs with guarded shared helpers, local class
-forward declarations, and defining-module qualification for named, namespace,
-and re-exported symbols. The maintained B3 acceptance test compiles all 18
-self-hosted modules as separate translation units.
+renders separate `.hpp` / `.cpp` pairs with local class forward declarations
+and defining-module qualification for named, namespace, and re-exported
+symbols. Module-independent lowering helpers live in `doof_runtime.hpp`;
+generic variant promotion and subset narrowing avoid injecting helpers tied to
+the self-host AST's concrete expression inventory into generated headers. The
+type emitter qualifies nominal names from their resolved symbol's defining
+module; it does not infer ownership from hard-coded type-name inventories. The
+maintained B3 acceptance test compiles all 18 self-hosted modules as separate
+translation units.
 The current foundation covers a checked core of primitives, arrays, tuples,
 operators, calls, bindings, returns, conditionals, functions, classes, named
 construction, enum/type-alias declarations, assignments, range-based loops,
@@ -80,9 +87,9 @@ boundary for nullable multi-arm variant promotion, while the checker remains
 responsible for decorating assignment targets. The self-hosted slice now also
 discovers structural interface implementations, emits variant aliases, and
 dispatches interface members with `std::visit`; imports and multi-module
-dependency planning are covered by the completed B3 graph gate. The header planner also emits `with_block` overloads for both existing
-expression variants and concrete expression nodes when promoting AST bodies to
-`Expression | Block` fields.
+dependency planning are covered by the completed B3 graph gate. AST bodies are
+promoted into `Expression | Block` fields through the runtime's generic
+`variant_promote<Target>(...)` helper.
 
 The self-hosted emitter also supports the existing `import class` native
 interop surface. Native headers are emitted in generated headers, native class
@@ -94,15 +101,19 @@ and provide `shared_from_this()` support when its body returns bare `this`.
 
 The split module emitter places the executable wrapper in the entry module. A
 `main(args: string[]): int` entry receives process arguments through a generated
-`std::vector<std::string>` bridge. The B4 driver exposes file contents through
-the `std/fs`-shaped `readText` / `writeText` surface and retains only native
+`std::vector<std::string>` bridge. The wrapper catches uncaught `doof::Panic`
+values, writes a `panic: <message>` diagnostic to stderr, and aborts, matching
+the TypeScript bootstrap emitter's process boundary. The B4 driver exposes file
+contents through the `std/fs`-shaped `readText` / `writeText` surface and retains only native
 path/discovery helpers while it loads an explicit source-file graph, including
 bare modules supplied with `--module <specifier> <path>`, invokes the
 self-hosted compiler, and writes every module's header/source pair plus an
-adjacent `doof_runtime.hpp` to the output directory. It copies that file from
-the canonical runtime header used to build the compiler, with
-`DOOF_RUNTIME_HEADER` available as a relocation override, so the TypeScript and
-self-hosted compilers share one runtime implementation. `DOOF_STDLIB_ROOT`
+adjacent `doof_runtime.hpp` to the output directory. The root package declares
+`doof_runtime.h` as an executable resource, so build and package place the
+canonical template beside the self-hosted compiler. The driver loads it through
+`std/fs` resource lookup, with `DOOF_RUNTIME_HEADER` retained as a development
+override, so cleaning or relocating the compiler's build tree does not break
+runtime emission. `DOOF_STDLIB_ROOT`
 supplies a generic `/std` acquisition root; successful acquired-source loads
 register their package once and parse normalized base plus host-platform
 `build.native` metadata. `selfhost/emitter-project.do` combines those reached

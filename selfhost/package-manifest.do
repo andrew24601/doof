@@ -24,11 +24,18 @@ export class NativeBuildPlan {
   linkerFlags: string[] = []
 }
 
+/** One root-package resource copied beside a command-line executable. */
+export class PackageResource {
+  sourcePath: string
+  destination: string
+}
+
 /** Package identity and native inputs parsed from a single doof.json. */
 export class PackageManifest {
   name: string
   manifestPath: string
   rootDirectory: string
+  resources: PackageResource[] = []
   nativeBuild: NativeBuildPlan
 }
 
@@ -48,8 +55,9 @@ export function parsePackageManifest(
     name = parsedName
   }
 
+  try resources := parseManifestResources(root, manifestPath, rootDirectory)
   try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform)
-  return Success(PackageManifest { name, manifestPath, rootDirectory, nativeBuild })
+  return Success(PackageManifest { name, manifestPath, rootDirectory, resources, nativeBuild })
 }
 
 /** Merges normalized package plans while preserving first-seen ordering. */
@@ -81,6 +89,112 @@ function parseManifestNativeBuild(
     try appendNativeFragment(result, platformValue, manifestPath, rootDirectory, "build.native." + platform)
   }
   return Success(result)
+}
+
+function parseManifestResources(
+  root: JsonObject,
+  manifestPath: string,
+  rootDirectory: string,
+): Result<PackageResource[], string> {
+  if manifestJsonHas(root, "resources") {
+    return parseResourceArray(manifestJsonField(root, "resources"), manifestPath, rootDirectory, "resources")
+  }
+  if manifestJsonHas(root, "build") {
+    try build := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+    if manifestJsonHas(build, "resources") {
+      return parseResourceArray(
+        manifestJsonField(build, "resources"),
+        manifestPath,
+        rootDirectory,
+        "build.resources",
+      )
+    }
+  }
+  return Success([])
+}
+
+function parseResourceArray(
+  value: JsonValue,
+  manifestPath: string,
+  rootDirectory: string,
+  fieldPath: string,
+): Result<PackageResource[], string> {
+  try entries := manifestArray(value, manifestPath, fieldPath)
+  let resources: PackageResource[] = []
+  for index of 0..<entries.length {
+    let source = ""
+    let destination = ""
+    case entries[index] {
+      text: string -> {
+        if text == "" {
+          return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "[" + string(index) + "] must not be empty")
+        }
+        source = text
+        destination = text
+      }
+      object: JsonObject -> {
+        if !manifestJsonHas(object, "from") || !manifestJsonHas(object, "to") {
+          return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "[" + string(index) + "] requires string fields from and to")
+        }
+        try parsedSource := manifestString(
+          manifestJsonField(object, "from"),
+          manifestPath,
+          fieldPath + "[" + string(index) + "].from",
+        )
+        try parsedDestination := manifestString(
+          manifestJsonField(object, "to"),
+          manifestPath,
+          fieldPath + "[" + string(index) + "].to",
+        )
+        source = parsedSource
+        destination = parsedDestination
+      }
+      _ -> return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "[" + string(index) + "] must be a string or object")
+    }
+
+    sourcePath := manifestJoinPath(rootDirectory, source)
+    rootBoundary := if rootDirectory.endsWith("/") then rootDirectory else rootDirectory + "/"
+    if sourcePath != rootDirectory && !sourcePath.startsWith(rootBoundary) {
+      return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "[" + string(index) + "].from must stay within the package root")
+    }
+    try normalizedDestination := normalizeResourceDestination(
+      destination,
+      manifestPath,
+      fieldPath + "[" + string(index) + "].to",
+    )
+    resources.push(PackageResource { sourcePath, destination: normalizedDestination })
+  }
+  return Success(resources)
+}
+
+function normalizeResourceDestination(
+  destination: string,
+  manifestPath: string,
+  fieldPath: string,
+): Result<string, string> {
+  portable := destination.replaceAll("\\", "/")
+  if portable.startsWith("/") || (portable.length >= 3 && portable[1] == ':' && portable[2] == '/') {
+    return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + " must be relative")
+  }
+
+  let segments: string[] = []
+  for segment of portable.split("/") {
+    if segment == "" || segment == "." { continue }
+    if segment == ".." {
+      if segments.length == 0 {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + " must stay within the executable resource directory")
+      }
+      ignored := segments.pop()
+      continue
+    }
+    segments.push(segment)
+  }
+  let normalized = ""
+  for segment of segments {
+    if normalized != "" { normalized = normalized + "/" }
+    normalized = normalized + segment
+  }
+  return Success(normalized)
 }
 
 function appendNativeFragment(

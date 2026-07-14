@@ -2,5 +2,9 @@
   "name": "doof",
   "version": "0.1.0",
   "license": "ISC",
-  "dependencies": {}
+  "resources": [{ "from": "doof_runtime.h", "to": "." }],
+  "dependencies": {},
+  "build": {
+    "entry": "selfhost/driver.do"
+  }
 }

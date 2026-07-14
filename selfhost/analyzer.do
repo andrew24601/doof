@@ -37,7 +37,7 @@ export class AnalysisResult {
   diagnostics: Diagnostic[] = []
 }
 
-readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "Map", "ReadonlyMap", "Result", "Stream", "Tuple"]
+readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "Map", "ReadonlyMap", "Result", "Stream", "Tuple", "Actor", "Promise"]
 
 export class ModuleAnalyzer {
   resolver: ModuleResolver
