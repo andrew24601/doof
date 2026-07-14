@@ -39,6 +39,7 @@ clues, but its C++ representation policy is intentionally independent.
 The initial slice is split into small modules:
 
 - `selfhost/emitter-context.do` owns nominal declarations and current method-owner context
+- `selfhost/emitter-monomorphize.do` owns whole-program fixed-point discovery of concrete Doof generic instantiations and native adapters
 - `selfhost/emitter-types.do` owns resolved-type representation choices
 - `selfhost/emitter-expr.do` owns decorated-AST dispatch and accepts expected-type context
 - `selfhost/emitter-expr-utils.do` owns shared type decoration and nullable-promotion helpers
@@ -46,12 +47,17 @@ The initial slice is split into small modules:
 - `selfhost/emitter-expr-ops.do` owns assignment, operators, member access, and indexing
 - `selfhost/emitter-expr-calls.do` owns calls, native constructors, and class construction
 - `selfhost/emitter-expr-control.do` owns `if`, `case`, and dot-shorthand lowering
+- `selfhost/emitter-expr-lambda.do` owns closure capture discovery, escaping mutable boxing, and `doof::callback` construction
 - `selfhost/emitter-stmt.do` owns block and control-flow layout
 - `selfhost/emitter-decl.do` owns reusable function signatures and definitions
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
 - `selfhost/emitter-module.do` owns module-graph planning and `.hpp` / `.cpp` orchestration
+- `selfhost/emitter-project.do` owns package-relative native copies, generated-header mirrors, and output native-build paths
+- `selfhost/native-build.do` resolves materialized native paths and owns GCC-compatible compile/link argument planning
 - `selfhost/compiler.do` checks every analyzed module before invoking split module emission
+- `selfhost/compiler.do` runs concrete-instantiation discovery after checking and before header planning, and reports bounded specialization traces when discovery does not converge
+- the instantiation plan also records generic wrapper classes exposed directly in native signatures, keeping that explicitly permitted interop boundary template-based while all ordinary Doof generic declarations remain concrete
 - `selfhost/driver.do` provides the B4/B5/B6 command-line and file boundary and writes generated C++ artifacts
 
 The header planner stores rendered signatures and other small planning facts,
@@ -93,14 +99,32 @@ self-hosted compiler, and writes every module's header/source pair plus an
 adjacent `doof_runtime.hpp` to the output directory. It copies that file from
 the canonical runtime header used to build the compiler, with
 `DOOF_RUNTIME_HEADER` available as a relocation override, so the TypeScript and
-self-hosted compilers share one runtime implementation. Package manifests and
-automatic `std/*` discovery remain outside this bootstrap slice.
+self-hosted compilers share one runtime implementation. `DOOF_STDLIB_ROOT`
+supplies a generic `/std` acquisition root; successful acquired-source loads
+register their package once and parse normalized base plus host-platform
+`build.native` metadata. `selfhost/emitter-project.do` combines those reached
+package manifests with module emission, writes each generated module header at
+one canonical flat path, emits package-relative forwarding headers for sibling
+native includes, and rewrites copied include, source, and library paths for the
+generated project. The header planner derives native-namespace aliases from
+resolved extern signatures, including nominal types reached through re-exports.
+For a referenced type module, it also bridges that module's non-generic sibling
+exports and its directly imported nominal dependencies; it does not recursively
+export whole dependency modules into the native namespace.
+The driver materializes that explicit result without
+branching on package names. Reached manifest identity also configures the
+canonical namespace planner before emission, so generated types match native
+package headers. The `build` command then passes the materialized plan to
+`selfhost/native-build.do` and executes the selected compiler without a shell.
 
 `src/selfhost-bootstrap.test.ts` compiles the TypeScript bootstrap emitter's
 17-module self-host source graph with the native C++ toolchain. The
 `selfhost/bootstrap.test.do` B3 test provides the corresponding self-hosted
 split translation-unit check, while its B4 test links and runs
 the generated driver and then compiles and runs the generated target program.
+That B4 acceptance also checks and builds `samples/http-client` through the
+complete macOS `std/http`/WebSocket graph; its deterministic localhost runtime
+leg is opt-in via `DOOF_HTTP_RUNTIME_TEST=1` for network-restricted runners.
 Its B5 test feeds the complete driver-inclusive graph back through that
 generated compiler, links the resulting compiler, and verifies another
 generated target program. The B6 path feeds that generated compiler's output

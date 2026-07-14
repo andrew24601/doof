@@ -8,14 +8,20 @@
 // modules, while local and std/* paths are resolved from their roots.
 
 import { compileWithLoader } from "./compiler"
-import { ModuleEmission } from "./emitter-module"
 import { CliRequest, ModuleSource, cliUsage, parseCli } from "./cli"
-import { environmentValue, joinPath, readProjectSpec } from "./project"
+import { NativePackageInput, ProjectEmission, planProjectEmission } from "./emitter-project"
+import { ModuleNamespaceMapping } from "./emitter-names"
+import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
+import { planNativeCompile } from "./native-build"
+import { PackageManifest, parsePackageManifest } from "./package-manifest"
+import { environmentValue, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
 import { Diagnostic, SourceFile } from "./semantic"
-import { exists, readText, writeText } from "std/fs"
+import { exists, isDirectory, mkdir, readBlob, readDir, readText, writeBlob, writeText } from "std/fs"
 
 import function runtimeHeaderSourcePath(): string from "doof_runtime.hpp" as doof::runtime_header_source_path
+import function hostPlatform(): string from "doof_runtime.hpp" as doof::host_platform
+import function runNativeCompiler(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command
 
 function driverWithExtension(path: string): string {
   if path.endsWith(".do") { return path }
@@ -53,38 +59,6 @@ function driverOutputPath(directory: string, name: string): string {
   return directory + "/" + name
 }
 
-function materializeStdlibSupport(outputDirectory: string, stdlibRoot: string, modules: ModuleEmission[]): void {
-  if stdlibRoot == "" { return }
-  let copiedJson = false
-  let copiedFs = false
-  let copiedPath = false
-  let copiedBlob = false
-  for module of modules {
-    if module.modulePath.startsWith("/std/json/") && !copiedJson {
-      nativePath := joinPath(joinPath(absolutePath(stdlibRoot), "json"), "native_json.hpp")
-      try! writeText(driverOutputPath(outputDirectory, "native_json.hpp"), try! readText(nativePath))
-      copiedJson = true
-    }
-    if module.modulePath == "/std/fs/index.do" && !copiedFs {
-      fsRoot := joinPath(absolutePath(stdlibRoot), "fs")
-      try! writeText(driverOutputPath(outputDirectory, "native_fs.hpp"), try! readText(joinPath(fsRoot, "native_fs.hpp")))
-      try! writeText(driverOutputPath(outputDirectory, "types.hpp"),
-        "#pragma once\n#include \"std_blob_types.hpp\"\n#include \"std_fs_types.hpp\"\n#include \"std_time_index.hpp\"\nusing EntryKind = ::app_std_fs_types_::EntryKind;\nusing IoError = ::app_std_fs_types_::IoError;\nusing Endian = ::app_std_blob_types_::Endian;\nusing TextEncoding = ::app_std_blob_types_::TextEncoding;\nusing EncodingError = ::app_std_blob_types_::EncodingError;\nusing Instant = ::app_std_time_index_::Instant;\nnamespace doof_fs { using EntryKind = ::app_std_fs_types_::EntryKind; using IoError = ::app_std_fs_types_::IoError; using Instant = ::app_std_time_index_::Instant; using ::app_std_fs_types_::IoError_name; }\n")
-      copiedFs = true
-    }
-    if module.modulePath == "/std/path/index.do" && !copiedPath {
-      pathRoot := joinPath(absolutePath(stdlibRoot), "path")
-      try! writeText(driverOutputPath(outputDirectory, "native_path.hpp"), try! readText(joinPath(pathRoot, "native_path.hpp")))
-      copiedPath = true
-    }
-    if module.modulePath == "/std/blob/index.do" && !copiedBlob {
-      blobRoot := joinPath(absolutePath(stdlibRoot), "blob")
-      try! writeText(driverOutputPath(outputDirectory, "native_blob.hpp"), try! readText(joinPath(blobRoot, "native_blob.hpp")))
-      copiedBlob = true
-    }
-  }
-}
-
 class DriverSourceMapping {
   logicalPath: string
   diskPath: string
@@ -95,18 +69,27 @@ class DriverSourceRoot {
   diskRoot: string
 }
 
+class DriverReachedPackage {
+  acquisition: ModuleAcquisition
+  manifest: PackageManifest
+}
+
 class DriverSourceState {
   localMappings: DriverSourceMapping[]
   localRoots: DriverSourceRoot[]
   moduleSources: ModuleSource[]
-  stdlibRoot: string
+  acquisitions: ModuleAcquisition[]
+  reachedPackages: DriverReachedPackage[]
+  namespaceMappings: ModuleNamespaceMapping[]
 }
 
 let configuredDriverSourceState: DriverSourceState = DriverSourceState {
   localMappings: [],
   localRoots: [],
   moduleSources: [],
-  stdlibRoot: "",
+  acquisitions: [],
+  reachedPackages: [],
+  namespaceMappings: [],
 }
 
 function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
@@ -118,7 +101,7 @@ function driverSourceDiskPath(
   localMappings: DriverSourceMapping[],
   localRoots: DriverSourceRoot[],
   moduleSources: ModuleSource[],
-  stdlibRoot: string,
+  acquisitions: ModuleAcquisition[],
 ): string {
   for mapping of localMappings {
     if mapping.logicalPath == logicalPath { return mapping.diskPath }
@@ -135,9 +118,8 @@ function driverSourceDiskPath(
       return joinPath(root.diskRoot, logicalPath.substring(prefix.length, logicalPath.length))
     }
   }
-  if logicalPath.startsWith("/std/") && stdlibRoot != "" {
-    return joinPath(absolutePath(stdlibRoot), logicalPath.substring(5, logicalPath.length))
-  }
+  acquiredPath := acquiredModuleDiskPath(logicalPath, acquisitions)
+  if acquiredPath != null { return acquiredPath! }
   return logicalPath
 }
 
@@ -146,9 +128,9 @@ function loadDriverSource(
   localMappings: DriverSourceMapping[],
   localRoots: DriverSourceRoot[],
   moduleSources: ModuleSource[],
-  stdlibRoot: string,
+  acquisitions: ModuleAcquisition[],
 ): SourceFile | null {
-  diskPath := driverSourceDiskPath(logicalPath, localMappings, localRoots, moduleSources, stdlibRoot)
+  diskPath := driverSourceDiskPath(logicalPath, localMappings, localRoots, moduleSources, acquisitions)
   if !exists(diskPath) { return null }
   source := readText(diskPath) else {
     return null
@@ -156,13 +138,50 @@ function loadDriverSource(
   return SourceFile { path: logicalPath, source }
 }
 
-function configuredDriverSource(logicalPath: string): SourceFile | null => loadDriverSource(
-  logicalPath,
-  configuredDriverSourceState.localMappings,
-  configuredDriverSourceState.localRoots,
-  configuredDriverSourceState.moduleSources,
-  configuredDriverSourceState.stdlibRoot,
-)
+function configuredDriverSource(logicalPath: string): SourceFile | null {
+  source := loadDriverSource(
+    logicalPath,
+    configuredDriverSourceState.localMappings,
+    configuredDriverSourceState.localRoots,
+    configuredDriverSourceState.moduleSources,
+    configuredDriverSourceState.acquisitions,
+  )
+  if source != null {
+    package := acquiredPackageForLoadedSource(logicalPath, configuredDriverSourceState)
+    if package != null { registerReachedPackage(package!) }
+  }
+  return source
+}
+
+function acquiredPackageForLoadedSource(logicalPath: string, state: DriverSourceState): ModuleAcquisition | null {
+  for mapping of state.localMappings { if mapping.logicalPath == logicalPath { return null } }
+  for mapping of state.moduleSources {
+    if driverExternalLogicalPath(mapping.specifier) == logicalPath { return null }
+  }
+  for root of state.localRoots {
+    if logicalPath == root.logicalPrefix || logicalPath.startsWith(root.logicalPrefix + "/") { return null }
+  }
+  return acquiredPackageForModule(logicalPath, state.acquisitions)
+}
+
+function registerReachedPackage(acquisition: ModuleAcquisition): void {
+  for reached of configuredDriverSourceState.reachedPackages {
+    if reached.acquisition.logicalPrefix == acquisition.logicalPrefix && reached.acquisition.diskRoot == acquisition.diskRoot {
+      return
+    }
+  }
+
+  manifestPath := acquiredManifestPath(acquisition)
+  manifestSource := readText(manifestPath) else {
+    panic("Missing doof.json for acquired package " + acquisition.logicalPrefix + " at " + manifestPath)
+  }
+  manifest := try! parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, hostPlatform())
+  configuredDriverSourceState.reachedPackages.push(DriverReachedPackage { acquisition, manifest })
+  configuredDriverSourceState.namespaceMappings.push(ModuleNamespaceMapping {
+    logicalPrefix: acquisition.logicalPrefix,
+    packageName: manifest.name,
+  })
+}
 
 function driverSelfhostDiskRoot(path: string): string {
   marker := "/selfhost/"
@@ -176,7 +195,13 @@ function driverSelfhostDiskRoot(path: string): string {
   return ""
 }
 
-function sourceLoaderForRequest(entryPath: string, extraPaths: string[], moduleSources: ModuleSource[], stdlibRoot: string): SourceLoader {
+function sourceLoaderForRequest(
+  entryPath: string,
+  extraPaths: string[],
+  moduleSources: ModuleSource[],
+  stdlibRoot: string,
+  namespaceMappings: ModuleNamespaceMapping[],
+): SourceLoader {
   let localMappings: DriverSourceMapping[] = [driverSourceMapping(driverLogicalPath(entryPath), entryPath)]
   let localRoots: DriverSourceRoot[] = []
   selfhostRoot := driverSelfhostDiskRoot(entryPath)
@@ -187,8 +212,85 @@ function sourceLoaderForRequest(entryPath: string, extraPaths: string[], moduleS
     absolute := absolutePath(driverWithExtension(path))
     localMappings.push(driverSourceMapping(driverLogicalPath(absolute), absolute))
   }
-  configuredDriverSourceState = DriverSourceState { localMappings, localRoots, moduleSources, stdlibRoot }
+  let acquisitions: ModuleAcquisition[] = []
+  if stdlibRoot != "" {
+    acquisitions.push(ModuleAcquisition { logicalPrefix: "/std", diskRoot: absolutePath(stdlibRoot) })
+  }
+  configuredDriverSourceState = DriverSourceState {
+    localMappings,
+    localRoots,
+    moduleSources,
+    acquisitions,
+    reachedPackages: [],
+    namespaceMappings,
+  }
   return configuredDriverSource
+}
+
+function driverLogicalPrefix(path: string): string {
+  absolute := absolutePath(path)
+  if absolute.startsWith("/") { return driverSelfhostSuffix(absolute) }
+  return "/" + absolute
+}
+
+function driverPackageOutputRoot(logicalPrefix: string): string {
+  let start = 0
+  while start < logicalPrefix.length && logicalPrefix[start] == '/' { start = start + 1 }
+  return logicalPrefix.substring(start, logicalPrefix.length)
+}
+
+function projectNativePackages(projectRoot: string, projectManifest: PackageManifest): NativePackageInput[] {
+  let packages: NativePackageInput[] = [NativePackageInput {
+    logicalPrefix: driverLogicalPrefix(projectRoot),
+    outputRoot: "",
+    manifest: projectManifest,
+  }]
+  for reached of configuredDriverSourceState.reachedPackages {
+    packages.push(NativePackageInput {
+      logicalPrefix: reached.acquisition.logicalPrefix,
+      outputRoot: driverPackageOutputRoot(reached.acquisition.logicalPrefix),
+      manifest: reached.manifest,
+    })
+  }
+  return packages
+}
+
+function ensureOutputDirectory(path: string): void {
+  if path == "" || exists(path) { return }
+  parent := parentPath(path)
+  if parent != path { ensureOutputDirectory(parent) }
+  try! mkdir(path)
+}
+
+function materializeNativeCopy(sourcePath: string, outputPath: string): void {
+  if isDirectory(sourcePath) {
+    ensureOutputDirectory(outputPath)
+    for entry of try! readDir(sourcePath) {
+      materializeNativeCopy(joinPath(sourcePath, entry.name), joinPath(outputPath, entry.name))
+    }
+    return
+  }
+  ensureOutputDirectory(parentPath(outputPath))
+  try! writeBlob(outputPath, try! readBlob(sourcePath))
+}
+
+function materializeProject(outputDirectory: string, project: ProjectEmission): void {
+  ensureOutputDirectory(outputDirectory)
+  for module of project.modules {
+    try! writeText(driverOutputPath(outputDirectory, module.headerName), module.header)
+    try! writeText(driverOutputPath(outputDirectory, module.sourceName), module.source)
+  }
+  for supportFile of project.supportFiles {
+    outputPath := driverOutputPath(outputDirectory, supportFile.relativePath)
+    ensureOutputDirectory(parentPath(outputPath))
+    try! writeText(outputPath, supportFile.content)
+  }
+  for nativeCopy of project.nativeCopies {
+    materializeNativeCopy(
+      nativeCopy.sourcePath,
+      driverOutputPath(outputDirectory, nativeCopy.relativePath),
+    )
+  }
 }
 
 function materializeRuntimeHeader(outputDirectory: string): void {
@@ -200,17 +302,42 @@ function materializeRuntimeHeader(outputDirectory: string): void {
   try! writeText(driverOutputPath(outputDirectory, "doof_runtime.hpp"), try! readText(sourcePath))
 }
 
+function buildOutputName(projectName: string): string {
+  return projectName.replaceAll("/", "-").replaceAll("\\", "-")
+}
+
+function buildProject(request: CliRequest, outputDirectory: string, projectName: string, project: ProjectEmission): int {
+  if project.nativeBuild.pkgConfigPackages.length > 0 {
+    println("error: self-hosted build does not yet resolve pkg-config packages")
+    return 1
+  }
+  let compiler = request.compiler
+  if compiler == "" { compiler = environmentValue("CXX") }
+  if compiler == "" { compiler = "c++" }
+  outputPath := driverOutputPath(outputDirectory, buildOutputName(projectName))
+  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild)
+  exitCode := runNativeCompiler(plan.compiler, plan.arguments)
+  if exitCode != 0 {
+    println("error: native compiler exited with code " + string(exitCode))
+  }
+  return exitCode
+}
+
 function printDiagnostics(diagnostics: Diagnostic[]): void {
   for diagnostic of diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
 }
 
 function emitRequest(request: CliRequest): int {
-  project := readProjectSpec(request.entry)
+  project := readProjectSpec(request.entry, hostPlatform())
   entryPath := joinPath(project.rootDirectory, project.entry)
   entry := driverLogicalPath(entryPath)
   stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
-  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot)
-  result := compileWithLoader([], entry, loader)
+  let namespaceMappings: ModuleNamespaceMapping[] = [ModuleNamespaceMapping {
+    logicalPrefix: driverLogicalPrefix(project.rootDirectory),
+    packageName: project.name,
+  }]
+  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
+  result := compileWithLoader([], entry, loader, namespaceMappings)
   if result.diagnostics.length > 0 {
     printDiagnostics(result.diagnostics)
     return 1
@@ -221,13 +348,21 @@ function emitRequest(request: CliRequest): int {
   outputDirectory := if request.outputDirectory == ""
     then joinPath(project.rootDirectory, project.buildDirectory)
     else absolutePath(request.outputDirectory)
-  emission := result.emission!
-  for module of emission.modules {
-    try! writeText(driverOutputPath(outputDirectory, module.headerName), module.header)
-    try! writeText(driverOutputPath(outputDirectory, module.sourceName), module.source)
+  rootManifest := PackageManifest {
+    name: project.name,
+    manifestPath: project.manifestPath,
+    rootDirectory: project.rootDirectory,
+    nativeBuild: project.nativeBuild,
   }
-  materializeStdlibSupport(outputDirectory, environmentValue("DOOF_STDLIB_ROOT"), emission.modules)
+  emission := planProjectEmission(
+    result.emission!,
+    projectNativePackages(project.rootDirectory, rootManifest),
+  )
+  materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
+  if request.command == "build" {
+    return buildProject(request, outputDirectory, project.name, emission)
+  }
   return 0
 }
 

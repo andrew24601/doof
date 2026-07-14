@@ -6,9 +6,11 @@
 
 import { AnalysisResult, ModuleInfo, createAnalyzerWithLoader } from "./analyzer"
 import { emitModuleGraph, ModuleGraphEmission } from "./emitter-module"
+import { buildInstantiationPlan } from "./emitter-monomorphize"
+import { ModuleNamespaceMapping, configureModuleNamespaces } from "./emitter-names"
 import { createChecker, ModuleChecker, validateCheckedTypes } from "./checker"
 import { SourceLoader } from "./resolver"
-import { CheckResult, Diagnostic, SourceFile } from "./semantic"
+import { CheckResult, Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 
 export class Compilation {
   emission: ModuleGraphEmission | null
@@ -18,14 +20,25 @@ export class Compilation {
 function compilerNoSourceLoader(path: string): SourceFile | null => null
 
 export function compile(sources: SourceFile[], entry: string): Compilation {
-  return compileInternal(sources, entry, compilerNoSourceLoader)
+  return compileInternal(sources, entry, compilerNoSourceLoader, [])
 }
 
-export function compileWithLoader(sources: SourceFile[], entry: string, loader: SourceLoader): Compilation {
-  return compileInternal(sources, entry, loader)
+export function compileWithLoader(
+  sources: SourceFile[],
+  entry: string,
+  loader: SourceLoader,
+  namespaceMappings: ModuleNamespaceMapping[] = [],
+): Compilation {
+  return compileInternal(sources, entry, loader, namespaceMappings)
 }
 
-function compileInternal(sources: SourceFile[], entry: string, loader: SourceLoader): Compilation {
+function compileInternal(
+  sources: SourceFile[],
+  entry: string,
+  loader: SourceLoader,
+  namespaceMappings: ModuleNamespaceMapping[],
+): Compilation {
+  configureModuleNamespaces(namespaceMappings)
   analysis := createAnalyzerWithLoader(sources, loader).analyze(entry)
   let diagnostics: Diagnostic[] = []
   for diagnostic of analysis.diagnostics { diagnostics.push(diagnostic) }
@@ -46,7 +59,20 @@ function compileInternal(sources: SourceFile[], entry: string, loader: SourceLoa
   if diagnostics.length > 0 {
     return Compilation { emission: null, diagnostics }
   }
-  return Compilation { emission: emitModuleGraph(analysis, entry), diagnostics }
+  instantiations := buildInstantiationPlan(analysis)
+  if instantiations.overflow {
+    let trace = ""
+    for item of instantiations.overflowTrace { trace = trace + (if trace == "" then "" else " -> ") + item }
+    zero := SemanticLocation { line: 0, column: 0, offset: 0 }
+    diagnostics.push(Diagnostic {
+      severity: "error",
+      message: "Generic instantiation did not converge after 256 concrete instantiations" + (if trace == "" then "" else ": " + trace),
+      span: SemanticSpan { start: zero, end: zero },
+      module: entry,
+    })
+    return Compilation { emission: null, diagnostics }
+  }
+  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations), diagnostics }
 }
 
 // Analyzer discovery order is driven by import syntax, not by a fixed source

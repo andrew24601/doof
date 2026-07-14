@@ -6,14 +6,18 @@
 
 import {
   ClassDeclaration, ConstDeclaration, ExportDeclaration, FunctionDeclaration,
-  ImmutableBinding, LetDeclaration, Program, ReadonlyDeclaration, Statement,
+  ImmutableBinding, InterfaceDeclaration, LetDeclaration, Program, ReadonlyDeclaration, Statement, TypeAliasDeclaration,
 } from "./ast"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
-import { createEmitContext, createEmitContextForModule, EmitContext } from "./emitter-context"
-import { emitClassMethodDefinition, emitFunctionDefinition, emitGeneratedJsonMethods, emitStaticClassFieldDefinitions, emitValueDeclaration } from "./emitter-decl"
+import { createEmitContext, createEmitContextForModule, EmitContext, EmitModuleSurface } from "./emitter-context"
+import { emitClassDeclaration, emitClassMethodDefinition, emitFunctionDeclaration, emitFunctionDefinition, emitGeneratedJsonMethods, emitNativeFunctionAdapterDefinition, emitStaticClassFieldDefinitions, emitValueDeclaration } from "./emitter-decl"
 import { HeaderPlan, planHeader, renderHeader } from "./emitter-header"
+import { buildInstantiationPlan, ClassInstantiation, FunctionInstantiation, InstantiationPlan, MethodInstantiation, nativeTemplateClassKey } from "./emitter-monomorphize"
 import { moduleHeaderName, moduleNamespace, moduleSourceName } from "./emitter-names"
-import { ImportBinding, NamespaceBinding } from "./semantic"
+import {
+  ArrayResolvedType, ClassType, FunctionType, ImportBinding, InterfaceType, MapResolvedType, NamespaceBinding,
+  ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType, TypeSubstitution, UnionResolvedType,
+} from "./semantic"
 
 export class ModulePlan {
   path: string
@@ -72,12 +76,17 @@ export class CxxModuleEmitter {
   allPrograms: Program[] = []
   namespaceImports: NamespaceBinding[] = []
   imports: ImportBinding[] = []
+  moduleSurfaces: EmitModuleSurface[] = []
+  instantiations: InstantiationPlan | null = null
 
   function emit(program: Program, moduleIncludes: string[] = [], includeMain: bool = true): ModuleEmission {
     context := if modulePath == "" then createEmitContext(program) else createEmitContextForModule(program, modulePath, allPrograms)
     context.namespaceImports = namespaceImports
     context.imports = imports
+    context.moduleSurfaces = moduleSurfaces
+    if instantiations != null { configureInstantiationRegistry(context, instantiations!) }
     plan := planHeader(program, context)
+    if instantiations != null { addConcreteHeaderDeclarations(plan, context, instantiations!) }
     return emitPlanned([program], context, plan, includeMain, moduleIncludes)
   }
 
@@ -89,6 +98,7 @@ export class CxxModuleEmitter {
     header := renderHeader(plan, namespaceName)
     let source = "#include \"" + headerName + "\"\n#include <cmath>\n"
     for include of moduleIncludes { source = source + "#include \"" + include + "\"\n" }
+    if instantiations != null { source = source + concreteImplementationIncludes(context, instantiations!, moduleIncludes) }
     source = source + "\n"
     source = source + "namespace " + namespaceName + " {\n"
     source = source + emitImportedNamespaces(context)
@@ -97,6 +107,7 @@ export class CxxModuleEmitter {
         source = source + emitSourceStatement(statement, context)
       }
     }
+    if instantiations != null { source = source + emitConcreteFunctions(context, instantiations!) }
     source = source + "}\n"
     nativeMethods := emitNativeClassMethods(programs, context)
     if nativeMethods != "" {
@@ -105,6 +116,30 @@ export class CxxModuleEmitter {
     if includeMain && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
     return ModuleEmission { modulePath: context.modulePath, header, source, headerName, sourceName }
   }
+}
+
+// Interface variants only require forward declarations in headers, which
+// keeps cyclic module graphs legal. Translation units that dispatch through a
+// variant need each alternative complete for std::visit, so include those
+// implementation headers privately in the owning source file.
+function concreteImplementationIncludes(context: EmitContext, plan: InstantiationPlan, existingIncludes: string[]): string {
+  let includes: string[] = []
+  for interface_ of plan.interfaces {
+    if interface_.name != "Stream" && interface_.modulePath != context.modulePath { continue }
+    for implementation of interface_.implementations {
+      if implementation.modulePath == context.modulePath { continue }
+      include := moduleHeaderName(implementation.modulePath)
+      if !containsString(existingIncludes, include) { addNamespace(includes, include) }
+    }
+  }
+  let result = ""
+  for include of includes { result = result + "#include \"" + include + "\"\n" }
+  return result
+}
+
+function containsString(values: string[], value: string): bool {
+  for existing of values { if existing == value { return true } }
+  return false
 }
 
 function emitImportedNamespaces(context: EmitContext): string {
@@ -128,8 +163,9 @@ function addNamespace(namespaces: string[], namespace: string): void {
 }
 
 // Emit one header/source pair for every analyzed module.
-export function emitModuleGraph(result: AnalysisResult, entry: string = ""): ModuleGraphEmission {
+export function emitModuleGraph(result: AnalysisResult, entry: string = "", instantiations: InstantiationPlan | null = null): ModuleGraphEmission {
   graph := ModuleGraphEmission {}
+  concretePlan := instantiations ?? buildInstantiationPlan(result)
   plan := planModuleGraph(result)
   for module of plan.modules {
     info := findGraphModule(result, module.path)
@@ -143,10 +179,134 @@ export function emitModuleGraph(result: AnalysisResult, entry: string = ""): Mod
       allPrograms: allPrograms(result),
       namespaceImports: infoNamespaceImports(result, module.path),
       imports: infoImports(result, module.path),
+      moduleSurfaces: emitModuleSurfaces(result),
+      instantiations: concretePlan,
     }
     graph.modules.push(emitter.emit(info!.program, module.includes, module.path == entry))
   }
   return graph
+}
+
+function configureInstantiationRegistry(context: EmitContext, plan: InstantiationPlan): void {
+  for key of plan.nativeTemplateClassKeys { context.nativeTemplateClassKeys.push(key) }
+  for instantiation of plan.functions {
+    context.concreteFunctionKeys.push(instantiation.key)
+    context.concreteFunctionNames.push(instantiation.emittedName)
+  }
+  for instantiation of plan.classes {
+    context.concreteClassKeys.push(instantiation.key)
+    context.concreteClassNames.push(instantiation.emittedName)
+  }
+  for instantiation of plan.methods {
+    context.concreteMethodKeys.push(instantiation.key)
+    context.concreteMethodNames.push(instantiation.emittedName)
+  }
+  for instantiation of plan.interfaces {
+    context.concreteInterfaceKeys.push(instantiation.key)
+    context.concreteInterfaceNames.push(instantiation.emittedName)
+  }
+}
+
+function addConcreteHeaderDeclarations(plan: HeaderPlan, context: EmitContext, instantiations: InstantiationPlan): void {
+  for interface_ of instantiations.interfaces {
+    if interface_.name != "Stream" && interface_.modulePath != context.modulePath { continue }
+    let alternatives = ""
+    for implementation of interface_.implementations {
+      if alternatives != "" { alternatives = alternatives + ", " }
+      let typeName = implementation.typeName
+      if implementation.modulePath != context.modulePath {
+        namespace := moduleNamespace(implementation.modulePath)
+        plan.typeOnlyForwardDeclarations.push("namespace " + namespace + " { struct " + implementation.typeName + "; }\n")
+        typeName = "::" + namespace + "::" + typeName
+      }
+      alternatives = alternatives + "std::shared_ptr<" + typeName + ">"
+    }
+    if alternatives == "" { alternatives = "std::monostate" }
+    plan.interfaceAliases.push("using " + interface_.emittedName + " = std::variant<" + alternatives + ">;\n")
+  }
+  for instantiation of instantiations.classes {
+    if instantiation.modulePath != context.modulePath { continue }
+    for argument of instantiation.substitution.arguments { addConcreteTypeForwardDeclarations(plan, context, argument) }
+    plan.classForwardDeclarations.push("struct " + instantiation.emittedName + ";\n")
+    context.substitution = instantiation.substitution
+    let methods: MethodInstantiation[] = []
+    for method of instantiations.methods { if method.ownerKey == instantiation.key { methods.push(method) } }
+    plan.classDefinitions.push(emitClassDeclaration(instantiation.declaration, context, instantiation.emittedName, methods))
+    clearInstantiation(context)
+  }
+  for instantiation of instantiations.functions {
+    if instantiation.modulePath != context.modulePath { continue }
+    for argument of instantiation.substitution.arguments { addConcreteTypeForwardDeclarations(plan, context, argument) }
+    context.substitution = instantiation.substitution
+    signature := emitFunctionDeclaration(instantiation.declaration, instantiation.emittedName, context.modulePath, context)
+    if instantiation.declaration.native_ { plan.nativeAdapterSignatures.push(signature) }
+    else { plan.functionSignatures.push(signature) }
+    clearInstantiation(context)
+  }
+}
+
+function addConcreteTypeForwardDeclarations(plan: HeaderPlan, context: EmitContext, type_: ResolvedType): void {
+  case type_ {
+    class_: ClassType -> {
+      if class_.symbol.module != "" && class_.symbol.module != context.modulePath {
+        declaration := "namespace " + moduleNamespace(class_.symbol.module) + " { struct " + class_.name + "; }\n"
+        if !containsString(plan.typeOnlyForwardDeclarations, declaration) { plan.typeOnlyForwardDeclarations.push(declaration) }
+      }
+      for argument of class_.typeArgs { addConcreteTypeForwardDeclarations(plan, context, argument) }
+    }
+    interface_: InterfaceType -> { for argument of interface_.typeArgs { addConcreteTypeForwardDeclarations(plan, context, argument) } }
+    array: ArrayResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, array.elementType) }
+    map: MapResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, map.keyType); addConcreteTypeForwardDeclarations(plan, context, map.valueType) }
+    stream: StreamResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, stream.elementType) }
+    result_: ResultResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, result_.valueType); addConcreteTypeForwardDeclarations(plan, context, result_.errorType) }
+    tuple: TupleResolvedType -> { for element of tuple.elements { addConcreteTypeForwardDeclarations(plan, context, element) } }
+    union_: UnionResolvedType -> { for member of union_.types { addConcreteTypeForwardDeclarations(plan, context, member) } }
+    function_: FunctionType -> {
+      for parameter of function_.params { addConcreteTypeForwardDeclarations(plan, context, parameter.type_) }
+      addConcreteTypeForwardDeclarations(plan, context, function_.returnType)
+    }
+    _ -> { }
+  }
+}
+
+function emitConcreteFunctions(context: EmitContext, instantiations: InstantiationPlan): string {
+  let result = ""
+  for instantiation of instantiations.functions {
+    if instantiation.modulePath != context.modulePath { continue }
+    context.substitution = instantiation.substitution
+    if instantiation.declaration.native_ { result = result + emitNativeFunctionAdapterDefinition(instantiation.declaration, instantiation.emittedName, context) }
+    else { result = result + emitFunctionDefinition(instantiation.declaration, context, instantiation.emittedName) }
+    clearInstantiation(context)
+  }
+  return result
+}
+
+function withInstantiation(context: EmitContext, names: string[], arguments: ResolvedType[]): void {
+  context.substitution = TypeSubstitution { names, arguments }
+}
+
+function clearInstantiation(context: EmitContext): void {
+  context.substitution = null
+}
+
+function emitModuleSurfaces(result: AnalysisResult): EmitModuleSurface[] {
+  let surfaces: EmitModuleSurface[] = []
+  for module of result.modules {
+    let genericTypes: string[] = []
+    for statement of module.program.statements { collectGenericSurfaceTypes(statement, genericTypes) }
+    surfaces.push(EmitModuleSurface { path: module.path, exports: module.exports, imports: module.imports, genericTypes })
+  }
+  return surfaces
+}
+
+function collectGenericSurfaceTypes(statement: Statement, names: string[]): void {
+  case statement {
+    class_: ClassDeclaration -> { if class_.typeParams.length > 0 { names.push(class_.name) } }
+    interface_: InterfaceDeclaration -> { if interface_.typeParams.length > 0 { names.push(interface_.name) } }
+    alias: TypeAliasDeclaration -> { if alias.typeParams.length > 0 { names.push(alias.name) } }
+    export_: ExportDeclaration -> { collectGenericSurfaceTypes(export_.declaration, names) }
+    _ -> { }
+  }
 }
 
 function allPrograms(result: AnalysisResult): Program[] {
@@ -178,6 +338,7 @@ export function emitModule(program: Program, moduleName: string = "main"): Modul
 function emitSourceStatement(statement: Statement, context: EmitContext): string {
   case statement {
     fn: FunctionDeclaration -> {
+      if fn.typeParams.length > 0 { return "" }
       return emitFunctionDefinition(fn, context, if fn.name == "main" then "doof_main" else fn.name)
     }
     class_: ClassDeclaration -> {
@@ -189,8 +350,8 @@ function emitSourceStatement(statement: Statement, context: EmitContext): string
       result = result + emitGeneratedJsonMethods(class_, context)
       return result
     }
-    const_: ConstDeclaration -> { return emitValueDeclaration(const_, context) }
-    readonly_: ReadonlyDeclaration -> { return emitValueDeclaration(readonly_, context) }
+    const_: ConstDeclaration -> { return if const_.exported then "" else emitValueDeclaration(const_, context) }
+    readonly_: ReadonlyDeclaration -> { return if readonly_.exported then "" else emitValueDeclaration(readonly_, context) }
     binding: ImmutableBinding -> { return emitValueDeclaration(binding, context) }
     let_: LetDeclaration -> { return emitValueDeclaration(let_, context) }
     export_: ExportDeclaration -> { return emitSourceStatement(export_.declaration, context) }

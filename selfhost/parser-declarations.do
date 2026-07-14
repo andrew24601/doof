@@ -150,8 +150,7 @@ function parseTypeParameterNames(parser: Parser): string[] {
   if !parser.match(TokenType.Less) { return names }
   while !parser.check(TokenType.Greater) && !parser.atEnd() {
     names.push(parser.text(parser.expect(TokenType.Identifier)))
-    if !parser.match(TokenType.Colon) { }
-    if parser.check(TokenType.Colon) { parser.parseTypeAnnotation() }
+    if parser.match(TokenType.Colon) { parser.parseTypeAnnotation() }
     if !parser.match(TokenType.Comma) { break }
   }
   parser.expect(TokenType.Greater)
@@ -429,6 +428,7 @@ function parseNativeMethod(parser: Parser): FunctionDeclaration {
 function parseNativeFunction(parser: Parser, exported: bool, start: AstLocation): FunctionDeclaration {
   parser.expect(TokenType.Function)
   name := parser.text(parser.expect(TokenType.Identifier))
+  typeParams := parseTypeParameterNames(parser)
   parser.expect(TokenType.LeftParen)
   params := parseParameters(parser)
   parser.expect(TokenType.RightParen)
@@ -440,7 +440,7 @@ function parseNativeFunction(parser: Parser, exported: bool, start: AstLocation)
   if parser.match(TokenType.As) { cppName = parseCppQualifiedName(parser) }
   parser.consumeSemicolon()
   return FunctionDeclaration {
-    kind: "function-declaration", name, typeParams: [], params, returnType,
+    kind: "function-declaration", name, typeParams, params, returnType,
     body: Block { kind: "block", statements: [], span: parser.span(start) },
     exported, static_: false, isolated_: false, private_: false, bodyless: true,
     native_: true, nativeHeader: headerPath, nativeCppName: cppName, span: parser.span(start),

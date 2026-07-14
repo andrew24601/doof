@@ -138,21 +138,29 @@ function parseIfExpression(parser: Parser): Expression {
 
 function parsePostfix(parser: Parser): Expression {
   let expression = parsePrimary(parser)
+  let typeArgs: TypeAnnotation[] = []
   while true {
-    if parser.check(TokenType.Dot) || parser.check(TokenType.QuestionDot) || parser.check(TokenType.BangDot) {
+    if parser.check(TokenType.Less) && looksLikeGenericTypeArguments(parser) {
+      typeArgs = parseGenericCallTypeArguments(parser)
+    } else if parser.check(TokenType.Dot) || parser.check(TokenType.QuestionDot) || parser.check(TokenType.BangDot) {
       optional := parser.check(TokenType.QuestionDot)
       force := parser.check(TokenType.BangDot)
       parser.advance()
       property := parser.text(parser.expect(TokenType.Identifier, "Expected member name"))
       expression = MemberExpression { kind: "member-expression", object: expression, property, optional, force, span: SourceSpan { start: expression.span.start, end: parser.location() } }
+      typeArgs = []
     } else if parser.check(TokenType.LeftBracket) || parser.check(TokenType.QuestionBracket) {
       optional := parser.check(TokenType.QuestionBracket)
       parser.advance()
       index := parser.parseExpression()
       parser.expect(TokenType.RightBracket)
       expression = IndexExpression { kind: "index-expression", object: expression, index, optional, span: SourceSpan { start: expression.span.start, end: parser.location() } }
-    } else if parser.check(TokenType.LeftParen) {
-      expression = parseCall(parser, expression)
+    } else if parser.check(TokenType.LeftParen) && parser.sameLineAsPrevious() {
+      expression = parseCall(parser, expression, typeArgs)
+      typeArgs = []
+    } else if parser.check(TokenType.LeftBrace) && parser.immediatelyAfterPrevious() {
+      expression = parseNamedCall(parser, expression, typeArgs)
+      typeArgs = []
     } else if parser.check(TokenType.Bang) && parser.sameLineAsPrevious() {
       parser.advance()
       expression = UnaryExpression { kind: "non-null-assertion", operator: "!", operand: expression, prefix: false, span: SourceSpan { start: expression.span.start, end: parser.location() } }
@@ -163,7 +171,7 @@ function parsePostfix(parser: Parser): Expression {
   return expression
 }
 
-function parseCall(parser: Parser, callee: Expression): Expression {
+function parseCall(parser: Parser, callee: Expression, typeArgs: TypeAnnotation[] = []): Expression {
   parser.expect(TokenType.LeftParen)
   let args: CallArgument[] = []
   while !parser.check(TokenType.RightParen) && !parser.atEnd() {
@@ -173,10 +181,10 @@ function parseCall(parser: Parser, callee: Expression): Expression {
     if !parser.match(TokenType.Comma) { break }
   }
   parser.expect(TokenType.RightParen)
-  return CallExpression { kind: "call-expression", callee, args, span: SourceSpan { start: callee.span.start, end: parser.location() } }
+  return CallExpression { kind: "call-expression", callee, args, typeArgs, span: SourceSpan { start: callee.span.start, end: parser.location() } }
 }
 
-function parseNamedCall(parser: Parser, callee: Expression): Expression {
+function parseNamedCall(parser: Parser, callee: Expression, typeArgs: TypeAnnotation[] = []): Expression {
   parser.expect(TokenType.LeftBrace)
   let args: CallArgument[] = []
   while !parser.check(TokenType.RightBrace) && !parser.atEnd() {
@@ -188,7 +196,7 @@ function parseNamedCall(parser: Parser, callee: Expression): Expression {
     if !parser.match(TokenType.Comma) { break }
   }
   parser.expect(TokenType.RightBrace)
-  return CallExpression { kind: "call-expression", callee, args, span: SourceSpan { start: callee.span.start, end: parser.location() } }
+  return CallExpression { kind: "call-expression", callee, args, typeArgs, span: SourceSpan { start: callee.span.start, end: parser.location() } }
 }
 
 function parsePrimary(parser: Parser): Expression {
@@ -226,6 +234,12 @@ function parsePrimary(parser: Parser): Expression {
   if parser.check(TokenType.If) { return parseIfExpression(parser) }
   if parser.check(TokenType.Case) { return parser.parseCaseExpression() }
   if parser.check(TokenType.Arrow) { return parseParameterlessLambda(parser) }
+  if parser.check(TokenType.Readonly) && parser.peek(1).kind == TokenType.LeftBracket {
+    parser.advance()
+    array := parseArrayLiteral(parser)
+    array.readonly_ = true
+    return array
+  }
   if parser.check(TokenType.LeftBracket) { return parseArrayLiteral(parser) }
   if parser.check(TokenType.LeftParen) { return parseParenExpression(parser) }
   if parser.check(TokenType.LeftBrace) { return parseObjectLiteral(parser) }
@@ -241,7 +255,7 @@ function parsePrimary(parser: Parser): Expression {
       return MemberExpression { kind: "member-expression", object: Identifier { kind: "identifier", name, span: parser.span(start) }, property, optional: false, force: false, span: parser.span(start) }
     }
     let typeArgs: TypeAnnotation[] = []
-    if parser.check(TokenType.Less) && looksLikeGenericTypeArguments(parser) {
+    if startsWithUppercase(name) && parser.check(TokenType.Less) && looksLikeGenericTypeArguments(parser) {
       parser.advance()
       while !parser.check(TokenType.Greater) && !parser.atEnd() {
         typeArgs.push(parser.parseTypeAnnotation())
@@ -256,6 +270,17 @@ function parsePrimary(parser: Parser): Expression {
   }
   parser.fail("Expected an expression")
   return NullLiteral { kind: "null-literal", span: parser.span(start) }
+}
+
+function parseGenericCallTypeArguments(parser: Parser): TypeAnnotation[] {
+  let typeArgs: TypeAnnotation[] = []
+  parser.expect(TokenType.Less)
+  while !parser.check(TokenType.Greater) && !parser.atEnd() {
+    typeArgs.push(parser.parseTypeAnnotation())
+    if !parser.match(TokenType.Comma) { break }
+  }
+  parser.expect(TokenType.Greater)
+  return typeArgs
 }
 
 function parseStringLiteral(parser: Parser): Expression {
@@ -294,7 +319,7 @@ function parseStringLiteral(parser: Parser): Expression {
   return StringLiteral { kind: "string-literal", value, parts, interpolations, span: parser.span(start) }
 }
 
-function parseArrayLiteral(parser: Parser): Expression {
+function parseArrayLiteral(parser: Parser): ArrayLiteral {
   start := parser.location()
   parser.expect(TokenType.LeftBracket)
   let elements: Expression[] = []

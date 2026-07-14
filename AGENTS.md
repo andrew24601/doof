@@ -93,14 +93,19 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `parser-expressions.do` — precedence-climbing expression and literal parsing
 - `emitter-context.do` — nominal declarations and current method-owner context
 - `emitter-names.do` — stable generated module namespaces and artifact names
+- `emitter-monomorphize.do` — whole-program concrete generic instantiation discovery and naming
 - `emitter-types.do` — C++ type lowering
 - `emitter-expr.do` — expression lowering
+- `emitter-expr-lambda.do` — lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `emitter-stmt.do` — statement and control-flow lowering
 - `emitter-decl.do` — declaration lowering
 - `emitter-header.do` — header planning and rendering
 - `emitter-module.do` — `.hpp` / `.cpp` orchestration
-- `emitter-project.do` — monolithic bootstrap project emission
+- `emitter-project.do` — package-relative support files and native project emission planning
+- `native-build.do` — native compiler invocation planning for materialized projects
 - `compiler.do` — self-hosted graph checking and emission orchestration
+- `module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings
+- `package-manifest.do` — normalized package identity and host-platform `build.native` manifest parsing
 - `driver.do` — runnable B4/B5/B6 compiler driver and native filesystem boundary
 - `bootstrap.test.do` — maintained B2/B3 native syntax gates and B4/B5/B6 bootstrap acceptance tests
 

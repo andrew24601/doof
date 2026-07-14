@@ -25,6 +25,7 @@ export function emitNullLiteral(expected: ResolvedType | null): string {
               if class_.name == "Expression" || class_.name == "Statement" || class_.name == "TypeAnnotation" { return "std::monostate{}" }
               return "nullptr"
             }
+            _: ArrayResolvedType -> { return "nullptr" }
             _ -> { }
           }
         }

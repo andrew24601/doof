@@ -25,6 +25,14 @@ export function testParsesCheckWithoutOutput(): void {
   Assert.equal(result.request!.sourcePaths.length, 2)
 }
 
+export function testParsesBuildCompiler(): void {
+  result := parseCli(["build", "main.do", "--compiler", "clang++"])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request != null, true)
+  Assert.equal(result.request!.command, "build")
+  Assert.equal(result.request!.compiler, "clang++")
+}
+
 export function testAllowsManifestDefaults(): void {
   result := parseCli(["emit", "main.do"])
   Assert.equal(result.error, "")
@@ -41,11 +49,11 @@ export function testAllowsOmittedEntryForProjectDiscovery(): void {
 }
 
 export function testRejectsUnknownCommandsAndOptions(): void {
-  unknownCommand := parseCli(["build", "main.do"])
-  Assert.equal(unknownCommand.error, "unknown command 'build'")
+  unknownCommand := parseCli(["bundle", "main.do"])
+  Assert.equal(unknownCommand.error, "unknown command 'bundle'")
 
-  unknownOption := parseCli(["check", "main.do", "--compiler", "clang++"])
-  Assert.equal(unknownOption.error, "unknown option '--compiler'")
+  unknownOption := parseCli(["check", "main.do", "--wat"])
+  Assert.equal(unknownOption.error, "unknown option '--wat'")
 }
 
 export function testRejectsInvalidExternalModuleMappings(): void {

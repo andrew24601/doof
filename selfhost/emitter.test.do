@@ -20,6 +20,15 @@ function emitSources(sources: SourceFile[], entry: string): ModuleEmission {
   return emitModule(program!, "main")
 }
 
+function emitMonomorphized(source: string): ModuleEmission {
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(analysis.diagnostics.length, 0)
+  checked := createChecker(analysis).check("/main.do")
+  Assert.equal(checked.diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  return graph.modules[0]
+}
+
 function emitFile(path: string): ModuleEmission {
   source := try! readText(path)
   semantic := try! readText("selfhost/semantic.do")
@@ -33,14 +42,14 @@ function emitAstProject(): ModuleGraphEmission {
   ast := try! readText("selfhost/ast.do")
   semantic := try! readText("selfhost/semantic.do")
   analysis := createAnalyzer([
-    SourceFile { path: "/main.do", source: ast },
-    SourceFile { path: "/semantic.do", source: semantic },
-  ]).analyze("/main.do")
+    SourceFile { path: "/selfhost/ast.do", source: ast },
+    SourceFile { path: "/selfhost/semantic.do", source: semantic },
+  ]).analyze("/selfhost/ast.do")
   Assert.equal(analysis.diagnostics.length, 0)
   checker := createChecker(analysis)
-  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
-  Assert.equal(checker.check("/semantic.do").diagnostics.length, 0)
-  return emitModuleGraph(analysis, "/main.do")
+  Assert.equal(checker.check("/selfhost/semantic.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/selfhost/ast.do").diagnostics.length, 0)
+  return emitModuleGraph(analysis, "/selfhost/ast.do")
 }
 
 function findProgram(analysis: AnalysisResult, path: string): Program | null {
@@ -61,6 +70,43 @@ export function testEmitsCheckedCoreExpressions(): void {
   Assert.equal(result.source.contains("std::make_shared<std::vector<int32_t>>"), true)
   Assert.equal(result.source.contains("(*values)[1]"), true)
   Assert.equal(result.source.contains("return ("), true)
+}
+
+export function testEmitsArrayAndStringSearchMembers(): void {
+  result := emit("function main(): int { values := [1, 2, 3]\ntext := \"hello\"\nif values.contains(2) && text.contains(\"ell\") { return values.indexOf(3) + text.indexOf(\"e\") }\nreturn 0 }")
+  Assert.equal(result.source.contains("doof::array_contains(values, 2"), true)
+  Assert.equal(result.source.contains("doof::array_indexOf(values, 3"), true)
+  Assert.equal(result.source.contains("doof::string_contains(text, "), true)
+  Assert.equal(result.source.contains("doof::string_indexOf(text, "), true)
+}
+
+export function testEmitsReadonlyArrayAndGenericNamedCall(): void {
+  result := emitMonomorphized("function create<T>(value: T, count: int = 1): T => value\nfunction main(): string { values := readonly [1, 2]\nreturn create<string>{ value: \"ok\" } }")
+  Assert.equal(result.header.contains("create__string"), true)
+  Assert.equal(result.header.contains("T create("), false)
+  Assert.equal(result.source.contains("create__string(std::string(\"ok\"), 1)"), true)
+  Assert.equal(result.source.contains("std::make_shared<std::vector<int32_t>>"), true)
+}
+
+export function testEmitsGenericTupleDestructuring(): void {
+  result := emitMonomorphized("function pair<T>(value: T): Tuple<T, T> => (value, value)\nfunction main(): int { (first, second) := pair<int>(1)\nreturn first + second }")
+  Assert.equal(result.source.contains("pair__int(1)"), true)
+  Assert.equal(result.source.contains("std::get<0>(_destructure_"), true)
+  Assert.equal(result.source.contains("std::get<1>(_destructure_"), true)
+}
+
+export function testEmitsDeclarationElseNarrowingAndCapture(): void {
+  result := emit("function load(): Result<int, string> => Success { value: 4 }\nfunction main(): int { value := load() else error { println(error)\nreturn 1 }\nreturn value }")
+  Assert.equal(result.source.contains("if (doof::is_failure(_binding_value_"), true)
+  Assert.equal(result.source.contains("const auto error = doof::failure_error(_binding_value_"), true)
+  Assert.equal(result.source.contains("const auto value = doof::success_value(_binding_value_"), true)
+}
+
+export function testEmitsNullableAndDiscardDeclarationElse(): void {
+  result := emit("function maybe(): string | null => \"ok\"\nfunction save(): Result<void, string> => Success()\nfunction main(): int { name := maybe() else { return 1 }\n_ := save() else error { println(error) }\nreturn name.length }")
+  Assert.equal(result.source.contains("if (doof::is_null(_binding_value_"), true)
+  Assert.equal(result.source.contains("const auto name = doof::unwrap_optional(_binding_value_"), true)
+  Assert.equal(result.source.contains("const auto _ ="), false)
 }
 
 export function testEmitsClassesMethodsAndConstruction(): void {
@@ -108,7 +154,10 @@ export function testEmitsSelfhostAstAndSemanticProject(): void {
   Assert.equal(result.modules.length, 2)
   Assert.equal(result.modules[0].header.contains("struct Program"), true)
   Assert.equal(result.modules[1].header.contains("struct Symbol"), true)
-  Assert.equal(result.modules[0].header.contains("namespace app_main_"), true)
+  Assert.equal(result.modules[1].header.contains("std::variant<std::monostate, std::shared_ptr<PrimitiveType>"), true)
+  Assert.equal(result.modules[1].header.contains("returnType = std::monostate{};"), true)
+  Assert.equal(result.modules[1].header.contains("thisType = std::monostate{};"), true)
+  Assert.equal(result.modules[0].header.contains("namespace app_selfhost_ast_"), true)
 }
 
 export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
@@ -129,6 +178,13 @@ export function testEmitsAssignmentsAndArrayLoops(): void {
   result := emit("function main(): int { let values: int[] = [1, 2]\nvalues[0] = 4\nlet total = 0\nfor item of values { total = total + item }\nreturn total }")
   Assert.equal(result.source.contains("(*values)[0]"), true)
   Assert.equal(result.source.contains("for (const auto& item : *values)"), true)
+}
+
+export function testEmitsStringCaseAndCallbackCallMembers(): void {
+  result := emit("function invoke(handler: (): void): string { handler.call()\nreturn \"HTTP\".toLowerCase() }")
+  Assert.equal(result.source.contains("handler.call()"), true)
+  Assert.equal(result.source.contains("doof::string_toLowerCase("), true)
+  Assert.equal(result.source.contains("HTTP"), true)
 }
 
 export function testAvoidsRedundantConditionParentheses(): void {
@@ -164,6 +220,41 @@ export function testEmitsNativeClassInterop(): void {
   Assert.equal(result.source.contains("std::shared_ptr<::native::Client> native::Client::same()"), true)
   Assert.equal(result.source.contains("this->shared_from_this()"), true)
   Assert.equal(result.source.contains("client->get()"), true)
+}
+
+export function testEmitsImportedTypeAliasesForNativeNamespaces(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "export { EncodingError } from \"./types\"\nimport class Native from \"native.hpp\" as doof_blob::Native { error(): EncodingError }\nfunction read(value: Native): EncodingError => value.error()" },
+    SourceFile { path: "/types.do", source: "export enum EncodingError { Invalid }" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/types.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let header = ""
+  for module of graph.modules { if module.modulePath == "/main.do" { header = module.header } }
+  Assert.equal(header.contains("namespace doof_blob { using EncodingError = ::app_types_::EncodingError; }"), true)
+}
+
+export function testEmitsNativeAliasesForImportedModuleTypeSurface(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { FileInfo, IoError } from \"./types\"\nexport { EntryKind } from \"./types\"\nimport class NativeReader from \"native.hpp\" as NativeReader { error(): IoError }\nexport import function metadata(path: string): Result<FileInfo, IoError> from \"native.hpp\" as doof_fs::metadata" },
+    SourceFile { path: "/types.do", source: "import { Instant } from \"./time\"\nexport enum EntryKind { File }\nexport enum IoError { Other }\nexport class FileInfo { kind: EntryKind\nmodifiedAt: Instant }" },
+    SourceFile { path: "/time.do", source: "export class Instant {}\nexport class Duration {}" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/time.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/types.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let header = ""
+  for module of graph.modules { if module.modulePath == "/main.do" { header = module.header } }
+  Assert.equal(header.contains("namespace doof_fs { using EntryKind = ::app_types_::EntryKind; }"), true)
+  Assert.equal(header.contains("namespace doof_fs { using Instant = ::app_time_::Instant; }"), true)
+  Assert.equal(header.contains("using IoError = ::app_types_::IoError;"), true)
+  Assert.equal(header.contains("using Duration = ::app_time_::Duration;"), false)
 }
 
 export function testEmitsInterfaceVariantsAndDispatch(): void {

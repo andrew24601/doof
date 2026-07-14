@@ -5,15 +5,15 @@
 // place signatures in headers and bodies in sources.
 
 import {
-  Block, Expression, ExpressionStatement, IfStatement, LetDeclaration, ImmutableBinding, NullLiteral,
+  Block, Expression, ExpressionStatement, IfStatement, LetDeclaration, ImmutableBinding,
   ReadonlyDeclaration, ConstDeclaration, ReturnStatement, Statement,
-  WhileStatement, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
-  Identifier, BreakStatement, ContinueStatement, ForOfStatement, ForStatement, BinaryExpression,
+  WhileStatement, CaseStatement, NamedType, TypePattern, ValuePattern, WildcardPattern,
+  Identifier, BreakStatement, ContinueStatement, DestructuringStatement, ForOfStatement, ForStatement, BinaryExpression,
   TryStatement,
 } from "./ast"
 import type { TypeAnnotation } from "./ast"
-import { InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType } from "./semantic"
-import { EmitContext } from "./emitter-context"
+import { ArrayResolvedType, InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
+import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { emitType } from "./emitter-types"
 
@@ -42,6 +42,7 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
     while_: WhileStatement -> { return emitWhile(while_, level, context) }
     forOf: ForOfStatement -> { return emitForOf(forOf, level, context) }
     for_: ForStatement -> { return emitFor(for_, level, context) }
+    destructuring: DestructuringStatement -> { return emitDestructuring(destructuring, level, context) }
     try_: TryStatement -> { return emitTry(try_, level, context) }
     _: BreakStatement -> { return ind + "break;\n" }
     _: ContinueStatement -> { return ind + "continue;\n" }
@@ -49,6 +50,34 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
     _ -> { panic("Unsupported statement in initial C++ emitter: " + statement.kind) }
   }
   return ""
+}
+
+function emitDestructuring(statement: DestructuringStatement, level: int, context: EmitContext): string {
+  ind := indent(level)
+  context.tryCounter = context.tryCounter + 1
+  temporaryName := "_destructure_" + string(context.tryCounter)
+  let result = ind + "auto " + temporaryName + " = " + emitExpression(statement.value, context) + ";\n"
+  sourceType := statement.value.resolvedType
+  for i of 0..<statement.bindings.length {
+    name := statement.bindings[i]
+    if name != "_" {
+      qualifier := if statement.bindingKind == "let" then "auto" else "const auto"
+      let value = "std::get<" + string(i) + ">(" + temporaryName + ")"
+      if sourceType != null {
+        case sourceType! {
+          _: ArrayResolvedType -> { value = "(*" + temporaryName + ")[" + string(i) + "]" }
+          _: TupleResolvedType -> { }
+          _ -> { }
+        }
+      }
+      if statement.kind.endsWith("-assignment") {
+        result = result + ind + cppIdentifier(name) + " = " + value + ";\n"
+      } else {
+        result = result + ind + qualifier + " " + cppIdentifier(name) + " = " + value + ";\n"
+      }
+    }
+  }
+  return result
 }
 
 function emitBindingElse(binding: ImmutableBinding, level: int, context: EmitContext): string {
@@ -59,14 +88,22 @@ function emitBindingElse(binding: ImmutableBinding, level: int, context: EmitCon
   if binding.value.resolvedType != null && isSingleOptional(binding.value.resolvedType!) {
     let output = ind + "auto " + temporaryName + " = " + emitExpression(binding.value, context) + ";\n"
     output = output + ind + "if (doof::is_null(" + temporaryName + ")) {\n"
+    if binding.failureName == null && binding.name != "_" { output = output + indent(level + 1) + "const auto& " + cppIdentifier(binding.name) + " = " + temporaryName + ";\n" }
     output = output + emitBlock(binding.else_!, level + 1, context)
     output = output + ind + "}\n"
+    if binding.name == "_" { return output }
     return output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::unwrap_optional(" + temporaryName + ");\n"
   }
   let output = ind + "auto " + temporaryName + " = " + emitExpression(binding.value, context) + ";\n"
   output = output + ind + "if (doof::is_failure(" + temporaryName + ")) {\n"
+  if binding.failureName != null && binding.failureName! != "_" {
+    output = output + indent(level + 1) + "const auto " + cppIdentifier(binding.failureName!) + " = doof::failure_error(" + temporaryName + ");\n"
+  } else if binding.name != "_" {
+    output = output + indent(level + 1) + "const auto& " + cppIdentifier(binding.name) + " = " + temporaryName + ";\n"
+  }
   output = output + emitBlock(binding.else_!, level + 1, context)
   output = output + ind + "}\n"
+  if binding.name == "_" { return output }
   return output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::success_value(" + temporaryName + ");\n"
 }
 
@@ -117,6 +154,9 @@ function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotat
   let prefix = if readonly_ then "const " else ""
   let expected: ResolvedType | null = resolvedType
   let valueText = emitExpression(value, context, expected)
+  if !readonly_ && isCapturedMutable(context, name) {
+    return ind + "auto " + cppIdentifier(name) + " = std::make_shared<" + emitType(resolvedType!, context.modulePath) + ">(" + valueText + ");\n"
+  }
   return ind + prefix + typeText + " " + cppIdentifier(name) + " = " + valueText + ";\n"
 }
 
@@ -142,6 +182,24 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
           if type_.resolvedPatternKind == "expression" || type_.resolvedPatternKind == "statement" || type_.resolvedPatternKind == "type-annotation" {
             condition = "doof::is_expression(" + subject + ")"
             if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = doof::expression_value(" + subject + ");\n" }
+          } else if isResultCasePattern(type_) {
+            case type_.resolvedType! {
+              resultType: ResultResolvedType -> {
+                let armType = ""
+                case type_.type_ {
+                  named: NamedType -> {
+                    if named.name == "Success" { armType = "doof::Success<" + emitType(resultType.valueType, context.modulePath) + ">" }
+                    if named.name == "Failure" { armType = "doof::Failure<" + emitType(resultType.errorType, context.modulePath) + ">" }
+                  }
+                  _ -> { }
+                }
+                if armType != "" {
+                  condition = "std::holds_alternative<" + armType + ">(" + subject + ")"
+                  if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(" + subject + ");\n" }
+                }
+              }
+              _ -> { }
+            }
           } else if variant {
             if type_.resolvedType == null { panic("Case pattern has no resolved type") }
             typeName := emitType(type_.resolvedType!, context.modulePath)
@@ -171,6 +229,14 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
     }
   }
   return result + ind + "}\n"
+}
+
+function isResultCasePattern(pattern: TypePattern): bool {
+  if pattern.resolvedType == null { return false }
+  case pattern.resolvedType! {
+    _: ResultResolvedType -> { return true }
+    _ -> { return false }
+  }
 }
 
 function caseSubjectType(expression: Expression): ResolvedType | null {
@@ -212,21 +278,7 @@ function hasTypePattern(statement: CaseStatement): bool {
 function emitReturn(statement: ReturnStatement, context: EmitContext): string {
   if statement.value == null { return "return;\n" }
   expected := statement.resolvedExpectedType
-  let value = emitExpression(statement.value!, context, expected)
-  let nullValue = false
-  case statement.value! {
-    _: NullLiteral -> { nullValue = true }
-    _ -> { }
-  }
-  if context.currentFunctionName == "parseOptionalType" {
-    if nullValue { value = "std::monostate{}" }
-    else { value = "doof::optional_value(" + value + ")" }
-  }
-  if context.currentReturnVariantOptional && context.currentFunctionName != "parseOptionalType" {
-    if nullValue { value = "std::monostate{}" }
-    else { value = "doof::optional_value(" + value + ")" }
-  }
-  return "return " + value + ";\n"
+  return "return " + emitExpression(statement.value!, context, expected) + ";\n"
 }
 
 function emitIf(statement: IfStatement, level: int, context: EmitContext): string {
@@ -266,8 +318,8 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
   if statement.iterable.resolvedType != null {
     case statement.iterable.resolvedType! {
       _: StreamResolvedType -> {
-        return ind + "while (" + iterable + "->next()) {\n" +
-          ind + "    const auto " + name + " = " + iterable + "->value();\n" +
+        return ind + "while (std::visit([](auto&& _obj) { return _obj->next(); }, " + iterable + ")) {\n" +
+          ind + "    const auto " + name + " = std::visit([](auto&& _obj) { return _obj->value(); }, " + iterable + ");\n" +
           emitBlock(statement.body, level + 1, context) + ind + "}\n"
       }
       _ -> { }

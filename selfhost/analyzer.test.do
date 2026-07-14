@@ -45,6 +45,14 @@ export function testDecoratesNamedTypes(): void {
   }
 }
 
+export function testRecognizesBuiltinTupleType(): void {
+  result := createAnalyzer([SourceFile {
+    path: "/main.do",
+    source: "function pair<T>(value: T): Tuple<T, T> => (value, value)",
+  }]).analyze("/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testResolvesReExportsToDefiningModule(): void {
   sources := [
     SourceFile { path: "/main.do", source: "import { sum } from \"./index\"\nfunction main(): int => sum(1, 2)" },

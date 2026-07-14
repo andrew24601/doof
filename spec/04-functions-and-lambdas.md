@@ -249,6 +249,17 @@ type BinaryOp = (a: int, b: int): int
 let add: BinaryOp = => a + b  // a and b from signature
 ```
 
+### Closure Capture Lifetime
+
+Lambdas capture immutable outer bindings by value. A mutable `let` binding
+captured by a lambda remains shared mutable state even when the lambda escapes
+the declaring function; reads and writes through all closures observe the same
+binding. Mutable locals that are not captured retain ordinary local lifetime.
+
+Function values remain actor-affine callbacks regardless of their capture set.
+Capture lifetime does not bypass the owning-actor checks described in
+[Concurrency](10-concurrency.md#actor-affine-callbacks).
+
 ### Flexible Parameter Specification
 
 When explicitly naming parameters, you can specify **any subset in any order** — the names unambiguously bind to the signature:

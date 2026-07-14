@@ -281,12 +281,17 @@ statement checking, and scope mutation:
   only the first arm's type
 - declaration-`else` handlers must exit only when a narrowed binding is introduced after the handler
 - Result statement-`else` and `_ := result else ...` handlers mark the Result as handled without requiring scope exit
+- the self-hosted checker follows the same scope split: the handler sees the
+  original subject or failure payload, while only the narrowed binding is
+  declared in the surrounding scope after a non-completing handler; calls to
+  the builtin `panic` count as non-completing after identifier resolution
 
 Primary modules:
 
 - `src/checker-result.ts`
 - `src/checker-stmt.ts`
 - `src/checker-expr.ts`
+- `selfhost/checker.do`
 
 Keep aligned:
 
@@ -300,6 +305,7 @@ Validation anchors:
 
 - `src/checker-features.test.ts`
 - `src/checker-inference.test.ts`
+- `selfhost/checker.test.do`
 - `spec/08-errors-and-results.md`
 
 ## Built-in Range Values

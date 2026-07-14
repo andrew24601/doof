@@ -6,10 +6,12 @@
 
 import { readText } from "std/fs"
 import { parseJsonValue } from "std/json"
+import { NativeBuildPlan, parsePackageManifest } from "./package-manifest"
 
 export import function projectManifestPath(path: string): string from "doof_runtime.hpp" as doof::project_manifest_path
 export import function isDirectory(path: string): bool from "doof_runtime.hpp" as doof::is_directory
 export import function fileName(path: string): string from "doof_runtime.hpp" as doof::file_name
+export import function parentPath(path: string): string from "doof_runtime.hpp" as doof::parent_path
 export import function joinPath(directory: string, name: string): string from "doof_runtime.hpp" as doof::join_path
 export import function jsonObject(value: JsonValue): JsonObject from "doof_runtime.hpp" as doof::json_object
 export import function jsonField(object: JsonObject, name: string): JsonValue from "doof_runtime.hpp" as doof::json_field
@@ -24,9 +26,10 @@ export class ProjectSpec {
   entry: string
   buildDirectory: string
   hasManifest: bool
+  nativeBuild: NativeBuildPlan
 }
 
-export function readProjectSpec(requestedPath: string): ProjectSpec {
+export function readProjectSpec(requestedPath: string, platform: string = ""): ProjectSpec {
   absolute := absolutePath(requestedPath)
   directory := if isDirectory(absolute) then absolute else absolutePath(joinPath(absolute, ".."))
   manifest := projectManifestPath(absolute)
@@ -39,11 +42,15 @@ export function readProjectSpec(requestedPath: string): ProjectSpec {
       entry: fallbackEntry,
       buildDirectory: "build",
       hasManifest: false,
+      nativeBuild: NativeBuildPlan {},
     }
   }
 
-  root := jsonObject(try! parseJsonValue(try! readText(manifest)))
-  let name = fileName(directory)
+  packageDirectory := parentPath(manifest)
+  manifestSource := try! readText(manifest)
+  packageManifest := try! parsePackageManifest(manifestSource, manifest, packageDirectory, platform)
+  root := jsonObject(try! parseJsonValue(manifestSource))
+  let name = fileName(packageDirectory)
   if jsonHas(root, "name") { name = jsonString(jsonField(root, "name")) }
   let entry = "main.do"
   let buildDirectory = "build"
@@ -56,11 +63,12 @@ export function readProjectSpec(requestedPath: string): ProjectSpec {
   // directory (or omitting the argument) selects build.entry from doof.json.
   if !isDirectory(absolute) { entry = absolute }
   return ProjectSpec {
-    rootDirectory: directory,
+    rootDirectory: packageDirectory,
     manifestPath: manifest,
     name,
     entry,
     buildDirectory,
     hasManifest: true,
+    nativeBuild: packageManifest.nativeBuild,
   }
 }

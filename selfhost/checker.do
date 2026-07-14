@@ -29,10 +29,10 @@ import {
 } from "./ast"
 import type { Parameter } from "./ast"
 import {
-  arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
+  applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
   nullType, numericResult, primitive, sameType, tupleType, typeName, unionType,
-  typeParameter, unknownType, voidType,
+  substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
 
 export class ModuleChecker {
@@ -64,7 +64,9 @@ export class ModuleChecker {
       interface_: InterfaceDeclaration -> { checkInterface(interface_, scope); return true }
       enum_: EnumDeclaration -> { checkEnum(enum_, scope); return true }
       alias: TypeAliasDeclaration -> {
-        resolvedAlias := resolveType(alias.type_, info!, scope)
+        aliasScope := Scope { parent: scope }
+        for typeParam of alias.typeParams { aliasScope.typeParams.push(typeParam) }
+        resolvedAlias := resolveType(alias.type_, info!, aliasScope)
         case resolvedAlias {
           union_: UnionResolvedType -> { union_.aliasName = alias.name; union_.aliasModule = info!.path }
           _ -> { }
@@ -144,8 +146,36 @@ export class ModuleChecker {
         return true
       }
       return_: ReturnStatement -> { return checkReturn(return_, scope) }
-      expression: ExpressionStatement -> { checkExpression(expression.expression, scope, null); return true }
-      destructuring: DestructuringStatement -> { checkExpression(destructuring.value, scope, null); return true }
+      expression: ExpressionStatement -> {
+        checkExpression(expression.expression, scope, null)
+        return !isPanicCall(expression.expression)
+      }
+      destructuring: DestructuringStatement -> {
+        valueType := checkExpression(destructuring.value, scope, null)
+        if !destructuring.kind.endsWith("-assignment") {
+          let bindingTypes: ResolvedType[] = []
+          case valueType {
+            tuple: TupleResolvedType -> { for element of tuple.elements { bindingTypes.push(element) } }
+            array: ArrayResolvedType -> { for ignoredName of destructuring.bindings { bindingTypes.push(array.elementType) } }
+            _ -> { }
+          }
+          for i of 0..<destructuring.bindings.length {
+            name := destructuring.bindings[i]
+            if name != "_" {
+              bindingType := if i < bindingTypes.length then bindingTypes[i] else unknownType()
+              declare(scope, Binding {
+                name,
+                kind: if destructuring.bindingKind == "let" then "let" else "immutable-binding",
+                type_: bindingType,
+                mutable: destructuring.bindingKind == "let",
+                span: checkerSemanticSpan(destructuring.span),
+                module: info!.path,
+              })
+            }
+          }
+        }
+        return true
+      }
       try_: TryStatement -> { return checkTry(try_, scope) }
       _: ContinueStatement -> { return true }
       _: BreakStatement -> { return true }
@@ -161,33 +191,55 @@ export class ModuleChecker {
     let value: Expression = NullLiteral { kind: "null-literal", span: declaration.span }
     let span = declaration.span
     let elseBlock: Block | null = null
+    let failureName: string | null = null
     case declaration {
       const_: ConstDeclaration -> { name = const_.name; annotation = const_.type_; value = const_.value }
       readonly_: ReadonlyDeclaration -> { name = readonly_.name; annotation = readonly_.type_; value = readonly_.value }
-      binding: ImmutableBinding -> { name = binding.name; annotation = binding.type_; value = binding.value; elseBlock = binding.else_ }
+      binding: ImmutableBinding -> { name = binding.name; annotation = binding.type_; value = binding.value; elseBlock = binding.else_; failureName = binding.failureName }
       let_: LetDeclaration -> { name = let_.name; annotation = let_.type_; value = let_.value }
       _ -> { return true }
     }
     let expectedValueType: ResolvedType | null = null
-    if annotation != null { expectedValueType = optionalResolvedType(resolveType(annotation!, info!, scope)) }
+    if annotation != null && elseBlock == null { expectedValueType = optionalResolvedType(resolveType(annotation!, info!, scope)) }
     valueType := checkExpression(value, scope, expectedValueType)
     let declaredType: ResolvedType = valueType
     if annotation != null { declaredType = resolveType(annotation!, info!, scope) }
     if elseBlock != null {
+      let narrowedType: ResolvedType = unknownType()
+      let failureType: ResolvedType | null = null
+      let validElseSubject = true
       case valueType {
         result: ResultResolvedType -> {
-          checkBlock(elseBlock!, scope)
-          if annotation == null { declaredType = result.valueType }
+          narrowedType = result.valueType
+          failureType = optionalResolvedType(result.errorType)
         }
         union_: UnionResolvedType -> {
           if hasNullMember(union_) {
-            checkBlock(elseBlock!, scope)
-            if annotation == null { declaredType = nonNullType(valueType) }
+            narrowedType = nonNullType(valueType)
           } else {
             typeError("declaration-else requires a nullable expression", span)
+            validElseSubject = false
           }
         }
-        _ -> { typeError("declaration-else requires a Result expression", span) }
+        _ -> { typeError("declaration-else requires a Result or nullable expression", span); validElseSubject = false }
+      }
+      if annotation == null { declaredType = narrowedType }
+      else if validElseSubject && !isAssignable(narrowedType, declaredType) {
+        typeError("Cannot assign " + typeName(narrowedType) + " to " + typeName(declaredType), span)
+      }
+      elseScope := Scope { parent: scope }
+      if failureName != null {
+        if failureType == null {
+          typeError("declaration-else failure capture requires a Result expression", span)
+        } else if failureName! != "_" {
+          declare(elseScope, Binding { name: failureName!, kind: "else-failure", type_: failureType!, mutable: false, span: checkerSemanticSpan(span), module: info!.path })
+        }
+      } else if name != "_" {
+        declare(elseScope, Binding { name, kind: "else-subject", type_: valueType, mutable: false, span: checkerSemanticSpan(span), module: info!.path })
+      }
+      handlerCompletes := checkBlock(elseBlock!, elseScope)
+      if name != "_" && handlerCompletes {
+        typeError("Declaration-else block must exit scope", elseBlock!.span)
       }
     } else if !isAssignable(valueType, declaredType) {
       typeError("Cannot assign " + typeName(valueType) + " to " + typeName(declaredType), span)
@@ -199,7 +251,7 @@ export class ModuleChecker {
       let_: LetDeclaration -> { let_.resolvedType = optionalResolvedType(declaredType) }
       _ -> { }
     }
-    declare(scope, Binding { name, kind, type_: declaredType, mutable, span: checkerSemanticSpan(span), module: info!.path })
+    if name != "_" { declare(scope, Binding { name, kind, type_: declaredType, mutable, span: checkerSemanticSpan(span), module: info!.path }) }
     return true
   }
 
@@ -218,7 +270,7 @@ export class ModuleChecker {
     if owner != null { addClassFields(scope, owner!); addClassMethods(scope, owner!) }
     returnType := if fn.returnType == null then unknownType() else resolveType(fn.returnType!, info!, scope)
     scope.returnType = returnType
-    functionValue := functionType(functionParameters(fn, scope), returnType)
+    functionValue := functionType(functionParameters(fn, scope), returnType, fn.typeParams)
     fn.resolvedType = optionalResolvedType(functionValue)
     for parameter of fn.params {
       parameterType := if parameter.type_ == null then unknownType() else resolveType(parameter.type_!, info!, scope)
@@ -269,9 +321,11 @@ export class ModuleChecker {
   private function checkClass(class_: ClassDeclaration, scope: Scope): void {
     symbol := symbolFor(info!, class_.name)
     if symbol == null { return }
-    owner := classType(class_.name, symbol!)
     classScope := Scope { parent: scope, typeParams: [] }
     for typeParam of class_.typeParams { classScope.typeParams.push(typeParam) }
+    let ownerTypeArgs: ResolvedType[] = []
+    for typeParam of class_.typeParams { ownerTypeArgs.push(typeParameter(typeParam)) }
+    owner := classType(class_.name, symbol!, ownerTypeArgs)
     for field of class_.fields {
       let fieldType = unknownType()
       if field.type_ != null {
@@ -279,6 +333,7 @@ export class ModuleChecker {
       } else if field.defaultValue != null {
         fieldType = checkExpression(field.defaultValue!, classScope, null)
       }
+      if field.readonly_ { fieldType = applyDeepReadonly(fieldType) }
       field.resolvedType = optionalResolvedType(fieldType)
       if field.defaultValue != null && field.type_ != null { checkExpression(field.defaultValue!, classScope, optionalResolvedType(fieldType)) }
     }
@@ -287,9 +342,11 @@ export class ModuleChecker {
       target := resolveType(interfaceRef, info!, classScope)
       case target {
         _: UnknownType -> { if interfaceRef.name != "Stream" { typeError("Interface \"" + interfaceRef.name + "\" is not defined", interfaceRef.span) } }
-        _: InterfaceType -> {
-          if !isAssignable(owner, target) {
+        interface_: InterfaceType -> {
+          if !classSatisfiesConcreteInterface(result, class_, owner, interface_) {
             typeError("Class \"" + class_.name + "\" does not satisfy interface \"" + typeName(target) + "\"", interfaceRef.span)
+          } else {
+            addImplementedInterfaceType(symbol!, typeName(target))
           }
         }
         _: StreamResolvedType -> {
@@ -322,7 +379,12 @@ export class ModuleChecker {
     for symbol of module.symbols {
       if symbol.kind != "interface" || symbol.implementations.length > 0 { continue }
       declaration := declarationFor(result, symbol)
-      if declaration != null { typeError("Cannot emit interface \"" + symbol.name + "\" without implementing classes", symbolSpan(module, symbol.name)) }
+      if declaration != null {
+        case declaration! {
+          interface_: InterfaceDeclaration -> { if interface_.typeParams.length == 0 { typeError("Cannot emit interface \"" + symbol.name + "\" without implementing classes", symbolSpan(module, symbol.name)) } }
+          _ -> { }
+        }
+      }
     }
   }
 
@@ -629,7 +691,7 @@ export class ModuleChecker {
               parameters.push(FunctionParamType { name: parameter.name, type_: parameterType, hasDefault: parameter.defaultValue != null })
             }
             returnType := if method.returnType == null then unknownType() else resolveAnnotation(method.returnType!, info!, result, methodTypeParams)
-            methodType = functionType(parameters, returnType)
+            methodType = functionType(parameters, returnType, method.typeParams)
           }
           declare(scope, Binding {
             name: method.name, kind: "method", type_: methodType, mutable: false,
@@ -823,13 +885,87 @@ export class ModuleChecker {
     expression.resolvedFunction = functionDeclarationForCallee(expression.callee, calleeType, result)
     case calleeType {
       resolvedFunction: FunctionType -> {
-        if expression.args.length > resolvedFunction.params.length { typeError("Too many arguments", expression.span) }
-        for i of 0..<expression.args.length {
-          expected := if i < resolvedFunction.params.length then resolvedFunction.params[i].type_ else unknownType()
-          actual := checkExpression(expression.args[i].value, scope, optionalResolvedType(expected))
-          if !isAssignable(actual, expected) { typeError("Argument " + string(i + 1) + " has type " + typeName(actual) + "; expected " + typeName(expected), expression.args[i].span) }
+        let effectiveFunction: FunctionType = resolvedFunction
+        if expression.typeArgs.length > 0 {
+          if expression.typeArgs.length != resolvedFunction.typeParams.length {
+            typeError(
+              "Generic call requires " + string(resolvedFunction.typeParams.length) + " type argument" + (if resolvedFunction.typeParams.length == 1 then "" else "s") + "; received " + string(expression.typeArgs.length),
+              expression.span,
+            )
+          } else {
+            let resolvedTypeArgs: ResolvedType[] = []
+            for argument of expression.typeArgs { resolvedTypeArgs.push(resolveType(argument, info!, scope)) }
+            expression.resolvedGenericTypeArgs = resolvedTypeArgs
+            substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, resolvedTypeArgs)
+            case substituted {
+              function_: FunctionType -> { effectiveFunction = function_ }
+              _ -> { }
+            }
+          }
+        } else if resolvedFunction.typeParams.length > 0 {
+          let inferred: ResolvedType[] = []
+          let complete = true
+          for typeParam of resolvedFunction.typeParams {
+            let inferredType: ResolvedType | null = null
+            for i of 0..<expression.args.length {
+              if i >= resolvedFunction.params.length { continue }
+              actual := checkExpression(expression.args[i].value, scope, null)
+              candidate := inferTypeArgument(resolvedFunction.params[i].type_, actual, typeParam)
+              if candidate != null {
+                if inferredType == null { inferredType = candidate }
+                else if !sameType(inferredType!, candidate!) { complete = false }
+              }
+            }
+            if inferredType == null { complete = false; inferred.push(typeParameter(typeParam)) }
+            else { inferred.push(inferredType!) }
+          }
+          if complete {
+            expression.resolvedGenericTypeArgs = inferred
+            substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, inferred)
+            case substituted {
+              function_: FunctionType -> { effectiveFunction = function_ }
+              _ -> { }
+            }
+          }
         }
-        return finish(expression, resolvedFunction.returnType)
+        let named = false
+        for argument of expression.args { if argument.name != null { named = true } }
+        if named {
+          let used: string[] = []
+          for argument of expression.args {
+            if argument.name == null {
+              typeError("Named calls cannot contain positional arguments", argument.span)
+              checkExpression(argument.value, scope, null)
+              continue
+            }
+            index := functionParameterIndex(effectiveFunction.params, argument.name!)
+            if index < 0 {
+              typeError("Unknown named argument '" + argument.name! + "'", argument.span)
+              checkExpression(argument.value, scope, null)
+              continue
+            }
+            if containsString(used, argument.name!) { typeError("Duplicate named argument '" + argument.name! + "'", argument.span) }
+            used.push(argument.name!)
+            expected := effectiveFunction.params[index].type_
+            actual := checkExpression(argument.value, scope, optionalResolvedType(expected))
+            if !isAssignable(actual, expected) { typeError("Argument '" + argument.name! + "' has type " + typeName(actual) + "; expected " + typeName(expected), argument.span) }
+          }
+          for parameter of effectiveFunction.params {
+            if !parameter.hasDefault && !containsString(used, parameter.name) {
+              typeError("Missing required argument '" + parameter.name + "'", expression.span)
+            }
+          }
+        } else {
+          if expression.args.length > effectiveFunction.params.length { typeError("Too many arguments", expression.span) }
+          for i of 0..<expression.args.length {
+            expected := if i < effectiveFunction.params.length then effectiveFunction.params[i].type_ else unknownType()
+            let argumentExpected: ResolvedType | null = expected
+            if isBuiltinPrintlnCall(expression.callee) { argumentExpected = null }
+            actual := checkExpression(expression.args[i].value, scope, argumentExpected)
+            if !isAssignable(actual, expected) { typeError("Argument " + string(i + 1) + " has type " + typeName(actual) + "; expected " + typeName(expected), expression.args[i].span) }
+          }
+        }
+        return finish(expression, effectiveFunction.returnType)
       }
       class_: ClassType -> {
         expression.resolvedConstructor = constructorForClass(class_, result)
@@ -955,6 +1091,14 @@ export class ModuleChecker {
       declare(lambdaScope, Binding { name: parameter.name, kind: "parameter", type_: parameterType, mutable: false, span: checkerSemanticSpan(parameter.span), module: info!.path })
     }
     let returnType = if expectedFunction == null then unknownType() else expectedFunction!.returnType
+    if expression.returnType != null {
+      returnType = resolveType(expression.returnType!, info!, lambdaScope)
+      decorateAnnotationWithResolved(expression.returnType!, returnType)
+    }
+    // A block lambda is its own return target. Without this scope boundary,
+    // returns inside an escaping closure are checked against the enclosing
+    // function's return type.
+    lambdaScope.returnType = returnType
     case expression.body {
       block: Block -> { checkBlock(block, lambdaScope) }
       expressionBody: Expression -> { returnType = checkExpression(expressionBody, lambdaScope, optionalResolvedType(returnType)) }
@@ -1028,6 +1172,11 @@ export class ModuleChecker {
         if named.name == "JsonValue" { return decorateType(annotation, jsonValueType()) }
         if named.name == "JsonObject" { return decorateType(annotation, jsonObjectType()) }
         if hasTypeParam(scope, named.name) { return decorateType(annotation, typeParameter(named.name)) }
+        if named.name == "Tuple" {
+          let elements: ResolvedType[] = []
+          for argument of named.typeArgs { elements.push(resolveType(argument, module, scope)) }
+          return decorateType(annotation, tupleType(elements))
+        }
         if named.name == "Map" || named.name == "ReadonlyMap" {
           if named.typeArgs.length != 2 { typeError(named.name + " requires two type arguments", named.span); return decorateType(annotation, unknownType()) }
           key := resolveType(named.typeArgs[0], module, scope)
@@ -1053,7 +1202,16 @@ export class ModuleChecker {
           if declaration == null { return decorateType(annotation, unknownType()) }
           case declaration! {
             alias: TypeAliasDeclaration -> {
-              resolvedAlias := resolveType(alias.type_, module, scope)
+              if named.typeArgs.length != alias.typeParams.length {
+                typeError(alias.name + " requires " + string(alias.typeParams.length) + " type argument" + (if alias.typeParams.length == 1 then "" else "s"), named.span)
+                return decorateType(annotation, unknownType())
+              }
+              aliasScope := Scope { parent: scope }
+              for typeParam of alias.typeParams { aliasScope.typeParams.push(typeParam) }
+              let resolvedAlias = resolveType(alias.type_, classModuleFor(result, symbol!), aliasScope)
+              let typeArgs: ResolvedType[] = []
+              for argument of named.typeArgs { typeArgs.push(resolveType(argument, module, scope)) }
+              resolvedAlias = substituteTypeParams(resolvedAlias, alias.typeParams, typeArgs)
               case resolvedAlias {
                 union_: UnionResolvedType -> { union_.aliasName = alias.name; union_.aliasModule = symbol!.module }
                 _ -> { }
@@ -1063,7 +1221,13 @@ export class ModuleChecker {
             _ -> { return decorateType(annotation, unknownType()) }
           }
         }
-        if symbol!.kind == "interface" { return decorateType(annotation, interfaceType(named.name, symbol!)) }
+        if symbol!.kind == "interface" {
+          let typeArgs: ResolvedType[] = []
+          for argument of named.typeArgs { typeArgs.push(resolveType(argument, module, scope)) }
+          concreteInterface := interfaceType(named.name, symbol!, typeArgs)
+          if concreteTypes(typeArgs) { registerConcreteInterfaceImplementations(result, concreteInterface) }
+          return decorateType(annotation, concreteInterface)
+        }
         if symbol!.kind == "enum" { return decorateType(annotation, enumType(named.name, symbol!)) }
         let typeArgs: ResolvedType[] = []
         for argument of named.typeArgs { typeArgs.push(resolveType(argument, module, scope)) }
@@ -1093,10 +1257,12 @@ export class ModuleChecker {
     if typeName(object) == "string" {
       if property == "length" { return primitive("int") }
       if property == "startsWith" || property == "endsWith" || property == "contains" { return functionType([FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false }], primitive("bool")) }
+      if property == "indexOf" { return functionType([FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false }], primitive("int")) }
       if property == "substring" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "end", type_: primitive("int"), hasDefault: true }], primitive("string")) }
       if property == "replaceAll" { return functionType([FunctionParamType { name: "oldValue", type_: primitive("string"), hasDefault: false }, FunctionParamType { name: "newValue", type_: primitive("string"), hasDefault: false }], primitive("string")) }
       if property == "trim" { return functionType([], primitive("string")) }
       if property == "trimEnd" { return functionType([FunctionParamType { name: "suffix", type_: primitive("char"), hasDefault: true }], primitive("string")) }
+      if property == "toLowerCase" || property == "toUpperCase" { return functionType([], primitive("string")) }
       if property == "repeat" { return functionType([FunctionParamType { name: "count", type_: primitive("int"), hasDefault: false }], primitive("string")) }
       if property == "slice" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }], primitive("string")) }
       if property == "charAt" { return functionType([FunctionParamType { name: "index", type_: primitive("int"), hasDefault: false }], primitive("char")) }
@@ -1104,6 +1270,10 @@ export class ModuleChecker {
       if property == "split" { return functionType([FunctionParamType { name: "separator", type_: primitive("string"), hasDefault: false }], arrayType(primitive("string"))) }
     }
     case object {
+      function_: FunctionType -> {
+        if property == "call" { return function_ }
+        return unknownType()
+      }
       union: UnionResolvedType -> {
         let resolved: ResolvedType | null = null
         for member of union.types {
@@ -1118,6 +1288,7 @@ export class ModuleChecker {
         if property == "length" { return primitive("int") }
         if property == "push" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], voidType()) }
         if property == "contains" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("bool")) }
+        if property == "indexOf" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("int")) }
         if property == "reserve" { return functionType([FunctionParamType { name: "capacity", type_: primitive("int"), hasDefault: false }], voidType()) }
         if property == "pop" { return functionType([], array.elementType) }
         if property == "slice" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "end", type_: primitive("int"), hasDefault: false }], arrayType(array.elementType, array.readonly_)) }
@@ -1171,15 +1342,15 @@ export class ModuleChecker {
             for field of classDeclaration.fields {
               for name of field.names {
                 if name == property {
-                  if field.resolvedType != null { return field.resolvedType! }
-                  if field.type_ != null { return resolveType(field.type_!, info!, moduleScope!) }
-                  return unknownType()
+                  fieldType := if field.resolvedType != null then field.resolvedType! else if field.type_ != null then resolveType(field.type_!, info!, moduleScope!) else unknownType()
+                  return substituteTypeParams(fieldType, classDeclaration.typeParams, class_.typeArgs)
                 }
               }
             }
             for method of classDeclaration.methods {
               if method.name == property {
-                return method.resolvedType ?? methodSignature(method, classModuleFor(result, class_.symbol), result)
+                methodType := method.resolvedType ?? methodSignature(method, classModuleFor(result, class_.symbol), result)
+                return substituteTypeParams(methodType, classDeclaration.typeParams, class_.typeArgs)
               }
             }
           }
@@ -1196,8 +1367,18 @@ export class ModuleChecker {
         if declaration == null { return unknownType() }
         case declaration! {
           interface_: InterfaceDeclaration -> {
-            for field of interface_.fields { if field.name == property { return field.resolvedType ?? resolveType(field.type_, info!, moduleScope!) } }
-            for method of interface_.methods { if method.name == property { return method.resolvedType ?? methodSignature(method, classModuleFor(result, interfaceType_.symbol), result) } }
+            for field of interface_.fields {
+              if field.name == property {
+                fieldType := field.resolvedType ?? resolveType(field.type_, info!, moduleScope!)
+                return substituteTypeParams(fieldType, interface_.typeParams, interfaceType_.typeArgs)
+              }
+            }
+            for method of interface_.methods {
+              if method.name == property {
+                methodType := method.resolvedType ?? methodSignature(method, classModuleFor(result, interfaceType_.symbol), result)
+                return substituteTypeParams(methodType, interface_.typeParams, interfaceType_.typeArgs)
+              }
+            }
           }
           _ -> { }
         }
@@ -1358,6 +1539,16 @@ function blockContainsLoopExit(block: Block): bool {
 
 function optionalResolvedType(value: ResolvedType): ResolvedType | null { return value }
 
+function functionParameterIndex(parameters: FunctionParamType[], name: string): int {
+  for i of 0..<parameters.length { if parameters[i].name == name { return i } }
+  return -1
+}
+
+function containsString(values: string[], value: string): bool {
+  for existing of values { if existing == value { return true } }
+  return false
+}
+
 function predeclareModuleBindings(info: ModuleInfo, scope: Scope, result: AnalysisResult): void {
   for symbol of info.symbols {
     if symbol.kind == "function" || symbol.kind == "class" || symbol.kind == "struct" || symbol.kind == "interface" || symbol.kind == "enum" {
@@ -1406,7 +1597,7 @@ function symbolType(symbol: Symbol, info: ModuleInfo, result: AnalysisResult): R
   declaration := declarationFor(result, symbol)
   if declaration == null { return unknownType() }
   case declaration! {
-    fn: FunctionDeclaration -> { return functionType(functionParametersFor(fn, info, result), if fn.returnType == null then unknownType() else resolveAnnotation(fn.returnType!, info, result)) }
+    fn: FunctionDeclaration -> { return functionType(functionParametersFor(fn, info, result), if fn.returnType == null then unknownType() else resolveAnnotation(fn.returnType!, info, result, fn.typeParams), fn.typeParams) }
     alias: TypeAliasDeclaration -> { return resolveAnnotation(alias.type_, info, result) }
     _ -> { return unknownType() }
   }
@@ -1422,7 +1613,7 @@ function methodSignature(method: FunctionDeclaration, info: ModuleInfo, result: 
     parameterType := if parameter.type_ == null then unknownType() else resolveAnnotation(parameter.type_!, info, result, method.typeParams)
     parameters.push(FunctionParamType { name: parameter.name, type_: parameterType, hasDefault: parameter.defaultValue != null })
   }
-  return functionType(parameters, if method.returnType == null then unknownType() else resolveAnnotation(method.returnType!, info, result, method.typeParams))
+  return functionType(parameters, if method.returnType == null then unknownType() else resolveAnnotation(method.returnType!, info, result, method.typeParams), method.typeParams)
 }
 
 function functionParametersFor(fn: FunctionDeclaration, info: ModuleInfo, result: AnalysisResult): FunctionParamType[] {
@@ -1444,6 +1635,11 @@ function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, result:
       if named.name == "JsonValue" { return jsonValueType() }
       if named.name == "JsonObject" { return jsonObjectType() }
       for typeParam of typeParams { if named.name == typeParam { return typeParameter(named.name) } }
+      if named.name == "Tuple" {
+        let elements: ResolvedType[] = []
+        for argument of named.typeArgs { elements.push(resolveAnnotation(argument, info, result, typeParams)) }
+        return tupleType(elements)
+      }
       if named.name == "Map" || named.name == "ReadonlyMap" {
         let key: ResolvedType = unknownType()
         let value: ResolvedType = unknownType()
@@ -1472,13 +1668,27 @@ function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, result:
         declaration := declarationFor(result, symbol!)
         if declaration == null { return unknownType() }
         case declaration! {
-          alias: TypeAliasDeclaration -> { return resolveAnnotation(alias.type_, info, result, typeParams) }
+          alias: TypeAliasDeclaration -> {
+            let aliasParams: string[] = []
+            for outer of typeParams { aliasParams.push(outer) }
+            for parameter of alias.typeParams { aliasParams.push(parameter) }
+            resolvedAlias := resolveAnnotation(alias.type_, classModuleFor(result, symbol!), result, aliasParams)
+            let arguments: ResolvedType[] = []
+            for argument of named.typeArgs { arguments.push(resolveAnnotation(argument, info, result, typeParams)) }
+            return substituteTypeParams(resolvedAlias, alias.typeParams, arguments)
+          }
           _ -> { return unknownType() }
         }
       }
-      if symbol!.kind == "interface" { return interfaceType(named.name, symbol!) }
+      if symbol!.kind == "interface" {
+        let typeArgs: ResolvedType[] = []
+        for argument of named.typeArgs { typeArgs.push(resolveAnnotation(argument, info, result, typeParams)) }
+        return interfaceType(named.name, symbol!, typeArgs)
+      }
       if symbol!.kind == "enum" { return enumType(named.name, symbol!) }
-      return classType(named.name, symbol!)
+      let typeArgs: ResolvedType[] = []
+      for argument of named.typeArgs { typeArgs.push(resolveAnnotation(argument, info, result, typeParams)) }
+      return classType(named.name, symbol!, typeArgs)
     }
     array: ArrayType -> { return arrayType(resolveAnnotation(array.elementType, info, result, typeParams), array.readonly_) }
     union: UnionType -> {
@@ -1552,6 +1762,21 @@ function isBuiltinCallable(name: string): bool {
   return name == "string" || name == "int" || name == "long" || name == "float" || name == "double" || name == "bool" || name == "println" || name == "panic" || name == "absolutePath" || name == "Success" || name == "Failure"
 }
 
+function isPanicCall(expression: Expression): bool {
+  case expression {
+    call: CallExpression -> {
+      case call.callee {
+        identifier: Identifier -> {
+          return identifier.name == "panic" && identifier.resolvedBinding != null && identifier.resolvedBinding!.kind == "builtin"
+        }
+        _ -> { }
+      }
+    }
+    _ -> { }
+  }
+  return false
+}
+
 function builtinCallable(name: string): ResolvedType {
   if name == "absolutePath" {
     return functionType([FunctionParamType { name: "path", type_: primitive("string"), hasDefault: false }], primitive("string"))
@@ -1560,6 +1785,13 @@ function builtinCallable(name: string): ResolvedType {
   if name == "panic" { return functionType([FunctionParamType { name: "message", type_: primitive("string"), hasDefault: false }], voidType()) }
   result := primitive(name)
   return functionType([FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false }], result)
+}
+
+function isBuiltinPrintlnCall(callee: Expression): bool {
+  case callee {
+    identifier: Identifier -> { return identifier.name == "println" }
+    _ -> { return false }
+  }
 }
 
 function symbolFor(info: ModuleInfo, name: string): Symbol | null {
@@ -1593,6 +1825,103 @@ function symbolName(statement: Statement): string {
     _ -> { return "" }
   }
   return ""
+}
+
+// Infer one generic argument by structurally matching a checked parameter
+// pattern against the concrete argument type. Conflicting candidates are
+// rejected by the caller before substitution.
+function inferTypeArgument(pattern: ResolvedType, actual: ResolvedType, name: string): ResolvedType | null {
+  case pattern {
+    parameter: TypeParameterType -> { if parameter.name == name { return actual } }
+    array: ArrayResolvedType -> {
+      case actual {
+        concrete: ArrayResolvedType -> { return inferTypeArgument(array.elementType, concrete.elementType, name) }
+        _ -> { }
+      }
+    }
+    map: MapResolvedType -> {
+      case actual {
+        concrete: MapResolvedType -> {
+          key := inferTypeArgument(map.keyType, concrete.keyType, name)
+          if key != null { return key }
+          return inferTypeArgument(map.valueType, concrete.valueType, name)
+        }
+        _ -> { }
+      }
+    }
+    stream: StreamResolvedType -> {
+      case actual {
+        concrete: StreamResolvedType -> { return inferTypeArgument(stream.elementType, concrete.elementType, name) }
+        _ -> { }
+      }
+    }
+    class_: ClassType -> {
+      case actual {
+        concrete: ClassType -> {
+          if class_.symbol.module != concrete.symbol.module || class_.symbol.name != concrete.symbol.name { return null }
+          for i of 0..<class_.typeArgs.length {
+            if i < concrete.typeArgs.length {
+              candidate := inferTypeArgument(class_.typeArgs[i], concrete.typeArgs[i], name)
+              if candidate != null { return candidate }
+            }
+          }
+        }
+        _ -> { }
+      }
+    }
+    interface_: InterfaceType -> {
+      case actual {
+        concrete: InterfaceType -> {
+          for i of 0..<interface_.typeArgs.length {
+            if i < concrete.typeArgs.length {
+              candidate := inferTypeArgument(interface_.typeArgs[i], concrete.typeArgs[i], name)
+              if candidate != null { return candidate }
+            }
+          }
+        }
+        _ -> { }
+      }
+    }
+    function_: FunctionType -> {
+      case actual {
+        concrete: FunctionType -> {
+          for i of 0..<function_.params.length {
+            if i < concrete.params.length {
+              candidate := inferTypeArgument(function_.params[i].type_, concrete.params[i].type_, name)
+              if candidate != null { return candidate }
+            }
+          }
+          return inferTypeArgument(function_.returnType, concrete.returnType, name)
+        }
+        _ -> { }
+      }
+    }
+    result_: ResultResolvedType -> {
+      case actual {
+        concrete: ResultResolvedType -> {
+          value := inferTypeArgument(result_.valueType, concrete.valueType, name)
+          if value != null { return value }
+          return inferTypeArgument(result_.errorType, concrete.errorType, name)
+        }
+        _ -> { }
+      }
+    }
+    tuple: TupleResolvedType -> {
+      case actual {
+        concrete: TupleResolvedType -> {
+          for i of 0..<tuple.elements.length {
+            if i < concrete.elements.length {
+              candidate := inferTypeArgument(tuple.elements[i], concrete.elements[i], name)
+              if candidate != null { return candidate }
+            }
+          }
+        }
+        _ -> { }
+      }
+    }
+    _ -> { }
+  }
+  return null
 }
 
 function symbolSpan(info: ModuleInfo, name: string): SourceSpan {
@@ -1634,6 +1963,84 @@ function containsImplementation(implementations: Symbol[], candidate: Symbol): b
   return false
 }
 
+function addImplementedInterfaceType(symbol: Symbol, name: string): void {
+  for existing of symbol.implementedInterfaceTypes { if existing == name { return } }
+  symbol.implementedInterfaceTypes.push(name)
+}
+
+// Concrete generic interfaces remain structural. Record matching ordinary
+// classes as soon as a concrete interface use is resolved so subsequent
+// assignment and call compatibility can use the normal assignability path.
+function registerConcreteInterfaceImplementations(result: AnalysisResult, interface_: InterfaceType): void {
+  for module of result.modules {
+    for symbol of module.symbols {
+      if symbol.kind != "class" { continue }
+      declaration := declarationFor(result, symbol)
+      if declaration == null { continue }
+      case declaration! {
+        class_: ClassDeclaration -> {
+          if class_.typeParams.length == 0 && classSatisfiesConcreteInterface(result, class_, classType(class_.name, symbol), interface_) {
+            addImplementedInterfaceType(symbol, typeName(interface_))
+          }
+        }
+        _ -> { }
+      }
+    }
+  }
+}
+
+function concreteTypes(types: ResolvedType[]): bool {
+  for type_ of types {
+    case type_ {
+      _: TypeParameterType -> { return false }
+      class_: ClassType -> { if !concreteTypes(class_.typeArgs) { return false } }
+      interface_: InterfaceType -> { if !concreteTypes(interface_.typeArgs) { return false } }
+      array: ArrayResolvedType -> { if !concreteTypes([array.elementType]) { return false } }
+      map: MapResolvedType -> { if !concreteTypes([map.keyType, map.valueType]) { return false } }
+      stream: StreamResolvedType -> { if !concreteTypes([stream.elementType]) { return false } }
+      result_: ResultResolvedType -> { if !concreteTypes([result_.valueType, result_.errorType]) { return false } }
+      tuple: TupleResolvedType -> { if !concreteTypes(tuple.elements) { return false } }
+      union_: UnionResolvedType -> { if !concreteTypes(union_.types) { return false } }
+      function_: FunctionType -> {
+        for parameter of function_.params { if !concreteTypes([parameter.type_]) { return false } }
+        if !concreteTypes([function_.returnType]) { return false }
+      }
+      _ -> { }
+    }
+  }
+  return true
+}
+
+function classSatisfiesConcreteInterface(result: AnalysisResult, class_: ClassDeclaration, classType_: ClassType, interfaceType_: InterfaceType): bool {
+  declaration := declarationFor(result, interfaceType_.symbol)
+  if declaration == null { return false }
+  case declaration! {
+    interface_: InterfaceDeclaration -> {
+      for required of interface_.fields {
+        actualField := findClassField(class_.fields, required.name)
+        if actualField == null || actualField!.type_ == null { return false }
+        actualBase := if actualField!.resolvedType == null then resolveAnnotation(actualField!.type_!, classModuleFor(result, classType_.symbol), result, class_.typeParams) else actualField!.resolvedType!
+        requiredBase := if required.resolvedType == null then resolveAnnotation(required.type_, classModuleFor(result, interfaceType_.symbol), result, interface_.typeParams) else required.resolvedType!
+        actual := substituteTypeParams(actualBase, class_.typeParams, classType_.typeArgs)
+        expected := substituteTypeParams(requiredBase, interface_.typeParams, interfaceType_.typeArgs)
+        if !isAssignable(actual, expected) { return false }
+      }
+      for requiredMethod of interface_.methods {
+        actualMethod := findClassMethod(class_.methods, requiredMethod.name, requiredMethod.static_)
+        if actualMethod == null { return false }
+        actualBase := if actualMethod!.resolvedType == null then methodSignature(actualMethod!, classModuleFor(result, classType_.symbol), result) else actualMethod!.resolvedType!
+        requiredBase := if requiredMethod.resolvedType == null then methodSignature(requiredMethod, classModuleFor(result, interfaceType_.symbol), result) else requiredMethod.resolvedType!
+        actual := substituteTypeParams(actualBase, class_.typeParams, classType_.typeArgs)
+        expected := substituteTypeParams(requiredBase, interface_.typeParams, interfaceType_.typeArgs)
+        if !sameConcreteMethodType(actual, expected) { return false }
+      }
+      return true
+    }
+    _ -> { return false }
+  }
+  return false
+}
+
 function classSatisfiesInterface(result: AnalysisResult, classSymbol: Symbol, interfaceSymbol: Symbol): bool {
   classDeclaration := declarationFor(result, classSymbol)
   interfaceDeclaration := declarationFor(result, interfaceSymbol)
@@ -1660,6 +2067,25 @@ function classSatisfiesInterface(result: AnalysisResult, classSymbol: Symbol, in
       }
     }
     _ -> { return false }
+  }
+  return false
+}
+
+function sameConcreteMethodType(actual: ResolvedType, expected: ResolvedType): bool {
+  case actual {
+    actualFunction: FunctionType -> {
+      case expected {
+        expectedFunction: FunctionType -> {
+          if actualFunction.params.length != expectedFunction.params.length { return false }
+          for index of 0..<actualFunction.params.length {
+            if !sameType(actualFunction.params[index].type_, expectedFunction.params[index].type_) { return false }
+          }
+          return sameType(actualFunction.returnType, expectedFunction.returnType)
+        }
+        _ -> { return false }
+      }
+    }
+    _ -> { return sameType(actual, expected) }
   }
   return false
 }
@@ -1926,7 +2352,12 @@ function validateExpression(expression: Expression, module: string, diagnostics:
     assignment: AssignmentExpression -> { validateExpression(assignment.target, module, diagnostics); validateExpression(assignment.value, module, diagnostics) }
     member: MemberExpression -> { validateExpression(member.object, module, diagnostics) }
     index: IndexExpression -> { validateExpression(index.object, module, diagnostics); validateExpression(index.index, module, diagnostics) }
-    call: CallExpression -> { validateExpression(call.callee, module, diagnostics); for argument of call.args { validateExpression(argument.value, module, diagnostics) } }
+    call: CallExpression -> {
+      validateExpression(call.callee, module, diagnostics)
+      for argument of call.typeArgs { validateTypeAnnotation(argument, module, diagnostics) }
+      for argument of call.resolvedGenericTypeArgs { validateResolved(optionalResolvedType(argument), call.span, module, "generic call argument", diagnostics) }
+      for argument of call.args { validateExpression(argument.value, module, diagnostics) }
+    }
     array: ArrayLiteral -> { for item of array.elements { validateExpression(item, module, diagnostics) } }
     object: ObjectLiteral -> {
       if object.spread != null { validateExpression(object.spread!, module, diagnostics) }

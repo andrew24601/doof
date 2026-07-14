@@ -16,7 +16,7 @@ export function parseStatement(parser: Parser): Statement {
   if parser.check(TokenType.Export) { return parser.parseExport() }
   if parser.check(TokenType.Import) { return parser.parseImport() }
   if parser.check(TokenType.Const) { return parser.parseConst(false) }
-  if parser.check(TokenType.Readonly) { return parser.parseReadonly(false) }
+  if parser.check(TokenType.Readonly) && parser.peek(1).kind != TokenType.LeftBracket { return parser.parseReadonly(false) }
   if parser.check(TokenType.Let) { return parser.parseLet() }
   if parser.check(TokenType.Function) { return parser.parseFunction(false, false, false, false) }
   if parser.check(TokenType.Isolated) && parser.peek(1).kind == TokenType.Function {
@@ -48,6 +48,9 @@ export function parseStatement(parser: Parser): Statement {
     if parser.peek(1).kind == TokenType.Colon && looksLikeTypedImmutableBinding(parser) {
       return parseTypedImmutableBinding(parser)
     }
+  }
+  if parser.check(TokenType.Underscore) && parser.peek(1).kind == TokenType.ColonEqual {
+    return parseDiscardElseBinding(parser)
   }
   if parser.check(TokenType.LeftBracket) {
     if looksLikePattern(parser, TokenType.ColonEqual) {
@@ -314,9 +317,14 @@ function parseExpressionStatement(parser: Parser): Statement {
     parser.advance()
     rhs := parser.parseExpression()
     let else_: Block | null = null
-    if parser.match(TokenType.Else) { else_ = parseBlock(parser) }
+    let failureName: string | null = null
+    if parser.check(TokenType.Else) {
+      capture := parseElseCaptureAndBlock(parser)
+      else_ = capture.block
+      failureName = capture.failureName
+    }
     parser.consumeSemicolon()
-    return ImmutableBinding { kind: "immutable-binding", name, type_: null, value: rhs, exported: false, else_, span: parser.span(start) }
+    return ImmutableBinding { kind: "immutable-binding", name, type_: null, value: rhs, exported: false, else_, failureName, span: parser.span(start) }
   }
   value := parser.parseExpression()
   parser.consumeSemicolon()
@@ -384,6 +392,41 @@ function parseTypedImmutableBinding(parser: Parser): Statement {
   typeValue := parser.parseTypeAnnotation()
   parser.expect(TokenType.ColonEqual)
   value := parser.parseExpression()
+  let else_: Block | null = null
+  let failureName: string | null = null
+  if parser.check(TokenType.Else) {
+    capture := parseElseCaptureAndBlock(parser)
+    else_ = capture.block
+    failureName = capture.failureName
+  }
   parser.consumeSemicolon()
-  return ImmutableBinding { kind: "immutable-binding", name, type_: typeValue, value, exported: false, span: parser.span(start) }
+  return ImmutableBinding { kind: "immutable-binding", name, type_: typeValue, value, exported: false, else_, failureName, span: parser.span(start) }
+}
+
+function parseDiscardElseBinding(parser: Parser): Statement {
+  start := parser.location()
+  parser.expect(TokenType.Underscore)
+  parser.expect(TokenType.ColonEqual)
+  value := parser.parseExpression()
+  if !parser.check(TokenType.Else) { parser.fail("Discard binding '_' requires an else block") }
+  capture := parseElseCaptureAndBlock(parser)
+  parser.consumeSemicolon()
+  return ImmutableBinding {
+    kind: "immutable-binding", name: "_", type_: null, value, exported: false,
+    else_: capture.block, failureName: capture.failureName, span: parser.span(start),
+  }
+}
+
+class ElseCapture {
+  failureName: string | null
+  block: Block
+}
+
+function parseElseCaptureAndBlock(parser: Parser): ElseCapture {
+  parser.expect(TokenType.Else)
+  let failureName: string | null = null
+  if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.LeftBrace {
+    failureName = parser.text(parser.advance())
+  }
+  return ElseCapture { failureName, block: parseBlock(parser) }
 }

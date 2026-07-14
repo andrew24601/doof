@@ -62,6 +62,8 @@ function writeProductionStdFsNativeSupport(): void {
   try! writeText("/tmp/native_path.hpp", try! readText("../doof-stdlib/path/native_path.hpp"))
   try! writeText("/tmp/native_blob.hpp", try! readText("../doof-stdlib/blob/native_blob.hpp"))
   try! writeText("/tmp/doof_time.hpp", productionTimeHeader())
+  try! writeText("/tmp/index.hpp", "#pragma once\n#include \"std_time_temporal.hpp\"\n")
+  try! writeText("/tmp/doof_time.cpp", try! readText("../doof-stdlib/time/doof_time.cpp"))
   try! writeText("/tmp/types.hpp", "#pragma once\n#include \"std_blob_types.hpp\"\n#include \"std_fs_types.hpp\"\nusing EntryKind = ::app_std_fs_types_::EntryKind; using IoError = ::app_std_fs_types_::IoError;\nusing Endian = ::app_std_blob_types_::Endian; using TextEncoding = ::app_std_blob_types_::TextEncoding; using EncodingError = ::app_std_blob_types_::EncodingError;\nnamespace doof_fs { using EntryKind = ::app_std_fs_types_::EntryKind; using IoError = ::app_std_fs_types_::IoError; using Instant = ::app_std_time_temporal_::Instant; using ::app_std_fs_types_::IoError_name; }\n")
 }
 
@@ -76,6 +78,31 @@ function productionStdFsSources(mainSource: string): SourceFile[] {
     sources.push(SourceFile { path: "/std/" + path, source: try! readText("../doof-stdlib/" + path) })
   }
   return sources
+}
+
+function productionStdHttpSources(): SourceFile[] {
+  paths := [
+    "http/index.do", "http/types.do", "http/websocket.do",
+    "event/index.do", "blob/index.do", "blob/types.do", "stream/index.do",
+    "json/index.do", "time/index.do", "time/duration.do", "time/temporal.do", "time/stopwatch.do",
+  ]
+  let sources: SourceFile[] = [SourceFile {
+    path: "/main.do",
+    source: try! readText("samples/http-client/main.do"),
+  }]
+  for path of paths {
+    sources.push(SourceFile { path: "/std/" + path, source: try! readText("../doof-stdlib/" + path) })
+  }
+  return sources
+}
+
+export function testCompilesProductionStdHttpGraph(): void {
+  result := compile(productionStdHttpSources(), "/main.do")
+  for diagnostic of result.diagnostics {
+    println(diagnostic.module + ":" + string(diagnostic.span.start.line) + ": " + diagnostic.message)
+  }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
 }
 
 export function testSelfhostRuntimeHasNoLegacyJsonOrIoShims(): void {
@@ -166,6 +193,126 @@ export function testCompilesAnImportedProject(): void {
   Assert.equal(result.emission!.modules[0].header.contains("#include \"math.hpp\""), true)
 }
 
+export function testMonomorphizesDoofFunctionsAndClasses(): void {
+  result := compile([SourceFile {
+    path: "/main.do",
+    source: "type Value<T> = T\nfunction identity<T>(value: T): T => value\nfunction outer<T>(value: T): T => identity(value)\nclass Box<T> { value: T get(): T => value map<U>(other: U): U => other }\nfunction main(): int { value: Value<int> := outer(3)\nbox := Box<int> { value }\nreturn box.get() + box.map<int>(4) }",
+  }], "/main.do")
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  module := result.emission!.modules[0]
+  Assert.equal(module.header.contains("template <typename T>\nstruct Box"), false)
+  Assert.equal(module.header.contains("template <typename T>\nT identity"), false)
+  Assert.equal(module.header.contains("struct Box__int"), true)
+  Assert.equal(module.header.contains("int32_t identity__int(int32_t value)"), true)
+  Assert.equal(module.header.contains("int32_t outer__int(int32_t value)"), true)
+  Assert.equal(module.header.contains("int32_t map__int(int32_t other)"), true)
+  Assert.equal(module.header.contains("template <typename U>"), false)
+  Assert.equal(module.header.contains("using Value"), false)
+  Assert.equal(module.source.contains("int32_t identity__int(int32_t value)"), true)
+  Assert.equal(module.source.contains("outer__int(3)"), true)
+  Assert.equal(module.source.contains("identity__int(value)"), true)
+  Assert.equal(module.source.contains("Box__int"), true)
+  Assert.equal(module.source.contains("map__int(4)"), true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  native := try! run("clang++", ["-std=c++17", "-fsyntax-only", sourcePaths[0]])
+  if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 12)) }
+  Assert.equal(native.exitCode, 0)
+}
+
+export function testDiagnosesExpandingGenericInstantiations(): void {
+  result := compile([SourceFile {
+    path: "/main.do",
+    source: "function grow<T>(value: T): int => grow<T[]>([value])\nfunction main(): int => grow<int>(1)",
+  }], "/main.do")
+  Assert.equal(result.emission == null, true)
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].message.contains("Generic instantiation did not converge"), true)
+  Assert.equal(result.diagnostics[0].message.contains("grow__array"), true)
+  Assert.equal(result.diagnostics[0].message.contains("->"), true)
+}
+
+export function testMonomorphizesNativeFunctionAdapters(): void {
+  result := compile([
+    SourceFile { path: "/math.do", source: "export import function sin<T: float | double>(x: T): T from \"<cmath>\" as std::sin\nexport import function abs<T: float | double>(x: T): T from \"<cmath>\" as std::abs\nexport import function pow<T: float | double>(x: T, y: int = 2): T from \"<cmath>\" as std::pow" },
+    SourceFile { path: "/facade.do", source: "export { sin, abs, pow } from \"./math\"" },
+    SourceFile { path: "/main.do", source: "import { sin, abs, pow } from \"./facade\"\nfunction main(): int { a := sin<float>{ x: 1.0f }\nb := sin(1.0)\nc := abs(-2.0f)\nd := pow<float>{ x: 2.0f }\nreturn int(a + c + d + float(b)) }" },
+  ], "/main.do")
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  let mathHeader = ""
+  let mathSource = ""
+  let mainSource = ""
+  for module of result.emission!.modules {
+    if module.modulePath == "/math.do" { mathHeader = module.header; mathSource = module.source }
+    if module.modulePath == "/main.do" { mainSource = module.source }
+  }
+  Assert.equal(mathHeader.contains("float sin__float(float x)"), true)
+  Assert.equal(mathHeader.contains("double sin__double(double x)"), true)
+  Assert.equal(mathSource.contains("return ::std::sin(x);"), true)
+  Assert.equal(mathSource.contains("std::sin<float>"), false)
+  Assert.equal(mathSource.contains("return ::std::abs(x);"), true)
+  Assert.equal(mathSource.contains("std::abs<float>"), false)
+  Assert.equal(mathSource.contains("return ::std::pow(x, y);"), true)
+  Assert.equal(mainSource.contains("::app_math_::sin__float(1.0f)"), true)
+  Assert.equal(mainSource.contains("::app_math_::sin__double(1.0)"), true)
+  Assert.equal(mainSource.contains("::app_math_::abs__float"), true)
+  Assert.equal(mainSource.contains("-2.0f"), true)
+  Assert.equal(mainSource.contains("::app_math_::pow__float(2.0f, 2)"), true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  let nativeArgs: string[] = ["-std=c++17", "-fsyntax-only"]
+  for sourcePath of sourcePaths { nativeArgs.push(sourcePath) }
+  native := try! run("clang++", nativeArgs)
+  if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 12)) }
+  Assert.equal(native.exitCode, 0)
+}
+
+export function testMonomorphizesClosedWorldStreams(): void {
+  result := compile([SourceFile {
+    path: "/main.do",
+    source: "class Counter implements Stream<int> { current: int end: int value_: int = 0 next(): bool { if current < end { value_ = current\ncurrent = current + 1\nreturn true }\nreturn false } value(): int => value_ }\nclass Chain<T> implements Stream<T> { source: Stream<T> next(): bool => source.next() value(): T => source.value() }\nclass MappedStream<T, U> implements Stream<U> { source: Stream<T> mapped: U next(): bool => source.next() value(): U => mapped }\nfunction main(): int { base: Stream<int> := Counter { current: 1, end: 4 }\nstream: Stream<int> := Chain<int> { source: base }\nwords: Stream<string> := MappedStream<int, string> { source: stream, mapped: \"value\" }\nlet total = 0\nfor value of stream { total = total + value }\nreturn total + int(words.value().length) }",
+  }], "/main.do")
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  module := result.emission!.modules[0]
+  Assert.equal(module.header.contains("using Stream__int = std::variant<"), true)
+  Assert.equal(module.header.contains("std::shared_ptr<Counter>"), true)
+  Assert.equal(module.header.contains("std::shared_ptr<Chain__int>"), true)
+  Assert.equal(module.header.contains("using Stream__string = std::variant<std::shared_ptr<MappedStream__int__string>>"), true)
+  Assert.equal(module.header.contains("struct MappedStream__int__string"), true)
+  Assert.equal(module.header.contains("StreamBase"), false)
+  Assert.equal(module.source.contains("std::visit([](auto&& _obj) { return _obj->next(); }"), true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  native := try! run("clang++", ["-std=c++17", "-fsyntax-only", sourcePaths[0]])
+  if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 16)) }
+  Assert.equal(native.exitCode, 0)
+}
+
+export function testMonomorphizesGenericStructuralInterfaces(): void {
+  result := compile([SourceFile {
+    path: "/main.do",
+    source: "interface Reader<T> { read(): T }\nclass IntReader { value: int read(): int => value }\nfunction read(reader: Reader<int>): int => reader.read()\nfunction main(): int { reader: Reader<int> := IntReader { value: 7 }\nreturn read(reader) }",
+  }], "/main.do")
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  module := result.emission!.modules[0]
+  Assert.equal(module.header.contains("using Reader__int = std::variant<std::shared_ptr<IntReader>>"), true)
+  Assert.equal(module.header.contains("struct Reader"), false)
+  Assert.equal(module.source.contains("std::visit([&](auto&& _obj) { return _obj->read(); }, reader)"), true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  native := try! run("clang++", ["-std=c++17", "-fsyntax-only", sourcePaths[0]])
+  if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 16)) }
+  Assert.equal(native.exitCode, 0)
+}
+
 export function testCompilesWithTransitiveSourceLoading(): void {
   let requested: string[] = []
   loader := (path: string): SourceFile | null => {
@@ -245,7 +392,12 @@ export function testEmitsProductionStdFsSourceGraph(): void {
   native := try! run("clang++", nativeArgs)
   if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 20)) }
   Assert.equal(native.exitCode, 0)
-  linked := try! run("clang++", ["-std=c++17", "-o", "/tmp/doof-production-fs-gate", "/tmp/main.cpp", "-framework", "CoreFoundation"])
+  let linkArgs: string[] = ["-std=c++17", "-o", "/tmp/doof-production-fs-gate"]
+  for sourcePath of sourcePaths { linkArgs.push(sourcePath) }
+  linkArgs.push("/tmp/doof_time.cpp")
+  linkArgs.push("-framework")
+  linkArgs.push("CoreFoundation")
+  linked := try! run("clang++", linkArgs)
   if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 20)) }
   Assert.equal(linked.exitCode, 0)
   executed := try! run("/tmp/doof-production-fs-gate", [])
@@ -412,6 +564,81 @@ export function testEmitsFocusedLambdaBodyUnionSample(): void {
   assertNativeSelfhostSlice(["semantic.do", "ast.do", "samples/lambda-body-union.do"], "samples/lambda-body-union.do", "selfhost-lambda-body-union")
 }
 
+export function testFlattensLambdaBodyUnionVariants(): void {
+  result := compileSelfhostSlice(["semantic.do", "ast.do", "samples/lambda-body-union.do"], "samples/lambda-body-union.do")
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  for module of result.emission!.modules {
+    Assert.equal(module.header.contains("std::variant<std::variant"), false)
+    Assert.equal(module.source.contains("std::variant<std::variant"), false)
+  }
+}
+
+export function testEmitsActorAffineLambdaCaptures(): void {
+  result := compile([SourceFile {
+    path: "/lambda-captures.do",
+    source: "function makeCounter(offset: int): (): int {\nlet count = offset\nreturn (): int => { count = count + 1\nreturn count }\n}",
+  }], "/lambda-captures.do")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  source := result.emission!.modules[0].source
+  Assert.equal(source.contains("auto count = std::make_shared<int32_t>(offset);"), true)
+  Assert.equal(source.contains("doof::callback<int32_t()>([count]() -> int32_t"), true)
+  Assert.equal(source.contains("(*count) = ((*count) + 1)"), true)
+  Assert.equal(source.contains("return (*count);"), true)
+  Assert.equal(source.contains("std::function"), false)
+}
+
+export function testEmitsImmutableLambdaCaptureByValue(): void {
+  result := compile([SourceFile {
+    path: "/immutable-lambda-capture.do",
+    source: "function makeValue(base: int): (): int {\nreturn (): int => base\n}",
+  }], "/immutable-lambda-capture.do")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  source := result.emission!.modules[0].source
+  Assert.equal(source.contains("doof::callback<int32_t()>([base]() -> int32_t"), true)
+  Assert.equal(source.contains("std::make_shared<int32_t>(base)"), false)
+}
+
+export function testDoesNotBoxUncapturedMutableLambdaLocal(): void {
+  result := compile([SourceFile {
+    path: "/lambda-local.do",
+    source: "function main(): int {\ncallback := (): int => {\nlet value = 1\nvalue = value + 1\nreturn value\n}\nreturn callback()\n}",
+  }], "/lambda-local.do")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  source := result.emission!.modules[0].source
+  Assert.equal(source.contains("auto value = 1;"), true)
+  Assert.equal(source.contains("std::make_shared<int32_t>(1)"), false)
+  Assert.equal(source.contains("doof::callback<int32_t()>([]() -> int32_t"), true)
+}
+
+export function testCompilesAndRunsEscapingMutableLambda(): void {
+  result := compile([SourceFile {
+    path: "/escaping-lambda.do",
+    source: "function makeCounter(): (): int {\nlet count = 0\nreturn (): int => { count = count + 1\nreturn count }\n}\nfunction main(): int {\ncounter := makeCounter()\ncounter()\ncounter()\nreturn counter()\n}",
+  }], "/escaping-lambda.do")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  sourcePaths := writeFocusedArtifacts(result)
+  writeSelfhostRuntime()
+  binaryPath := "/tmp/doof-selfhost-escaping-lambda"
+  let nativeArgs: string[] = ["-std=c++17"]
+  for sourcePath of sourcePaths { nativeArgs.push(sourcePath) }
+  nativeArgs.push("-o")
+  nativeArgs.push(binaryPath)
+  linked := try! run("clang++", nativeArgs)
+  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
+  Assert.equal(linked.exitCode, 0)
+  executed := try! run(binaryPath)
+  Assert.equal(executed.exitCode, 3)
+}
+
 export function testCompilesAndRunsNativeClassInterop(): void {
   try! writeText("/tmp/client.hpp", "#pragma once\n#include <cstdint>\n#include <memory>\nnamespace native { struct Client : std::enable_shared_from_this<Client> { int32_t value; explicit Client(int32_t value): value(value) {} int32_t get() { return value; } static std::shared_ptr<Client> make(int32_t value) { return std::make_shared<Client>(value); } std::shared_ptr<Client> same(); }; }\n")
   result := compile([SourceFile {
@@ -470,17 +697,17 @@ export function testCompilesSelfhostCheckerSlice(): void {
 }
 
 export function testCompilesSelfhostEmitterExprSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do"], "emitter-expr.do", "selfhost-emitter-expr")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-expr.do", "selfhost-emitter-expr")
 }
 
 export function testCompilesSelfhostEmitterStmtSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-stmt.do", "selfhost-emitter-stmt")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do"], "emitter-stmt.do", "selfhost-emitter-stmt")
 }
 
 export function testCompilesSelfhostEmitterDeclSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do"], "emitter-decl.do", "selfhost-emitter-decl")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do"], "emitter-decl.do", "selfhost-emitter-decl")
 }
 
 export function testCompilesSelfhostEmitterHeaderSlice(): void {
-  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do"], "emitter-header.do", "selfhost-emitter-header")
+  assertNativeSelfhostSlice(["semantic.do", "ast.do", "lexer.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "resolver.do", "analyzer.do", "checker-types.do", "checker.do", "emitter-context.do", "emitter-names.do", "emitter-monomorphize.do", "emitter-types.do", "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr-lambda.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do"], "emitter-header.do", "selfhost-emitter-header")
 }

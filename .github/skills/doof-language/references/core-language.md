@@ -142,6 +142,11 @@ numbers.filter(=> it > 10)
 numbers.reduce(0, => acc + it)
 ```
 
+Lambdas capture immutable outer bindings by value. Captured mutable `let`
+bindings remain shared across escaping closures; uncaptured mutable locals keep
+ordinary local lifetime. Function values still use the actor-affine callback
+rules described in the concurrency reference.
+
 Collection shorthand parameter names are:
 
 - `it` for the current element

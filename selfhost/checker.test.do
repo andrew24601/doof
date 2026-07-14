@@ -25,6 +25,53 @@ export function testInfersExpressionsAndCalls(): void {
   }
 }
 
+export function testChecksArrayAndStringSearchMembers(): void {
+  result := checked("function main(): int { values := [1, 2, 3]\ntext := \"hello\"\nif values.contains(2) && text.contains(\"ell\") { return values.indexOf(3) + text.indexOf(\"e\") }\nreturn 0 }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksReadonlyArrayLiteralAndReadonlyField(): void {
+  result := checked("class Request { readonly headers: int[] }\nfunction use(values: readonly int[]): int => values.length\nfunction main(): int { values := readonly [1, 2]\nrequest := Request { headers: values }\nreturn use(request.headers) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksExplicitGenericNamedCall(): void {
+  result := checked("function create<T>(value: T, count: int = 1): T => value\nfunction main(): string => create<string>{ value: \"ok\" }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testSubstitutesExplicitGenericTupleReturn(): void {
+  result := checked("function pair<T>(value: T): Tuple<T, T> => (value, value)\n(first, second) := pair<int>(1)\nfunction total(): int => first + second\n")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsExplicitGenericCallArity(): void {
+  result := checked("function create<T>(value: T): T => value\nfunction main(): int => create<int, string>(1)")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message, "Generic call requires 1 type argument; received 2")
+}
+
+export function testChecksDeclarationElseNarrowingAndCapture(): void {
+  result := checked("function load(): Result<int, string> => Success { value: 4 }\nfunction maybe(): string | null => \"ok\"\nfunction main(): int { value := load() else error { println(error)\nreturn 1 }\nname := maybe() else { return 2 }\nreturn value + name.length }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRequiresDeclarationElseHandlerToExit(): void {
+  result := checked("function load(): Result<int, string> => Success { value: 4 }\nfunction main(): int { value := load() else { println(\"failed\") }\nreturn value }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message, "Declaration-else block must exit scope")
+}
+
+export function testAllowsDiscardDeclarationElseToContinue(): void {
+  result := checked("function save(): Result<void, string> => Success()\nfunction main(): int { _ := save() else error { println(error) }\nreturn 0 }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAcceptsPanicAsDeclarationElseExit(): void {
+  result := checked("function load(): Result<int, string> => Success { value: 4 }\nfunction main(): int { value := load() else { panic(\"load failed\") }\nreturn value }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testRejectsImmutableAssignment(): void {
   result := checked("function main(): void { value := 1\nvalue = 2 }")
   Assert.equal(result.diagnostics.length > 0, true)

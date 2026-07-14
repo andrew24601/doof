@@ -8,6 +8,7 @@ export class CliRequest {
   command: string
   entry: string
   outputDirectory: string = ""
+  compiler: string = ""
   sourcePaths: string[] = []
   moduleSources: ModuleSource[] = []
 }
@@ -24,14 +25,16 @@ export class CliParseResult {
 }
 
 export function cliUsage(): string {
-  return "usage: doof-selfhost <emit|check> [entry.do|package-dir] [options]\n" +
+  return "usage: doof-selfhost <build|emit|check> [entry.do|package-dir] [options]\n" +
     "\n" +
     "commands:\n" +
+    "  build  emit generated C++ and build the executable\n" +
     "  emit   check the source graph and write generated C++\n" +
     "  check  check the source graph without writing output\n" +
     "\n" +
     "options:\n" +
     "  -o, --output-directory <path>  directory for emitted module files\n" +
+    "  --compiler <path>           C++ compiler command (default: CXX or c++)\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
     "  --module <specifier> <path> map an external import to a source file\n" +
     "  -h, --help                  show this help"
@@ -44,7 +47,7 @@ export function parseCli(args: string[]): CliParseResult {
   }
 
   command := args[0]
-  if command != "emit" && command != "check" {
+  if command != "build" && command != "emit" && command != "check" {
     return CliParseResult { request: null, error: "unknown command '" + command + "'" }
   }
   request := CliRequest { command, entry: if args.length < 2 then "." else args[1] }
@@ -57,6 +60,12 @@ export function parseCli(args: string[]): CliParseResult {
     if argument == "-o" || argument == "--output-directory" {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for " + argument } }
       request.outputDirectory = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--compiler" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --compiler" } }
+      request.compiler = args[index + 1]
       index = index + 2
       continue
     }

@@ -4,14 +4,15 @@
 // single decorated-AST dispatch point and the public identifier helper used
 // by statement and declaration emission.
 
-import { ArrayLiteral, AssignmentExpression, BinaryExpression, BoolLiteral, CallExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
+import { ArrayLiteral, AssignmentExpression, BinaryExpression, BoolLiteral, CallExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
 import { ClassType, ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
 import { emitCall, emitConstruct } from "./emitter-expr-calls"
 import { emitArray, emitChar, emitNullLiteral, emitObject, emitString, emitTuple } from "./emitter-expr-literals"
 import { emitCaseExpression, emitDotShorthand, emitIfExpression } from "./emitter-expr-control"
-import { needsNullableVariantPromotion } from "./emitter-expr-utils"
+import { emitLambdaExpression } from "./emitter-expr-lambda"
+import { decoratedExpressionType, needsNullableVariantPromotion } from "./emitter-expr-utils"
 import { emitClassInnerType } from "./emitter-types"
 
 export function emitExpression(expression: Expression, context: EmitContext, expected: ResolvedType | null = null): string {
@@ -19,8 +20,8 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
   case expression {
     int_: IntLiteral -> { value = string(int_.value) }
     long_: LongLiteral -> { value = string(long_.value) + "LL" }
-    float_: FloatLiteral -> { value = string(float_.value) + "f" }
-    double_: DoubleLiteral -> { value = string(double_.value) }
+    float_: FloatLiteral -> { value = decimalLiteral(string(float_.value)) + "f" }
+    double_: DoubleLiteral -> { value = decimalLiteral(string(double_.value)) }
     string_: StringLiteral -> { value = emitString(string_, context) }
     char_: CharLiteral -> { value = emitChar(char_.value) }
     bool_: BoolLiteral -> { value = if bool_.value then "true" else "false" }
@@ -35,6 +36,7 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     array: ArrayLiteral -> { value = emitArray(array, context, expected) }
     object: ObjectLiteral -> { value = emitObject(object, context, expected) }
     tuple: TupleLiteral -> { value = emitTuple(tuple, context) }
+    lambda: LambdaExpression -> { value = emitLambdaExpression(lambda, context) }
     if_: IfExpression -> { value = emitIfExpression(if_, context) }
     case_: CaseExpression -> { value = emitCaseExpression(case_, context, expected) }
     construct: ConstructExpression -> { value = emitConstruct(construct, context) }
@@ -64,7 +66,7 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     }
     _ -> { panic("Unsupported expression in initial C++ emitter: " + expression.kind) }
   }
-  sourceType := expression.resolvedType
+  sourceType := decoratedExpressionType(expression)
   if needsNullableVariantPromotion(sourceType, expected) {
     return "doof::optional_value(" + value + ")"
   }
@@ -72,3 +74,8 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
 }
 
 export function cppIdentifier(name: string): string { return emitCppIdentifier(name) }
+
+function decimalLiteral(value: string): string {
+  if value.contains(".") || value.contains("e") || value.contains("E") { return value }
+  return value + ".0"
+}

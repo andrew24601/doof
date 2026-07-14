@@ -7,6 +7,7 @@ import { Expression, Identifier, ObjectProperty } from "./ast"
 import { ClassType, NullType, PrimitiveType, ResolvedType, Symbol, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
+import { moduleNamespace } from "./emitter-names"
 
 export function decoratedExpressionType(expression: Expression): ResolvedType | null {
   case expression {
@@ -22,12 +23,7 @@ export function decoratedExpressionType(expression: Expression): ResolvedType | 
 export function optionalExpectedType(value: ResolvedType): ResolvedType | null { return value }
 
 export function emitExpectedExpression(expression: Expression, context: EmitContext, expected: ResolvedType | null): string {
-  value := emitExpression(expression, context, expected)
-  source := expression.resolvedType
-  if needsNullableVariantPromotion(source, expected) {
-    return "doof::optional_value(" + value + ")"
-  }
-  return value
+  return emitExpression(expression, context, expected)
 }
 
 export function needsNullableVariantPromotion(source: ResolvedType | null, expected: ResolvedType | null): bool {
@@ -103,11 +99,7 @@ export function findProperty(properties: ObjectProperty[], name: string): Object
 }
 
 export function exprModuleNamespaceFor(path: string): string {
-  normalized := path.replaceAll("\\", "/")
-  withoutRoot := if normalized.startsWith("/") then normalized.substring(1, 1000000) else normalized
-  result := withoutRoot.replaceAll("/", "_").replaceAll(".do", "")
-    .replaceAll("-", "_").replaceAll(".", "_")
-  return "app_" + (if result == "" then "module" else result) + "_"
+  return moduleNamespace(path)
 }
 
 export function emittedSymbolName(symbol: Symbol): string {

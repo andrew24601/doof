@@ -5,13 +5,12 @@
 import { Assert } from "std/assert"
 import { decodeUtf8 } from "std/blob"
 import { exists, mkdir, readText, writeText } from "std/fs"
-import { run } from "std/os"
+import { ExecOptions, run } from "std/os"
 import { currentWorkingDirectory } from "std/path"
-import { compile } from "./compiler"
-import { createAnalyzer } from "./analyzer"
-import { createChecker } from "./checker"
-import { ModuleGraphEmission, emitModuleGraph } from "./emitter-module"
+import { Compilation, compileWithLoader } from "./compiler"
+import { ModuleGraphEmission } from "./emitter-module"
 import { moduleHeaderName, moduleSourceName } from "./emitter-names"
+import { environmentValue } from "./project"
 import { SourceFile } from "./semantic"
 
 function selfhostSourcePath(path: string): string {
@@ -21,80 +20,29 @@ function selfhostSourcePath(path: string): string {
   return cwd + "/../../../selfhost/" + path
 }
 
-function selfhostSources(): SourceFile[] {
-  paths := [
-    "lexer.do", "ast.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "semantic.do", "resolver.do", "analyzer.do",
-    "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do",
-    "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do",
-    "emitter-names.do", "emitter-module.do", "compiler.do",
-  ]
-  let sources: SourceFile[] = []
-  for path of paths {
-    sources.push(SourceFile { path: "/selfhost/" + path, source: try! readText(selfhostSourcePath(path)) })
-  }
-  return sources
-}
-
-function selfhostDriverSources(): SourceFile[] {
-  paths := [
-    "lexer.do", "ast.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "semantic.do", "resolver.do", "analyzer.do",
-    "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do",
-    "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do",
-    "emitter-names.do", "emitter-module.do", "compiler.do", "cli.do", "project.do", "driver.do",
-  ]
-  let sources: SourceFile[] = []
-  for path of paths {
-    sources.push(SourceFile { path: "/selfhost/" + path, source: try! readText(selfhostSourcePath(path)) })
-  }
-  sources.push(SourceFile {
-    path: "/std/json/index.do",
-    source: try! readText("../doof-stdlib/json/index.do"),
-  })
-  for path of productionStdFsPaths() {
-    sources.push(SourceFile { path: "/std/" + path, source: try! readText("../doof-stdlib/" + path) })
-  }
-  sources.push(SourceFile { path: "/std/time/index.do", source: bootstrapStdTimeSource() })
-  return sources
-}
-
-function productionStdFsPaths(): string[] {
-  return [
-    "fs/index.do", "fs/types.do", "path/index.do", "stream/index.do",
-    "blob/index.do", "blob/types.do",
-  ]
-}
-
 function bootstrapStdTimeSource(): string {
   return "export class Instant {\n  epochNanos: long\n  static ofEpochSeconds(seconds: long): Instant => Instant { epochNanos: seconds * 1000000000L }\n}\n"
 }
 
-function productionStdFsModuleName(path: string): string {
-  return "std/" + path.substring(0, path.length - 3)
-}
-
-function writeProductionStdFsSources(): string[] {
-  let paths: string[] = []
-  for path of productionStdFsPaths() {
-    outputPath := "/tmp/doof-selfhost-" + path.replaceAll("/", "-")
-    try! writeText(outputPath, try! readText("../doof-stdlib/" + path))
-    paths.push(outputPath)
+function bootstrapSource(logicalPath: string): SourceFile | null {
+  if logicalPath.startsWith("/selfhost/") {
+    relativePath := logicalPath.substring(10, logicalPath.length)
+    diskPath := selfhostSourcePath(relativePath)
+    if exists(diskPath) { return SourceFile { path: logicalPath, source: try! readText(diskPath) } }
+    return null
   }
-  return paths
+  if logicalPath == "/std/time/index.do" {
+    return SourceFile { path: logicalPath, source: bootstrapStdTimeSource() }
+  }
+  if logicalPath.startsWith("/std/") {
+    diskPath := "../doof-stdlib/" + logicalPath.substring(5, logicalPath.length)
+    if exists(diskPath) { return SourceFile { path: logicalPath, source: try! readText(diskPath) } }
+  }
+  return null
 }
 
-function selfhostDriverPaths(): string[] {
-  return [
-    "lexer.do", "ast.do", "parser.do", "parser-declarations.do", "parser-statements.do", "parser-types.do", "parser-expressions.do", "semantic.do", "resolver.do", "analyzer.do",
-    "checker-types.do", "checker.do", "emitter-context.do", "emitter-types.do",
-    "emitter-expr-utils.do", "emitter-expr-literals.do", "emitter-expr-ops.do", "emitter-expr-calls.do", "emitter-expr-control.do", "emitter-expr.do", "emitter-stmt.do", "emitter-decl.do", "emitter-header.do",
-    "emitter-names.do", "emitter-module.do", "compiler.do", "cli.do", "project.do", "driver.do",
-  ]
-}
-
-function writeSelfhostJsonSource(): string {
-  path := "/tmp/doof-selfhost-std-json.do"
-  try! writeText(path, try! readText("../doof-stdlib/json/index.do"))
-  return path
+function compileBootstrap(entry: string): Compilation {
+  return compileWithLoader([], entry, bootstrapSource)
 }
 
 function writeSelfhostJsonSupport(): void {
@@ -112,12 +60,6 @@ function writeBootstrapStdFsSupport(): void {
   try! writeText("/tmp/types.hpp", "#pragma once\n#include \"std_blob_types.hpp\"\n#include \"std_fs_types.hpp\"\nusing EntryKind = ::app_std_fs_types_::EntryKind;\nusing IoError = ::app_std_fs_types_::IoError;\nusing Endian = ::app_std_blob_types_::Endian;\nusing TextEncoding = ::app_std_blob_types_::TextEncoding;\nusing EncodingError = ::app_std_blob_types_::EncodingError;\nusing Instant = ::app_std_time_index_::Instant;\nnamespace doof_fs { using EntryKind = ::app_std_fs_types_::EntryKind; using IoError = ::app_std_fs_types_::IoError; using Instant = ::app_std_time_index_::Instant; using ::app_std_fs_types_::IoError_name; }\n")
 }
 
-function writeBootstrapStdTimeSource(): string {
-  path := "/tmp/doof-selfhost-std-time-index.do"
-  try! writeText(path, bootstrapStdTimeSource())
-  return path
-}
-
 function writeSplitArtifacts(graph: ModuleGraphEmission): string[] {
   let sourcePaths: string[] = []
   for module of graph.modules {
@@ -127,6 +69,67 @@ function writeSplitArtifacts(graph: ModuleGraphEmission): string[] {
     sourcePaths.push(sourcePath)
   }
   return sourcePaths
+}
+
+function buildSeedDriver(binaryPath: string): string {
+  result := compileBootstrap("/selfhost/driver.do")
+  if result.diagnostics.length > 0 {
+    for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+
+  driverSources := writeSplitArtifacts(result.emission!)
+  writeRuntime()
+  writeBootstrapStdFsSupport()
+  writeSelfhostJsonSupport()
+
+  let linkArgs: string[] = ["-std=c++17", "-framework", "CoreFoundation"]
+  for sourcePath of driverSources { linkArgs.push(sourcePath) }
+  linkArgs.push("-o")
+  linkArgs.push(binaryPath)
+  linked := try! run("clang++", linkArgs)
+  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
+  Assert.equal(linked.exitCode, 0)
+  return binaryPath
+}
+
+function buildNextCompiler(compilerBinary: string, outputDirectory: string): string {
+  built := try! run(
+    compilerBinary,
+    ["build", selfhostSourcePath("driver.do"), "-o", outputDirectory, "--compiler", "clang++"],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": absolutePath("../doof-stdlib") } },
+  )
+  if built.exitCode != 0 { println(decodeUtf8(built.stdout)!) }
+  if built.exitCode != 0 { println(firstStderrLines(decodeUtf8(built.stderr)!, 40)) }
+  Assert.equal(built.exitCode, 0)
+  return outputDirectory + "/doof"
+}
+
+function assertCompilerEmitsRunnableProgram(compilerBinary: string, stage: string): void {
+  entry := "/tmp/doof-" + stage + "-main.do"
+  math := "/tmp/doof-" + stage + "-math.do"
+  outputDirectory := "/tmp/doof-" + stage + "-generated"
+  try! writeText(entry, "import { add } from \"./doof-" + stage + "-math\"\nfunction main(): int => add(2, 3)\n")
+  try! writeText(math, "export function add(left: int, right: int): int => left + right\n")
+
+  emitted := try! run(compilerBinary, ["emit", entry, "-o", outputDirectory])
+  if emitted.exitCode != 0 { println(decodeUtf8(emitted.stdout)!) }
+  if emitted.exitCode != 0 { println(decodeUtf8(emitted.stderr)!) }
+  Assert.equal(emitted.exitCode, 0)
+
+  programBinary := "/tmp/doof-" + stage + "-generated-program"
+  linked := try! run("clang++", [
+    "-std=c++17",
+    outputDirectory + "/" + moduleSourceName(entry),
+    outputDirectory + "/" + moduleSourceName(math),
+    "-I", outputDirectory,
+    "-o", programBinary,
+  ])
+  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
+  Assert.equal(linked.exitCode, 0)
+  executed := try! run(programBinary)
+  Assert.equal(executed.exitCode, 5)
 }
 
 function firstStderrLines(stderr: string, maxLines: int): string {
@@ -142,25 +145,14 @@ function firstStderrLines(stderr: string, maxLines: int): string {
 }
 
 export function testCompilesSelfhostSourceGraph(): void {
-  sources := selfhostSources()
-  analysis := createAnalyzer(sources).analyze("/selfhost/compiler.do")
-  Assert.equal(analysis.diagnostics.length, 0)
-  checker := createChecker(analysis)
-  for i of 0..<analysis.modules.length {
-    module := analysis.modules[analysis.modules.length - 1 - i]
-    checked := checker.check(module.path)
-    Assert.equal(checked.diagnostics.length, 0)
+  result := compileBootstrap("/selfhost/compiler.do")
+  if result.diagnostics.length > 0 {
+    for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
   }
-
-  graph := emitModuleGraph(analysis, "/selfhost/compiler.do")
-  Assert.equal(graph.modules.length, sources.length)
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
   let nativeArgs: string[] = ["-std=c++17", "-fsyntax-only"]
-  for module of graph.modules {
-    try! writeText("/tmp/" + module.headerName, module.header)
-    sourcePath := "/tmp/" + module.sourceName
-    try! writeText(sourcePath, module.source)
-    nativeArgs.push(sourcePath)
-  }
+  for sourcePath of writeSplitArtifacts(result.emission!) { nativeArgs.push(sourcePath) }
   writeRuntime()
   native := try! run("clang++", nativeArgs)
   if native.exitCode != 0 { println(firstStderrLines(decodeUtf8(native.stderr)!, 8)) }
@@ -168,26 +160,7 @@ export function testCompilesSelfhostSourceGraph(): void {
 }
 
 export function testRunsSelfhostCompilerDriver(): void {
-  result := compile(selfhostDriverSources(), "/selfhost/driver.do")
-  if result.diagnostics.length > 0 {
-    for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
-  }
-  Assert.equal(result.diagnostics.length, 0)
-  Assert.equal(result.emission != null, true)
-
-  driverSources := writeSplitArtifacts(result.emission!)
-  driverBinary := "/tmp/doof-selfhost-driver"
-  writeRuntime()
-  writeBootstrapStdFsSupport()
-  writeSelfhostJsonSupport()
-
-  let linkArgs: string[] = ["-std=c++17", "-framework", "CoreFoundation"]
-  for sourcePath of driverSources { linkArgs.push(sourcePath) }
-  linkArgs.push("-o")
-  linkArgs.push(driverBinary)
-  linked := try! run("clang++", linkArgs)
-  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
-  Assert.equal(linked.exitCode, 0)
+  driverBinary := buildSeedDriver("/tmp/doof-selfhost-driver")
 
   entry := "/tmp/doof-b4-main.do"
   math := "/tmp/doof-b4-math.do"
@@ -210,6 +183,141 @@ export function testRunsSelfhostCompilerDriver(): void {
 
   checked := try! run(driverBinary, ["check", entry, "--module", "doof-b4-math", math])
   Assert.equal(checked.exitCode, 0)
+
+  acquiredStd := try! run(
+    driverBinary,
+    ["check", selfhostSourcePath("samples/std-time-acquisition.do")],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": absolutePath("../doof-stdlib") } },
+  )
+  if acquiredStd.exitCode != 0 { println(decodeUtf8(acquiredStd.stderr)!) }
+  Assert.equal(acquiredStd.exitCode, 0)
+
+  acquiredOutput := "/tmp/doof-b4-acquired-native-output"
+  emittedAcquiredStd := try! run(
+    driverBinary,
+    ["emit", selfhostSourcePath("samples/std-time-acquisition.do"), "-o", acquiredOutput],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": absolutePath("../doof-stdlib") } },
+  )
+  if emittedAcquiredStd.exitCode != 0 { println(decodeUtf8(emittedAcquiredStd.stderr)!) }
+  Assert.equal(emittedAcquiredStd.exitCode, 0)
+  Assert.equal(exists(acquiredOutput + "/std/time/doof_time.cpp"), true)
+  Assert.equal(exists(acquiredOutput + "/std/time/doof_time.hpp"), true)
+  Assert.equal(exists(acquiredOutput + "/std/time/index.hpp"), true)
+  Assert.equal(exists(acquiredOutput + "/types.hpp"), false)
+
+  nativeTimeProject := "/tmp/doof-selfhost-native-time-project"
+  if !exists(nativeTimeProject) { try! mkdir(nativeTimeProject) }
+  if !exists(nativeTimeProject + "/src") { try! mkdir(nativeTimeProject + "/src") }
+  try! writeText(
+    nativeTimeProject + "/doof.json",
+    "{\n  \"name\": \"native-time-demo\",\n  \"build\": {\n    \"entry\": \"src/main.do\",\n    \"native\": {\n      \"sourceFiles\": [\"native.cpp\"],\n      \"extraCopyPaths\": [\"native.hpp\"],\n      \"defines\": [\"ROOT_NATIVE_VALUE=11\"]\n    }\n  }\n}\n",
+  )
+  try! writeText(
+    nativeTimeProject + "/src/main.do",
+    "import { Instant } from \"std/time\"\nimport function nativeRootValue(): int from \"native.hpp\"\nfunction main(): int {\n  if nativeRootValue() == 11 && Instant.now().toEpochNanos() > 0L { return 0 }\n  return 1\n}\n",
+  )
+  try! writeText(nativeTimeProject + "/native.hpp", "#pragma once\nint nativeRootValue();\n")
+  try! writeText(
+    nativeTimeProject + "/native.cpp",
+    "#include \"native.hpp\"\n#ifndef ROOT_NATIVE_VALUE\n#error missing root native define\n#endif\nint nativeRootValue() { return ROOT_NATIVE_VALUE; }\n",
+  )
+  builtNativeTime := try! run(
+    driverBinary,
+    ["build", nativeTimeProject, "--compiler", "clang++"],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": absolutePath("../doof-stdlib") } },
+  )
+  if builtNativeTime.exitCode != 0 { println(firstStderrLines(decodeUtf8(builtNativeTime.stderr)!, 20)) }
+  Assert.equal(builtNativeTime.exitCode, 0)
+  ranNativeTime := try! run(nativeTimeProject + "/build/native-time-demo")
+  Assert.equal(ranNativeTime.exitCode, 0)
+
+  platformStdlib := "/tmp/doof-selfhost-platform-stdlib"
+  platformPackage := platformStdlib + "/platform-native"
+  if !exists(platformStdlib) { try! mkdir(platformStdlib) }
+  if !exists(platformPackage) { try! mkdir(platformPackage) }
+  try! writeText(
+    platformPackage + "/doof.json",
+    "{\n  \"name\": \"std/platform-native\",\n  \"build\": {\n    \"native\": {\n      \"extraCopyPaths\": [\"native_platform.hpp\"],\n      \"macos\": { \"frameworks\": [\"CoreFoundation\"] }\n    }\n  }\n}\n",
+  )
+  try! writeText(
+    platformPackage + "/index.do",
+    "export import function platformValue(): int from \"native_platform.hpp\" as platform_native::value\n",
+  )
+  try! writeText(
+    platformPackage + "/native_platform.hpp",
+    "#pragma once\n#include <CoreFoundation/CoreFoundation.h>\n#include <cstdint>\nnamespace platform_native { inline int32_t value() { return static_cast<int32_t>(CFStringGetLength(CFSTR(\"ok\"))); } }\n",
+  )
+  nativePlatformProject := "/tmp/doof-selfhost-native-platform-project"
+  if !exists(nativePlatformProject) { try! mkdir(nativePlatformProject) }
+  if !exists(nativePlatformProject + "/src") { try! mkdir(nativePlatformProject + "/src") }
+  try! writeText(
+    nativePlatformProject + "/doof.json",
+    "{\n  \"name\": \"native-platform-demo\",\n  \"build\": { \"entry\": \"src/main.do\" }\n}\n",
+  )
+  try! writeText(
+    nativePlatformProject + "/src/main.do",
+    "import { platformValue } from \"std/platform-native\"\nfunction main(): int => if platformValue() == 2 then 0 else 1\n",
+  )
+  builtNativePlatform := try! run(
+    driverBinary,
+    ["build", nativePlatformProject, "--compiler", "clang++"],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": platformStdlib } },
+  )
+  if builtNativePlatform.exitCode != 0 { println(firstStderrLines(decodeUtf8(builtNativePlatform.stderr)!, 20)) }
+  Assert.equal(builtNativePlatform.exitCode, 0)
+  ranNativePlatform := try! run(nativePlatformProject + "/build/native-platform-demo")
+  Assert.equal(ranNativePlatform.exitCode, 0)
+
+  httpClientProject := absolutePath("samples/http-client")
+  stdlibRoot := absolutePath("../doof-stdlib")
+  checkedHttpClient := try! run(
+    driverBinary,
+    ["check", httpClientProject],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": stdlibRoot } },
+  )
+  if checkedHttpClient.exitCode != 0 { println(decodeUtf8(checkedHttpClient.stdout)!) }
+  if checkedHttpClient.exitCode != 0 { println(firstStderrLines(decodeUtf8(checkedHttpClient.stderr)!, 40)) }
+  Assert.equal(checkedHttpClient.exitCode, 0)
+
+  httpClientOutput := "/tmp/doof-selfhost-http-client"
+  builtHttpClient := try! run(
+    driverBinary,
+    ["build", httpClientProject, "-o", httpClientOutput],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": stdlibRoot } },
+  )
+  if builtHttpClient.exitCode != 0 { println(decodeUtf8(builtHttpClient.stdout)!) }
+  if builtHttpClient.exitCode != 0 { println(firstStderrLines(decodeUtf8(builtHttpClient.stderr)!, 80)) }
+  Assert.equal(builtHttpClient.exitCode, 0)
+  Assert.equal(exists(httpClientOutput + "/http-client-sample"), true)
+
+  localHttpProject := "/tmp/doof-selfhost-local-http-client"
+  if !exists(localHttpProject) { try! mkdir(localHttpProject) }
+  localHttpSource := (try! readText(httpClientProject + "/main.do")).replaceAll(
+    "https://example.com",
+    "http://127.0.0.1:18765",
+  )
+  try! writeText(localHttpProject + "/main.do", localHttpSource)
+  try! writeText(localHttpProject + "/doof.json", "{\n  \"name\": \"local-http-client\",\n  \"build\": {}\n}\n")
+  localHttpOutput := "/tmp/doof-selfhost-local-http-output"
+  builtLocalHttp := try! run(
+    driverBinary,
+    ["build", localHttpProject, "-o", localHttpOutput],
+    ExecOptions { env: { "DOOF_STDLIB_ROOT": stdlibRoot } },
+  )
+  if builtLocalHttp.exitCode != 0 { println(firstStderrLines(decodeUtf8(builtLocalHttp.stderr)!, 40)) }
+  Assert.equal(builtLocalHttp.exitCode, 0)
+  // Network-restricted test runners cannot bind loopback sockets. Keep the
+  // deterministic runtime leg opt-in while always compiling its exact binary.
+  if environmentValue("DOOF_HTTP_RUNTIME_TEST") == "1" {
+    localHttpRun := try! run("sh", [
+      "-c",
+      "python3 -m http.server 18765 --bind 127.0.0.1 --directory /tmp >/tmp/doof-local-http-server.log 2>&1 & server=$!; sleep 1; \"$1\" >/tmp/doof-local-http-client.log; status=$?; kill $server; wait $server 2>/dev/null; exit $status",
+      "local-http-runtime",
+      localHttpOutput + "/local-http-client",
+    ])
+    if localHttpRun.exitCode != 0 { println(try! readText("/tmp/doof-local-http-client.log")) }
+    Assert.equal(localHttpRun.exitCode, 0)
+  }
 
   targetBinary := "/tmp/doof-b4-generated-program"
   targetSource := outputDirectory + "/" + moduleSourceName(entry)
@@ -238,135 +346,10 @@ export function testRunsSelfhostCompilerDriver(): void {
 }
 
 export function testTwoStageBootstrapsSelfhostCompiler(): void {
-  result := compile(selfhostDriverSources(), "/selfhost/driver.do")
-  if result.diagnostics.length > 0 {
-    for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
-  }
-  Assert.equal(result.diagnostics.length, 0)
-  Assert.equal(result.emission != null, true)
+  seedCompiler := buildSeedDriver("/tmp/doof-selfhost-bootstrap-seed")
+  firstCompiler := buildNextCompiler(seedCompiler, "/tmp/doof-selfhost-b5-autodiscovered")
+  assertCompilerEmitsRunnableProgram(firstCompiler, "b5")
 
-  driverSources := writeSplitArtifacts(result.emission!)
-  driverBinary := "/tmp/doof-selfhost-b5-driver"
-  writeRuntime()
-  writeBootstrapStdFsSupport()
-  writeSelfhostJsonSupport()
-
-  let linkArgs: string[] = ["-std=c++17", "-framework", "CoreFoundation"]
-  for sourcePath of driverSources { linkArgs.push(sourcePath) }
-  linkArgs.push("-o")
-  linkArgs.push(driverBinary)
-  linked := try! run("clang++", linkArgs)
-  if linked.exitCode != 0 { println(firstStderrLines(decodeUtf8(linked.stderr)!, 8)) }
-  Assert.equal(linked.exitCode, 0)
-
-  bootstrapDirectory := "/tmp/doof-selfhost-b5-compiler"
-  bootstrapEntry := selfhostSourcePath("driver.do")
-  jsonSourcePath := writeSelfhostJsonSource()
-  fsSourcePaths := writeProductionStdFsSources()
-  timeSourcePath := writeBootstrapStdTimeSource()
-  let bootstrapArgs: string[] = ["emit", bootstrapEntry, "-o", bootstrapDirectory]
-  for path of selfhostDriverPaths() {
-    bootstrapArgs.push("--source")
-    bootstrapArgs.push(selfhostSourcePath(path))
-  }
-  bootstrapArgs.push("--module")
-  bootstrapArgs.push("std/json/index")
-  bootstrapArgs.push(jsonSourcePath)
-  bootstrapArgs.push("--module")
-  bootstrapArgs.push("std/time/index")
-  bootstrapArgs.push(timeSourcePath)
-  for i of 0..<productionStdFsPaths().length {
-    bootstrapArgs.push("--module")
-    bootstrapArgs.push(productionStdFsModuleName(productionStdFsPaths()[i]))
-    bootstrapArgs.push(fsSourcePaths[i])
-  }
-  generated := try! run(driverBinary, bootstrapArgs)
-  if generated.exitCode != 0 { println(decodeUtf8(generated.stdout)!) }
-  if generated.exitCode != 0 { println(decodeUtf8(generated.stderr)!) }
-  Assert.equal(generated.exitCode, 0)
-
-  bootstrapBinary := "/tmp/doof-selfhost-b5-compiler-bin"
-  let bootstrapLinkArgs: string[] = ["-std=c++17", "-framework", "CoreFoundation"]
-  for path of selfhostDriverPaths() {
-    bootstrapLinkArgs.push(bootstrapDirectory + "/" + moduleSourceName("/selfhost/" + path))
-  }
-  bootstrapLinkArgs.push("-o")
-  bootstrapLinkArgs.push(bootstrapBinary)
-  linkedBootstrap := try! run("clang++", bootstrapLinkArgs)
-  if linkedBootstrap.exitCode != 0 { println("B5 link exit: " + string(linkedBootstrap.exitCode)) }
-  if linkedBootstrap.exitCode != 0 { println(firstStderrLines(decodeUtf8(linkedBootstrap.stderr)!, 40)) }
-  if linkedBootstrap.exitCode != 0 { println(decodeUtf8(linkedBootstrap.stdout)!) }
-  Assert.equal(linkedBootstrap.exitCode, 0)
-
-  entry := "/tmp/doof-b5-main.do"
-  math := "/tmp/doof-b5-math.do"
-  outputDirectory := "/tmp/doof-b5-generated"
-  try! writeText(entry, "import { add } from \"doof-b5-math\"\nfunction main(): int => add(2, 3)\n")
-  try! writeText(math, "export function add(left: int, right: int): int => left + right\n")
-
-  smoke := try! run(bootstrapBinary, ["emit", entry, "-o", outputDirectory, "--module", "doof-b5-math", math])
-  if smoke.exitCode != 0 { println("B5 smoke exit: " + string(smoke.exitCode)) }
-  if smoke.exitCode != 0 { println(decodeUtf8(smoke.stdout)!) }
-  if smoke.exitCode != 0 { println(decodeUtf8(smoke.stderr)!) }
-  Assert.equal(smoke.exitCode, 0)
-
-  smokeBinary := "/tmp/doof-b5-generated-program"
-  linkedSmoke := try! run("clang++", ["-std=c++17", outputDirectory + "/" + moduleSourceName(entry), outputDirectory + "/" + moduleSourceName("/doof-b5-math.do"), "-I", outputDirectory, "-o", smokeBinary])
-  if linkedSmoke.exitCode != 0 { println("B5 smoke link exit: " + string(linkedSmoke.exitCode)) }
-  if linkedSmoke.exitCode != 0 { println(firstStderrLines(decodeUtf8(linkedSmoke.stderr)!, 8)) }
-  Assert.equal(linkedSmoke.exitCode, 0)
-  executed := try! run(smokeBinary)
-  println("B5 program exit: " + string(executed.exitCode))
-  Assert.equal(executed.exitCode, 5)
-
-  secondDirectory := "/tmp/doof-selfhost-b6-compiler"
-  secondJsonSourcePath := writeSelfhostJsonSource()
-  secondFsSourcePaths := writeProductionStdFsSources()
-  secondTimeSourcePath := writeBootstrapStdTimeSource()
-  let secondArgs: string[] = ["emit", bootstrapEntry, "-o", secondDirectory]
-  for path of selfhostDriverPaths() {
-    secondArgs.push("--source")
-    secondArgs.push(selfhostSourcePath(path))
-  }
-  secondArgs.push("--module")
-  secondArgs.push("std/json/index")
-  secondArgs.push(secondJsonSourcePath)
-  secondArgs.push("--module")
-  secondArgs.push("std/time/index")
-  secondArgs.push(secondTimeSourcePath)
-  for i of 0..<productionStdFsPaths().length {
-    secondArgs.push("--module")
-    secondArgs.push(productionStdFsModuleName(productionStdFsPaths()[i]))
-    secondArgs.push(secondFsSourcePaths[i])
-  }
-  secondGenerated := try! run(bootstrapBinary, secondArgs)
-  if secondGenerated.exitCode != 0 { println(decodeUtf8(secondGenerated.stdout)!) }
-  if secondGenerated.exitCode != 0 { println(decodeUtf8(secondGenerated.stderr)!) }
-  Assert.equal(secondGenerated.exitCode, 0)
-
-  secondBinary := "/tmp/doof-selfhost-b6-compiler-bin"
-  let secondLinkArgs: string[] = ["-std=c++17", "-framework", "CoreFoundation"]
-  for path of selfhostDriverPaths() {
-    secondLinkArgs.push(secondDirectory + "/" + moduleSourceName("/selfhost/" + path))
-  }
-  secondLinkArgs.push("-o")
-  secondLinkArgs.push(secondBinary)
-  linkedSecond := try! run("clang++", secondLinkArgs)
-  if linkedSecond.exitCode != 0 { println(firstStderrLines(decodeUtf8(linkedSecond.stderr)!, 8)) }
-  Assert.equal(linkedSecond.exitCode, 0)
-
-  secondOutputDirectory := "/tmp/doof-b6-generated"
-  secondSmoke := try! run(secondBinary, ["emit", entry, "-o", secondOutputDirectory, "--module", "doof-b5-math", math])
-  if secondSmoke.exitCode != 0 { println("B6 smoke exit: " + string(secondSmoke.exitCode)) }
-  if secondSmoke.exitCode != 0 { println(decodeUtf8(secondSmoke.stdout)!) }
-  if secondSmoke.exitCode != 0 { println(decodeUtf8(secondSmoke.stderr)!) }
-  Assert.equal(secondSmoke.exitCode, 0)
-
-  secondSmokeBinary := "/tmp/doof-b6-generated-program"
-  linkedSecondSmoke := try! run("clang++", ["-std=c++17", secondOutputDirectory + "/" + moduleSourceName(entry), secondOutputDirectory + "/" + moduleSourceName("/doof-b5-math.do"), "-I", secondOutputDirectory, "-o", secondSmokeBinary])
-  if linkedSecondSmoke.exitCode != 0 { println(firstStderrLines(decodeUtf8(linkedSecondSmoke.stderr)!, 8)) }
-  Assert.equal(linkedSecondSmoke.exitCode, 0)
-  secondExecuted := try! run(secondSmokeBinary)
-  println("B6 program exit: " + string(secondExecuted.exitCode))
-  Assert.equal(secondExecuted.exitCode, 5)
+  secondCompiler := buildNextCompiler(firstCompiler, "/tmp/doof-selfhost-b6-autodiscovered")
+  assertCompilerEmitsRunnableProgram(secondCompiler, "b6")
 }

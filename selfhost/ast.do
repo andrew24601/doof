@@ -183,6 +183,8 @@ export class CallExpression {
   kind: string
   callee: Expression
   args: CallArgument[]
+  typeArgs: TypeAnnotation[] = []
+  resolvedGenericTypeArgs: ResolvedType[] = []
   resolvedFunction: FunctionDeclaration | null = null
   resolvedConstructor: FunctionDeclaration | null = null
   resolvedType: ResolvedType | null = null
@@ -321,6 +323,7 @@ export class ImmutableBinding {
   value: Expression
   exported: bool
   else_: Block | null = null
+  failureName: string | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }

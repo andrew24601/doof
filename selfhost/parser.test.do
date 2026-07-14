@@ -79,6 +79,74 @@ export function testParsesPostfixCallsAndMembers(): void {
   }
 }
 
+export function testParsesReadonlyArrayLiteral(): void {
+  case first("readonly [1, 2]") {
+    statement: ExpressionStatement -> {
+      case statement.expression {
+        array: ArrayLiteral -> {
+          Assert.equal(array.readonly_, true)
+          Assert.equal(array.elements.length, 2)
+        }
+        _ -> { panic("expected readonly array literal") }
+      }
+    }
+    _ -> { panic("expected expression statement") }
+  }
+}
+
+export function testParsesExplicitGenericCalls(): void {
+  program := parse("create<int>(1)\ncreate<string>{ value: \"ok\" }")
+  for statement of program.statements {
+    case statement {
+      expression: ExpressionStatement -> {
+        case expression.expression {
+          call: CallExpression -> {
+            Assert.equal(call.typeArgs.length, 1)
+            Assert.equal(call.args.length, 1)
+          }
+          _ -> { panic("expected generic call") }
+        }
+      }
+      _ -> { panic("expected expression statement") }
+    }
+  }
+}
+
+export function testSeparatesGenericNamedCallsAcrossLines(): void {
+  program := parse("first := createChannel<int>{ capacity: 1 }\nsecond := createChannel<string>{ capacity: 2 }")
+  Assert.equal(program.statements.length, 2)
+}
+
+export function testParsesDeclarationElseForms(): void {
+  program := parse(`
+    value := load() else error { return }
+    typed: int := maybe() else { return }
+    _ := save() else failure { println(failure) }
+  `)
+  Assert.equal(program.statements.length, 3)
+  case program.statements[0] {
+    binding: ImmutableBinding -> {
+      Assert.equal(binding.else_ != null, true)
+      Assert.equal(binding.failureName, "error")
+    }
+    _ -> { panic("expected declaration-else binding") }
+  }
+  case program.statements[1] {
+    binding: ImmutableBinding -> {
+      Assert.equal(binding.else_ != null, true)
+      Assert.equal(binding.failureName, null)
+    }
+    _ -> { panic("expected typed declaration-else binding") }
+  }
+  case program.statements[2] {
+    binding: ImmutableBinding -> {
+      Assert.equal(binding.name, "_")
+      Assert.equal(binding.failureName, "failure")
+    }
+    _ -> { panic("expected discard declaration-else binding") }
+  }
+}
+
 export function testPreservesTemplateInterpolationParts(): void {
   case first("`hello \${name}!`") {
     statement: ExpressionStatement -> {
@@ -200,12 +268,23 @@ export function testParsesNativeClassSurface(): void {
   }
 }
 
+export function testParsesGenericNativeFunction(): void {
+  program := parse("import function send<T>(value: T): void from \"native.hpp\" as native::send")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> {
+      Assert.equal(fn.typeParams.length, 1)
+      Assert.equal(fn.typeParams[0], "T")
+    }
+    _ -> { panic("expected generic native function") }
+  }
+}
+
 export function testParsesSelfhostSemanticSources(): void {
   for path of [
     "selfhost/resolver.do", "selfhost/ast.do", "selfhost/semantic.do",
     "selfhost/parser.do", "selfhost/parser-declarations.do", "selfhost/parser-statements.do", "selfhost/parser-types.do", "selfhost/parser-expressions.do", "selfhost/analyzer.do", "selfhost/checker-types.do",
     "selfhost/checker.do", "selfhost/emitter-context.do", "selfhost/emitter-types.do",
-    "selfhost/emitter-expr-utils.do", "selfhost/emitter-expr-literals.do", "selfhost/emitter-expr-ops.do", "selfhost/emitter-expr-calls.do", "selfhost/emitter-expr-control.do", "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-decl.do",
+    "selfhost/emitter-expr-utils.do", "selfhost/emitter-expr-literals.do", "selfhost/emitter-expr-ops.do", "selfhost/emitter-expr-calls.do", "selfhost/emitter-expr-control.do", "selfhost/emitter-expr-lambda.do", "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-decl.do",
     "selfhost/emitter-header.do", "selfhost/emitter-module.do",
     "selfhost/compiler.do",
   ] {

@@ -31,6 +31,7 @@ export class Symbol {
   nativeHeader: string = ""
   nativeCppName: string = ""
   implementations: Symbol[] = []
+  implementedInterfaceTypes: string[] = []
 }
 
 export class ImportBinding {
@@ -74,12 +75,14 @@ export class InterfaceType {
   kind: string = "interface"
   name: string
   symbol: Symbol
+  typeArgs: ResolvedType[] = []
 }
 
 export class FunctionType {
   kind: string = "function"
   params: FunctionParamType[]
   returnType: ResolvedType
+  typeParams: string[] = []
 }
 
 export class FunctionParamType {
@@ -156,6 +159,11 @@ export class TypeParameterType {
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
   ArrayResolvedType | MapResolvedType | StreamResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
   NullType | VoidType | UnknownType | TypeParameterType
+
+export class TypeSubstitution {
+  names: string[] = []
+  arguments: ResolvedType[] = []
+}
 
 export class Binding {
   name: string

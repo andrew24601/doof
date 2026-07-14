@@ -1,20 +1,16 @@
 // Assignment, identifier, operator, member, and index lowering.
 
 import { AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, InterfaceType, MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
-import { EmitContext } from "./emitter-context"
+import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
-import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasNullMember, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
+import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
 import { emitType } from "./emitter-types"
 
 export function emitAssignment(expression: AssignmentExpression, context: EmitContext): string {
   operator := if expression.operator == "\\=" then "/=" else expression.operator
   targetType := expression.target.resolvedType
-  let value = emitExpression(expression.value, context, targetType)
-  valueType := expression.value.resolvedType
-  if (isNullableVariantType(targetType) && expression.value.kind != "null-literal" && !hasNullMember(valueType)) {
-    value = "doof::optional_value(" + value + ")"
-  }
+  value := emitExpression(expression.value, context, targetType)
   return "(" + emitAssignmentTarget(expression.target, context) + " " + operator + " " + value + ")"
 }
 
@@ -72,6 +68,9 @@ export function emitIdentifier(expression: Identifier, context: EmitContext): st
         return "::" + exprModuleNamespaceFor(imported.symbol!.module) + "::" + cppIdentifier(emittedSymbolName(imported.symbol!))
       }
     }
+  }
+  if expression.resolvedBinding != null && expression.resolvedBinding!.mutable && isCapturedMutable(context, expression.name) {
+    return "(*" + cppIdentifier(expression.name) + ")"
   }
   return cppIdentifier(expression.name)
 }
@@ -217,10 +216,15 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
   objectType := decoratedExpressionType(expression.object)
   if objectType != null {
     case objectType! {
+      function_: FunctionType -> { return object + "." + cppIdentifier(expression.property) }
       _: InterfaceType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
-      _: StreamResolvedType -> { return object + "->" + cppIdentifier(expression.property) }
+      _: StreamResolvedType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: ArrayResolvedType -> { if expression.property == "length" { return "(" + object + ")->size()" } }
-      primitive: PrimitiveType -> { if primitive.name == "string" && expression.property == "length" { return object + ".size()" } }
+      primitive: PrimitiveType -> {
+        if primitive.name == "string" && expression.property == "length" { return object + ".size()" }
+        if primitive.name == "string" && expression.property == "toLowerCase" { return "doof::string_toLowerCase" }
+        if primitive.name == "string" && expression.property == "toUpperCase" { return "doof::string_toUpperCase" }
+      }
       result: ResultResolvedType -> { if expression.property == "value" || expression.property == "error" { return object + "." + cppIdentifier(expression.property) } }
       enum_: EnumType -> {
         if expression.property == "value" { return "static_cast<int32_t>(" + object + ")" }

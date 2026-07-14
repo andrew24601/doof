@@ -30,11 +30,17 @@ multi-module program.
 The bootstrap is complete for the current self-hosted language slice. The
 self-hosted checker and emitter now include the intrinsic `JsonValue` carrier,
 ordered JSON object/array lowering, native function-import syntax, and
-generated `toJsonObject()` support. The generated CLI can now discover a
+generated `toJsonObject()` support. Array and string `contains` / `indexOf`
+calls now use the canonical runtime helpers, and declaration-`else` supports
+typed bindings, failure capture, nullable narrowing, discard handlers, and
+handler-exit validation. Escaping lambdas now preserve mutable
+captures through shared heap boxes while retaining actor-affine
+`doof::callback` wrappers. The generated CLI can now discover a
 project root, read `doof.json`, apply `build.entry` and `build.buildDir`, and
-load package-local `.do` sources. It is not yet feature-complete with the
-TypeScript compiler; full `fromJsonValue()` validation/dispatch and automatic
-stdlib dependency resolution remain planned.
+load package-local `.do` sources. Acquired `std/*` packages now register their
+identity and normalized host-platform `build.native` inputs on first use. It is
+not yet feature-complete with the TypeScript compiler; full `fromJsonValue()`
+validation/dispatch and remote stdlib acquisition remain planned.
 
 ### Verified recovery and current concerns
 
@@ -57,15 +63,37 @@ method parameters, generic stream members, and native `Result` methods are
 covered by focused checker regressions; the production std/fs graph passes the
 same gate and native end-to-end check.
 
+The 2026-07-14 macOS HTTP pass added readonly array literals, explicit generic
+positional and named calls, generic native declarations, tuple substitution and
+destructuring, and header-visible C++ templates. The generated driver now
+checks and builds the complete `std/http` barrel used by
+`samples/http-client`, including WebSocket, event, time, blob, stream, and JSON
+dependencies. Native type aliases are derived from resolved extern signatures,
+including re-exported types, and package-relative generated headers are
+forwarding wrappers to one canonical header rather than duplicate definitions.
+The macOS manifest selects the Objective-C++ backend and Foundation without
+curl or pkg-config inputs. A deterministic localhost runtime binary is always
+built; execution is enabled with `DOOF_HTTP_RUNTIME_TEST=1` on hosts that permit
+loopback sockets.
+
+The bootstrap acceptance now follows those same discovery boundaries. The seed
+compiler loads the self-hosted graph transitively instead of maintaining source
+inventories, and the B5 and B6 compilers rebuild the driver through the
+generated `build` command with `DOOF_STDLIB_ROOT` acquisition and manifest-owned
+native inputs. Only the initial seed link remains an explicit bootstrap step.
+
 Remaining architectural risks are:
 
-- Native stdlib support is currently discovered from emitted logical module
-  paths. The emitter should eventually return explicit required-support
-  metadata instead of making the driver infer files from names.
+- Reached stdlib manifests produce an explicit normalized native plan, and the
+  project emitter materializes its support files without package-name branches.
 - The self-hosted resolver now loads and caches only transitively reached
-  sources through a loader callback. The CLI maps local, explicit external,
-  and stdlib roots on demand; package identity and dependency-manifest
-  semantics are not yet aligned with the TypeScript compiler.
+  sources through a loader callback. The CLI maps local and explicit external
+  sources plus acquired logical-prefix roots on demand; `DOOF_STDLIB_ROOT`
+  currently supplies the `/std` acquisition. Reached package identity and
+  native manifest semantics are tracked, while declared package dependencies
+  and remote acquisition are not yet aligned with the TypeScript compiler;
+  progress is tracked in
+  [selfhost-module-acquisition-plan.md](selfhost-module-acquisition-plan.md).
 - `selfhost/checker.do` remains large enough that new feature work should first
   extract focused checker modules matching the ownership boundaries used by the
   TypeScript implementation.
@@ -116,15 +144,23 @@ precedence.
 
 The self-hosted front end now parses and emits the source constructs used by
 `std/json` (try bindings, Result case arms, declaration-else, and Success/
-Failure construction). Focused gates compile the real `std/json/index.do` and
+Failure construction). Declaration-`else` preserves the full subject or
+captured failure payload inside its handler and exposes only the narrowed value
+after a handler that cannot complete normally; `_ := ... else` remains a
+non-binding acknowledgement form. Focused gates compile the real
+`std/json/index.do` and
 syntax-check generated code against `native_json.hpp`; the duplicate manifest
 parser has been removed from both runtimes. The project and driver modules now
 use the `std/fs`-shaped `readText` / `writeText` surface. The self-hosted
 checker now analyzes, type-checks, and emits the production `std/fs`,
 `std/path`, `std/stream`, and `std/blob` source slice, including its `Stream<T>`
-and generic declarations. The bootstrap still supplies a focused `std/time`
-fixture, and general-purpose generic specialization remains incomplete beyond
-the instantiations exercised by this graph. `DOOF_STDLIB_ROOT` provides JSON
+and generic declarations. Doof-defined generics are now discovered to a
+whole-program fixed point and emitted as ordinary concrete C++ declarations;
+concrete generic interfaces, including `Stream<int>` and `Stream<string>`,
+receive independent closed-world variants. Generic native imports emit
+module-owned concrete adapters that rely on C++ overload resolution or template
+deduction. The bootstrap still supplies a focused `std/time` fixture.
+`DOOF_STDLIB_ROOT` provides JSON
 and filesystem native-support discovery without reintroducing private JSON or
 file-I/O implementations.
 When the entry is a package directory, the driver walks upward to `doof.json`,
@@ -134,8 +170,12 @@ still overrides the output directory. Emission writes one `<module>.hpp` /
 `<module>.cpp` pair per source module plus `doof_runtime.hpp`. The runtime is
 copied verbatim from the canonical `doof_runtime.h` used to build the compiler;
 `DOOF_RUNTIME_HEADER` can override that asset path when a compiler binary is
-relocated. Package identity, dependency manifests, and remote stdlib fallback
-remain future CLI layers.
+relocated. Reached acquired-package manifests now register normalized native
+build inputs. The project emitter materializes those inputs and the self-hosted
+`build` command compiles generated plus native sources with package-stable
+namespaces, including host frameworks and root-project settings. Declared
+package dependencies, pkg-config resolution, and remote stdlib fallback remain
+future CLI layers.
 
 ## Verification
 
@@ -145,7 +185,7 @@ The maintained verification gates are:
 - `npm test` — 2243 TypeScript tests passing
 - `doof test selfhost/compiler.test.do` — focused compiler/emitter tests,
   including real `std/json` source and native-support gates
-- `DOOF_TEST_TIMEOUT_MS=120000 doof test selfhost/bootstrap.test.do` — three B3–B6 acceptance tests,
+- `DOOF_TEST_TIMEOUT_MS=240000 doof test selfhost/bootstrap.test.do` — three B3–B6 acceptance tests,
   including the two-stage bootstrap
 - `src/selfhost-bootstrap.test.ts` — TypeScript-bootstrap native compilation
   of the self-hosted source graph

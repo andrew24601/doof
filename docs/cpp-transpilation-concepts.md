@@ -83,12 +83,18 @@ Strategy:
 - broader unions use one flattened `std::variant` shape and explicit extraction
   or coercion helpers; aggregate aliases such as `Expression` are spliced into
   the outer alternative list rather than producing nested variants
+- self-hosted class-field lowering keeps the emitted carrier aligned with its
+  initializer: when a nullable aggregate alias default emits
+  `std::monostate{}`, a missing leading `std::monostate` alternative is restored
+  in the field and constructor-parameter type
 - self-hosted aggregate alternatives use stable canonical ordering so equivalent
   unions such as `Expression | Block` and `Block | Expression` reuse the same
   generated carrier shape
 - named construction applies the same contextual union promotion to explicit
-  and shorthand properties; `LambdaExpression.body` uses `doof::with_block(...)`
-  for both `body: value` and `body`
+  and shorthand properties; explicit values flow through `emitExpression`,
+  while shorthand properties use their checker-decorated property type because
+  they have no expression node. `LambdaExpression.body` uses
+  `doof::with_block(...)` for both `body: value` and `body`
 
 Primary modules:
 
@@ -117,6 +123,10 @@ Strategy:
   their package-relative path, so the same package keeps the same namespace
   when compiled directly or as a dependency
 - cross-module calls, values, and type references use the canonical defining-module namespace rather than import aliases
+- self-hosted emission receives logical-prefix/package-name ownership from the
+  reached manifest set and uses the same package-stable namespace for module
+  bodies, types, calls, and declaration references; the longest owned prefix
+  wins for nested acquisition overrides
 - module-local declarations and references keep local C++ spellings within their owning namespace, so qualification marks a real module boundary rather than merely adding noise
 - lossy namespace-component sanitisation is validated up front, so sibling
   source names such as `foo-bar` and `foo_bar` are rejected instead of being
@@ -183,6 +193,9 @@ Strategy:
   identifier references for capture analysis
 - every lambda establishes its own callable return context, so nested lambda returns do not inherit outer `Result<T, E>` wrapping rules
 - mutable captured locals may need special boxing or indirection so closures stay valid after escape
+- both emitters box captured mutable locals in `std::shared_ptr<T>`, capture the
+  box by value, and dereference it for reads and writes; uncaptured mutable
+  locals remain ordinary stack values
 - emitted lambdas are wrapped in `doof::callback`, and first-class callback
   invocation lowers to checked `.call(...)`
 - `callback.post(...)` lowers to the runtime callback post operation and returns
@@ -195,6 +208,8 @@ Primary modules:
 
 - `src/emitter-expr-lambda.ts`
 - `src/emitter-context.ts`
+- `selfhost/emitter-expr-lambda.do`
+- `selfhost/emitter-context.do`
 
 Validation anchors:
 
@@ -207,9 +222,13 @@ Validation anchors:
 
 Strategy:
 
-- generic calls are lowered to concrete emitted helpers using monomorphized names keyed by the concrete type arguments
-- emitted code threads substitutions through the shared emission context so downstream helpers see concrete types
-- generic type aliases emit C++ templates and preserve type arguments in nested alias members, including class-union alternatives
+- the self-hosted compiler monomorphizes every reached ordinary Doof-defined generic function, method, class, alias use, and interface instantiation before header planning
+- instantiations are keyed by declaration identity plus canonical concrete arguments and discovered to a fixed point by walking substituted bodies and signatures
+- exact recursive instantiations deduplicate; expanding specialization chains produce a compiler diagnostic with a bounded instantiation trace
+- generic aliases are erased after concrete substitution in the self-hosted compiler; no Doof generic is represented by a C++ template there
+- generic native function imports produce module-owned concrete adapters whose bodies call the mapped C++ name with ordinary concrete arguments, leaving overload resolution and template deduction to C++
+- generic wrapper classes explicitly named by a native class/function signature remain C++ templates at that native boundary; their transitive Doof consumers do not force unrelated generics back to template lowering
+- the TypeScript bootstrap emitter retains its existing hybrid specialization and C++-template alias behavior while it remains the bootstrap oracle
 - `T.fromJsonValue(...)` on a `JsonSerializable` type parameter lowers through the emitted class value type's `element_type`, so class instantiations represented as `std::shared_ptr<C>` call `T::element_type::fromJsonValue(...)`
 
 Primary modules:
@@ -218,11 +237,16 @@ Primary modules:
 - `src/emitter-expr-calls.ts`
 - `src/emitter-decl.ts`
 - `src/emitter-module.ts`
+- `selfhost/emitter-monomorphize.do`
+- `selfhost/emitter-module.do`
+- `selfhost/emitter-decl.do`
+- `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
 
 - `src/emitter-generics.test.ts`
 - `src/emitter-e2e-features.test.ts`
+- `selfhost/compiler.test.do`
 - `spec/02-type-system.md`
 
 ## Objects, Interfaces, and Enums
@@ -267,6 +291,9 @@ Strategy:
 
 - interface lowering depends on the current closed-world module graph
 - the emitter pre-computes implementing classes and uses generated interface alias types to support dispatch
+- the self-hosted compiler builds a distinct implementation set for each concrete generic interface instantiation and substitutes both interface and candidate class arguments during structural conformance
+- concrete `Stream<T>` values use the same closed-world variant and `std::visit` dispatch path; the former self-host-only `StreamBase<T>` virtual-dispatch special case is not emitted
+- cross-module alternatives are forward-declared in public headers and privately included where a translation unit performs variant dispatch
 - interface-related JSON and metadata surfaces build on the same implementation map
 
 Primary modules:
@@ -274,12 +301,16 @@ Primary modules:
 - `src/emitter-module.ts`
 - `src/emitter-decl.ts`
 - `src/emitter-json.ts`
+- `selfhost/checker.do`
+- `selfhost/emitter-monomorphize.do`
+- `selfhost/emitter-module.do`
 
 Validation anchors:
 
 - `src/emitter-basics.test.ts`
 - `src/emitter-modules.test.ts`
 - `src/emitter-e2e-modules.test.ts`
+- `selfhost/compiler.test.do`
 - `spec/07-classes-and-interfaces.md`
 
 ### Enums
@@ -363,6 +394,9 @@ Strategy:
 - arm tests and extraction use centralized free helpers, while `case` uses the
   normal `std::visit` lowering
 - `try` and `catch` forms are emitted with explicit success/failure control flow
+- declaration-`else` evaluates its subject once, exposes either the full
+  subject or captured failure payload in the handler, and extracts the narrowed
+  success/non-null value only after the handler
 - `as`-narrowing becomes explicit runtime checks that either extract a narrowed value or return a failure result
 
 Primary modules:
@@ -371,11 +405,15 @@ Primary modules:
 - `src/emitter-stmt.ts`
 - `src/emitter-expr-control.ts`
 - `src/emitter-narrowing.ts`
+- `selfhost/checker.do`
+- `selfhost/emitter-stmt.do`
 
 Validation anchors:
 
 - `src/emitter-advanced.test.ts`
 - `src/emitter-e2e-advanced.test.ts`
+- `selfhost/checker.test.do`
+- `selfhost/emitter.test.do`
 - `spec/09-error-handling.md`
 
 ## Collections, Tuples, and Destructuring
@@ -384,6 +422,9 @@ Strategy:
 
 - arrays, maps, sets, and tuples lower to runtime-backed C++ container or tuple shapes
 - mutable array `.reserve(capacity)` lowers to `std::vector::reserve` through the shared runtime helper
+- array and string `.contains(...)` / `.indexOf(...)` lower to their
+  representation-specific `doof::array_*` and `doof::string_*` helpers; the
+  self-hosted emitter selects these from the decorated receiver type
 - destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature
 - collection behavior depends on both type lowering and statement or expression emission helpers
 
@@ -392,12 +433,14 @@ Primary modules:
 - `src/emitter-types.ts`
 - `src/emitter-stmt.ts`
 - `src/emitter-expr-ops.ts`
+- `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
 
 - `src/emitter-constructs.test.ts`
 - `src/emitter-advanced.test.ts`
 - `src/emitter-e2e-compile.test.ts`
+- `selfhost/emitter.test.do`
 - `spec/03-variables-and-bindings.md`
 - `spec/08-pattern-matching.md`
 
@@ -412,6 +455,19 @@ Strategy:
 - self-hosted project emission copies the canonical runtime header used to
   build the compiler rather than rendering a second implementation;
   `DOOF_RUNTIME_HEADER` overrides its source path for relocated binaries
+- self-hosted native package inputs are planned explicitly from reached
+  manifests and copied beneath stable logical package roots, so equal native
+  filenames from different packages do not collide
+- the self-hosted `build` command resolves those output-relative paths only at
+  the compiler boundary and forwards registered sources, includes, library
+  paths, libraries, frameworks, defines, and compiler/linker flags
+- each generated module header has one canonical materialized path; package
+  roots contain forwarding headers for sibling native includes such as
+  `types.hpp`, never a second copy of the declaration contents
+- native namespaces receive aliases for the resolved Doof nominal types used
+  by extern signatures, including non-generic sibling exports and the specific
+  nominal dependencies imported by their defining module; dependency modules
+  are not recursively flattened into the native namespace
 - the emitted project layout is designed to be consumed by the CLI build pipeline rather than by a separate handwritten build integration layer
 - `build.target = "wasm"` adds `doof_wasm.cpp`, which exposes entry-module exported functions as JSON-string C ABI wrappers and is compiled as an extra generated native source
 

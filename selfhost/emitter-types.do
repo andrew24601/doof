@@ -5,9 +5,89 @@
 // emitter modules.
 
 import {
-  ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
+  ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
   NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
+import { moduleNamespace } from "./emitter-names"
+import { substituteTypeParams } from "./checker-types"
+import { EmitContext } from "./emitter-context"
+import { classInstantiationKey, concreteName, interfaceInstantiationKey } from "./emitter-monomorphize"
+
+export function specializeEmitType(resolvedType: ResolvedType, context: EmitContext): ResolvedType {
+  if context.substitution == null { return resolvedType }
+  return substituteTypeParams(resolvedType, context.substitution!.names, context.substitution!.arguments)
+}
+
+export function emitContextType(resolvedType: ResolvedType, context: EmitContext): string {
+  specialized := specializeEmitType(resolvedType, context)
+  return emitType(lowerRegisteredTypes(specialized, context), context.modulePath)
+}
+
+// Replace reached Doof generic nominals throughout a compound type before
+// ordinary representation lowering. This keeps tuples, callbacks, Results,
+// unions, and collections from accidentally reintroducing C++ templates.
+function lowerRegisteredTypes(type_: ResolvedType, context: EmitContext): ResolvedType {
+  case type_ {
+    class_: ClassType -> {
+      boundaryKey := class_.symbol.module + "::" + class_.name
+      for existing of context.nativeTemplateClassKeys {
+        if existing == boundaryKey {
+          let arguments: ResolvedType[] = []
+          for argument of class_.typeArgs { arguments.push(lowerRegisteredTypes(argument, context)) }
+          return ClassType { name: class_.name, symbol: class_.symbol, typeArgs: arguments }
+        }
+      }
+      if class_.typeArgs.length > 0 && !class_.symbol.native_ {
+        key := classInstantiationKey(class_.symbol.module, class_.name, class_.typeArgs)
+        for i of 0..<context.concreteClassKeys.length {
+          if context.concreteClassKeys[i] == key {
+            return ClassType { name: context.concreteClassNames[i], symbol: class_.symbol }
+          }
+        }
+        return ClassType { name: concreteName(class_.name, class_.typeArgs), symbol: class_.symbol }
+      }
+      let arguments: ResolvedType[] = []
+      for argument of class_.typeArgs { arguments.push(lowerRegisteredTypes(argument, context)) }
+      return ClassType { name: class_.name, symbol: class_.symbol, typeArgs: arguments }
+    }
+    interface_: InterfaceType -> {
+      if interface_.typeArgs.length > 0 {
+        return InterfaceType { name: concreteName(interface_.name, interface_.typeArgs), symbol: interface_.symbol }
+      }
+      return interface_
+    }
+    array: ArrayResolvedType -> { return ArrayResolvedType { elementType: lowerRegisteredTypes(array.elementType, context), readonly_: array.readonly_ } }
+    map: MapResolvedType -> { return MapResolvedType { keyType: lowerRegisteredTypes(map.keyType, context), valueType: lowerRegisteredTypes(map.valueType, context), readonly_: map.readonly_ } }
+    stream: StreamResolvedType -> { return StreamResolvedType { elementType: lowerRegisteredTypes(stream.elementType, context) } }
+    result_: ResultResolvedType -> { return ResultResolvedType { valueType: lowerRegisteredTypes(result_.valueType, context), errorType: lowerRegisteredTypes(result_.errorType, context) } }
+    tuple: TupleResolvedType -> {
+      let elements: ResolvedType[] = []
+      for element of tuple.elements { elements.push(lowerRegisteredTypes(element, context)) }
+      return TupleResolvedType { elements }
+    }
+    union_: UnionResolvedType -> {
+      let members: ResolvedType[] = []
+      for member of union_.types { members.push(lowerRegisteredTypes(member, context)) }
+      return UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+    }
+    function_: FunctionType -> {
+      let parameters: FunctionParamType[] = []
+      for parameter of function_.params {
+        parameters.push(FunctionParamType { name: parameter.name, type_: lowerRegisteredTypes(parameter.type_, context), hasDefault: parameter.hasDefault })
+      }
+      return FunctionType { params: parameters, returnType: lowerRegisteredTypes(function_.returnType, context), typeParams: function_.typeParams }
+    }
+    _ -> { return type_ }
+  }
+  return type_
+}
+
+function concreteInterfaceName(context: EmitContext, key: string): string {
+  for i of 0..<context.concreteInterfaceKeys.length {
+    if context.concreteInterfaceKeys[i] == key { return context.concreteInterfaceNames[i] }
+  }
+  return ""
+}
 
 export function emitType(resolvedType: ResolvedType, currentModulePath: string = ""): string {
   case resolvedType {
@@ -24,7 +104,10 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
       return "std::shared_ptr<" + emitClassInnerType(class_, currentModulePath) + ">"
     }
     enum_: EnumType -> { return ownedName(enum_.name, enum_.symbol.module, currentModulePath) }
-    interface_: InterfaceType -> { return ownedName(interface_.name, interface_.symbol.module, currentModulePath) }
+    interface_: InterfaceType -> {
+      name := if interface_.typeArgs.length == 0 then interface_.name else concreteName(interface_.name, interface_.typeArgs)
+      return ownedName(name, interface_.symbol.module, currentModulePath)
+    }
     function_: FunctionType -> { return emitCallbackType(function_, currentModulePath) }
     array: ArrayResolvedType -> {
       return "std::shared_ptr<std::vector<" + emitType(array.elementType, currentModulePath) + ">>"
@@ -32,7 +115,7 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     map: MapResolvedType -> {
       return "std::shared_ptr<doof::ordered_map<" + emitType(map.keyType, currentModulePath) + ", " + emitType(map.valueType, currentModulePath) + ">>"
     }
-    stream: StreamResolvedType -> { return "std::shared_ptr<doof::StreamBase<" + emitType(stream.elementType, currentModulePath) + ">>" }
+    stream: StreamResolvedType -> { return concreteName("Stream", [stream.elementType]) }
     _: JsonValueResolvedType -> { return "doof::JsonValue" }
     result: ResultResolvedType -> { return "doof::Result<" + emitType(result.valueType, currentModulePath) + ", " + emitType(result.errorType, currentModulePath) + ">" }
     tuple: TupleResolvedType -> { return emitTupleType(tuple, currentModulePath) }
@@ -117,9 +200,10 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
   if union_.types.length == 0 {
     panic("Cannot emit empty resolved union in " + currentModulePath)
   }
+  flattened := flattenUnionMembers(union_.types)
   let nonNull: ResolvedType[] = []
   let hasNull = false
-  for member of union_.types {
+  for member of flattened {
     if member.kind == "null" { hasNull = true }
     else { nonNull.push(member) }
   }
@@ -134,6 +218,7 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
         if class_.name == "TypeAnnotation" { return "std::variant<std::monostate, std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", class_.symbol.module, currentModulePath) + ">>" }
         return emitType(nonNull[0], currentModulePath)
       }
+      _: ArrayResolvedType -> { return emitType(nonNull[0], currentModulePath) }
       _: PrimitiveType -> { return "std::optional<" + emitType(nonNull[0], currentModulePath) + ">" }
       _ -> { }
     }
@@ -155,8 +240,30 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
 }
 
 function containsNull(union_: UnionResolvedType): bool {
-  for member of union_.types { if member.kind == "null" { return true } }
+  for member of union_.types {
+    if member.kind == "null" { return true }
+    case member {
+      nested: UnionResolvedType -> { if containsNull(nested) { return true } }
+      _ -> { }
+    }
+  }
   return false
+}
+
+// Resolved aliases can retain union members as nested semantic unions.  C++
+// variants cannot use those nested carriers without changing visit and
+// construction semantics, so canonicalize to one leaf-member list here.
+function flattenUnionMembers(types: ResolvedType[]): ResolvedType[] {
+  let result: ResolvedType[] = []
+  for member of types {
+    case member {
+      nested: UnionResolvedType -> {
+        for nestedMember of flattenUnionMembers(nested.types) { result.push(nestedMember) }
+      }
+      _ -> { result.push(member) }
+    }
+  }
+  return result
 }
 
 function semanticResolvedTypeVariant(currentModulePath: string, nullable: bool): string {
@@ -212,9 +319,5 @@ function semanticName(name: string, currentModulePath: string): string {
 }
 
 function typeModuleNamespaceFor(path: string): string {
-  normalized := path.replaceAll("\\", "/")
-  withoutRoot := if normalized.startsWith("/") then normalized.substring(1, 1000000) else normalized
-  result := withoutRoot.replaceAll("/", "_").replaceAll(".do", "")
-    .replaceAll("-", "_").replaceAll(".", "_")
-  return "app_" + (if result == "" then "module" else result) + "_"
+  return moduleNamespace(path)
 }

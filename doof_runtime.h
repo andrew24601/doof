@@ -33,6 +33,13 @@
 #include <variant>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 /* __DOOF_OBSERVER_PLATFORM_SUPPORT__ */
 
 namespace doof {
@@ -51,6 +58,10 @@ inline std::string file_name(const std::string& path) {
     return std::filesystem::path(path).filename().string();
 }
 
+inline std::string parent_path(const std::string& path) {
+    return std::filesystem::path(path).parent_path().lexically_normal().string();
+}
+
 inline std::string join_path(const std::string& directory, const std::string& name) {
     return (std::filesystem::path(directory) / std::filesystem::path(name)).lexically_normal().string();
 }
@@ -58,6 +69,47 @@ inline std::string join_path(const std::string& directory, const std::string& na
 inline std::string environment_value(const std::string& name) {
     const char* value = std::getenv(name.c_str());
     return value == nullptr ? std::string() : std::string(value);
+}
+
+// Executes a compiler without a shell so manifest-provided flags and paths are
+// passed as exact arguments. Output remains attached to the invoking terminal.
+inline int32_t run_command(
+    const std::string& command,
+    const std::shared_ptr<std::vector<std::string>>& arguments
+) {
+    std::vector<const char*> argv;
+    argv.reserve(arguments->size() + 2);
+    argv.push_back(command.c_str());
+    for (const auto& argument : *arguments) argv.push_back(argument.c_str());
+    argv.push_back(nullptr);
+#if defined(_WIN32)
+    const intptr_t result = ::_spawnvp(_P_WAIT, command.c_str(), argv.data());
+    return result < 0 ? -1 : static_cast<int32_t>(result);
+#else
+    const pid_t child = ::fork();
+    if (child < 0) return -1;
+    if (child == 0) {
+        ::execvp(command.c_str(), const_cast<char* const*>(argv.data()));
+        ::_exit(127);
+    }
+    int status = 0;
+    if (::waitpid(child, &status, 0) < 0) return -1;
+    if (WIFEXITED(status)) return static_cast<int32_t>(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) return static_cast<int32_t>(128 + WTERMSIG(status));
+    return -1;
+#endif
+}
+
+inline std::string host_platform() {
+#if defined(__APPLE__)
+    return "macos";
+#elif defined(_WIN32)
+    return "windows";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return std::string();
+#endif
 }
 
 inline std::string relative_path(const std::string& root, const std::string& path) {

@@ -74,8 +74,86 @@ export function unionType(types: ResolvedType[]): ResolvedType {
   return UnionResolvedType { types: members, aliasName, aliasModule }
 }
 
-export function functionType(params: FunctionParamType[], returnType: ResolvedType): ResolvedType {
-  return FunctionType { params, returnType }
+export function functionType(params: FunctionParamType[], returnType: ResolvedType, typeParams: string[] = []): ResolvedType {
+  return FunctionType { params, returnType, typeParams }
+}
+
+/** Applies the deep readonly surface used by readonly fields and bindings. */
+export function applyDeepReadonly(type_: ResolvedType): ResolvedType {
+  case type_ {
+    array: ArrayResolvedType -> { return arrayType(applyDeepReadonly(array.elementType), true) }
+    map: MapResolvedType -> { return mapType(applyDeepReadonly(map.keyType), applyDeepReadonly(map.valueType), true) }
+    stream: StreamResolvedType -> { return streamType(applyDeepReadonly(stream.elementType)) }
+    result: ResultResolvedType -> { return resultType(applyDeepReadonly(result.valueType), applyDeepReadonly(result.errorType)) }
+    tuple: TupleResolvedType -> {
+      let elements: ResolvedType[] = []
+      for element of tuple.elements { elements.push(applyDeepReadonly(element)) }
+      return tupleType(elements)
+    }
+    union_: UnionResolvedType -> {
+      let members: ResolvedType[] = []
+      for member of union_.types { members.push(applyDeepReadonly(member)) }
+      result := UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+      return result
+    }
+    class_: ClassType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of class_.typeArgs { typeArgs.push(applyDeepReadonly(argument)) }
+      return classType(class_.name, class_.symbol, typeArgs)
+    }
+    interface_: InterfaceType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of interface_.typeArgs { typeArgs.push(applyDeepReadonly(argument)) }
+      return interfaceType(interface_.name, interface_.symbol, typeArgs)
+    }
+    _ -> { return type_ }
+  }
+  return type_
+}
+
+/** Substitutes explicit generic call arguments through a resolved signature. */
+export function substituteTypeParams(type_: ResolvedType, names: string[], arguments: ResolvedType[]): ResolvedType {
+  case type_ {
+    parameter: TypeParameterType -> {
+      for i of 0..<names.length {
+        if names[i] == parameter.name && i < arguments.length { return arguments[i] }
+      }
+      return type_
+    }
+    array: ArrayResolvedType -> { return arrayType(substituteTypeParams(array.elementType, names, arguments), array.readonly_) }
+    map: MapResolvedType -> { return mapType(substituteTypeParams(map.keyType, names, arguments), substituteTypeParams(map.valueType, names, arguments), map.readonly_) }
+    stream: StreamResolvedType -> { return streamType(substituteTypeParams(stream.elementType, names, arguments)) }
+    result: ResultResolvedType -> { return resultType(substituteTypeParams(result.valueType, names, arguments), substituteTypeParams(result.errorType, names, arguments)) }
+    tuple: TupleResolvedType -> {
+      let elements: ResolvedType[] = []
+      for element of tuple.elements { elements.push(substituteTypeParams(element, names, arguments)) }
+      return tupleType(elements)
+    }
+    union_: UnionResolvedType -> {
+      let members: ResolvedType[] = []
+      for member of union_.types { members.push(substituteTypeParams(member, names, arguments)) }
+      return UnionResolvedType { types: members, aliasName: union_.aliasName, aliasModule: union_.aliasModule }
+    }
+    class_: ClassType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of class_.typeArgs { typeArgs.push(substituteTypeParams(argument, names, arguments)) }
+      return classType(class_.name, class_.symbol, typeArgs)
+    }
+    interface_: InterfaceType -> {
+      let typeArgs: ResolvedType[] = []
+      for argument of interface_.typeArgs { typeArgs.push(substituteTypeParams(argument, names, arguments)) }
+      return interfaceType(interface_.name, interface_.symbol, typeArgs)
+    }
+    function_: FunctionType -> {
+      let params: FunctionParamType[] = []
+      for parameter of function_.params {
+        params.push(FunctionParamType { name: parameter.name, type_: substituteTypeParams(parameter.type_, names, arguments), hasDefault: parameter.hasDefault })
+      }
+      return functionType(params, substituteTypeParams(function_.returnType, names, arguments), function_.typeParams)
+    }
+    _ -> { return type_ }
+  }
+  return type_
 }
 
 export function typeParameter(name: string): ResolvedType {
@@ -90,8 +168,8 @@ export function enumType(name: string, symbol: Symbol): EnumType {
   return EnumType { name, symbol }
 }
 
-export function interfaceType(name: string, symbol: Symbol): InterfaceType {
-  return InterfaceType { name, symbol }
+export function interfaceType(name: string, symbol: Symbol, typeArgs: ResolvedType[] = []): InterfaceType {
+  return InterfaceType { name, symbol, typeArgs }
 }
 
 export function typeName(resolvedType: ResolvedType): string {
@@ -107,7 +185,15 @@ export function typeName(resolvedType: ResolvedType): string {
       return result + ">"
     }
     enum_: EnumType -> { return enum_.name }
-    interface_: InterfaceType -> { return interface_.name }
+    interface_: InterfaceType -> {
+      if interface_.typeArgs.length == 0 { return interface_.name }
+      let result = interface_.name + "<"
+      for i of 0..<interface_.typeArgs.length {
+        if i > 0 { result = result + ", " }
+        result = result + typeName(interface_.typeArgs[i])
+      }
+      return result + ">"
+    }
     function_: FunctionType -> { return "function" }
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly " else "") + typeName(array.elementType) + "[]" }
     map: MapResolvedType -> { return (if map.readonly_ then "readonly " else "") + "Map<" + typeName(map.keyType) + ", " + typeName(map.valueType) + ">" }
@@ -204,6 +290,17 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
         _ -> { return false }
       }
     }
+    leftInterface: InterfaceType -> {
+      case right {
+        rightInterface: InterfaceType -> {
+          return leftInterface.symbol.module == rightInterface.symbol.module &&
+            leftInterface.symbol.name == rightInterface.symbol.name &&
+            leftInterface.typeArgs.length == rightInterface.typeArgs.length &&
+            sameTypeArguments(leftInterface.typeArgs, rightInterface.typeArgs)
+        }
+        _ -> { return false }
+      }
+    }
     leftUnion: UnionResolvedType -> {
       case right {
         rightUnion: UnionResolvedType -> {
@@ -249,7 +346,7 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
     valueArray: ArrayResolvedType -> {
       case target {
         targetArray: ArrayResolvedType -> {
-          if targetArray.readonly_ == false && valueArray.readonly_ == true { return false }
+          if targetArray.readonly_ != valueArray.readonly_ { return false }
           return isAssignable(valueArray.elementType, targetArray.elementType)
         }
         _ -> { }
@@ -258,7 +355,7 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
     valueMap: MapResolvedType -> {
       case target {
         targetMap: MapResolvedType -> {
-          if targetMap.readonly_ == false && valueMap.readonly_ == true { return false }
+          if targetMap.readonly_ != valueMap.readonly_ { return false }
           return sameType(valueMap.keyType, targetMap.keyType) && isAssignable(valueMap.valueType, targetMap.valueType)
         }
         _ -> { }
@@ -284,6 +381,9 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
     class_: ClassType -> {
       case target {
         interface_: InterfaceType -> {
+          for implementedType of class_.symbol.implementedInterfaceTypes {
+            if implementedType == typeName(interface_) { return true }
+          }
           for implementation of interface_.symbol.implementations {
             if implementation.module == class_.symbol.module && implementation.name == class_.symbol.name { return true }
           }
