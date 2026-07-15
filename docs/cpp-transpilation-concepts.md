@@ -139,6 +139,9 @@ Strategy:
   reached manifest set and uses the same package-stable namespace for module
   bodies, types, calls, and declaration references; the longest owned prefix
   wins for nested acquisition overrides
+- self-hosted generated `.hpp` / `.cpp` names use the owning package identity
+  plus the package-relative module path, keeping filenames collision-resistant
+  without exposing absolute host paths
 - module-local declarations and references keep local C++ spellings within their owning namespace, so qualification marks a real module boundary rather than merely adding noise
 - lossy namespace-component sanitisation is validated up front, so sibling
   source names such as `foo-bar` and `foo_bar` are rejected instead of being

@@ -68,8 +68,11 @@ The initial slice is split into small modules:
 The header planner stores rendered signatures and other small planning facts,
 not AST unions. This keeps implementation-only front-end types from leaking
 into generated C++ headers and leaves room for a future dependency planner.
-The self-hosted module planner derives stable namespaces and direct import and
-re-export header dependencies from logical source paths. `emitModuleGraph(...)`
+The self-hosted module planner derives stable namespaces, package-relative
+artifact names, and direct import and re-export header dependencies from
+logical source paths. Owned `.hpp` / `.cpp` names begin with the manifest
+package identity and never embed the host's absolute package root.
+`emitModuleGraph(...)`
 renders separate `.hpp` / `.cpp` pairs with local class forward declarations
 and defining-module qualification for named, namespace, and re-exported
 symbols. Module-independent lowering helpers live in `doof_runtime.hpp`;

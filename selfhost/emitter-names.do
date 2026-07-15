@@ -19,7 +19,16 @@ export function configureModuleNamespaces(mappings: ModuleNamespaceMapping[]): v
 }
 
 export function moduleStem(path: string): string {
-  normalized := path.replaceAll("\\", "/")
+  let normalized = path.replaceAll("\\", "/")
+  mapping := namespaceMappingForPath(normalized)
+  if mapping != null {
+    let relativePath = normalized.substring(mapping!.logicalPrefix.length, normalized.length)
+    while relativePath.startsWith("/") {
+      relativePath = relativePath.substring(1, relativePath.length)
+    }
+    normalized = mapping!.packageName
+    if relativePath != "" { normalized = normalized + "/" + relativePath }
+  }
   // Keep this path-only until the self-host runtime grows string split and
   // indexing helpers. A bounded substring removes the logical root without
   // depending on string length inference in the self-host checker.

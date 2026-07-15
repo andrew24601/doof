@@ -67,6 +67,12 @@ method parameters, generic stream members, and native `Result` methods are
 covered by focused checker regressions; the production std/fs graph passes the
 same gate and native end-to-end check.
 
+The completeness walk includes `with` binding types, both sides of checked
+`as` narrowing, and class-construction type, class, and dedicated-constructor
+attachments. Constructor factory bodies retain their intentional
+direct-allocation exception while all external construction sites must identify
+the factory target.
+
 The 2026-07-14 macOS HTTP pass added readonly array literals, explicit generic
 positional and named calls, generic native declarations, tuple substitution and
 destructuring, and header-visible C++ templates. The generated driver now

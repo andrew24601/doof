@@ -1,6 +1,13 @@
 import { Assert } from "std/assert"
 
-import { ModuleNamespaceMapping, configureModuleNamespaces, moduleDiagnosticPath, moduleNamespace } from "./emitter-names"
+import {
+  ModuleNamespaceMapping,
+  configureModuleNamespaces,
+  moduleDiagnosticPath,
+  moduleHeaderName,
+  moduleNamespace,
+  moduleSourceName,
+} from "./emitter-names"
 
 export function testUsesPackageIdentityForOwnedModuleNamespaces(): void {
   configureModuleNamespaces([
@@ -32,5 +39,17 @@ export function testFormatsPackageRelativeDiagnosticPaths(): void {
   ])
   Assert.equal(moduleDiagnosticPath("/workspace/assert/tests/assert.test.do", true), "tests/assert.test")
   Assert.equal(moduleDiagnosticPath("/workspace/assert/tests/assert.test.do", false), "tests/assert.test.do")
+  configureModuleNamespaces([])
+}
+
+export function testUsesPackageRelativeGeneratedArtifactNames(): void {
+  configureModuleNamespaces([
+    ModuleNamespaceMapping {
+      logicalPrefix: "/home/developer/work/doof-stdlib/os",
+      packageName: "std/os",
+    },
+  ])
+  Assert.equal(moduleHeaderName("/home/developer/work/doof-stdlib/os/index.do"), "std_os_index.hpp")
+  Assert.equal(moduleSourceName("/home/developer/work/doof-stdlib/os/tests/os.test.do"), "std_os_tests_os_test.cpp")
   configureModuleNamespaces([])
 }

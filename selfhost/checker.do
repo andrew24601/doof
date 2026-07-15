@@ -2897,6 +2897,7 @@ function validateStatement(statement: Statement, module: string, diagnostics: Di
     with_: WithStatement -> {
       for binding of with_.bindings {
         if binding.type_ != null { validateTypeAnnotation(binding.type_!, module, diagnostics) }
+        validateResolved(binding.resolvedType, binding.span, module, "with binding " + binding.name, diagnostics)
         validateExpression(binding.value, module, diagnostics)
       }
       validateBlock(with_.body, module, diagnostics)
@@ -2970,6 +2971,14 @@ function validateExpression(expression: Expression, module: string, diagnostics:
     object: ObjectLiteral -> {
       if object.spread != null { validateExpression(object.spread!, module, diagnostics) }
       for property of object.properties { validateResolved(property.resolvedType, property.span, module, "object property", diagnostics); if property.value != null { validateExpression(property.value!, module, diagnostics) } }
+      if object.resolvedType != null {
+        case object.resolvedType! {
+          _: ClassType -> {
+            if object.resolvedClass == null { addValidationError(module, object.span, "Class object literal has no resolved class", diagnostics) }
+          }
+          _ -> { }
+        }
+      }
     }
     tuple: TupleLiteral -> { for item of tuple.elements { validateExpression(item, module, diagnostics) } }
     lambda: LambdaExpression -> {
@@ -2996,7 +3005,19 @@ function validateExpression(expression: Expression, module: string, diagnostics:
       }
     }
     construct: ConstructExpression -> {
-      if construct.resolvedConstructedType != null { validateResolved(construct.resolvedConstructedType, construct.span, module, "constructed type", diagnostics) }
+      if construct.type_ != "Success" && construct.type_ != "Failure" {
+        validateResolved(construct.resolvedConstructedType, construct.span, module, "constructed type", diagnostics)
+        if construct.resolvedClass == null { addValidationError(module, construct.span, "Construction of '" + construct.type_ + "' has no resolved class", diagnostics) }
+        else {
+          constructor := classConstructor(construct.resolvedClass!)
+          if constructor != null && construct.resolvedConstructor == null && !spanInsideFunction(construct.span, constructor!) {
+            addValidationError(module, construct.span, "Construction of '" + construct.type_ + "' has no resolved constructor", diagnostics)
+          }
+        }
+      }
+      if construct.resolvedConstructor != null {
+        validateResolved(construct.resolvedConstructor!.resolvedType, construct.span, module, "constructor " + construct.type_, diagnostics)
+      }
       for argument of construct.typeArgs { validateTypeAnnotation(argument, module, diagnostics) }
       for property of construct.args {
         validateResolved(property.resolvedType, property.span, module, "constructor property", diagnostics)
@@ -3011,12 +3032,26 @@ function validateExpression(expression: Expression, module: string, diagnostics:
     }
     retire_: RetireExpression -> { validateExpression(retire_.actor, module, diagnostics) }
     actor: ActorCreationExpression -> { for argument of actor.args { validateExpression(argument, module, diagnostics) } }
+    as_: AsExpression -> { validateExpression(as_.expression, module, diagnostics); validateTypeAnnotation(as_.targetType, module, diagnostics) }
     identifier: Identifier -> {
       if identifier.resolvedBinding == null { addValidationError(module, identifier.span, "Identifier '" + identifier.name + "' has no resolved binding", diagnostics) }
       else { validateResolved(identifier.resolvedBinding!.type_, identifier.span, module, "binding " + identifier.name, diagnostics) }
     }
     _ -> { }
   }
+}
+
+function classConstructor(class_: ClassDeclaration): FunctionDeclaration | null {
+  for method of class_.methods { if method.name == "constructor" { return method } }
+  return null
+}
+
+function spanInsideFunction(span: SourceSpan, fn: FunctionDeclaration): bool {
+  case fn.body {
+    block: Block -> { return span.start.offset >= block.span.start.offset && span.end.offset <= block.span.end.offset }
+    expression: Expression -> { return span.start.offset >= expression.span.start.offset && span.end.offset <= expression.span.end.offset }
+  }
+  return false
 }
 
 function validateTypeAnnotation(annotation: TypeAnnotation, module: string, diagnostics: Diagnostic[]): void {

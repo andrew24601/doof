@@ -2,7 +2,7 @@ import { Assert } from "std/assert"
 import { createAnalyzer } from "./analyzer"
 import { createChecker, validateCheckedTypes } from "./checker"
 import { CheckResult, SourceFile } from "./semantic"
-import { AssignmentExpression, Block, ClassDeclaration, ExpressionStatement, Identifier, IfStatement, FunctionDeclaration, ImmutableBinding } from "./ast"
+import { AsExpression, AssignmentExpression, Block, ClassDeclaration, ConstructExpression, Expression, ExpressionStatement, Identifier, IfStatement, FunctionDeclaration, ImmutableBinding, ObjectLiteral, WithStatement } from "./ast"
 import { typeName, unknownType } from "./checker-types"
 
 function checked(source: string): CheckResult {
@@ -37,6 +37,113 @@ export function testDecoratesReadonlyMapConstructionAndSizeMember(): void {
   diagnostics := validateCheckedTypes(analysis)
   for diagnostic of diagnostics { println(diagnostic.message) }
   Assert.equal(diagnostics.length, 0)
+}
+
+export function testCompleteDecorationGateRejectsMissingWithBindingType(): void {
+  source := "function main(): int { with base := 20 { return base }\nreturn 0 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  case analysis.modules[0].program.statements[0] {
+    fn: FunctionDeclaration -> {
+      case fn.body {
+        block: Block -> {
+          case block.statements[0] {
+            with_: WithStatement -> { with_.bindings[0].resolvedType = null }
+            _ -> { panic("expected a with statement") }
+          }
+        }
+        _ -> { panic("expected a block function") }
+      }
+    }
+    _ -> { panic("expected a function") }
+  }
+  diagnostics := validateCheckedTypes(analysis)
+  Assert.equal(diagnostics.length, 1)
+  Assert.equal(diagnostics[0].message.contains("Missing resolved type for with binding base"), true)
+}
+
+export function testCompleteDecorationGateTraversesAsSourceAndTarget(): void {
+  source := "function narrow(raw: JsonValue): Result<string, string> => raw as string"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  case analysis.modules[0].program.statements[0] {
+    fn: FunctionDeclaration -> {
+      case fn.body {
+        expression: Expression -> {
+          case expression {
+            as_: AsExpression -> {
+              as_.expression.resolvedType = null
+              as_.targetType.resolvedType = null
+            }
+            _ -> { panic("expected an as expression") }
+          }
+        }
+        _ -> { panic("expected an expression function") }
+      }
+    }
+    _ -> { panic("expected a function") }
+  }
+  diagnostics := validateCheckedTypes(analysis)
+  Assert.equal(diagnostics.length, 2)
+  Assert.equal(diagnostics[0].message.contains("Missing resolved type for expression identifier"), true)
+  Assert.equal(diagnostics[1].message.contains("Missing resolved type for type annotation"), true)
+}
+
+export function testCompleteDecorationGateRequiresConstructionAttachments(): void {
+  source := "class Widget { value: int\nstatic constructor(value: int): Widget => Widget { value } }\nwidget := Widget { value: 1 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  case analysis.modules[0].program.statements[1] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        construct: ConstructExpression -> {
+          constructedType := construct.resolvedConstructedType
+          construct.resolvedConstructedType = null
+          missingType := validateCheckedTypes(analysis)
+          Assert.equal(missingType.length, 1)
+          Assert.equal(missingType[0].message.contains("Missing resolved type for constructed type"), true)
+          construct.resolvedConstructedType = constructedType
+
+          resolvedClass := construct.resolvedClass
+          construct.resolvedClass = null
+          missingClass := validateCheckedTypes(analysis)
+          Assert.equal(missingClass.length, 1)
+          Assert.equal(missingClass[0].message.contains("has no resolved class"), true)
+          construct.resolvedClass = resolvedClass
+
+          construct.resolvedConstructor = null
+          missingConstructor := validateCheckedTypes(analysis)
+          Assert.equal(missingConstructor.length, 1)
+          Assert.equal(missingConstructor[0].message.contains("has no resolved constructor"), true)
+        }
+        _ -> { panic("expected a construct expression") }
+      }
+    }
+    _ -> { panic("expected an immutable binding") }
+  }
+}
+
+export function testCompleteDecorationGateRequiresClassObjectLiteralAttachment(): void {
+  source := "class Widget { value: int }\nfunction make(): Widget => { value: 1 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  case analysis.modules[0].program.statements[1] {
+    fn: FunctionDeclaration -> {
+      case fn.body {
+        expression: Expression -> {
+          case expression {
+            object: ObjectLiteral -> { object.resolvedClass = null }
+            _ -> { panic("expected an object literal") }
+          }
+        }
+        _ -> { panic("expected an expression function") }
+      }
+    }
+    _ -> { panic("expected a function") }
+  }
+  diagnostics := validateCheckedTypes(analysis)
+  Assert.equal(diagnostics.length, 1)
+  Assert.equal(diagnostics[0].message.contains("Class object literal has no resolved class"), true)
 }
 
 export function testInfersVoidForUnannotatedBlockFunction(): void {
