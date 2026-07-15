@@ -256,7 +256,7 @@ export class Lexer {
 
       if templateDelimiters.length > 0 && peek() == '}' && braceDepth[braceDepth.length - 1] == 0 {
         advance()
-        ignoredBrace := braceDepth.pop()
+        ignoredBrace := try! braceDepth.pop()
         readTemplateContinuation()
         continue
       }
@@ -523,7 +523,7 @@ export class Lexer {
     else { diagnostic("Unterminated template literal", tokenLine, tokenColumn) }
     let valueEnd = pos
     if closed { valueEnd = pos - 1 }
-    ignoredDelimiter := templateDelimiters.pop()
+    ignoredDelimiter := try! templateDelimiters.pop()
     addToken(TokenType.TemplateLiteralEnd, start, pos - start, contentStart, valueEnd - contentStart, needsDecode, tokenLine, tokenColumn)
   }
 

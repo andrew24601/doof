@@ -157,7 +157,11 @@ export function checkStatement(state: CheckerState, statement: Statement, scope:
       return false
     }
     expression: ExpressionStatement -> {
-      checkExpression(state, expression.expression, scope, null)
+      expressionType := checkExpression(state, expression.expression, scope, null)
+      case expressionType {
+        _: ResultResolvedType -> { typeError(state, "Result value must be handled", expression.span) }
+        _ -> { }
+      }
       return !isPanicCall(expression.expression)
     }
     destructuring: DestructuringStatement -> {
@@ -572,4 +576,3 @@ export function addClassFields(state: CheckerState, scope: Scope, owner: ClassTy
     _ -> { }
   }
 }
-

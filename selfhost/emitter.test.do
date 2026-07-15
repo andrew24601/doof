@@ -435,6 +435,18 @@ export function testEmitsStructThisByValue(): void {
   Assert.equal(result.source.contains("doof::pop(methods"), false)
 }
 
+export function testEmitsCanonicalStringAndArrayHelpers(): void {
+  result := emit("function transform(text: string, values: int[]): Result<int, string> { cleaned := text.trim().replaceAll(\"a\", \"b\")\nif cleaned.startsWith(\"b\") && cleaned.endsWith(\"b\") { return values.pop() }\nreturn Failure(\"missing\") }")
+  Assert.equal(result.source.contains("doof::string_trim("), true)
+  Assert.equal(result.source.contains("doof::string_replaceAll("), true)
+  Assert.equal(result.source.contains("doof::string_startsWith("), true)
+  Assert.equal(result.source.contains("doof::string_endsWith("), true)
+  Assert.equal(result.source.contains("doof::array_pop("), true)
+  Assert.equal(result.source.contains("doof::trim("), false)
+  Assert.equal(result.source.contains("doof::starts_with("), false)
+  Assert.equal(result.source.contains("doof::pop("), false)
+}
+
 export function testEmitsVariantCaseBindings(): void {
   result := emit("class Left { value: int }\nclass Right { value: int }\nfunction main(value: Left | Right): int { case value { left: Left -> { return left.value } _ -> { return 0 } }\nreturn 0 }")
   Assert.equal(result.source.contains("std::holds_alternative<std::shared_ptr<Left>>(_case_subject)"), true)

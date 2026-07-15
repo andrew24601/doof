@@ -186,7 +186,7 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "contains" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("bool")) }
       if property == "indexOf" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("int")) }
       if property == "reserve" { return functionType([FunctionParamType { name: "capacity", type_: primitive("int"), hasDefault: false }], voidType()) }
-      if property == "pop" { return functionType([], array.elementType) }
+      if property == "pop" { return functionType([], resultType(array.elementType, primitive("string"))) }
       if property == "some" || property == "every" {
         predicate := functionType([FunctionParamType { name: "it", type_: array.elementType, hasDefault: false }], primitive("bool"))
         return functionType([FunctionParamType { name: "predicate", type_: predicate, hasDefault: false }], primitive("bool"))
@@ -335,4 +335,3 @@ export function indexType(state: CheckerState, object: ResolvedType, index: Reso
   }
   return unknownType()
 }
-

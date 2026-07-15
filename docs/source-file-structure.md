@@ -17,7 +17,9 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
 - `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
-- `doof_runtime.h` — standalone C++ source template for the generated `doof_runtime.hpp`
+- `doof_runtime.h` — standalone C++ language-semantics template for generated
+  `doof_runtime.hpp`; host filesystem, path, environment, and process services
+  live in standard-library packages
 - `playground/` — browser-based playground app for trying the compiler interactively
   - `playground/src/stdlib-files.ts` — Vite-bundled stdlib source map for browser compilation
 - `vscode-doof/` — VS Code extension sources

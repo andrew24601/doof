@@ -47,6 +47,8 @@ import { env, pid, platform, architecture, ExecOptions, Exec, ExecResult, run } 
 - `inheritEnv: bool = true`
 - `withStdin: bool = true`
 - `mergeStderrIntoStdout: bool = false`
+- `inheritOutput: bool = false`
+- `maxOutputBytes: long | null`
 
 ### Exec Methods
 
@@ -56,3 +58,5 @@ import { env, pid, platform, architecture, ExecOptions, Exec, ExecResult, run } 
 - Pipe state: `stdoutOpen`, `stderrOpen`
 
 Use `mergeStderrIntoStdout: true` when a child process may write large stderr output and you only plan to drain stdout.
+Use `inheritOutput: true` to leave child output attached to the invoking terminal.
+Bounded capture continues draining and reports truncation on `ExecResult`.

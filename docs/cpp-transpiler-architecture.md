@@ -110,9 +110,9 @@ The split module emitter places the executable wrapper in the entry module. A
 `main(args: string[]): int` entry receives process arguments through a generated
 `std::vector<std::string>` bridge. The wrapper catches uncaught `doof::Panic`
 values, writes a `panic: <message>` diagnostic to stderr, and aborts, matching
-the TypeScript bootstrap emitter's process boundary. The self-hosted driver exposes file
-contents through the `std/fs`-shaped `readText` / `writeText` surface and retains only native
-path/discovery helpers while it loads an explicit source-file graph, including
+the TypeScript bootstrap emitter's process boundary. The self-hosted driver uses
+`std/fs`, `std/path`, and `std/os` for file access, path discovery, environment
+lookup, and child processes while it loads an explicit source-file graph, including
 bare modules supplied with `--module <specifier> <path>`, invokes the
 self-hosted compiler, and writes every module's header/source pair plus an
 adjacent `doof_runtime.hpp` to the output directory. The root package declares
@@ -146,7 +146,8 @@ serially, and the driver waits for every batch before linking. These task
 boundaries are also the intended seam for future incremental fingerprints and
 discovered header dependencies. POSIX compiler launch uses `posix_spawnp`, so
 launching from multiple actor threads does not cross the unsafe `fork()`
-boundary of a multithreaded process.
+boundary of a multithreaded process. Bounded capture lives in `std/os`; the
+driver applies its global diagnostic line budget after worker results return.
 Native `.c` tasks use the C driver adjacent to the configured GCC-compatible
 C++ driver (`clang`, `gcc`, or `cc`) and omit the generated-project C++ language
 standard flag; generated and native C++ tasks retain the configured C++ driver.
@@ -328,6 +329,10 @@ If the generated project layout changes, update this document and the tests in `
 Some features require dedicated support generation beyond ordinary statement or expression emission.
 
 - `doof_runtime.h` is the checked-in C++ source template for generated `doof_runtime.hpp`; `doof_observer_platform.h` and `doof_observer_runtime.h` hold the optional observer support; `src/emitter-runtime.ts` composes them
+- Host services belong to `std/*`, and representation-known trivial operations
+  lower directly in the emitters. The runtime retains only shared language
+  semantics such as checked collections, variants, callbacks, concurrency,
+  reflection, and JSON carriers.
 - `src/emitter-json.ts` generates JSON serialization and deserialization helpers
 - `src/emitter-json-value.ts` handles runtime coercion around `JsonValue`
 - The self-hosted emitter follows the same ordered-map representation:

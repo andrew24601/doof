@@ -30,6 +30,15 @@ export function testChecksArrayAndStringSearchMembers(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testArrayPopReturnsResult(): void {
+  valid := checked("function take(values: int[]): Result<int, string> => values.pop()")
+  Assert.equal(valid.diagnostics.length, 0)
+
+  ignored := checked("function take(values: int[]): void { values.pop() }")
+  Assert.equal(ignored.diagnostics.length, 1)
+  Assert.equal(ignored.diagnostics[0].message.contains("Result value must be handled"), true)
+}
+
 export function testDecoratesReadonlyMapConstructionAndSizeMember(): void {
   source := "class RouteMatch { params: readonly Map<string, string> }\nfunction equal<T>(actual: T, expected: T): void {}\nfunction match(params: Map<string, string>): RouteMatch { return RouteMatch { params: params.buildReadonly() } }\nfunction verify(matched: RouteMatch | null): void { equal(matched!.params.size, 0) }"
   analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")

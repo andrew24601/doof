@@ -182,6 +182,9 @@ Keep aligned:
 - new composite `ResolvedType` variants need both transformation and violation-walk handling
 - assignability and member-mutation checks elsewhere in the checker should continue to respect the readonly shape produced here
 - collection `buildReadonly()` is mutable-only and returns the readonly collection type by move-draining the source, leaving it empty; `cloneMutable()` works on mutable and readonly arrays, maps, and sets and returns a shallow mutable copy
+- mutable array `pop()` returns `Result<T, string>` in both checkers; expression
+  statements must handle that Result rather than silently discarding empty-array
+  failure
 
 Validation anchors:
 

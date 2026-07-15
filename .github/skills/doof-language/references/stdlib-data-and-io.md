@@ -52,11 +52,11 @@ import { parseJsonValue, formatJsonValue } from "std/json"
 ## std/path
 
 ```doof
-import { homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkingDirectory,
+import { absolute, homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkingDirectory,
          join, dirname, basename, stem, extension, isAbsolute } from "std/path"
 ```
 
-- Environment path helpers: `homeDirectory`, `tempDirectory`, `currentWorkingDirectory`, `setCurrentWorkingDirectory`
+- Environment path helpers: `absolute`, `homeDirectory`, `tempDirectory`, `currentWorkingDirectory`, `setCurrentWorkingDirectory`
 - Path-string helpers: `join`, `dirname`, `basename`, `stem`, `extension`, `isAbsolute`
 
 ## std/stream

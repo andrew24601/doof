@@ -190,9 +190,11 @@ non-binding acknowledgement form. Focused gates compile the real
 `std/json/index.do` and
 syntax-check generated code against `native_json.hpp`; the duplicate manifest
 parser has been removed from both runtimes. The project and driver modules now
-use the `std/fs`-shaped `readText` / `writeText` surface. The self-hosted
+use `std/fs`, `std/path`, and `std/os` for host services. Process spawning uses
+the standard library's thread-safe POSIX boundary with bounded capture, so the
+parallel compiler actors no longer require private runtime command helpers. The self-hosted
 checker now analyzes, type-checks, and emits the production `std/fs`,
-`std/path`, `std/stream`, and `std/blob` source slice, including its `Stream<T>`
+`std/path`, `std/os`, `std/stream`, and `std/blob` source slice, including its `Stream<T>`
 and generic declarations. Doof-defined generics are now discovered to a
 whole-program fixed point and emitted as ordinary concrete C++ declarations;
 concrete generic interfaces, including `Stream<int>` and `Stream<string>`,

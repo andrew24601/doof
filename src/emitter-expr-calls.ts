@@ -93,7 +93,7 @@ function emitQualifiedInterfaceStaticCall(
 
 /** Doof runtime builtin functions that map to doof:: namespace in C++. */
 const DOOF_RUNTIME_BUILTINS = new Set([
-  "println", "print", "panic", "to_string", "concat", "readFile", "writeFile", "absolutePath",
+  "println", "print", "panic", "to_string", "concat",
 ]);
 
 function isBuiltinPrimitiveBinding(binding: Binding | undefined): boolean {
@@ -304,15 +304,6 @@ function emitIdentifierCallByName(
   }
   if (name === "metricsSnapshotPrometheus" && isBuiltinRuntimeFunctionBinding(binding)) {
     return "doof::metrics::snapshot_prometheus()";
-  }
-  if (name === "readFile" && isBuiltinRuntimeFunctionBinding(binding)) {
-    return `doof::read_file(${joinedArgs})`;
-  }
-  if (name === "writeFile" && isBuiltinRuntimeFunctionBinding(binding)) {
-    return `doof::write_file(${joinedArgs})`;
-  }
-  if (name === "absolutePath" && isBuiltinRuntimeFunctionBinding(binding)) {
-    return `doof::absolute_path(${joinedArgs})`;
   }
   if (DOOF_RUNTIME_BUILTINS.has(name) && isBuiltinRuntimeFunctionBinding(binding)) {
     return `doof::${name}(${joinedArgs})`;

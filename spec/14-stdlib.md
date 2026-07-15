@@ -441,6 +441,8 @@ class ExecOptions {
     readonly inheritEnv: bool = true
     readonly withStdin: bool = true
     readonly mergeStderrIntoStdout: bool = false
+    readonly inheritOutput: bool = false
+    readonly maxOutputBytes: long | null = null
 }
 
 class Exec {
@@ -462,6 +464,8 @@ class ExecResult {
     readonly exitCode: int
     readonly stdout: readonly byte[]
     readonly stderr: readonly byte[]
+    readonly stdoutTruncated: bool = false
+    readonly stderrTruncated: bool = false
 }
 
 run(command: string, args: string[] = [], options: ExecOptions = ExecOptions {}): Result<ExecResult, string>
@@ -481,6 +485,10 @@ function runEcho(message: string): Result<string, string> {
 ```
 
 When reading only one output stream from a noisy process, set `mergeStderrIntoStdout` to avoid pipe backpressure deadlocks.
+`inheritOutput` attaches the child directly to the parent output streams instead
+of capturing them. `maxOutputBytes` bounds retained bytes per captured stream;
+the implementation continues draining discarded bytes and reports truncation
+through the corresponding `ExecResult` flags.
 
 ---
 
@@ -489,7 +497,7 @@ When reading only one output stream from a noisy process, set `mergeStderrIntoSt
 POSIX path string manipulation.  No filesystem access; works on strings only.
 
 ```doof
-import { homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkingDirectory,
+import { absolute, homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkingDirectory,
          join, dirname, basename, stem, extension, isAbsolute } from "std/path"
 ```
 
@@ -499,6 +507,7 @@ import { homeDirectory, tempDirectory, currentWorkingDirectory, setCurrentWorkin
 homeDirectory(): Result<string, string>
 tempDirectory(): string
 currentWorkingDirectory(): Result<string, string>
+absolute(path: string): Result<string, string>
 setCurrentWorkingDirectory(path: string): Result<void, string>
 
 join(parts: string[]): string
@@ -510,6 +519,9 @@ isAbsolute(path: string): bool
 ```
 
 `homeDirectory`, `tempDirectory`, and `currentWorkingDirectory` return normalized POSIX-style paths.
+
+**`absolute`** resolves relative input against the current working directory and
+returns a normalized absolute path.
 
 **`join`** normalises `.`, resolves `..`, collapses repeated `/`, and preserves a leading `/` when any element is absolute. A later absolute segment resets accumulated state.
 
@@ -526,7 +538,7 @@ isAbsolute(path: string): bool
 ### Example
 
 ```doof
-import { homeDirectory, join, basename, extension, stem } from "std/path"
+import { absolute, homeDirectory, join, basename, extension, stem } from "std/path"
 
 root := try! homeDirectory()
 configDir := join([root, ".config", "myapp"])
@@ -534,6 +546,7 @@ logFile   := join([configDir, "../logs", "app.log"])    // "/home/ada/.config/lo
 base      := basename(logFile)   // "app.log"
 name      := stem(logFile)       // "app"
 ext       := extension(logFile)  // ".log"
+source    := try! absolute("src/main.do")
 ```
 
 ---

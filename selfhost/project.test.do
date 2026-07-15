@@ -36,3 +36,16 @@ export function testReadsRootProjectExecutableResources(): void {
   Assert.equal(project.resources[0].sourcePath, root + "/doof_runtime.h")
   Assert.equal(project.resources[0].destination, "")
 }
+
+export function testFallsBackWhenNoProjectManifestExists(): void {
+  root := "/tmp/doof-selfhost-project-no-manifest-test"
+  if !exists(root) { try! mkdir(root) }
+  entry := root + "/standalone.do"
+  try! writeText(entry, "function main(): int => 0")
+
+  project := readProjectSpec(entry, "macos")
+  Assert.equal(project.hasManifest, false)
+  Assert.equal(project.rootDirectory, root)
+  Assert.equal(project.entry, "standalone.do")
+  Assert.equal(project.name, "doof-selfhost-project-no-manifest-test")
+}

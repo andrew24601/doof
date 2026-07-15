@@ -319,7 +319,6 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       _ -> { }
     }
   }
-  if expression.property == "length" { return "doof::length(" + object + ")" }
   if expression.property == "kind" { return "doof::kind(" + object + ")" }
   if expression.property == "resolvedType" { return "doof::resolved_type(" + object + ")" }
   if expression.property == "span" { return "doof::span(" + object + ")" }
@@ -332,10 +331,10 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       _: PromiseType -> { return object + "." + cppIdentifier(expression.property) }
       _: InterfaceType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: StreamResolvedType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
-      _: ArrayResolvedType -> { if expression.property == "length" { return "(" + object + ")->size()" } }
+      _: ArrayResolvedType -> { if expression.property == "length" { return "static_cast<int32_t>((" + object + ")->size())" } }
       _: MapResolvedType -> { if expression.property == "size" { return object + "->size()" } }
       primitive: PrimitiveType -> {
-        if primitive.name == "string" && expression.property == "length" { return object + ".size()" }
+        if primitive.name == "string" && expression.property == "length" { return "static_cast<int32_t>(" + object + ".size())" }
         if primitive.name == "string" && expression.property == "toLowerCase" { return "doof::string_toLowerCase" }
         if primitive.name == "string" && expression.property == "toUpperCase" { return "doof::string_toUpperCase" }
       }

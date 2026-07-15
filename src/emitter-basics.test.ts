@@ -123,21 +123,6 @@ describe("emitter — immutable bindings (:=)", () => {
   });
 });
 
-describe("emitter — bootstrap filesystem builtins", () => {
-  it("maps driver file helpers to the native runtime", () => {
-    const cpp = emit(`
-      function main(): void {
-        path := absolutePath("input.do")
-        source := readFile(path)
-        writeFile("output.cpp", source)
-      }
-    `);
-    expect(cpp).toContain("doof::absolute_path(std::string(\"input.do\"))");
-    expect(cpp).toContain("doof::read_file(path)");
-    expect(cpp).toContain("doof::write_file(std::string(\"output.cpp\"), source)");
-  });
-});
-
 describe("emitter — let declarations", () => {
   it("emits auto for let", () => {
     const cpp = emit(`
@@ -1083,17 +1068,22 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("doof::Promise<R> post(Args... args) const");
     expect(header).toContain("void dispatch(Args... args) const");
     expect(header).toContain("call_callback_unchecked");
-    expect(header).toContain("::posix_spawnp");
-    expect(header).toContain("run_command_in_directory");
-    expect(header).toContain("::chdir(directory.c_str())");
-    expect(header).toContain("run_command_limited");
-    expect(header).toContain("native compiler output truncated after");
-    expect(header).not.toContain("const pid_t child = ::fork()");
+    expect(header).not.toContain("#include <filesystem>");
+    expect(header).not.toContain("::posix_spawnp");
+    expect(header).not.toContain("run_command");
+    expect(header).not.toContain("project_manifest_path");
     expect(header).toContain("class ApplicationDomain final");
     expect(header).toContain("wait_and_dispatch_one");
-    expect(header).toContain("inline bool starts_with");
+    expect(header).not.toContain("inline bool starts_with");
+    for (const obsoleteHelper of [
+      "inline bool ends_with(", "inline std::string substring(", "inline std::string replace_all(", "inline bool contains(",
+      "inline int32_t length(", "inline std::string trim(", "inline std::string repeat(",
+    ]) {
+      expect(header).not.toContain(obsoleteHelper);
+    }
     expect(header).toContain("std::variant<T...> unwrap_optional");
-    expect(header).toContain("T pop(const std::shared_ptr<std::vector<T>>& value)");
+    expect(header).not.toContain("T pop(const std::shared_ptr<std::vector<T>>& value)");
+    expect(header).toContain("Result<T, std::string> array_pop");
     expect(header).toContain("bool variant_is(const std::variant<Source...>& value)");
     expect(header).toContain("Target variant_narrow(const std::variant<Source...>& value)");
     expect(header).toContain("struct is_variant_alternative : std::is_same<Candidate, Variant> {};");

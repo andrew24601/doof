@@ -4,20 +4,32 @@
 // requested entry to its manifest/build settings; source contents are loaded by
 // the driver's resolver callback when an import is encountered.
 
-import { readText } from "std/fs"
+import { isDirectory, isFile, readText } from "std/fs"
 import { parseJsonValue } from "std/json"
+import { env } from "std/os"
+import { absolute, basename, dirname, join } from "std/path"
 import { NativeBuildPlan, PackageResource, parsePackageManifest } from "./package-manifest"
 
-export import function projectManifestPath(path: string): string from "doof_runtime.hpp" as doof::project_manifest_path
-export import function isDirectory(path: string): bool from "doof_runtime.hpp" as doof::is_directory
-export import function fileName(path: string): string from "doof_runtime.hpp" as doof::file_name
-export import function parentPath(path: string): string from "doof_runtime.hpp" as doof::parent_path
-export import function joinPath(directory: string, name: string): string from "doof_runtime.hpp" as doof::join_path
-export import function jsonObject(value: JsonValue): JsonObject from "doof_runtime.hpp" as doof::json_object
-export import function jsonField(object: JsonObject, name: string): JsonValue from "doof_runtime.hpp" as doof::json_field
-export import function jsonHas(object: JsonObject, name: string): bool from "doof_runtime.hpp" as doof::json_has
-export import function jsonString(value: JsonValue): string from "doof_runtime.hpp" as doof::json_string
-export import function environmentValue(name: string): string from "doof_runtime.hpp" as doof::environment_value
+export function projectManifestPath(path: string): string {
+  let directory = if isDirectory(path) then path else dirname(path)
+  while true {
+    candidate := join([directory, "doof.json"])
+    if isFile(candidate) { return candidate }
+    parent := dirname(directory)
+    if parent == directory { return "" }
+    directory = parent
+  }
+  return ""
+}
+
+export function environmentValue(name: string): string {
+  value := env(name) else { return "" }
+  return value
+}
+
+export function fileName(path: string): string => basename(path)
+export function parentPath(path: string): string => dirname(path)
+export function joinPath(directory: string, name: string): string => join([directory, name])
 
 export class ProjectSpec {
   rootDirectory: string
@@ -31,11 +43,11 @@ export class ProjectSpec {
 }
 
 export function readProjectSpec(requestedPath: string, platform: string = ""): ProjectSpec {
-  absolute := absolutePath(requestedPath)
-  directory := if isDirectory(absolute) then absolute else absolutePath(joinPath(absolute, ".."))
-  manifest := projectManifestPath(absolute)
+  absolutePath := try! absolute(requestedPath)
+  directory := if isDirectory(absolutePath) then absolutePath else parentPath(absolutePath)
+  manifest := projectManifestPath(absolutePath)
   if manifest == "" {
-    fallbackEntry := if isDirectory(absolute) then "main.do" else fileName(absolute)
+    fallbackEntry := if isDirectory(absolutePath) then "main.do" else fileName(absolutePath)
     return ProjectSpec {
       rootDirectory: directory,
       manifestPath: "",
@@ -51,19 +63,19 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
   packageDirectory := parentPath(manifest)
   manifestSource := try! readText(manifest)
   packageManifest := try! parsePackageManifest(manifestSource, manifest, packageDirectory, platform)
-  root := jsonObject(try! parseJsonValue(manifestSource))
+  root := try! (try! parseJsonValue(manifestSource)) as JsonObject
   let name = fileName(packageDirectory)
-  if jsonHas(root, "name") { name = jsonString(jsonField(root, "name")) }
+  if root.has("name") { name = try! (try! root.get("name")) as string }
   let entry = "main.do"
   let buildDirectory = "build"
-  if jsonHas(root, "build") {
-    build := jsonObject(jsonField(root, "build"))
-    if jsonHas(build, "entry") { entry = jsonString(jsonField(build, "entry")) }
-    if jsonHas(build, "buildDir") { buildDirectory = jsonString(jsonField(build, "buildDir")) }
+  if root.has("build") {
+    build := try! (try! root.get("build")) as JsonObject
+    if build.has("entry") { entry = try! (try! build.get("entry")) as string }
+    if build.has("buildDir") { buildDirectory = try! (try! build.get("buildDir")) as string }
   }
   // An explicit source file wins over the package default entry. Passing a
   // directory (or omitting the argument) selects build.entry from doof.json.
-  if !isDirectory(absolute) { entry = absolute }
+  if !isDirectory(absolutePath) { entry = absolutePath }
   return ProjectSpec {
     rootDirectory: packageDirectory,
     manifestPath: manifest,

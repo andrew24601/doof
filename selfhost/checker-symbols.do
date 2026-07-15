@@ -403,7 +403,7 @@ export function iterableElement(iterable: ResolvedType): ResolvedType {
 }
 
 export function isBuiltinCallable(name: string): bool {
-  return name == "byte" || name == "string" || name == "int" || name == "long" || name == "float" || name == "double" || name == "bool" || name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "absolutePath" || name == "Success" || name == "Failure"
+  return name == "byte" || name == "string" || name == "int" || name == "long" || name == "float" || name == "double" || name == "bool" || name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "Success" || name == "Failure"
 }
 
 export function isPanicCall(expression: Expression): bool {
@@ -422,9 +422,6 @@ export function isPanicCall(expression: Expression): bool {
 }
 
 export function builtinCallable(name: string): ResolvedType {
-  if name == "absolutePath" {
-    return functionType([FunctionParamType { name: "path", type_: primitive("string"), hasDefault: false }], primitive("string"))
-  }
   if name == "println" { return functionType([FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false }], voidType()) }
   if name == "panic" { return functionType([FunctionParamType { name: "message", type_: primitive("string"), hasDefault: false }], voidType()) }
   if name == "assert" {

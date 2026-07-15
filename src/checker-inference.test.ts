@@ -83,7 +83,7 @@ describe("Variable type inference", () => {
 // ============================================================================
 
 describe("Identifier resolution", () => {
-  it("resolves self-host bootstrap filesystem builtins", () => {
+  it("requires filesystem and path operations to be imported", () => {
     const info = check(
       {
         "/main.do": `
@@ -97,7 +97,11 @@ describe("Identifier resolution", () => {
       "/main.do",
     );
 
-    expect(info.diagnostics).toHaveLength(0);
+    expect(info.diagnostics.map((diagnostic) => diagnostic.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Undefined identifier "absolutePath"'),
+      expect.stringContaining('Undefined identifier "readFile"'),
+      expect.stringContaining('Undefined identifier "writeFile"'),
+    ]));
   });
 
   it("resolves metrics builtins", () => {

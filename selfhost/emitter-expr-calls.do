@@ -157,10 +157,10 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
           _ -> { }
         }
       }
-      if !nominalReceiver && member.property == "startsWith" { return emitBuiltinCall("doof::starts_with", member.object, expression, context) }
-      if !nominalReceiver && member.property == "endsWith" { return emitBuiltinCall("doof::ends_with", member.object, expression, context) }
-      if !nominalReceiver && member.property == "substring" { return emitBuiltinCall("doof::substring", member.object, expression, context) }
-      if !nominalReceiver && member.property == "replaceAll" { return emitBuiltinCall("doof::replace_all", member.object, expression, context) }
+      if !nominalReceiver && member.property == "startsWith" { return emitBuiltinCall("doof::string_startsWith", member.object, expression, context) }
+      if !nominalReceiver && member.property == "endsWith" { return emitBuiltinCall("doof::string_endsWith", member.object, expression, context) }
+      if !nominalReceiver && member.property == "substring" { return emitBuiltinCall("doof::string_substring", member.object, expression, context) }
+      if !nominalReceiver && member.property == "replaceAll" { return emitBuiltinCall("doof::string_replaceAll", member.object, expression, context) }
       if !nominalReceiver && member.property == "contains" { return emitBuiltinCall("doof::string_contains", member.object, expression, context) }
       if !nominalReceiver && member.property == "indexOf" { return emitBuiltinCall("doof::string_indexOf", member.object, expression, context) }
       objectType := decoratedExpressionType(member.object)
@@ -174,8 +174,8 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
           _ -> { }
         }
       }
-      if !nominalReceiver && member.property == "trim" && expression.args.length == 0 { return "doof::trim(" + emitExpression(member.object, context) + ")" }
-      if !nominalReceiver && member.property == "repeat" && expression.args.length == 1 { return "doof::repeat(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ")" }
+      if !nominalReceiver && member.property == "trim" && expression.args.length == 0 { return "doof::string_trim(" + emitExpression(member.object, context) + ")" }
+      if !nominalReceiver && member.property == "repeat" && expression.args.length == 1 { return "doof::string_repeat(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ")" }
       if !nominalReceiver && member.property == "slice" { return "doof::string_slice(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ")" }
       if !nominalReceiver && member.property == "charAt" { return "doof::string_at(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
       if !nominalReceiver && member.property == "padStart" {
@@ -187,7 +187,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       if !nominalReceiver && member.property == "toLowerCase" { return "doof::string_toLowerCase(" + emitExpression(member.object, context) + ")" }
       if !nominalReceiver && member.property == "toUpperCase" { return "doof::string_toUpperCase(" + emitExpression(member.object, context) + ")" }
       if !nominalReceiver && member.property == "split" { return "doof::string_split(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ")" }
-      if !nominalReceiver && member.property == "pop" && expression.args.length == 0 { return "doof::pop(" + emitExpression(member.object, context) + ")" }
+      if !nominalReceiver && member.property == "pop" && expression.args.length == 0 { return "doof::array_pop(" + emitExpression(member.object, context) + ")" }
       if member.property == "toJsonObject" && expression.args.length == 0 {
         object := emitExpression(member.object, context)
         objectType := decoratedExpressionType(member.object)
@@ -389,7 +389,6 @@ function builtinName(name: string): string {
   if name == "println" { return "doof::println" }
   if name == "panic" { return "doof::panic" }
   if name == "assert" { return "doof::assert_" }
-  if name == "absolutePath" { return "doof::absolute_path" }
   if name == "string" { return "doof::to_string" }
   if name == "byte" { return "static_cast<uint8_t>" }
   if name == "int" { return "static_cast<int32_t>" }
@@ -402,7 +401,7 @@ function builtinName(name: string): string {
 }
 
 function isBuiltinName(name: string): bool {
-  return name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "string" || name == "byte" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool" || name == "readFile" || name == "writeFile" || name == "absolutePath"
+  return name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "string" || name == "byte" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool"
 }
 
 function declaredConstructor(class_: ClassDeclaration): FunctionDeclaration | null {

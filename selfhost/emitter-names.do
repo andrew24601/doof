@@ -82,12 +82,12 @@ export function moduleNativeHeaderPath(modulePath: string, headerPath: string): 
     relativeModulePath = relativeModulePath.substring(1, relativeModulePath.length)
   }
   components := relativeModulePath.split("/")
-  if components.length > 0 { ignoredModuleName := components.pop() }
+  if components.length > 0 { ignoredModuleName := try! components.pop() }
   for component of headerPath.replaceAll("\\", "/").split("/") {
     if component == "" || component == "." { continue }
     if component == ".." {
       if components.length == 0 { return headerPath }
-      ignoredParent := components.pop()
+      ignoredParent := try! components.pop()
     } else {
       components.push(component)
     }

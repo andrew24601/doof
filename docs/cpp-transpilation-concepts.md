@@ -523,6 +523,10 @@ Strategy:
 - self-hosted project emission loads the packaged `doof_runtime.h` executable
   resource and copies it as `doof_runtime.hpp` rather than rendering a second
   implementation; `DOOF_RUNTIME_HEADER` remains a development override
+- bootstrap filesystem, path, environment, platform, and process operations use
+  `std/fs`, `std/path`, and `std/os`; they are not part of `doof_runtime.hpp`
+- trivial string and collection operations lower directly or to the canonical
+  `string_*`/checked-collection helper, without self-host-only forwarding aliases
 - self-hosted native package inputs are planned explicitly from reached
   manifests and copied beneath stable logical package roots, so equal native
   filenames from different packages do not collide

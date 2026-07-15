@@ -19,27 +19,81 @@ import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } fro
 import { SourceLoader } from "./resolver"
 import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 import { DiscoveredTest, discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath } from "./test-runner"
+import { BlobReader } from "std/blob"
 import { EntryKind, exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
-
-import function hostPlatform(): string from "doof_runtime.hpp" as doof::host_platform
-import function runNativeCompiler(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command
-import function runNativeTest(command: string, arguments: string[], directory: string): int from "doof_runtime.hpp" as doof::run_command_in_directory
-import function resetNativeCompilerOutput(maximumLines: int): void from "doof_runtime.hpp" as doof::reset_command_output_limit
-import function runNativeCompilerLimited(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command_limited
+import { ExecOptions, run, platform } from "std/os"
+import { absolute } from "std/path"
 
 readonly MAX_PRINTED_DIAGNOSTICS = 8
 readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 40
+readonly MAX_NATIVE_COMPILER_OUTPUT_BYTES = 262144L
+
+function hostPlatform(): string {
+  value := platform()
+  return if value == "darwin" then "macos" else value
+}
+
+class NativeCommandResult {
+  readonly exitCode: int
+  readonly output: string
+  readonly truncated: bool
+}
+
+class NativeCompilerBatchResult {
+  readonly exitCode: int
+  readonly outputs: readonly NativeCommandResult[]
+}
+
+function runNativeCommand(
+  command: string,
+  arguments: string[],
+  directory: string | null = null,
+  inheritOutput: bool = false,
+): NativeCommandResult {
+  executed := run(command, arguments, ExecOptions {
+    cwd: directory,
+    withStdin: false,
+    mergeStderrIntoStdout: true,
+    inheritOutput,
+    maxOutputBytes: MAX_NATIVE_COMPILER_OUTPUT_BYTES,
+  }) else error {
+    return NativeCommandResult { exitCode: -1, output: error, truncated: false }
+  }
+  output := if inheritOutput
+    then ""
+    else BlobReader(executed.stdout).readString(long(executed.stdout.length))
+  return NativeCommandResult {
+    exitCode: executed.exitCode,
+    output,
+    truncated: executed.stdoutTruncated,
+  }
+}
+
+function printNativeCommandOutput(result: NativeCommandResult, remainingLines: int): int {
+  let remaining = remainingLines
+  for line of result.output.split("\n") {
+    if line == "" { continue }
+    if remaining <= 0 { return 0 }
+    println(line)
+    remaining -= 1
+  }
+  return remaining
+}
 
 /** Owns a serial batch of compiler tasks; up to eight workers overlap. */
 class NativeCompilerWorker {
   tasks: NativeCompileTask[]
 
-  compile(): int {
+  compile(): NativeCompilerBatchResult {
+    let outputs: NativeCommandResult[] = []
     for task of this.tasks {
-      exitCode := runNativeCompilerLimited(task.compiler, task.arguments)
-      if exitCode != 0 { return exitCode }
+      result := runNativeCommand(task.compiler, task.arguments)
+      outputs.push(result)
+      if result.exitCode != 0 {
+        return NativeCompilerBatchResult { exitCode: result.exitCode, outputs: outputs.buildReadonly() }
+      }
     }
-    return 0
+    return NativeCompilerBatchResult { exitCode: 0, outputs: outputs.buildReadonly() }
   }
 }
 
@@ -113,7 +167,7 @@ let configuredDriverSourceState: DriverSourceState = DriverSourceState {
 }
 
 function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
-  return DriverSourceMapping { logicalPath, diskPath: absolutePath(diskPath) }
+  return DriverSourceMapping { logicalPath, diskPath: try! absolute(diskPath) }
 }
 
 function driverSourceDiskPath(
@@ -128,7 +182,7 @@ function driverSourceDiskPath(
   }
   for mapping of moduleSources {
     if driverExternalLogicalPath(mapping.specifier) == logicalPath {
-      return absolutePath(driverWithExtension(mapping.sourcePath))
+      return try! absolute(driverWithExtension(mapping.sourcePath))
     }
   }
   for root of localRoots {
@@ -246,12 +300,12 @@ function sourceLoaderForRequest(
     localRoots.push(DriverSourceRoot { logicalPrefix: "/selfhost", diskRoot: selfhostRoot })
   }
   for path of extraPaths {
-    absolute := absolutePath(driverWithExtension(path))
-    localMappings.push(driverSourceMapping(driverLogicalPath(absolute), absolute))
+    absolutePath := try! absolute(driverWithExtension(path))
+    localMappings.push(driverSourceMapping(driverLogicalPath(absolutePath), absolutePath))
   }
   let acquisitions: ModuleAcquisition[] = []
   if stdlibRoot != "" {
-    acquisitions.push(ModuleAcquisition { logicalPrefix: "/std", diskRoot: absolutePath(stdlibRoot) })
+    acquisitions.push(ModuleAcquisition { logicalPrefix: "/std", diskRoot: try! absolute(stdlibRoot) })
   }
   configuredDriverSourceState = DriverSourceState {
     localMappings,
@@ -265,9 +319,9 @@ function sourceLoaderForRequest(
 }
 
 function driverLogicalPrefix(path: string): string {
-  absolute := absolutePath(path)
-  if absolute.startsWith("/") { return driverSelfhostSuffix(absolute) }
-  return "/" + absolute
+  absolutePath := try! absolute(path)
+  if absolutePath.startsWith("/") { return driverSelfhostSuffix(absolutePath) }
+  return "/" + absolutePath
 }
 
 function driverPackageOutputRoot(logicalPrefix: string): string {
@@ -369,19 +423,25 @@ function buildProject(
   if compiler == "" { compiler = environmentValue("CXX") }
   if compiler == "" { compiler = "c++" }
   plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release, hostPlatform())
-  resetNativeCompilerOutput(MAX_NATIVE_COMPILER_OUTPUT_LINES)
+  let remainingOutputLines = MAX_NATIVE_COMPILER_OUTPUT_LINES
+  let truncationReported = false
   if plan.precompiledHeaderArguments.length > 0 {
-    pchExitCode := runNativeCompilerLimited(plan.compiler, plan.precompiledHeaderArguments)
-    if pchExitCode != 0 {
-      println("error: native compiler failed to build the precompiled runtime header with code " + string(pchExitCode))
-      return pchExitCode
+    pchResult := runNativeCommand(plan.compiler, plan.precompiledHeaderArguments)
+    remainingOutputLines = printNativeCommandOutput(pchResult, remainingOutputLines)
+    if pchResult.truncated {
+      println("... native compiler output capture truncated after " + string(MAX_NATIVE_COMPILER_OUTPUT_BYTES) + " bytes")
+      truncationReported = true
+    }
+    if pchResult.exitCode != 0 {
+      println("error: native compiler failed to build the precompiled runtime header with code " + string(pchResult.exitCode))
+      return pchResult.exitCode
     }
   }
 
   // A bounded set of actor domains prevents large graphs from spawning one
   // compiler process per translation unit while still overlapping eight jobs.
   let workers: Actor<NativeCompilerWorker>[] = []
-  let promises: Promise<int>[] = []
+  let promises: Promise<NativeCompilerBatchResult>[] = []
   for task of plan.compileTasks {
     ensureOutputDirectory(parentPath(task.outputPath))
   }
@@ -393,20 +453,35 @@ function buildProject(
   }
   let compileExitCode = 0
   for index of 0..<promises.length {
-    exitCode := try! promises[index].get()
+    batchResult := try! promises[index].get()
     retire workers[index]
-    if compileExitCode == 0 && exitCode != 0 { compileExitCode = exitCode }
+    for commandResult of batchResult.outputs {
+      remainingOutputLines = printNativeCommandOutput(commandResult, remainingOutputLines)
+      if commandResult.truncated && !truncationReported {
+        println("... native compiler output capture truncated after " + string(MAX_NATIVE_COMPILER_OUTPUT_BYTES) + " bytes")
+        truncationReported = true
+      }
+    }
+    if compileExitCode == 0 && batchResult.exitCode != 0 { compileExitCode = batchResult.exitCode }
+  }
+  if remainingOutputLines == 0 && !truncationReported {
+    println("... native compiler output truncated after " + string(MAX_NATIVE_COMPILER_OUTPUT_LINES) + " lines")
+    truncationReported = true
   }
   if compileExitCode != 0 {
     println("error: native object compiler exited with code " + string(compileExitCode))
     return compileExitCode
   }
 
-  exitCode := runNativeCompilerLimited(plan.compiler, plan.linkArguments)
-  if exitCode != 0 {
-    println("error: native linker exited with code " + string(exitCode))
+  linkResult := runNativeCommand(plan.compiler, plan.linkArguments)
+  ignoredRemainingLines := printNativeCommandOutput(linkResult, remainingOutputLines)
+  if linkResult.truncated && !truncationReported {
+    println("... native linker output capture truncated after " + string(MAX_NATIVE_COMPILER_OUTPUT_BYTES) + " bytes")
   }
-  return exitCode
+  if linkResult.exitCode != 0 {
+    println("error: native linker exited with code " + string(linkResult.exitCode))
+  }
+  return linkResult.exitCode
 }
 
 function printDiagnostics(diagnostics: Diagnostic[]): void {
@@ -478,7 +553,7 @@ function safeTestOutputName(displayPath: string): string {
 
 /** Runs the TypeScript-compatible one-harness-per-module test convention. */
 function testRequest(request: CliRequest): int {
-  target := absolutePath(request.entry)
+  target := try! absolute(request.entry)
   if !exists(target) {
     println("error: File not found: " + target)
     return 1
@@ -521,7 +596,7 @@ function testRequest(request: CliRequest): int {
     project := readProjectSpec(testFile, hostPlatform())
     buildRoot := if request.outputDirectory == ""
       then joinPath(project.rootDirectory, project.buildDirectory)
-      else absolutePath(request.outputDirectory)
+      else try! absolute(request.outputDirectory)
     outputDirectory := joinPath(joinPath(buildRoot, ".doof-tests"), safeTestOutputName(testDisplayPath(rootDirectory, testFile)))
     harnessPath := joinPath(outputDirectory, "__doof_tests__.do")
     ensureOutputDirectory(outputDirectory)
@@ -559,7 +634,8 @@ function testRequest(request: CliRequest): int {
     if buildExitCode != 0 { return buildExitCode }
 
     for test of moduleTests {
-      exitCode := runNativeTest(binary, [test.id], project.rootDirectory)
+      testResult := runNativeCommand(binary, [test.id], project.rootDirectory, true)
+      exitCode := testResult.exitCode
       if exitCode == 0 {
         passed = passed + 1
         println("PASS " + test.id)
@@ -595,7 +671,7 @@ function emitRequest(request: CliRequest): int {
 
   buildDirectory := if request.outputDirectory == ""
     then joinPath(project.rootDirectory, project.buildDirectory)
-    else absolutePath(request.outputDirectory)
+    else try! absolute(request.outputDirectory)
   outputDirectory := if request.command == "package"
     then joinPath(buildDirectory, "release")
     else buildDirectory

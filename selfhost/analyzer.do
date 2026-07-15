@@ -87,7 +87,7 @@ export class ModuleAnalyzer {
         span: SemanticSpan { start: location, end: location },
         module: path,
       })
-      ignored := inProgress.pop()
+      ignored := try! inProgress.pop()
       return null
     }
     info := ModuleInfo { path, program }
@@ -96,7 +96,7 @@ export class ModuleAnalyzer {
     resolveImports(info)
     resolveExportLists(info)
     resolveNamedTypes(info)
-    ignored := inProgress.pop()
+    ignored := try! inProgress.pop()
     for item of info.diagnostics { diagnostics.push(item) }
     return info
   }

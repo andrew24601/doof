@@ -5,10 +5,11 @@
 // compiler invocation, which remain later project-planning stages.
 
 import { parseJsonValue } from "std/json"
+import { join } from "std/path"
 
-import function manifestJoinPath(directory: string, name: string): string from "doof_runtime.hpp" as doof::join_path
-import function manifestJsonField(object: JsonObject, name: string): JsonValue from "doof_runtime.hpp" as doof::json_field
-import function manifestJsonHas(object: JsonObject, name: string): bool from "doof_runtime.hpp" as doof::json_has
+function manifestJoinPath(directory: string, name: string): string => join([directory, name])
+function manifestJsonField(object: JsonObject, name: string): JsonValue => try! object.get(name)
+function manifestJsonHas(object: JsonObject, name: string): bool => object.has(name)
 
 /** Normalized native inputs contributed by one or more reached packages. */
 export class NativeBuildPlan {
@@ -184,7 +185,7 @@ function normalizeResourceDestination(
       if segments.length == 0 {
         return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + " must stay within the executable resource directory")
       }
-      ignored := segments.pop()
+      ignored := try! segments.pop()
       continue
     }
     segments.push(segment)
