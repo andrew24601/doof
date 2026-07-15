@@ -5,7 +5,7 @@
 // responsibilities separate makes the later checker independent of parsing.
 
 import { Parser } from "./parser"
-import { ModuleResolver, SourceLoader } from "./resolver"
+import { ModuleResolver, SourceLoader, noSourceLoader } from "./resolver"
 import {
   Diagnostic, ImportBinding, NamespaceBinding, SemanticLocation, SemanticSpan,
   SourceFile, Symbol,
@@ -49,7 +49,11 @@ export class ModuleAnalyzer {
     modules = []
     diagnostics = []
     inProgress = []
+    resolver.loadedPaths = []
+    resolver.diagnostics = []
+    resolver.failedPaths = []
     ignored := analyzeModule(if entry.endsWith(".do") then entry else entry + ".do")
+    for diagnostic of resolver.diagnostics { diagnostics.push(diagnostic) }
     return AnalysisResult { modules, diagnostics }
   }
 
@@ -60,12 +64,14 @@ export class ModuleAnalyzer {
 
     source := resolver.find(path)
     if source == null {
-      diagnostics.push(Diagnostic {
-        severity: "error",
-        message: "Module not found: " + path,
-        span: emptySemanticSpan(),
-        module: path,
-      })
+      if !resolver.failed(path) {
+        diagnostics.push(Diagnostic {
+          severity: "error",
+          message: "Module not found: " + path,
+          span: emptySemanticSpan(),
+          module: path,
+        })
+      }
       return null
     }
 
@@ -322,10 +328,8 @@ export class ModuleAnalyzer {
   ): void { }
 }
 
-function analyzerNoSourceLoader(path: string): SourceFile | null => null
-
 export function createAnalyzer(sources: SourceFile[]): ModuleAnalyzer {
-  return ModuleAnalyzer { resolver: ModuleResolver { sources, loader: analyzerNoSourceLoader } }
+  return ModuleAnalyzer { resolver: ModuleResolver { sources, loader: noSourceLoader } }
 }
 
 export function createAnalyzerWithLoader(sources: SourceFile[], loader: SourceLoader): ModuleAnalyzer {

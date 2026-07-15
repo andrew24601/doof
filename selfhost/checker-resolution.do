@@ -1,0 +1,338 @@
+// Type annotation, member, index, and callable-field resolution.
+
+import {
+  ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
+  Diagnostic, FunctionParamType, FunctionType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+} from "./semantic"
+import { AnalysisResult, ModuleInfo } from "./analyzer"
+import {
+  ArrayLiteral, ArrayType, AsExpression, AssignmentExpression, AstLocation, BinaryExpression, Block,
+  BoolLiteral, CallExpression, CallerExpression, CharLiteral, ClassDeclaration, ClassField, ConstructExpression,
+  ConstDeclaration, ContinueStatement, DestructuringStatement, DoubleLiteral,
+  DotShorthand, EnumDeclaration, ExportDeclaration, ExportList, Expression, ExpressionStatement,
+  FloatLiteral, ForOfStatement, ForStatement, FunctionDeclaration, AstFunctionType,
+  IfExpression, IfStatement, ImmutableBinding, Identifier, ImportDeclaration,
+  IndexExpression, IntLiteral, InterfaceDeclaration, LetDeclaration,
+  LambdaExpression, LongLiteral, MemberExpression, NamedType, NullLiteral,
+  NamedImport, NamespaceImport, ObjectLiteral, ObjectProperty, Program,
+  ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
+  ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
+  UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
+  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
+  TryStatement,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
+} from "./ast"
+import {
+  actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
+  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
+  nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
+  substituteTypeParams, typeParameter, unknownType, voidType,
+} from "./checker-types"
+import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
+import { findActorBoundaryViolation } from "./checker-actor-boundary"
+import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-actor-lifecycle"
+
+
+import { CheckerState } from "./checker-state"
+import { typeError } from "./checker-common"
+import { builtinSourceLocationType, optionalResolvedType, methodSignature, hasTypeParam, symbolFor, declarationFor } from "./checker-symbols"
+import { registerConcreteInterfaceImplementations, concreteTypes, classModuleFor } from "./checker-interfaces"
+
+export function resolveType(state: CheckerState, annotation: TypeAnnotation, module: ModuleInfo, scope: Scope): ResolvedType {
+  case annotation {
+    named: NamedType -> {
+      if named.name == "void" { return decorateType(state, annotation, voidType()) }
+      if named.name == "null" { return decorateType(state, annotation, nullType()) }
+      if named.name == "JsonValue" { return decorateType(state, annotation, jsonValueType()) }
+      if named.name == "JsonObject" { return decorateType(state, annotation, jsonObjectType()) }
+      if named.name == "SourceLocation" { return decorateType(state, annotation, builtinSourceLocationType()) }
+      if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name)) }
+      if named.name == "Tuple" {
+        let elements: ResolvedType[] = []
+        for argument of named.typeArgs { elements.push(resolveType(state, argument, module, scope)) }
+        return decorateType(state, annotation, tupleType(elements))
+      }
+      if named.name == "Map" || named.name == "ReadonlyMap" {
+        if named.typeArgs.length != 2 { typeError(state, named.name + " requires two type arguments", named.span); return decorateType(state, annotation, unknownType()) }
+        key := resolveType(state, named.typeArgs[0], module, scope)
+        value := resolveType(state, named.typeArgs[1], module, scope)
+        return decorateType(state, annotation, mapType(key, value, named.name == "ReadonlyMap"))
+      }
+      if named.name == "Stream" {
+        if named.typeArgs.length != 1 { typeError(state, "Stream requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
+        return decorateType(state, annotation, streamType(resolveType(state, named.typeArgs[0], module, scope)))
+      }
+      if named.name == "Actor" {
+        if named.typeArgs.length != 1 { typeError(state, "Actor requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
+        inner := resolveType(state, named.typeArgs[0], module, scope)
+        case inner {
+          class_: ClassType -> { return decorateType(state, annotation, actorType(class_)) }
+          _ -> { typeError(state, "Actor requires a class type", named.span); return decorateType(state, annotation, unknownType()) }
+        }
+      }
+      if named.name == "Promise" {
+        if named.typeArgs.length != 1 { typeError(state, "Promise requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
+        return decorateType(state, annotation, promiseType(resolveType(state, named.typeArgs[0], module, scope)))
+      }
+      if named.name == "Result" {
+        if named.typeArgs.length != 2 { typeError(state, "Result requires two type arguments", named.span); return decorateType(state, annotation, unknownType()) }
+        return decorateType(state, annotation, resultType(resolveType(state, named.typeArgs[0], module, scope), resolveType(state, named.typeArgs[1], module, scope)))
+      }
+      if named.name == "Success" || named.name == "Failure" {
+        if named.typeArgs.length != 1 { typeError(state, named.name + " requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
+        payload := resolveType(state, named.typeArgs[0], module, scope)
+        if named.name == "Success" { return decorateType(state, annotation, resultType(payload, unknownType())) }
+        return decorateType(state, annotation, resultType(unknownType(), payload))
+      }
+      if named.name == "byte" || named.name == "int" || named.name == "long" || named.name == "float" || named.name == "double" || named.name == "string" || named.name == "char" || named.name == "bool" {
+        return decorateType(state, annotation, primitive(named.name))
+      }
+      let symbol: Symbol | null = named.resolvedSymbol
+      if symbol == null { symbol = symbolFor(module, named.name) }
+      if symbol == null { return decorateType(state, annotation, unknownType()) }
+      if symbol!.kind == "type-alias" {
+        declaration := declarationFor(state.result, symbol!)
+        if declaration == null { return decorateType(state, annotation, unknownType()) }
+        case declaration! {
+          alias: TypeAliasDeclaration -> {
+            if named.typeArgs.length != alias.typeParams.length {
+              typeError(state, alias.name + " requires " + string(alias.typeParams.length) + " type argument" + (if alias.typeParams.length == 1 then "" else "s"), named.span)
+              return decorateType(state, annotation, unknownType())
+            }
+            aliasScope := Scope { parent: scope }
+            for typeParam of alias.typeParams { aliasScope.typeParams.push(typeParam) }
+            let resolvedAlias = resolveType(state, alias.type_, classModuleFor(state.result, symbol!), aliasScope)
+            let typeArgs: ResolvedType[] = []
+            for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+            resolvedAlias = substituteTypeParams(resolvedAlias, alias.typeParams, typeArgs)
+            return decorateType(state, annotation, resolvedAlias)
+          }
+          _ -> { return decorateType(state, annotation, unknownType()) }
+        }
+      }
+      if symbol!.kind == "interface" {
+        let typeArgs: ResolvedType[] = []
+        for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+        concreteInterface := interfaceType(named.name, symbol!, typeArgs)
+        if concreteTypes(typeArgs) { registerConcreteInterfaceImplementations(state.result, concreteInterface) }
+        return decorateType(state, annotation, concreteInterface)
+      }
+      if symbol!.kind == "enum" { return decorateType(state, annotation, enumType(named.name, symbol!)) }
+      let typeArgs: ResolvedType[] = []
+      for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+      return decorateType(state, annotation, classType(named.name, symbol!, typeArgs))
+    }
+    array: ArrayType -> { return decorateType(state, annotation, arrayType(resolveType(state, array.elementType, module, scope), array.readonly_)) }
+    union: UnionType -> {
+      let members: ResolvedType[] = []
+      for item of union.types { members.push(resolveType(state, item, module, scope)) }
+      return decorateType(state, annotation, unionType(members))
+    }
+    function_: AstFunctionType -> {
+      let params: FunctionParamType[] = []
+      for parameter of function_.params { params.push(FunctionParamType { name: parameter.name, type_: resolveType(state, parameter.type_, module, scope), hasDefault: false }) }
+      return decorateType(state, annotation, functionType(params, resolveType(state, function_.returnType, module, scope)))
+    }
+  }
+  return decorateType(state, annotation, unknownType())
+}
+
+export function decorateType(state: CheckerState, annotation: TypeAnnotation, resolvedType: ResolvedType): ResolvedType {
+  annotation.resolvedType = optionalResolvedType(resolvedType)
+  return resolvedType
+}
+
+export function memberType(state: CheckerState, object: ResolvedType, property: string, span: SourceSpan): ResolvedType {
+  if typeName(object) == "string" {
+    if property == "length" { return primitive("int") }
+    if property == "startsWith" || property == "endsWith" || property == "contains" { return functionType([FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false }], primitive("bool")) }
+    if property == "indexOf" { return functionType([FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false }], primitive("int")) }
+    if property == "substring" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "end", type_: primitive("int"), hasDefault: true }], primitive("string")) }
+    if property == "replaceAll" { return functionType([FunctionParamType { name: "oldValue", type_: primitive("string"), hasDefault: false }, FunctionParamType { name: "newValue", type_: primitive("string"), hasDefault: false }], primitive("string")) }
+    if property == "trim" { return functionType([], primitive("string")) }
+    if property == "trimEnd" { return functionType([FunctionParamType { name: "suffix", type_: primitive("char"), hasDefault: true }], primitive("string")) }
+    if property == "toLowerCase" || property == "toUpperCase" { return functionType([], primitive("string")) }
+    if property == "repeat" { return functionType([FunctionParamType { name: "count", type_: primitive("int"), hasDefault: false }], primitive("string")) }
+    if property == "slice" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }], primitive("string")) }
+    if property == "charAt" { return functionType([FunctionParamType { name: "index", type_: primitive("int"), hasDefault: false }], primitive("char")) }
+    if property == "padStart" { return functionType([FunctionParamType { name: "length", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "fill", type_: primitive("char"), hasDefault: true }], primitive("string")) }
+    if property == "split" { return functionType([FunctionParamType { name: "separator", type_: primitive("string"), hasDefault: false }], arrayType(primitive("string"))) }
+  }
+  case object {
+    function_: FunctionType -> {
+      if property == "call" { return function_ }
+      if property == "post" { return functionType(function_.params, promiseType(function_.returnType)) }
+      if property == "dispatch" {
+        if function_.returnType.kind != "void" { typeError(state, "Method \"dispatch\" is only available on void-returning callbacks", span); return unknownType() }
+        return functionType(function_.params, voidType())
+      }
+      return unknownType()
+    }
+    union: UnionResolvedType -> {
+      let resolved: ResolvedType | null = null
+      for member of union.types {
+        memberValue := memberType(state, member, property, span)
+        if memberValue.kind == "unknown" { continue }
+        resolved = if resolved == null then memberValue else joinTypes(resolved!, memberValue)
+      }
+      if resolved != null { return resolved! }
+      return unknownType()
+    }
+    array: ArrayResolvedType -> {
+      if property == "length" { return primitive("int") }
+      if property == "push" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], voidType()) }
+      if property == "contains" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("bool")) }
+      if property == "indexOf" { return functionType([FunctionParamType { name: "value", type_: array.elementType, hasDefault: false }], primitive("int")) }
+      if property == "reserve" { return functionType([FunctionParamType { name: "capacity", type_: primitive("int"), hasDefault: false }], voidType()) }
+      if property == "pop" { return functionType([], array.elementType) }
+      if property == "some" || property == "every" {
+        predicate := functionType([FunctionParamType { name: "it", type_: array.elementType, hasDefault: false }], primitive("bool"))
+        return functionType([FunctionParamType { name: "predicate", type_: predicate, hasDefault: false }], primitive("bool"))
+      }
+      if property == "filter" {
+        predicate := functionType([FunctionParamType { name: "it", type_: array.elementType, hasDefault: false }], primitive("bool"))
+        return functionType([FunctionParamType { name: "predicate", type_: predicate, hasDefault: false }], arrayType(array.elementType, array.readonly_))
+      }
+      if property == "map" {
+        mapped := typeParameter("U")
+        mapper := functionType([FunctionParamType { name: "it", type_: array.elementType, hasDefault: false }], mapped)
+        return functionType([FunctionParamType { name: "mapper", type_: mapper, hasDefault: false }], arrayType(mapped, array.readonly_), ["U"])
+      }
+      if property == "slice" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "end", type_: primitive("int"), hasDefault: false }], arrayType(array.elementType, array.readonly_)) }
+      if property == "buildReadonly" { return functionType([], arrayType(array.elementType, true)) }
+      return unknownType()
+    }
+    map: MapResolvedType -> {
+      if property == "size" { return primitive("int") }
+      if property == "has" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }], primitive("bool")) }
+      if property == "get" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }], resultType(map.valueType, primitive("string"))) }
+      if property == "set" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }, FunctionParamType { name: "value", type_: map.valueType, hasDefault: false }], voidType()) }
+      if property == "buildReadonly" { return functionType([], mapType(map.keyType, map.valueType, true)) }
+      return unknownType()
+    }
+    result: ResultResolvedType -> {
+      if property == "value" { return result.valueType }
+      if property == "error" { return result.errorType }
+      if property == "isSuccess" || property == "isFailure" { return functionType([], primitive("bool")) }
+      return unknownType()
+    }
+    stream: StreamResolvedType -> {
+      if property == "next" { return functionType([], primitive("bool")) }
+      if property == "value" { return functionType([], stream.elementType) }
+      return unknownType()
+    }
+    actor: ActorType -> { return memberType(state, actor.innerClass, property, span) }
+    promise: PromiseType -> {
+      if property == "get" { return functionType([], resultType(promise.valueType, primitive("string"))) }
+      return unknownType()
+    }
+    enum_: EnumType -> {
+      if property == "name" { return primitive("string") }
+      if property == "value" { return primitive("int") }
+      declaration := declarationFor(state.result, enum_.symbol)
+      if declaration != null {
+        case declaration! {
+          enumDeclaration: EnumDeclaration -> {
+            for variant of enumDeclaration.variants { if variant.name == property { return enum_ } }
+          }
+          _ -> { }
+        }
+      }
+      return unknownType()
+    }
+    class_: ClassType -> {
+      if class_.name == "SourceLocation" && class_.symbol.module == "<builtin>" {
+        if property == "fileName" || property == "functionName" { return primitive("string") }
+        if property == "line" { return primitive("int") }
+        return unknownType()
+      }
+      declaration := declarationFor(state.result, class_.symbol)
+      if declaration == null { return unknownType() }
+      case declaration! {
+        classDeclaration: ClassDeclaration -> {
+          if property == "toJsonObject" && canGenerateJsonSerialization(classDeclaration) {
+            return functionType([], jsonObjectType())
+          }
+          if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration) {
+            return functionType([
+              FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
+              FunctionParamType { name: "lenient", type_: primitive("bool"), hasDefault: true },
+            ], resultType(object, primitive("string")))
+          }
+          if property == "toJsonObject" || property == "fromJsonValue" {
+            typeError(state, "Type \"" + classDeclaration.name + "\" does not support automatic JSON " + (if property == "toJsonObject" then "serialization" else "deserialization"), span)
+            return unknownType()
+          }
+          for field of classDeclaration.fields {
+            for name of field.names {
+              if name == property {
+                fieldType := if field.resolvedType != null then field.resolvedType! else if field.type_ != null then resolveType(state, field.type_!, state.info!, state.moduleScope!) else unknownType()
+                return substituteTypeParams(fieldType, classDeclaration.typeParams, class_.typeArgs)
+              }
+            }
+          }
+          for method of classDeclaration.methods {
+            if method.name == property {
+              methodType := method.resolvedType ?? methodSignature(method, classModuleFor(state.result, class_.symbol), state.result)
+              return substituteTypeParams(methodType, classDeclaration.typeParams, class_.typeArgs)
+            }
+          }
+        }
+        interface_: InterfaceDeclaration -> {
+          for field of interface_.fields { if field.name == property { return field.resolvedType ?? resolveType(state, field.type_, state.info!, state.moduleScope!) } }
+          for method of interface_.methods { if method.name == property { return method.resolvedType ?? methodSignature(method, classModuleFor(state.result, class_.symbol), state.result) } }
+        }
+        _ -> { }
+      }
+    }
+    _: EnumType -> { return object }
+    interfaceType_: InterfaceType -> {
+      declaration := declarationFor(state.result, interfaceType_.symbol)
+      if declaration == null { return unknownType() }
+      case declaration! {
+        interface_: InterfaceDeclaration -> {
+          for field of interface_.fields {
+            if field.name == property {
+              fieldType := field.resolvedType ?? resolveType(state, field.type_, state.info!, state.moduleScope!)
+              return substituteTypeParams(fieldType, interface_.typeParams, interfaceType_.typeArgs)
+            }
+          }
+          for method of interface_.methods {
+            if method.name == property {
+              methodType := method.resolvedType ?? methodSignature(method, classModuleFor(state.result, interfaceType_.symbol), state.result)
+              return substituteTypeParams(methodType, interface_.typeParams, interfaceType_.typeArgs)
+            }
+          }
+        }
+        _ -> { }
+      }
+    }
+    _ -> { }
+  }
+  return unknownType()
+}
+
+export function indexType(state: CheckerState, object: ResolvedType, index: ResolvedType, span: SourceSpan): ResolvedType {
+  case object {
+    array: ArrayResolvedType -> {
+      if !isAssignable(index, primitive("int")) && typeName(index) != "unknown" { typeError(state, "Index must be an int", span) }
+      return array.elementType
+    }
+    map: MapResolvedType -> {
+      if !isAssignable(index, map.keyType) && typeName(index) != "unknown" { typeError(state, "Invalid map key type", span) }
+      return map.valueType
+    }
+    _: TupleResolvedType -> { return unknownType() }
+    primitive_: PrimitiveType -> {
+      if primitive_.name == "string" {
+        if !isAssignable(index, primitive("int")) && typeName(index) != "unknown" { typeError(state, "Index must be an int", span) }
+        return primitive("char")
+      }
+    }
+    _ -> { }
+  }
+  return unknownType()
+}
+

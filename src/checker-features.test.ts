@@ -6271,17 +6271,20 @@ describe("checker — else-narrow statement", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("narrows Result with nullable success type (deep null removal)", () => {
+  it("preserves null inside a Result success payload", () => {
     const cr = check({ "/main.do": `
       class Config { name: string }
       class AppError { message: string }
       function loadConfig(): Result<Config | null, AppError> => Success { value: null }
-      function test(): string {
-        x := loadConfig() else { return "" }
-        return x.name
+      function useConfig(config: Config): string => config.name
+      function test(): void {
+        x := loadConfig() else { return }
+        useConfig(x)
       }
     ` }, "/main.do");
-    expect(cr.diagnostics).toHaveLength(0);
+    expect(cr.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes('Argument of type "Config | null" is not assignable')
+    )).toBe(true);
   });
 
   it("errors on non-applicable type (plain int)", () => {

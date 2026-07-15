@@ -1105,9 +1105,12 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
  * Applicable to Result and/or nullable types only.
  * Algorithm:
  * 1. Strip null from the type
- * 2. If the remaining type is Result<S, E>: happy path = strip null from S
+ * 2. If the remaining type is Result<S, E>: happy path = S
  * 3. Else if null was stripped: happy path = remaining type
  * 4. Otherwise: not applicable
+ *
+ * Null inside a Result success payload is data, not an unhappy state handled
+ * by the declaration-else. Only null at the subject's outer level is stripped.
  */
 export function computeElseNarrowType(
   type: ResolvedType,
@@ -1115,11 +1118,10 @@ export function computeElseNarrowType(
   // Step 1: strip null
   const { stripped, hadNull } = stripNull(type);
 
-  // Step 2: if Result, extract success type and strip null from it
+  // Step 2: if Result, extract its success type without narrowing the payload
   const result = getResultShape(stripped);
   if (result) {
-    const innerStripped = stripNull(result.successType).stripped;
-    return { narrowedType: innerStripped, applicable: true };
+    return { narrowedType: result.successType, applicable: true };
   }
 
   // Step 3: if null was stripped, return non-null type

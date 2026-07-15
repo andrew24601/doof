@@ -379,7 +379,7 @@ Else-narrow works only on **Result** and/or **nullable** types. Plain unions (e.
 | `string \| null` | `string` |
 | `Result<Config, Error>` | `Config` |
 | `Result<Config, Error> \| null` | `Config` |
-| `Result<Config \| null, Error>` | `Config` (deep null removal) |
+| `Result<Config \| null, Error>` | `Config \| null` |
 | `int` | ❌ compile error |
 | `Circle \| Rect` | ❌ compile error |
 
@@ -422,17 +422,19 @@ function test(): string {
 }
 ```
 
-### Deep Null Removal
+### Nullable Result Success Values
 
-When the Result's success type is nullable, null is stripped from the success type too:
+Declaration-`else` unwraps the Result but preserves null inside its success
+payload. A successful null is data carried by `Success`, not an unhappy state
+handled by this declaration-`else`:
 
 ```javascript
 function loadConfig(): Result<Config | null, AppError> => Success { value: null }
 
 function test(): string {
     x := loadConfig() else { return "" }
-    // x is Config here (null removed from inside the success type)
-    return x.name
+    // x is Config | null here
+    return x!.name
 }
 ```
 

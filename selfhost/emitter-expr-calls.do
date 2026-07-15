@@ -1,6 +1,6 @@
 // Call, native-constructor, and class-construction lowering.
 
-import { CallArgument, CallExpression, ConstructExpression, Expression, FunctionDeclaration, Identifier, MemberExpression, ObjectProperty, SourceSpan, ThisExpression } from "./ast"
+import { CallArgument, CallExpression, ClassDeclaration, ConstructExpression, Expression, FunctionDeclaration, Identifier, MemberExpression, ObjectProperty, SourceSpan, ThisExpression } from "./ast"
 import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, StreamResolvedType, Symbol } from "./semantic"
 import { EmitContext, SourceLocationSpanOverride } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
@@ -405,6 +405,15 @@ function isBuiltinName(name: string): bool {
   return name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "string" || name == "byte" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool" || name == "readFile" || name == "writeFile" || name == "absolutePath"
 }
 
+function declaredConstructor(class_: ClassDeclaration): FunctionDeclaration | null {
+  for method of class_.methods { if method.name == "constructor" { return method } }
+  return null
+}
+
+function insideDeclaredConstructor(class_: ClassDeclaration, context: EmitContext): bool {
+  return context.currentClass == class_.name && context.currentFunctionName == "constructor"
+}
+
 export function emitConstruct(expression: ConstructExpression, context: EmitContext): string {
   if expression.type_ == "Success" || expression.type_ == "Failure" {
     resultType := expression.resolvedType
@@ -424,13 +433,21 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
   }
   class_ := expression.resolvedClass
   if class_ == null { panic("Cannot construct unresolved class " + expression.type_) }
-  if expression.resolvedConstructor != null && expression.resolvedConstructedType != null {
-    case expression.resolvedConstructedType! {
-      owner: ClassType -> {
-        return emitNamedConstructorFactoryCall(owner, expression.resolvedConstructor!, expression, context)
-      }
-      _ -> { }
-    }
+  constructedType := expression.resolvedConstructedType
+  if constructedType == null { panic("Construction of '" + expression.type_ + "' has no resolved constructed type") }
+  let owner: ClassType | null = null
+  case constructedType! {
+    class_: ClassType -> { owner = class_ }
+    _ -> { panic("Construction of '" + expression.type_ + "' has a non-class constructed type") }
+  }
+  constructorMethod := declaredConstructor(class_!)
+  insideConstructor := insideDeclaredConstructor(class_!, context)
+  if constructorMethod != null && !insideConstructor && expression.resolvedConstructor == null {
+    panic("Construction of '" + expression.type_ + "' has no resolved constructor")
+  }
+  if expression.resolvedConstructor != null {
+    if constructorMethod == null { panic("Construction of '" + expression.type_ + "' has unexpected constructor metadata") }
+    return emitNamedConstructorFactoryCall(owner!, expression.resolvedConstructor!, expression, context)
   }
   let cppName = expression.type_
   let native = class_!.native_
@@ -471,7 +488,7 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
           }
         }
       } else if field.defaultValue != null { value = emitDefaultExpression(field.defaultValue!, context, field.resolvedType, expression.span) }
-      else { value = "{}" }
+      else { panic("Construction of '" + expression.type_ + "' is missing required field '" + name + "'") }
       if expression.type_ == "FunctionDeclaration" && name == "body" {
         value = "doof::variant_promote<" + emitContextType(field.resolvedType!, context) + ">(" + value + ")"
       }

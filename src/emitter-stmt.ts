@@ -1365,7 +1365,7 @@ function emitElseNarrowCondition(
   }
 
   if (resultType) {
-    // Pure Result (may have nullable success type — handled at extraction)
+    // Pure Result. A nullable success payload is preserved by extraction.
     return `doof::is_failure(${tmp})`;
   }
 

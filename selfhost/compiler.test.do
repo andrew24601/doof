@@ -4,7 +4,7 @@ import { createAnalyzer } from "./analyzer"
 import { createChecker } from "./checker"
 import { Compilation, compile, compileWithLoader } from "./compiler"
 import { emitModuleGraph } from "./emitter-module"
-import { SourceFile } from "./semantic"
+import { Diagnostic, SourceFile } from "./semantic"
 
 function compileSample(path: string): Compilation {
   return compile([
@@ -124,15 +124,15 @@ export function testMonomorphizesGenericStructuralInterfaces(): void {
 
 export function testCompilesWithTransitiveSourceLoading(): void {
   let requested: string[] = []
-  loader := (path: string): SourceFile | null => {
+  loader := (path: string): Result<SourceFile | null, Diagnostic> => {
     requested.push(path)
     if path == "/lib/index.do" {
-      return SourceFile { path, source: "export function add(left: int, right: int): int => left + right" }
+      return Success(SourceFile { path, source: "export function add(left: int, right: int): int => left + right" })
     }
     if path == "/unused.do" {
-      return SourceFile { path, source: "this is not valid Doof" }
+      return Success(SourceFile { path, source: "this is not valid Doof" })
     }
-    return null
+    return Success(null)
   }
   result := compileWithLoader([
     SourceFile { path: "/main.do", source: "import { add } from \"./lib\"\nfunction main(): int => add(2, 3)" },

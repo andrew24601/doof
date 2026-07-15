@@ -93,6 +93,18 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `parser-expressions.do` — precedence-climbing expression and literal parsing
 - `checker-actor-boundary.do` — actor-call boundary validation after generic substitution
 - `checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
+- `checker.do` — public checker façade and per-module orchestration
+- `checker-state.do` — mutable state passed explicitly through self-hosted checker phases
+- `checker-statements.do` — statement, declaration, scope, and control-flow checking
+- `checker-expressions.do` — expression dispatch, operators, narrowing, and assignment checking
+- `checker-calls.do` — call, lambda, construction, generic-call, and actor-boundary checking
+- `checker-literals.do` — contextual array and object literal inference
+- `checker-resolution.do` — annotation, member, index, and callable-field resolution
+- `checker-symbols.do` — bindings, symbols, builtins, and scope helpers
+- `checker-generics.do` — generic inference and decorated call-target resolution
+- `checker-interfaces.do` — interface discovery and conformance validation
+- `checker-validation.do` — graph-wide decorated-AST validation
+- `checker-common.do` — shared checker diagnostics and expression decoration helpers
 - `emitter-context.do` — nominal declarations and current method-owner context
 - `emitter-names.do` — stable generated module namespaces and artifact names
 - `emitter-monomorphize.do` — whole-program concrete generic instantiation discovery and naming

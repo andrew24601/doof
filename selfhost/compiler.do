@@ -9,7 +9,7 @@ import { emitModuleGraph, ModuleGraphEmission } from "./emitter-module"
 import { buildInstantiationPlan } from "./emitter-monomorphize"
 import { ModuleNamespaceMapping, configureModuleNamespaces } from "./emitter-names"
 import { createChecker, ModuleChecker, validateCheckedTypes } from "./checker"
-import { SourceLoader } from "./resolver"
+import { SourceLoader, noSourceLoader } from "./resolver"
 import { CheckResult, Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 
 export class Compilation {
@@ -17,10 +17,8 @@ export class Compilation {
   diagnostics: Diagnostic[]
 }
 
-function compilerNoSourceLoader(path: string): SourceFile | null => null
-
 export function compile(sources: SourceFile[], entry: string): Compilation {
-  return compileInternal(sources, entry, compilerNoSourceLoader, [])
+  return compileInternal(sources, entry, noSourceLoader, [])
 }
 
 export function compileWithLoader(

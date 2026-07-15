@@ -222,6 +222,11 @@ and remain excluded from interface implementation discovery in v1.
 Primary modules:
 
 - `selfhost/checker.do`
+- `selfhost/checker-state.do`
+- `selfhost/checker-statements.do`
+- `selfhost/checker-expressions.do`
+- `selfhost/checker-calls.do`
+- `selfhost/checker-resolution.do`
 - `selfhost/checker-types.do`
 - `selfhost/analyzer.do`
 - `selfhost/parser-declarations.do`
@@ -252,7 +257,7 @@ Primary modules:
 - `src/checker-actor-boundary.ts`
 - `src/checker-readonly.ts`
 - `src/checker-types.ts`
-- `selfhost/checker.do`
+- `selfhost/checker-calls.do`
 - `selfhost/checker-actor-boundary.do`
 - `selfhost/checker-actor-lifecycle.do`
 - `selfhost/checker-types.do`
@@ -290,6 +295,9 @@ statement checking, and scope mutation:
   the full canonical `Result<T, E>` union before emission rather than retaining
   only the first arm's type
 - declaration-`else` handlers must exit only when a narrowed binding is introduced after the handler
+- declaration-`else` unwraps `Result<T, E>` to exactly `T`; when `T` is
+  nullable, that inner null remains because a successful null is payload data,
+  not an outer unhappy state handled by the `else` block
 - Result statement-`else` and `_ := result else ...` handlers mark the Result as handled without requiring scope exit
 - the self-hosted checker follows the same scope split: the handler sees the
   original subject or failure payload, while only the narrowed binding is
@@ -301,7 +309,8 @@ Primary modules:
 - `src/checker-result.ts`
 - `src/checker-stmt.ts`
 - `src/checker-expr.ts`
-- `selfhost/checker.do`
+- `selfhost/checker-statements.do`
+- `selfhost/checker-expressions.do`
 
 Keep aligned:
 

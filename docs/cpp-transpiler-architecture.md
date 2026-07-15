@@ -27,6 +27,10 @@ The self-hosted emitter therefore consumes resolved types and checker-attached
 declaration targets (`resolvedFunction`, `resolvedConstructor`,
 `resolvedClass`, and `resolvedStaticOwner`). It does not scan declarations,
 resolve raw type annotations, or recover from unknown types while rendering.
+Construction lowering additionally panics if its constructed-type or dedicated
+constructor attachment is absent, or if a non-defaulted field reaches emission
+without a value; it never synthesizes plausible default-initialized C++ for
+those checker invariant failures.
 Module import planning remains an output-layout concern; semantic lookup and
 validation belong entirely to analysis and checking.
 

@@ -40,7 +40,18 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/analyzer.test.do` — analyzer tests for imports, re-exports, and resolved named types
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
 - `selfhost/json-semantics.do` — shared checker/emitter eligibility for automatic JSON methods
-- `selfhost/checker.do` — lexical-scope checking, expression inference, calls, members, assignments, and definite returns
+- `selfhost/checker.do` — public checker façade and per-module orchestration
+- `selfhost/checker-state.do` — mutable analysis graph, diagnostics, current module, and module-scope state shared by checker phases
+- `selfhost/checker-statements.do` — statements, declarations, scopes, control flow, and definite returns
+- `selfhost/checker-expressions.do` — expression dispatch, identifiers, operators, narrowing, and assignments
+- `selfhost/checker-calls.do` — calls, lambdas, construction, generic call inference, and actor method boundaries
+- `selfhost/checker-literals.do` — contextual array and object literal inference
+- `selfhost/checker-resolution.do` — type annotations, members, indexes, and callable fields
+- `selfhost/checker-symbols.do` — bindings, symbols, builtins, annotation helpers, and scope lookup
+- `selfhost/checker-generics.do` — generic inference and decorated call/constructor target resolution
+- `selfhost/checker-interfaces.do` — interface implementation discovery and structural conformance
+- `selfhost/checker-validation.do` — graph-wide decorated-AST validation before emission
+- `selfhost/checker-common.do` — state-aware diagnostics and expression decoration helpers
 - `selfhost/checker-actor-boundary.do` — post-substitution actor-call boundary validation for deeply immutable payloads and actor-affine callbacks
 - `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation

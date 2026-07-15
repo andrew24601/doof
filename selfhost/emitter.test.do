@@ -2,7 +2,7 @@ import { Assert } from "std/assert"
 import { createAnalyzer } from "./analyzer"
 import { createChecker } from "./checker"
 import { AnalysisResult } from "./analyzer"
-import { Program } from "./ast"
+import { ConstructExpression, ImmutableBinding, Program } from "./ast"
 import { SourceFile } from "./semantic"
 import { ModuleEmission, emitModule, emitModuleGraph, ModuleGraphPlan, planModuleGraph } from "./emitter-module"
 import { ModuleNamespaceMapping, configureModuleNamespaces } from "./emitter-names"
@@ -133,6 +133,50 @@ export function testMaterializesCallerDefaultsAtPackageRelativeCallSite(): void 
 function findProgram(analysis: AnalysisResult, path: string): Program | null {
   for module of analysis.modules { if module.path == path { return module.program } }
   return null
+}
+
+export function testConstructionPanicsWhenConstructorAttachmentIsMissing(): void {
+  source := "class Widget { value: int\nstatic constructor(value: int): Widget => Widget { value } }\nwidget := Widget { value: 1 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  program := findProgram(analysis, "/main.do")!
+  case program.statements[1] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        construct: ConstructExpression -> { construct.resolvedConstructor = null }
+        _ -> { panic("expected a construct expression") }
+      }
+    }
+    _ -> { panic("expected an immutable binding") }
+  }
+
+  result := catchPanic(=> emitModule(program, "main"))
+  case result {
+    failure: Failure<string> -> { Assert.equal(failure.error.contains("has no resolved constructor"), true) }
+    _ -> { panic("expected missing constructor metadata to panic") }
+  }
+}
+
+export function testConstructionPanicsWhenRequiredFieldIsMissing(): void {
+  source := "class Widget { value: int }\nwidget := Widget { value: 1 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  program := findProgram(analysis, "/main.do")!
+  case program.statements[1] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        construct: ConstructExpression -> { construct.args = [] }
+        _ -> { panic("expected a construct expression") }
+      }
+    }
+    _ -> { panic("expected an immutable binding") }
+  }
+
+  result := catchPanic(=> emitModule(program, "main"))
+  case result {
+    failure: Failure<string> -> { Assert.equal(failure.error.contains("is missing required field 'value'"), true) }
+    _ -> { panic("expected missing required field to panic") }
+  }
 }
 
 export function testKeepsHeaderAndSourceSeparate(): void {

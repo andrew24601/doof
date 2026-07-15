@@ -1,6 +1,6 @@
 import { Assert } from "std/assert"
 import { createAnalyzer, createAnalyzerWithLoader } from "./analyzer"
-import { SourceFile } from "./semantic"
+import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 import { ClassDeclaration, FunctionDeclaration, NamedType } from "./ast"
 
 export function testResolvesImportsAndExports(): void {
@@ -97,15 +97,15 @@ export function testRecordsNativeClassMetadata(): void {
 
 export function testAnalyzesOnlyTransitiveSourcesWithLoader(): void {
   let requested: string[] = []
-  loader := (path: string): SourceFile | null => {
+  loader := (path: string): Result<SourceFile | null, Diagnostic> => {
     requested.push(path)
     if path == "/math.do" {
-      return SourceFile { path, source: "export function add(left: int, right: int): int => left + right" }
+      return Success(SourceFile { path, source: "export function add(left: int, right: int): int => left + right" })
     }
     if path == "/unused.do" {
-      return SourceFile { path, source: "this is not valid Doof" }
+      return Success(SourceFile { path, source: "this is not valid Doof" })
     }
-    return null
+    return Success(null)
   }
   result := createAnalyzerWithLoader([
     SourceFile { path: "/main.do", source: "import { add } from \"./math\"\nfunction main(): int => add(1, 2)" },
@@ -115,4 +115,18 @@ export function testAnalyzesOnlyTransitiveSourcesWithLoader(): void {
   Assert.equal(result.modules.length, 2)
   Assert.equal(requested.length, 1)
   Assert.equal(requested[0], "/math.do")
+}
+
+export function testReportsLoaderFailureWithoutModuleNotFoundDiagnostic(): void {
+  zero := SemanticLocation { line: 0, column: 0, offset: 0 }
+  loader := (path: string): Result<SourceFile | null, Diagnostic> => Failure(Diagnostic {
+    severity: "error",
+    message: "Could not read source file: permission denied",
+    span: SemanticSpan { start: zero, end: zero },
+    module: path,
+  })
+  result := createAnalyzerWithLoader([], loader).analyze("/main.do")
+
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].message, "Could not read source file: permission denied")
 }

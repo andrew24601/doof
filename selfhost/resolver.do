@@ -4,27 +4,40 @@
 // outside the compiler while allowing analysis to discover only transitive
 // dependencies.
 
-import { SourceFile } from "./semantic"
+import { Diagnostic, SourceFile } from "./semantic"
 
-export type SourceLoader = (path: string): SourceFile | null
+// A successful null means absence; filesystem and acquisition failures remain
+// structured diagnostics rather than being collapsed into a missing module.
+export type SourceLoader = (path: string): Result<SourceFile | null, Diagnostic>
 
-export function noSourceLoader(path: string): SourceFile | null => null
+export function noSourceLoader(path: string): Result<SourceFile | null, Diagnostic> => Success(null)
 
 export class ModuleResolver {
   sources: SourceFile[]
   loader: SourceLoader
   loadedPaths: string[] = []
+  failedPaths: string[] = []
+  diagnostics: Diagnostic[] = []
 
   function find(path: string): SourceFile | null {
     for source of sources { if source.path == path { return source } }
     for loaded of loadedPaths { if loaded == path { return null } }
     loadedPaths.push(path)
-    loaded := loader(path)
+    loaded := loader(path) else diagnostic {
+      failedPaths.push(path)
+      diagnostics.push(diagnostic)
+      return null
+    }
     if loaded != null {
       sources.push(loaded!)
       return loaded!
     }
     return null
+  }
+
+  function failed(path: string): bool {
+    for failed of failedPaths { if failed == path { return true } }
+    return false
   }
 
   function resolve(importer: string, specifier: string): string {

@@ -299,6 +299,9 @@ Strategy:
 - self-hosted class construction passes field arguments directly to
   `std::make_shared<T>(...)`, avoiding an intermediate class temporary whose
   destructor would otherwise run before the owned instance leaves scope
+- self-hosted construction treats `resolvedConstructedType`, dedicated-constructor
+  attachments, and every non-defaulted field value as checked-AST invariants;
+  missing metadata or required values panic instead of emitting recovery `{}`
 - the self-hosted call emitter identifies positional construction from the
   callee binding itself: direct class/struct bindings and imported nominal
   symbols construct values, while method bindings remain calls even when their

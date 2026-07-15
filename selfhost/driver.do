@@ -17,7 +17,7 @@ import { PackageManifest, PackageResource, parsePackageManifest } from "./packag
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
-import { Diagnostic, SourceFile } from "./semantic"
+import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 import { DiscoveredTest, discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath } from "./test-runner"
 import { EntryKind, exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
 
@@ -149,17 +149,17 @@ function loadDriverSource(
   localRoots: DriverSourceRoot[],
   moduleSources: ModuleSource[],
   acquisitions: ModuleAcquisition[],
-): SourceFile | null {
+): Result<SourceFile | null, Diagnostic> {
   diskPath := driverSourceDiskPath(logicalPath, localMappings, localRoots, moduleSources, acquisitions)
-  if !exists(diskPath) { return null }
+  if !exists(diskPath) { return Success(null) }
   source := readText(diskPath) else {
-    return null
+    return Failure(driverDiagnostic(logicalPath, "Could not read source file ${diskPath}"))
   }
-  return SourceFile { path: logicalPath, source }
+  return Success(SourceFile { path: logicalPath, source })
 }
 
-function configuredDriverSource(logicalPath: string): SourceFile | null {
-  source := loadDriverSource(
+function configuredDriverSource(logicalPath: string): Result<SourceFile | null, Diagnostic> {
+  try source := loadDriverSource(
     logicalPath,
     configuredDriverSourceState.localMappings,
     configuredDriverSourceState.localRoots,
@@ -168,9 +168,9 @@ function configuredDriverSource(logicalPath: string): SourceFile | null {
   )
   if source != null {
     package := acquiredPackageForLoadedSource(logicalPath, configuredDriverSourceState)
-    if package != null { registerReachedPackage(package!) }
+    if package != null { try registerReachedPackage(package!) }
   }
-  return source
+  return Success(source)
 }
 
 function acquiredPackageForLoadedSource(logicalPath: string, state: DriverSourceState): ModuleAcquisition | null {
@@ -184,24 +184,40 @@ function acquiredPackageForLoadedSource(logicalPath: string, state: DriverSource
   return acquiredPackageForModule(logicalPath, state.acquisitions)
 }
 
-function registerReachedPackage(acquisition: ModuleAcquisition): void {
+function registerReachedPackage(acquisition: ModuleAcquisition): Result<void, Diagnostic> {
   for reached of configuredDriverSourceState.reachedPackages {
     if reached.acquisition.logicalPrefix == acquisition.logicalPrefix && reached.acquisition.diskRoot == acquisition.diskRoot {
-      return
+      return Success()
     }
   }
 
   manifestPath := acquiredManifestPath(acquisition)
   manifestSource := readText(manifestPath) else {
-    panic("Missing doof.json for acquired package " + acquisition.logicalPrefix + " at " + manifestPath)
+    return Failure(driverDiagnostic(
+      manifestPath,
+      "Could not read doof.json for acquired package ${acquisition.logicalPrefix} at ${manifestPath}",
+    ))
   }
-  manifest := try! parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, hostPlatform())
+  manifest := parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, hostPlatform()) else error {
+    return Failure(driverDiagnostic(manifestPath, error))
+  }
   configuredDriverSourceState.reachedPackages.push(DriverReachedPackage { acquisition, manifest })
   configuredDriverSourceState.namespaceMappings.push(ModuleNamespaceMapping {
     logicalPrefix: acquisition.logicalPrefix,
     packageName: manifest.name,
     outputRoot: driverPackageOutputRoot(acquisition.logicalPrefix),
   })
+  return Success()
+}
+
+function driverDiagnostic(module: string, message: string): Diagnostic {
+  zero := SemanticLocation { line: 0, column: 0, offset: 0 }
+  return Diagnostic {
+    severity: "error",
+    message,
+    span: SemanticSpan { start: zero, end: zero },
+    module,
+  }
 }
 
 function driverSelfhostDiskRoot(path: string): string {

@@ -150,6 +150,11 @@ describe("checker-types — narrowing and substitution", () => {
       narrowedType: INT_TYPE,
       applicable: true,
     });
+    const nullableSuccess = { kind: "union", types: [STRING_TYPE, NULL_TYPE] } as ResolvedType;
+    expect(computeElseNarrowType(makeResultType(nullableSuccess, STRING_TYPE))).toEqual({
+      narrowedType: nullableSuccess,
+      applicable: true,
+    });
     expect(computeElseNarrowType(NULL_TYPE)).toEqual({ narrowedType: UNKNOWN_TYPE, applicable: true });
     expect(computeElseNarrowType(BOOL_TYPE)).toEqual({ narrowedType: BOOL_TYPE, applicable: false });
   });

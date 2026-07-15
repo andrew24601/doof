@@ -1471,6 +1471,9 @@ function test(): int {
 
 This form works only for nullable and/or `Result` types. Inside the `else` block, the binding still has the full original type. After the block, the binding has the narrowed happy-path type.
 
+For `Result<T | null, E>`, the happy-path type is `T | null`: the declaration
+unwraps the Result, but a null carried by `Success` remains part of its payload.
+
 #### `as`
 
 Use `expr as T` for checked runtime narrowing/conversion. It returns a `Result`:
