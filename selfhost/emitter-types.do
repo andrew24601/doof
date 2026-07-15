@@ -244,22 +244,29 @@ export function usesVariantRepresentation(type_: ResolvedType): bool {
 
 /** Whether a union uses a natural nullable/optional carrier instead of variant. */
 export function usesNullableSingleValueRepresentation(type_: ResolvedType): bool {
-  case type_ {
-    union_: UnionResolvedType -> { return usesNaturalNullableUnion(union_) }
-    _ -> { return false }
-  }
-  return false
+  return naturalNullableUnionMember(type_) != null
 }
 
 function usesNaturalNullableUnion(union_: UnionResolvedType): bool {
-  flattened := flattenUnionMembers(union_.types)
-  let nonNull: ResolvedType[] = []
-  let hasNull = false
-  for member of flattened {
-    if member.kind == "null" { hasNull = true }
-    else { nonNull.push(member) }
+  return naturalNullableUnionMember(union_) != null
+}
+
+/** Returns the sole non-null member when a union uses a natural nullable carrier. */
+export function naturalNullableUnionMember(type_: ResolvedType): ResolvedType | null {
+  case type_ {
+    union_: UnionResolvedType -> {
+      flattened := flattenUnionMembers(union_.types)
+      let nonNull: ResolvedType[] = []
+      let hasNull = false
+      for member of flattened {
+        if member.kind == "null" { hasNull = true }
+        else { nonNull.push(member) }
+      }
+      if hasNull && nonNull.length == 1 && usesNaturalNullableMember(nonNull[0]) { return nonNull[0] }
+    }
+    _ -> { return null }
   }
-  return hasNull && nonNull.length == 1 && usesNaturalNullableMember(nonNull[0])
+  return null
 }
 
 function usesNaturalNullableMember(member: ResolvedType): bool {

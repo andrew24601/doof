@@ -79,8 +79,10 @@ Strategy:
 - value-like nullable unions, including `Struct | null`, use optional or variant-style lowering
 - when checked source types are non-null but the emitted AST field or call
   parameter is a nullable multi-arm union, the self-hosted emitter promotes the
-  value through `doof::optional_value(...)`; the checker must decorate the
-  target expression so this decision is available at the emission boundary
+  value according to its carrier: existing variants gain the null arm through
+  `doof::optional_value(...)`, while scalar alternatives use the target-typed
+  `doof::variant_promote<Target>(...)`; the checker must decorate both source
+  and target expressions so this decision is available at the emission boundary
 - broader unions use one flattened `std::variant` shape and explicit extraction
 - case type-pattern lowering follows the checked subject's C++ representation:
   exact values bind directly, single-value nullable carriers use a null guard,
@@ -110,6 +112,8 @@ Primary modules:
 - `src/emitter-narrowing.ts`
 - `src/emitter-expr-ops.ts`
 - `selfhost/emitter-expr-calls.do`
+- `selfhost/emitter-expr-literals.do`
+- `selfhost/emitter-expr-utils.do`
 
 Validation anchors:
 
@@ -117,6 +121,7 @@ Validation anchors:
 - `src/emitter-e2e-advanced.test.ts`
 - `spec/02-type-system.md`
 - `selfhost/compiler.test.do`
+- `selfhost/emitter.test.do`
 - `selfhost/samples/lambda-body-union.do`
 
 ## Functions, Lambdas, and Generic Calls
@@ -171,7 +176,9 @@ Strategy:
 
 - function declarations lower to generated C++ functions or methods with resolved parameter and return types
 - method placement depends on the owning declaration and module/header split
-- default parameters and named-argument ordering are normalized during emission
+- default parameters and named-argument ordering are normalized during emission;
+  declaration-less callback calls use the resolved function type's parameter
+  order before lowering to the positional callback ABI
 - default parameter expressions may lower static class method calls as `Class::method(...)`
 - Doof identifiers that collide with C++ keywords are escaped consistently in
   declarations, definitions, and call sites
@@ -184,12 +191,14 @@ Primary modules:
 - `src/emitter-decl.ts`
 - `src/emitter-expr-calls.ts`
 - `src/emitter-module.ts`
+- `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
 
 - `src/emitter-basics.test.ts`
 - `src/emitter-constructs.test.ts`
 - `src/emitter-e2e-compile.test.ts`
+- `selfhost/emitter.test.do`
 - `spec/04-functions-and-lambdas.md`
 
 ### Lambdas, Closures, Async, and Actors
@@ -441,7 +450,10 @@ Strategy:
 - declaration-`else` evaluates its subject once, exposes either the full
   subject or captured failure payload in the handler, and extracts the narrowed
   success/non-null value only after the handler
-- `as`-narrowing becomes explicit runtime checks that either extract a narrowed value or return a failure result
+- `as`-narrowing becomes explicit runtime checks that either extract a narrowed
+  value or return a failure result; nullable class and array unions test their
+  pointer carrier, nullable primitives inspect `std::optional`, and only
+  variant-backed unions use variant inspection and extraction helpers
 
 Primary modules:
 
@@ -450,6 +462,7 @@ Primary modules:
 - `src/emitter-expr-control.ts`
 - `src/emitter-narrowing.ts`
 - `selfhost/checker.do`
+- `selfhost/emitter-expr-ops.do`
 - `selfhost/emitter-stmt.do`
 
 Validation anchors:

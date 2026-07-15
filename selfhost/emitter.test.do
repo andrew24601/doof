@@ -46,6 +46,23 @@ export function testEmitsJsonValueAsNarrowing(): void {
   Assert.equal(result.source.contains("doof::json_as_bool(_as_value)"), true)
 }
 
+export function testEmitsRepresentationAwareNullableAsNarrowing(): void {
+  result := emit("class Config { value: int }\nfunction config(value: Config | null): Result<Config, string> => value as Config\nfunction items(value: int[] | null): Result<int[], string> => value as int[]\nfunction count(value: int | null): Result<int, string> => value as int\nfunction wide(value: int | null): Result<long, string> => value as long")
+
+  Assert.equal(result.source.contains("if (_as_value) return doof::Success<std::shared_ptr<Config>>{_as_value}"), true)
+  Assert.equal(result.source.contains("if (_as_value) return doof::Success<std::shared_ptr<std::vector<int32_t>>>{_as_value}"), true)
+  Assert.equal(result.source.contains("if (_as_value.has_value()) return doof::Success<int32_t>{_as_value.value()}"), true)
+  Assert.equal(result.source.contains("doof::checked_numeric_as<int64_t>(_as_value.value())"), true)
+  Assert.equal(result.source.contains("doof::variant_is"), false)
+  Assert.equal(result.source.contains("doof::variant_narrow"), false)
+}
+
+export function testRetainsVariantBackedAsNarrowing(): void {
+  result := emit("function text(value: int | string): Result<string, string> => value as string")
+  Assert.equal(result.source.contains("doof::variant_is<std::string>(_as_value)"), true)
+  Assert.equal(result.source.contains("doof::variant_narrow<std::string>(_as_value)"), true)
+}
+
 export function testEmitsLenientGeneratedJsonDecode(): void {
   result := emit("class Options { enabled: bool\nname: string }\nfunction decode(value: JsonValue): Result<Options, string> => Options.fromJsonValue(value, true)")
   Assert.equal(result.header.contains("bool _lenient = false"), true)
@@ -217,6 +234,12 @@ export function testInvokesCallbackValuedMemberThroughCallMethod(): void {
   Assert.equal(result.source.contains("route->get.call(1)"), false)
 }
 
+export function testOrdersNamedCallbackArgumentsByFunctionType(): void {
+  result := emit("function invoke(callback: (left: int, right: int): int): int => callback{right: 2, left: 1}")
+  Assert.equal(result.source.contains("callback.call(1, 2)"), true)
+  Assert.equal(result.source.contains("callback.call(2, 1)"), false)
+}
+
 export function testContextuallyPromotesLambdaReturnIntoCallbackUnion(): void {
   result := emit("class Response {}\nclass Upgrade {}\ntype Outcome = Response | Upgrade\nclass Router { websocket(handler: (): Outcome): void {} }\nfunction register(router: Router): void { router.websocket((): Response => Response {}) }")
   Assert.equal(result.source.contains("doof::callback<std::variant<std::shared_ptr<Response>, std::shared_ptr<Upgrade>>()>([]() -> std::variant<std::shared_ptr<Response>, std::shared_ptr<Upgrade>>"), true)
@@ -289,6 +312,15 @@ export function testEmitsYieldingCaseExpressionBlocks(): void {
 export function testPromotesNarrowVariantReturnsIntoWiderUnions(): void {
   result := emit("class First { value: int }\nclass Second { value: int }\nfunction widen(value: First): First | Second { return value }")
   Assert.equal(result.source.contains("doof::variant_promote<std::variant<std::shared_ptr<First>, std::shared_ptr<Second>>>(value)"), true)
+}
+
+export function testPromotesScalarAlternativesIntoNullableVariantFields(): void {
+  result := emit("class Left {}\nclass Right {}\ntype Choice = Left | Right\nclass Box { choice: Choice | null }\nfunction explicit(left: Left): Box => Box { choice: left }\nfunction shorthand(choice: Left): Box => Box { choice }")
+  target := "std::variant<std::monostate, std::shared_ptr<Left>, std::shared_ptr<Right>>"
+  Assert.equal(result.source.contains("doof::variant_promote<" + target + ">(left)"), true)
+  Assert.equal(result.source.contains("doof::variant_promote<" + target + ">(choice)"), true)
+  Assert.equal(result.source.contains("doof::optional_value(left)"), false)
+  Assert.equal(result.source.contains("doof::optional_value(choice)"), false)
 }
 
 export function testEmitsNullableAndDiscardDeclarationElse(): void {

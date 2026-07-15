@@ -4,10 +4,11 @@
 // expression dispatcher and its focused lowering modules stay small.
 
 import { Expression, Identifier, ObjectProperty } from "./ast"
-import { ClassType, NullType, PrimitiveType, ResolvedType, Symbol, UnionResolvedType } from "./semantic"
+import { ClassType, InterfaceType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, Symbol, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { moduleNamespace } from "./emitter-names"
+import { emitType } from "./emitter-types"
 import { isAssignable, sameType } from "./checker-types"
 
 export function decoratedExpressionType(expression: Expression): ResolvedType | null {
@@ -34,6 +35,24 @@ export function needsNullableVariantPromotion(source: ResolvedType | null, expec
     _ -> { }
   }
   return !hasNullMember(source)
+}
+
+/** Promotes a non-null value into a nullable multi-arm union using its actual carrier. */
+export function emitNullableVariantPromotion(value: string, source: ResolvedType | null, expected: ResolvedType | null, currentModulePath: string): string {
+  if source == null || expected == null { panic("Nullable variant promotion requires checked source and target types") }
+  if nullablePromotionSourceUsesVariant(source!) { return "doof::optional_value(" + value + ")" }
+  return "doof::variant_promote<" + emitType(expected!, currentModulePath) + ">(" + value + ")"
+}
+
+function nullablePromotionSourceUsesVariant(source: ResolvedType): bool {
+  case source {
+    _: InterfaceType -> { return true }
+    _: ResultResolvedType -> { return true }
+    _: UnionResolvedType -> { return true }
+    class_: ClassType -> { return isAstVariantClass(class_.name) }
+    _ -> { return false }
+  }
+  return false
 }
 
 // C++ std::variant does not implicitly convert one variant into a wider

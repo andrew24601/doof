@@ -4,7 +4,7 @@ import { ArrayLiteral, ObjectLiteral, StringLiteral, TupleLiteral } from "./ast"
 import { ArrayResolvedType, ClassType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { emittedSymbolName, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion } from "./emitter-expr-utils"
+import { emittedSymbolName, emitNullableVariantPromotion, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion } from "./emitter-expr-utils"
 import { emitType } from "./emitter-types"
 
 export function emitNullLiteral(expected: ResolvedType | null): string {
@@ -144,7 +144,7 @@ function emitClassObject(expression: ObjectLiteral, context: EmitContext, resolv
       let value = "{}"
       if property != null {
         value = if property!.value == null then cppIdentifier(name) else emitExpression(property!.value!, context, field.resolvedType)
-        if property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = "doof::optional_value(" + value + ")" }
+        if property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = emitNullableVariantPromotion(value, property!.resolvedType, field.resolvedType, context.modulePath) }
       } else if field.defaultValue != null {
         value = emitExpression(field.defaultValue!, context, field.resolvedType)
       }

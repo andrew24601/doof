@@ -5,7 +5,7 @@ import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, Js
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
-import { emitType } from "./emitter-types"
+import { emitType, naturalNullableUnionMember } from "./emitter-types"
 import { isNumeric, sameType } from "./checker-types"
 
 /** Lowers checked `as` conversion to a Result without evaluating its source twice. */
@@ -52,6 +52,26 @@ export function emitAs(expression: AsExpression, context: EmitContext): string {
           }
         }
         union_: UnionResolvedType -> {
+          member := naturalNullableUnionMember(union_)
+          if member != null {
+            if sameType(member!, target) {
+              case target {
+                _: ClassType -> {
+                  return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (_as_value) return " + success + "{_as_value}; return " + failure + "{\"Nullable narrowing failed\"}; }()"
+                }
+                _: ArrayResolvedType -> {
+                  return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (_as_value) return " + success + "{_as_value}; return " + failure + "{\"Nullable narrowing failed\"}; }()"
+                }
+                _: PrimitiveType -> {
+                  return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (_as_value.has_value()) return " + success + "{_as_value.value()}; return " + failure + "{\"Nullable narrowing failed\"}; }()"
+                }
+                _ -> { }
+              }
+            }
+            if isNumeric(member!) && isNumeric(target) {
+              return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (!_as_value.has_value()) return " + failure + "{\"Nullable narrowing failed\"}; auto _as_checked = doof::checked_numeric_as<" + targetCpp + ">(_as_value.value()); if (_as_checked.has_value()) return " + success + "{_as_checked.value()}; return " + failure + "{\"Numeric narrowing failed\"}; }()"
+            }
+          }
           return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (doof::variant_is<" + targetCpp + ">(_as_value)) return " + success + "{doof::variant_narrow<" + targetCpp + ">(_as_value)}; return " + failure + "{\"Union narrowing failed\"}; }()"
         }
         _ -> { }

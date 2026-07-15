@@ -5,7 +5,7 @@ import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, M
 import { EmitContext, SourceLocationSpanOverride } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { decoratedExpressionType, emittedSymbolName, emitExpectedExpression, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion, optionalExpectedType } from "./emitter-expr-utils"
+import { decoratedExpressionType, emittedSymbolName, emitExpectedExpression, emitNullableVariantPromotion, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion, optionalExpectedType } from "./emitter-expr-utils"
 import { emitContextType, emitType } from "./emitter-types"
 import { specializeEmitType } from "./emitter-types"
 import { classInstantiationKey, functionInstantiationKey, methodInstantiationKey } from "./emitter-monomorphize"
@@ -310,6 +310,17 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         else { result = result + emitDefaultExpression(parameter.defaultValue!, context, expected, expression.span) }
       }
     }
+  } else if named && functionType != null {
+    // Callback-valued callees do not retain a declaration pointer. Their
+    // function type still defines the named-argument order required by the
+    // generated positional callback ABI.
+    for parameter of functionType!.params {
+      argument := callArgumentNamed(expression, parameter.name)
+      if argument != null {
+        if result != callPrefix { result = result + ", " }
+        result = result + emitExpectedExpression(argument!.value, context, optionalExpectedType(parameter.type_))
+      }
+    }
   } else {
     for i of 0..<expression.args.length {
       if i > 0 { result = result + ", " }
@@ -472,7 +483,7 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
       }
       // Shorthand fields have no expression node, so they cannot pass their
       // expected type through emitExpression's central promotion path.
-      if property != null && property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = "doof::optional_value(" + value + ")" }
+      if property != null && property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = emitNullableVariantPromotion(value, property!.resolvedType, field.resolvedType, context.modulePath) }
       values = values + value
     }
   }

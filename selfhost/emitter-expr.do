@@ -12,7 +12,7 @@ import { emitCall, emitConstruct } from "./emitter-expr-calls"
 import { emitArray, emitChar, emitNullLiteral, emitObject, emitString, emitTuple } from "./emitter-expr-literals"
 import { emitCaseExpression, emitDotShorthand, emitIfExpression } from "./emitter-expr-control"
 import { emitLambdaExpression } from "./emitter-expr-lambda"
-import { decoratedExpressionType, needsNullableVariantPromotion, needsVariantPromotion } from "./emitter-expr-utils"
+import { decoratedExpressionType, emitNullableVariantPromotion, needsNullableVariantPromotion, needsVariantPromotion } from "./emitter-expr-utils"
 import { emitClassInnerType, emitType } from "./emitter-types"
 import { emitActorCreation, emitAsyncActorCall, emitRetireActor } from "./emitter-expr-actor"
 import { moduleDiagnosticPath } from "./emitter-names"
@@ -69,7 +69,7 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
   }
   sourceType := decoratedExpressionType(expression)
   if needsNullableVariantPromotion(sourceType, expected) {
-    return "doof::optional_value(" + value + ")"
+    return emitNullableVariantPromotion(value, sourceType, expected, context.modulePath)
   }
   if needsVariantPromotion(sourceType, expected) {
     return "doof::variant_promote<" + emitType(expected!, context.modulePath) + ">(" + value + ")"

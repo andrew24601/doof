@@ -1182,7 +1182,12 @@ export class ModuleChecker {
             }
           }
         } else {
-          if expression.args.length > effectiveFunction.params.length { typeError("Too many arguments", expression.span) }
+          let requiredCount = 0
+          for parameter of effectiveFunction.params { if !parameter.hasDefault { requiredCount = requiredCount + 1 } }
+          if expression.args.length < requiredCount || expression.args.length > effectiveFunction.params.length {
+            range := if requiredCount == effectiveFunction.params.length then string(requiredCount) else string(requiredCount) + "-" + string(effectiveFunction.params.length)
+            typeError("Expected " + range + " argument(s) but got " + string(expression.args.length), expression.span)
+          }
           for i of 0..<expression.args.length {
             expected := if i < effectiveFunction.params.length then effectiveFunction.params[i].type_ else unknownType()
             let argumentExpected: ResolvedType | null = expected
@@ -1197,18 +1202,43 @@ export class ModuleChecker {
       class_: ClassType -> {
         if !insideConstructorFactory(scope, class_) { expression.resolvedConstructor = constructorForClass(class_, result) }
         constructorMethod := expression.resolvedConstructor
-        for i of 0..<expression.args.length {
-          let expectedArgument: ResolvedType | null = null
-          if constructorMethod != null && i < constructorMethod!.params.length { expectedArgument = constructorMethod!.params[i].resolvedType }
-          checkExpression(expression.args[i].value, scope, expectedArgument)
-        }
         if constructorMethod != null {
-          constructorType := constructorMethod!.resolvedType ?? methodSignature(constructorMethod!, classModuleFor(result, class_.symbol), result)
+          let constructorType = constructorMethod!.resolvedType ?? methodSignature(constructorMethod!, classModuleFor(result, class_.symbol), result)
+          declaration := declarationFor(result, class_.symbol)
+          if declaration != null {
+            case declaration! {
+              classDeclaration: ClassDeclaration -> { constructorType = substituteTypeParams(constructorType, classDeclaration.typeParams, class_.typeArgs) }
+              _ -> { }
+            }
+          }
           case constructorType {
-            function_: FunctionType -> { return finish(expression, function_.returnType) }
+            function_: FunctionType -> {
+              validatePositionalConstructorArguments(expression, function_.params, scope, class_)
+              return finish(expression, function_.returnType)
+            }
             _ -> { }
           }
         }
+        let constructorParams: FunctionParamType[] = []
+        declaration := declarationFor(result, class_.symbol)
+        if declaration != null {
+          case declaration! {
+            classDeclaration: ClassDeclaration -> {
+              for field of classDeclaration.fields {
+                if field.static_ { continue }
+                for name of field.names {
+                  constructorParams.push(FunctionParamType {
+                    name,
+                    type_: memberType(class_, name, field.span),
+                    hasDefault: field.defaultValue != null,
+                  })
+                }
+              }
+            }
+            _ -> { }
+          }
+        }
+        validatePositionalConstructorArguments(expression, constructorParams, scope, class_)
         return finish(expression, class_)
       }
       _: UnknownType -> {
@@ -1218,6 +1248,26 @@ export class ModuleChecker {
       _ -> { typeError("Expression of type " + typeName(calleeType) + " is not callable", expression.span); return finish(expression, unknownType()) }
     }
     return finish(expression, unknownType())
+  }
+
+  // Positional class calls share function-call assignability rules, but report
+  // the nominal constructor range so invalid calls never reach C++ emission.
+  private function validatePositionalConstructorArguments(expression: CallExpression, params: FunctionParamType[], scope: Scope, class_: ClassType): void {
+    let requiredCount = 0
+    for parameter of params { if !parameter.hasDefault { requiredCount = requiredCount + 1 } }
+    if expression.args.length < requiredCount || expression.args.length > params.length {
+      range := if requiredCount == params.length then string(requiredCount) else string(requiredCount) + "-" + string(params.length)
+      kind := if class_.symbol.kind == "struct" then "Struct" else "Class"
+      typeError(kind + " \"" + class_.name + "\" expects " + range + " constructor argument(s) but got " + string(expression.args.length), expression.span)
+    }
+    for i of 0..<expression.args.length {
+      let expected: ResolvedType | null = null
+      if i < params.length { expected = params[i].type_ }
+      actual := checkExpression(expression.args[i].value, scope, expected)
+      if expected != null && !isAssignable(actual, expected!) {
+        typeError("Argument " + string(i + 1) + " has type " + typeName(actual) + "; expected " + typeName(expected!), expression.args[i].span)
+      }
+    }
   }
 
   // Actor calls validate the effective method signature after generic

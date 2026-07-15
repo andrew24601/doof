@@ -93,6 +93,36 @@ export function testValidatesStaticGenericMethodsWithCallerDefaults(): void {
   Assert.equal(diagnostics.length, 0)
 }
 
+export function testRejectsMissingRequiredPositionalFunctionArguments(): void {
+  result := checked("function combine(first: int, second: string, suffix: string = \"!\"): string => string(first) + second + suffix\nvalue := combine(1)")
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].message, "Expected 2-3 argument(s) but got 1")
+}
+
+export function testValidatesFieldConstructorPositionalArguments(): void {
+  missing := checked("class Config { host: string\nport: int = 8080 }\nconfig := Config()")
+  Assert.equal(missing.diagnostics.length, 1)
+  Assert.equal(missing.diagnostics[0].message, "Class \"Config\" expects 1-2 constructor argument(s) but got 0")
+
+  excess := checked("class Point { x, y: int }\npoint := Point(1, 2, 3)")
+  Assert.equal(excess.diagnostics.length, 1)
+  Assert.equal(excess.diagnostics[0].message, "Class \"Point\" expects 2 constructor argument(s) but got 3")
+
+  incompatible := checked("class Point { x: int\ny: string }\npoint := Point(1, 2)")
+  Assert.equal(incompatible.diagnostics.length, 1)
+  Assert.equal(incompatible.diagnostics[0].message, "Argument 2 has type int; expected string")
+}
+
+export function testValidatesDedicatedConstructorPositionalArguments(): void {
+  missing := checked("class Widget { value: int\nstatic constructor(value: int, label: string = \"widget\"): Widget => Widget { value } }\nwidget := Widget()")
+  Assert.equal(missing.diagnostics.length, 1)
+  Assert.equal(missing.diagnostics[0].message, "Class \"Widget\" expects 1-2 constructor argument(s) but got 0")
+
+  incompatible := checked("class Widget { value: int\nstatic constructor(value: int): Widget => Widget { value } }\nwidget := Widget(\"bad\")")
+  Assert.equal(incompatible.diagnostics.length, 1)
+  Assert.equal(incompatible.diagnostics[0].message, "Argument 1 has type string; expected int")
+}
+
 export function testChecksSupportedJsonDeserializationSurface(): void {
   result := checked("class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)")
   Assert.equal(result.diagnostics.length, 0)
@@ -100,6 +130,11 @@ export function testChecksSupportedJsonDeserializationSurface(): void {
 
 export function testChecksJsonValueAsNarrowingWithDeclarationElse(): void {
   result := checked("function read(raw: JsonValue): string { flag := raw as bool else { return \"bad\" }\nname := raw as string else { return \"bad\" }\nvalues := raw as readonly JsonValue[] else { return \"bad\" }\nreturn name + string(flag) + string(values.length) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAcceptsNullableNaturalRepresentationAsNarrowing(): void {
+  result := checked("class Config { value: int }\nfunction config(value: Config | null): Result<Config, string> => value as Config\nfunction items(value: int[] | null): Result<int[], string> => value as int[]\nfunction count(value: int | null): Result<int, string> => value as int")
   Assert.equal(result.diagnostics.length, 0)
 }
 
