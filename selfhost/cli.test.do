@@ -41,6 +41,22 @@ export function testParsesPackageCompiler(): void {
   Assert.equal(result.request!.compiler, "clang++")
 }
 
+export function testParsesTestSelectionOptions(): void {
+  result := parseCli(["test", "src", "--filter", "math", "--list", "--compiler", "clang++"])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request != null, true)
+  Assert.equal(result.request!.command, "test")
+  Assert.equal(result.request!.entry, "src")
+  Assert.equal(result.request!.filter, "math")
+  Assert.equal(result.request!.listOnly, true)
+  Assert.equal(result.request!.compiler, "clang++")
+}
+
+export function testRejectsMissingTestFilter(): void {
+  result := parseCli(["test", "src", "--filter"])
+  Assert.equal(result.error, "missing value for --filter")
+}
+
 export function testAllowsManifestDefaults(): void {
   result := parseCli(["emit", "main.do"])
   Assert.equal(result.error, "")

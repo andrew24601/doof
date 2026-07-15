@@ -187,6 +187,9 @@ export class Scope {
   typeParams: string[] = []
   returnType: ResolvedType | null = null
   thisType: ResolvedType | null = null
+  functionName: string = ""
+  inValueYieldBlock: bool = false
+  yieldType: ResolvedType | null = null
 }
 
 export class CheckResult {

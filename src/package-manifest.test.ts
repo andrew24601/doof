@@ -2153,6 +2153,43 @@ describe("local package graphs", () => {
 });
 
 describe("manifest-derived pipeline metadata", () => {
+  it("uses the package name for native output naming by default", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({ name: "doof" }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    const result = runPipelineWithFs(
+      fs,
+      "/app/main.do",
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.outputBinaryName).toBe(normalizeOutputBinaryName("doof"));
+    expect(result.buildManifest.outputBinaryName).toBe(normalizeOutputBinaryName("doof"));
+  });
+
+  it("makes scoped package names safe for default native output naming", () => {
+    const fs = new VirtualFS({
+      "/app/doof.json": JSON.stringify({ name: "tools/doof" }),
+      "/app/main.do": "function main(): int => 0",
+    });
+
+    const result = runPipelineWithFs(
+      fs,
+      "/app/main.do",
+      false,
+      emptyNativeBuildOptions(),
+      () => {},
+      () => {},
+    );
+
+    expect(result.outputBinaryName).toBe(normalizeOutputBinaryName("tools-doof"));
+  });
+
   it("uses build.targetExecutableName for native output naming", () => {
     const fs = new VirtualFS({
       "/app/doof.json": JSON.stringify({

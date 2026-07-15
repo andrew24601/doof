@@ -1,11 +1,11 @@
 import { Assert } from "std/assert"
-import { readText } from "std/fs"
 import { createAnalyzer } from "./analyzer"
 import { createChecker } from "./checker"
 import { AnalysisResult } from "./analyzer"
 import { Program } from "./ast"
 import { SourceFile } from "./semantic"
-import { ModuleEmission, ModuleGraphEmission, emitModule, emitModuleGraph, ModuleGraphPlan, planModuleGraph } from "./emitter-module"
+import { ModuleEmission, emitModule, emitModuleGraph, ModuleGraphPlan, planModuleGraph } from "./emitter-module"
+import { ModuleNamespaceMapping, configureModuleNamespaces } from "./emitter-names"
 
 function emit(source: string): ModuleEmission {
   return emitSources([SourceFile { path: "/main.do", source }], "/main.do")
@@ -29,27 +29,88 @@ function emitMonomorphized(source: string): ModuleEmission {
   return graph.modules[0]
 }
 
-function emitFile(path: string): ModuleEmission {
-  source := try! readText(path)
-  semantic := try! readText("selfhost/semantic.do")
-  return emitSources([
-    SourceFile { path: "/main.do", source },
-    SourceFile { path: "/semantic.do", source: semantic },
-  ], "/main.do")
+export function testLambdaCaptureExcludesItsOwnTypedParameters(): void {
+  result := emit("function make(): (path: string): string { prefix := \"root/\"\nreturn (path: string): string => prefix + path }")
+  Assert.equal(result.source.contains("[prefix](std::string path)"), true)
+  Assert.equal(result.source.contains("[prefix, path]"), false)
 }
 
-function emitAstProject(): ModuleGraphEmission {
-  ast := try! readText("selfhost/ast.do")
-  semantic := try! readText("selfhost/semantic.do")
-  analysis := createAnalyzer([
-    SourceFile { path: "/selfhost/ast.do", source: ast },
-    SourceFile { path: "/selfhost/semantic.do", source: semantic },
-  ]).analyze("/selfhost/ast.do")
+export function testLambdaCapturesExplicitThis(): void {
+  result := emit("class Receiver { values: int[] = []\nfunction make(): (value: int): void { return (value: int): void => this.values.push(value) } }")
+  Assert.equal(result.source.contains("[this](int32_t value)"), true)
+}
+
+export function testEmitsJsonValueAsNarrowing(): void {
+  result := emit("function read(raw: JsonValue): bool { value := raw as bool else { return false }\nreturn value }")
+  Assert.equal(result.source.contains("doof::json_is_boolean(_as_value)"), true)
+  Assert.equal(result.source.contains("doof::json_as_bool(_as_value)"), true)
+}
+
+export function testEmitsLenientGeneratedJsonDecode(): void {
+  result := emit("class Options { enabled: bool\nname: string }\nfunction decode(value: JsonValue): Result<Options, string> => Options.fromJsonValue(value, true)")
+  Assert.equal(result.header.contains("bool _lenient = false"), true)
+  Assert.equal(result.source.contains("json_is_lenient_boolean"), true)
+  Assert.equal(result.source.contains("json_as_string_lenient"), true)
+}
+
+export function testEscapesShortCppKeywordEverywhere(): void {
+  result := emit("class Option { short: string | null }\nfunction read(short: string): string => Option { short }.short!")
+  Assert.equal(result.header.contains(" short_;"), true)
+  Assert.equal(result.header.contains("std::string short_"), true)
+  Assert.equal(result.source.contains("->short_"), true)
+}
+
+export function testEscapesDeleteCppKeywordForMethods(): void {
+  result := emit("class Router { delete(pattern: string): Router => this }\nfunction remove(router: Router): Router => router.delete(\"/old\")")
+  Assert.equal(result.header.contains(" delete_(std::string pattern)"), true)
+  Assert.equal(result.source.contains("Router::delete_(std::string pattern)"), true)
+  Assert.equal(result.source.contains("router->delete_(std::string(\"/old\"))"), true)
+}
+
+export function testReturningThisRetainsOwningSharedPointer(): void {
+  result := emit("class Builder { chain(): Builder => this }")
+  Assert.equal(result.header.contains("public std::enable_shared_from_this<Builder>"), true)
+  Assert.equal(result.source.contains("return this->shared_from_this();"), true)
+  Assert.equal(result.source.contains("[](Builder*) {}"), false)
+}
+
+export function testFieldlessClassHasPublicDefaultConstructor(): void {
+  result := emit("class Marker {}\nfunction make(): Marker => Marker {}")
+  Assert.equal(result.header.contains("Marker() {}"), true)
+}
+
+export function testEmitsImportedFieldlessClassCallAsSharedPointer(): void {
+  result := emitSources([
+    SourceFile { path: "/main.do", source: "import { Marker } from \"./marker\"\nfunction makePositional(): Marker => Marker()" },
+    SourceFile { path: "/marker.do", source: "export class Marker {}" },
+  ], "/main.do")
+  Assert.equal(result.source.contains("makePositional() {\n    return std::make_shared<::app_marker_::Marker>"), true)
+}
+
+export function testMaterializesCallerDefaultsAtPackageRelativeCallSite(): void {
+  source := "function debug(source: SourceLocation = @caller): string => source.fileName\n" +
+    "class Marker {\n" +
+    "  source: SourceLocation\n" +
+    "  static constructor(source: SourceLocation = @caller): Marker => Marker { source }\n" +
+    "}\n" +
+    "function wrapper(): string {\n" +
+    "  ignored := debug()\n" +
+    "  marker := Marker {}\n" +
+    "  return marker.source.fileName\n" +
+    "}\n"
+  path := "/workspace/assert/tests/caller.test.do"
+  analysis := createAnalyzer([SourceFile { path, source }]).analyze(path)
   Assert.equal(analysis.diagnostics.length, 0)
-  checker := createChecker(analysis)
-  Assert.equal(checker.check("/selfhost/semantic.do").diagnostics.length, 0)
-  Assert.equal(checker.check("/selfhost/ast.do").diagnostics.length, 0)
-  return emitModuleGraph(analysis, "/selfhost/ast.do")
+  checked := createChecker(analysis).check(path)
+  Assert.equal(checked.diagnostics.length, 0)
+  configureModuleNamespaces([
+    ModuleNamespaceMapping { logicalPrefix: "/workspace/assert", packageName: "std/assert" },
+  ])
+  emitted := emitModuleGraph(analysis, path).modules[0].source
+  configureModuleNamespaces([])
+
+  Assert.equal(emitted.contains("SourceLocation>(std::string(\"tests/caller.test\"), 7, std::string(\"wrapper\"))"), true)
+  Assert.equal(emitted.contains("SourceLocation>(std::string(\"tests/caller.test\"), 8, std::string(\"wrapper\"))"), true)
 }
 
 function findProgram(analysis: AnalysisResult, path: string): Program | null {
@@ -67,6 +128,25 @@ export function testKeepsHeaderAndSourceSeparate(): void {
   Assert.equal(result.source.contains("return main_::doof_main();"), true)
 }
 
+export function testEmitsNamedNativeConstructionThroughStaticConstructor(): void {
+  result := emit("enum Endian { LittleEndian, BigEndian }\nimport class BlobBuilder from \"native.hpp\" as native::BlobBuilder { static constructor(size: long = 0L, endianness: Endian = .LittleEndian): BlobBuilder }\nfunction build(): void { builder := BlobBuilder{endianness: .BigEndian} }")
+  Assert.equal(result.source.contains("::native::BlobBuilder::constructor("), true)
+  Assert.equal(result.source.contains("Endian::BigEndian"), true)
+}
+
+export function testEmitsNamedDoofConstructionThroughStaticConstructor(): void {
+  result := emit("class Widget { value: int\nstatic constructor(value: int): Widget => Widget { value } }\nfunction build(): void { widget := Widget{value: 7} }")
+  Assert.equal(result.source.contains("Widget::constructor(7)"), true)
+}
+
+export function testSpecializesGenericResultCasePatterns(): void {
+  result := emitMonomorphized("function failed<T, E>(result: Result<T, E>): bool => case result { _: Success -> false, _: Failure -> true }\nfunction main(): bool => failed<int, string>(Failure { error: \"no\" })")
+  Assert.equal(result.source.contains("doof::Success<int32_t>"), true)
+  Assert.equal(result.source.contains("doof::Failure<std::string>"), true)
+  Assert.equal(result.source.contains("doof::Success<T>"), false)
+  Assert.equal(result.source.contains("doof::Failure<E>"), false)
+}
+
 export function testEmitsActorCreationCallsPromiseAndRetirement(): void {
   result := emit("class Worker { value: int\nfunction add(amount: int): int { this.value = this.value + amount\nreturn this.value } }\nfunction main(): int { worker := Actor<Worker>(1)\nfirst := worker.add(2)\npromise := async worker.add(3)\nsecond := try! promise.get()\nstate := retire worker\nreturn first + second + state.value }")
   Assert.equal(result.source.contains("std::make_shared<doof::Actor<Worker>>(Worker{1})"), true)
@@ -74,6 +154,19 @@ export function testEmitsActorCreationCallsPromiseAndRetirement(): void {
   Assert.equal(result.source.contains("->template call_async<int32_t>"), true)
   Assert.equal(result.source.contains("promise.get()"), true)
   Assert.equal(result.source.contains("worker->retire()"), true)
+}
+
+export function testActorCreationUsesTrailingFieldDefaults(): void {
+  result := emit("class Worker { values: int[] = []\nlimit: int = 4 }\nfunction create(): Actor<Worker> => Actor<Worker>()")
+  Assert.equal(result.header.contains("Worker(std::shared_ptr<std::vector<int32_t>> values = std::make_shared<std::vector<int32_t>>(std::vector<int32_t>{}), int32_t limit = 4)"), true)
+  Assert.equal(result.source.contains("std::make_shared<doof::Actor<Worker>>(Worker{})"), true)
+}
+
+export function testActorCallsUseConcreteGenericReturnTypes(): void {
+  result := emitMonomorphized("class Sender<T> { readonly value: T }\nclass Receiver<T> { readonly value: T }\nclass Worker { function open(): Tuple<Sender<int>, Receiver<int> > => (Sender { value: 1 }, Receiver { value: 2 }) }\nfunction main(): int { worker := Actor<Worker>()\n(sender, receiver) := worker.open()\nretired := retire worker\nreturn sender.value + receiver.value }")
+  Assert.equal(result.source.contains("call_sync<std::tuple<std::shared_ptr<Sender__int>, std::shared_ptr<Receiver__int>>>"), true)
+  Assert.equal(result.source.contains("Sender<int32_t>"), false)
+  Assert.equal(result.source.contains("Receiver<int32_t>"), false)
 }
 
 export function testEmitsVoidActorCallsAndPromiseAnnotation(): void {
@@ -111,6 +204,31 @@ export function testEmitsArrayAndStringSearchMembers(): void {
   Assert.equal(result.source.contains("doof::string_indexOf(text, "), true)
 }
 
+export function testEmitsMapSizeAsContainerCall(): void {
+  result := emit("function size(values: readonly Map<string, int>): int => values.size\nfunction freeze(values: Map<string, int>): readonly Map<string, int> => values.buildReadonly()")
+  Assert.equal(result.source.contains("values->size()"), true)
+  Assert.equal(result.source.contains("doof::map_buildReadonly(values"), true)
+}
+
+export function testInvokesCallbackValuedMemberThroughCallMethod(): void {
+  result := emit("class Route { handler: (value: int): int\nget(value: int): int => value }\nfunction invoke(route: Route): int => route.handler(1) + route.get(1)")
+  Assert.equal(result.source.contains("route->handler.call(1)"), true)
+  Assert.equal(result.source.contains("route->get(1)"), true)
+  Assert.equal(result.source.contains("route->get.call(1)"), false)
+}
+
+export function testContextuallyPromotesLambdaReturnIntoCallbackUnion(): void {
+  result := emit("class Response {}\nclass Upgrade {}\ntype Outcome = Response | Upgrade\nclass Router { websocket(handler: (): Outcome): void {} }\nfunction register(router: Router): void { router.websocket((): Response => Response {}) }")
+  Assert.equal(result.source.contains("doof::callback<std::variant<std::shared_ptr<Response>, std::shared_ptr<Upgrade>>()>([]() -> std::variant<std::shared_ptr<Response>, std::shared_ptr<Upgrade>>"), true)
+  Assert.equal(result.source.contains("return doof::variant_promote<std::variant<std::shared_ptr<Response>, std::shared_ptr<Upgrade>>>(std::make_shared<Response>"), true)
+}
+
+export function testEmitsArrayCallbackMembers(): void {
+  result := emit("class Item { value: int }\nfunction values(items: Item[]): int[] => items.map(=> it.value)\nfunction positive(values: int[]): int[] => values.filter(=> it > 0)")
+  Assert.equal(result.source.contains("doof::array_map(items"), true)
+  Assert.equal(result.source.contains("doof::array_filter(values"), true)
+}
+
 export function testEmitsReadonlyArrayAndGenericNamedCall(): void {
   result := emitMonomorphized("function create<T>(value: T, count: int = 1): T => value\nfunction main(): string { values := readonly [1, 2]\nreturn create<string>{ value: \"ok\" } }")
   Assert.equal(result.header.contains("create__string"), true)
@@ -133,6 +251,46 @@ export function testEmitsDeclarationElseNarrowingAndCapture(): void {
   Assert.equal(result.source.contains("const auto value = doof::success_value(_binding_value_"), true)
 }
 
+export function testEmitsPostfixBangResultUnwrap(): void {
+  result := emit("function decode(): Result<string, string> => Success { value: \"ok\" }\nfunction main(): string => decode()!")
+  Assert.equal(result.source.contains("if (doof::is_failure(_assert_value)) doof::panic(\"! failed\")"), true)
+  Assert.equal(result.source.contains("return std::move(doof::success_value(_assert_value))"), true)
+}
+
+export function testEmitsResultStatusMethods(): void {
+  result := emit("function load(): Result<int, string> => Failure { error: \"no\" }\nfunction main(): bool => load().isFailure() || load().isSuccess()")
+  Assert.equal(result.source.contains("doof::is_failure(load())"), true)
+  Assert.equal(result.source.contains("doof::is_success(load())"), true)
+}
+
+export function testEmitsTryValueDeclarationsWithMutability(): void {
+  result := emit("function load(): Result<int, string> => Success { value: 1 }\nfunction run(): Result<int, string> { try const first = load()\ntry readonly second = load()\ntry let third = load()\nthird = third + first\nreturn Success { value: third + second } }")
+  Assert.equal(result.source.contains("const auto first = doof::success_value("), true)
+  Assert.equal(result.source.contains("const auto second = doof::success_value("), true)
+  Assert.equal(result.source.contains("auto third = doof::success_value("), true)
+}
+
+export function testEmitsWithBindingsInOrderedLexicalScope(): void {
+  result := emit("function main(): int { with base := 20, doubled := base * 2 { return doubled + 2 }\nreturn 0 }")
+  Assert.equal(result.source.contains("    {\n        const auto base = 20;\n        const auto doubled = (base * 2);\n        return (doubled + 2);\n    }"), true)
+}
+
+export function testEmitsTypedWithUnionUsingItsVariantCarrier(): void {
+  result := emit("class Left { value: int }\nclass Right { value: int }\nfunction main(): int { with value: Left | Right := Left { value: 42 } { return case value { left: Left -> left.value right: Right -> right.value } }\nreturn 0 }")
+  Assert.equal(result.source.contains("const std::variant<std::shared_ptr<Left>, std::shared_ptr<Right>> value = doof::variant_promote<"), true)
+}
+
+export function testEmitsYieldingCaseExpressionBlocks(): void {
+  result := emit("function describe(value: int): string => case value { 0 -> { yield \"zero\" } _ -> { yield \"other\" } }")
+  Assert.equal(result.source.contains("return std::string(\"zero\");"), true)
+  Assert.equal(result.source.contains("return std::string(\"other\");"), true)
+}
+
+export function testPromotesNarrowVariantReturnsIntoWiderUnions(): void {
+  result := emit("class First { value: int }\nclass Second { value: int }\nfunction widen(value: First): First | Second { return value }")
+  Assert.equal(result.source.contains("doof::variant_promote<std::variant<std::shared_ptr<First>, std::shared_ptr<Second>>>(value)"), true)
+}
+
 export function testEmitsNullableAndDiscardDeclarationElse(): void {
   result := emit("function maybe(): string | null => \"ok\"\nfunction save(): Result<void, string> => Success()\nfunction main(): int { name := maybe() else { return 1 }\n_ := save() else error { println(error) }\nreturn name.length }")
   Assert.equal(result.source.contains("if (doof::is_null(_binding_value_"), true)
@@ -152,7 +310,7 @@ export function testEmitsClassesMethodsAndConstruction(): void {
 
 export function testEmitsStrictPrimitiveJsonDeserialization(): void {
   result := emit("class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)")
-  Assert.equal(result.header.contains("static doof::Result<std::shared_ptr<Config>, std::string> fromJsonValue(const doof::JsonValue& _json);"), true)
+  Assert.equal(result.header.contains("static doof::Result<std::shared_ptr<Config>, std::string> fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);"), true)
   Assert.equal(result.source.contains("const auto* _object = doof::json_as_object(_json);"), true)
   Assert.equal(result.source.contains("Missing required field \\\"name\\\""), true)
   Assert.equal(result.source.contains("Field \\\"enabled\\\" expected boolean but got"), true)
@@ -164,7 +322,7 @@ export function testEmitsStrictPrimitiveJsonDeserialization(): void {
 
 export function testEmitsStructJsonDeserializationByValue(): void {
   result := emit("struct Point { x: int\ny: double }\nfunction parse(value: JsonValue): Result<Point, string> => Point.fromJsonValue(value)")
-  Assert.equal(result.header.contains("static doof::Result<Point, std::string> fromJsonValue(const doof::JsonValue& _json);"), true)
+  Assert.equal(result.header.contains("static doof::Result<Point, std::string> fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);"), true)
   Assert.equal(result.source.contains("return doof::Success<Point>{Point{_field_x, _field_y}};"), true)
   Assert.equal(result.source.contains("std::make_shared<Point>"), false)
 }
@@ -200,26 +358,30 @@ export function testEmitsVariantCaseBindings(): void {
   Assert.equal(result.source.contains("else {"), true)
 }
 
-export function testEmitsSelfhostAstModule(): void {
-  result := emitFile("selfhost/ast.do")
-  Assert.equal(result.header.contains("struct Program"), true)
-  Assert.equal(result.header.contains("struct FunctionDeclaration"), true)
-  Assert.equal(result.header.contains("std::shared_ptr"), true)
-  Assert.equal(result.header.contains("with_block"), false)
-  Assert.equal(result.header.contains("is_expression"), false)
-  Assert.equal(result.header.contains("expression_value"), false)
-  Assert.equal(result.header.contains("resolved_type"), false)
+export function testEmitsExactClassCaseWithoutVariantOperations(): void {
+  result := emit("class Node { value: int }\nfunction read(value: Node | null): int { case value! { node: Node -> { return node.value } }\nreturn 0 }")
+  Assert.equal(result.source.contains("std::holds_alternative<std::shared_ptr<Node>>(_case_subject)"), false)
+  Assert.equal(result.source.contains("const auto node = _case_subject;"), true)
 }
 
-export function testEmitsSelfhostAstAndSemanticProject(): void {
-  result := emitAstProject()
-  Assert.equal(result.modules.length, 2)
-  Assert.equal(result.modules[0].header.contains("struct Program"), true)
-  Assert.equal(result.modules[1].header.contains("struct Symbol"), true)
-  Assert.equal(result.modules[1].header.contains("std::variant<std::monostate, std::shared_ptr<PrimitiveType>"), true)
-  Assert.equal(result.modules[1].header.contains("returnType = std::monostate{};"), true)
-  Assert.equal(result.modules[1].header.contains("thisType = std::monostate{};"), true)
-  Assert.equal(result.modules[0].header.contains("namespace app_selfhost_ast_"), true)
+export function testEmitsNullableClassCaseWithNullGuard(): void {
+  result := emit("class Node { value: int }\nfunction read(value: Node | null): int { case value { node: Node -> { return node.value } _ -> { return 0 } } }")
+  Assert.equal(result.source.contains("if (!doof::is_null(_case_subject))"), true)
+  Assert.equal(result.source.contains("const auto node = doof::unwrap_optional(_case_subject);"), true)
+}
+
+export function testEmitsExactClassCaseExpressionWithoutVariantOperations(): void {
+  result := emit("class Node { value: int }\nfunction read(value: Node): int => case value { node: Node -> node.value }")
+  Assert.equal(result.source.contains("std::holds_alternative<std::shared_ptr<Node>>(_case_subject)"), false)
+  Assert.equal(result.source.contains("const auto node = _case_subject;"), true)
+}
+
+export function testEmitsJsonValueCaseTypeGuardsAndNarrowing(): void {
+  result := emit("function read(value: JsonValue): int { case value { text: string -> { return text.length } object: JsonObject -> { return object.size } _ -> { return 0 } } }")
+  Assert.equal(result.source.contains("if (doof::json_is_string(_case_subject))"), true)
+  Assert.equal(result.source.contains("const auto text = doof::json_as_string(_case_subject);"), true)
+  Assert.equal(result.source.contains("else if (doof::json_is_object(_case_subject))"), true)
+  Assert.equal(result.source.contains("const auto object = doof::json_object(_case_subject);"), true)
 }
 
 export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
@@ -242,7 +404,16 @@ export function testEmitsEnumsAndTypeAliases(): void {
 export function testEmitsAssignmentsAndArrayLoops(): void {
   result := emit("function main(): int { let values: int[] = [1, 2]\nvalues[0] = 4\nlet total = 0\nfor item of values { total = total + item }\nreturn total }")
   Assert.equal(result.source.contains("(*values)[0]"), true)
-  Assert.equal(result.source.contains("for (const auto& item : *values)"), true)
+  Assert.equal(result.source.contains("const auto& _iterable_"), true)
+  Assert.equal(result.source.contains("for (const auto& item : *_iterable_"), true)
+}
+
+export function testKeepsComputedForOfCollectionAlive(): void {
+  result := emit("function values(): int[] => [1, 2, 3]\nfunction main(): int { let total = 0\nfor item of values() { total = total + item }\nreturn total }")
+  Assert.equal(result.source.contains("const auto& _iterable_"), true)
+  Assert.equal(result.source.contains(" = values();"), true)
+  Assert.equal(result.source.contains("for (const auto& item : *_iterable_"), true)
+  Assert.equal(result.source.contains("for (const auto& item : *values())"), false)
 }
 
 export function testEmitsStringCaseAndCallbackCallMembers(): void {
@@ -287,6 +458,38 @@ export function testEmitsNativeClassInterop(): void {
   Assert.equal(result.source.contains("client->get()"), true)
 }
 
+export function testResolvesNestedSourceRelativeNativeHeaderIntoPackageOutput(): void {
+  path := "/workspace/http-server/tests/http_server.test.do"
+  source := "import class NativeRequest from \"../native_http_server_test_support.hpp\" as native::NativeRequest {}"
+  analysis := createAnalyzer([SourceFile { path, source }]).analyze(path)
+  Assert.equal(analysis.diagnostics.length, 0)
+  Assert.equal(createChecker(analysis).check(path).diagnostics.length, 0)
+  configureModuleNamespaces([
+    ModuleNamespaceMapping {
+      logicalPrefix: "/workspace/http-server",
+      packageName: "std/http-server",
+      outputRoot: "",
+    },
+  ])
+  header := emitModuleGraph(analysis, path).modules[0].header
+  configureModuleNamespaces([])
+
+  Assert.equal(header.contains("#include \"native_http_server_test_support.hpp\""), true)
+  Assert.equal(header.contains("#include \"../native_http_server_test_support.hpp\""), false)
+}
+
+export function testEmitsByteCastBuiltin(): void {
+  result := emit("function carriageReturn(): byte => byte(13)")
+  Assert.equal(result.source.contains("static_cast<uint8_t>(13)"), true)
+  Assert.equal(result.source.contains("byte.call"), false)
+}
+
+export function testEmitsExplicitArgumentsForTemplateGenericMethods(): void {
+  result := emit("class Assert { static equal<T>(actual: T, expected: T): void {} }\nfunction compare(value: string | null): void { Assert.equal(value, \"ok\") }")
+  Assert.equal(result.source.contains("Assert::equal<std::optional<std::string>>"), true)
+  Assert.equal(result.source.contains("value, std::string(\"ok\"))"), true)
+}
+
 export function testEmitsImportedTypeAliasesForNativeNamespaces(): void {
   sources := [
     SourceFile { path: "/main.do", source: "export { EncodingError } from \"./types\"\nimport class Native from \"native.hpp\" as doof_blob::Native { error(): EncodingError }\nfunction read(value: Native): EncodingError => value.error()" },
@@ -322,6 +525,23 @@ export function testEmitsNativeAliasesForImportedModuleTypeSurface(): void {
   Assert.equal(header.contains("using Duration = ::app_time_::Duration;"), false)
 }
 
+export function testDoesNotForwardDeclareOrAliasImportedGenericTypesForNativeHeaders(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { Channel, createChannel } from \"./event\"\nimport class Native from \"native.hpp\" as native::Native {}\nfunction receive(channel: Channel<int>): void { created := createChannel<int>() }" },
+    SourceFile { path: "/event.do", source: "export class Channel<T> {}\nexport function createChannel<T>(): Channel<T> => Channel<T> {}" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/event.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let header = ""
+  for module of graph.modules { if module.modulePath == "/main.do" { header = module.header } }
+  Assert.equal(header.contains("namespace app_event_ { struct Channel; }"), false)
+  Assert.equal(header.contains("namespace native { using Channel = ::app_event_::Channel; }"), false)
+  Assert.equal(header.contains("namespace native { using ::app_event_::createChannel; }"), false)
+}
+
 export function testEmitsInterfaceVariantsAndDispatch(): void {
   result := emit("interface Drawable { value: int\nrender(): int }\nclass Point implements Drawable { readonly value: int\nfunction render(): int => value }\nfunction read(shape: Drawable): int => shape.render()\nfunction main(): int { point := Point { value: 5 }\nshape: Drawable := point\nreturn read(shape) + shape.value }")
   Assert.equal(result.header.contains("using Drawable = std::variant<std::shared_ptr<Point>>;"), true)
@@ -345,4 +565,36 @@ export function testParsesNativeJsonFunctionSurface(): void {
     SourceFile { path: "/json.do", source: "export import function formatJsonValue(value: JsonValue): string from \"<json.hpp>\" as doof_json::format" },
   ], "/main.do")
   Assert.equal(result.source.contains("doof_json::format"), true)
+}
+
+export function testEmitsContextualResultAndClassObjectLiterals(): void {
+  result := emit("class Payload { count: int }\nfunction load(): Result<Payload, string> => { value: { count: 4 } }")
+  Assert.equal(result.source.contains("doof::Success<std::shared_ptr<Payload>>"), true)
+  Assert.equal(result.source.contains("std::make_shared<Payload>"), true)
+}
+
+export function testEmitsResultPayloadAccessThroughRuntimeHelpers(): void {
+  result := emit("function load(): Result<int, string> => Failure { error: \"bad\" }\nfunction read(): Result<int, string> { value := load() else { return { error: value.error } }\nreturn { value } }")
+  Assert.equal(result.source.contains("doof::failure_error(value)"), true)
+}
+
+export function testEmitsAsNarrowingOverResultValues(): void {
+  result := emit("function parse(): Result<JsonValue, string> => Success { value: \"ok\" }\nfunction read(): Result<string, string> { value := parse() as string else { return { error: value.error } }\nreturn { value } }")
+  Assert.equal(result.source.contains("if (doof::is_failure(_as_source))"), true)
+  Assert.equal(result.source.contains("auto _as_value = doof::success_value(_as_source)"), true)
+  Assert.equal(result.source.contains("doof::json_as_string(_as_value)"), true)
+}
+
+export function testDoesNotTreatFunctionsReturningNativeClassesAsConstructors(): void {
+  result := emit("import class Handle from \"handle.hpp\" as native::Handle { value(): int }\nimport function open(): Handle from \"handle.hpp\" as native::open\nfunction read(): int => open().value()")
+  Assert.equal(result.source.contains("native::open()"), true)
+  Assert.equal(result.source.contains("make_shared<::native::Handle>()"), false)
+}
+
+export function testDoesNotTreatImplicitMethodsReturningNominalTypesAsConstructors(): void {
+  result := emit("struct Token { kind: int }\nstruct Location { line: int }\nclass Parser { current(): Token => Token { kind: 1 }\nlocation(): Location => Location { line: 2 }\natEnd(): bool => current().kind == 0\nstart(): int => location().line }")
+  Assert.equal(result.source.contains("current().kind"), true)
+  Assert.equal(result.source.contains("location().line"), true)
+  Assert.equal(result.source.contains("Token{}.kind"), false)
+  Assert.equal(result.source.contains("Location{}.line"), false)
 }

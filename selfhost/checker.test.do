@@ -30,9 +30,101 @@ export function testChecksArrayAndStringSearchMembers(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testDecoratesReadonlyMapConstructionAndSizeMember(): void {
+  source := "class RouteMatch { params: readonly Map<string, string> }\nfunction equal<T>(actual: T, expected: T): void {}\nfunction match(params: Map<string, string>): RouteMatch { return RouteMatch { params: params.buildReadonly() } }\nfunction verify(matched: RouteMatch | null): void { equal(matched!.params.size, 0) }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  diagnostics := validateCheckedTypes(analysis)
+  for diagnostic of diagnostics { println(diagnostic.message) }
+  Assert.equal(diagnostics.length, 0)
+}
+
+export function testInfersVoidForUnannotatedBlockFunction(): void {
+  source := "export function testAll() { println(\"ok\") }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  Assert.equal(validateCheckedTypes(analysis).length, 0)
+}
+
+export function testChecksNamedStaticConstructorAndEnumShorthand(): void {
+  source := "enum Endian { LittleEndian, BigEndian }\nimport class BlobBuilder from \"native.hpp\" as native::BlobBuilder { static constructor(size: long = 0L, endianness: Endian = .LittleEndian): BlobBuilder }\nfunction build(): void { builder := BlobBuilder{endianness: .BigEndian} }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  Assert.equal(validateCheckedTypes(analysis).length, 0)
+}
+
+export function testContextuallyTypesEnumShorthandInBinaryComparisons(): void {
+  result := checked("enum Compression { Store, Deflate }\nfunction stored(compression: Compression): bool => compression == .Store\nfunction deflated(compression: Compression): bool => .Deflate == compression")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksBlockBodiedCaseExpressionArms(): void {
+  result := checked("function describe(value: int): string => case value { 0 -> { yield \"zero\" } _ -> { if value < 0 { yield \"negative\" }\nyield \"positive\" } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsCaseExpressionBlockThatCanCompleteWithoutYield(): void {
+  result := checked("function describe(value: int): string => case value { 0 -> { if value < 0 { yield \"negative\" } } _ -> \"positive\" }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message, "Block case-expression arms must yield a value on every path")
+}
+
+export function testContextuallyTypesShorthandArrayMapLambda(): void {
+  result := checked("class Item { value: int }\nfunction values(items: Item[]): int[] => items.map(=> it.value)")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testInfersWiderCompatibleGenericArgument(): void {
+  result := checked("function equal<T>(actual: T, expected: T): void {}\nfunction compare(value: string | null): void { equal(value, \"ok\") }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksBuiltinSourceLocationAndCallerDefaults(): void {
+  result := checked("function debug(source: SourceLocation = @caller): string => source.fileName + string(source.line) + source.functionName")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testValidatesStaticGenericMethodsWithCallerDefaults(): void {
+  source := "class Assert { static equal<T>(actual: T, expected: T, source: SourceLocation = @caller): void { assert(actual == expected, \"equal\") } }\nfunction test(): void { Assert.equal(1, 1) }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  createChecker(analysis).check("/main.do")
+  diagnostics := validateCheckedTypes(analysis)
+  for diagnostic of diagnostics { println(diagnostic.message) }
+  Assert.equal(diagnostics.length, 0)
+}
+
 export function testChecksSupportedJsonDeserializationSurface(): void {
   result := checked("class Config { name: string\nenabled: bool\ncount: int = 10\nnotes: string | null = null }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value)")
   Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksJsonValueAsNarrowingWithDeclarationElse(): void {
+  result := checked("function read(raw: JsonValue): string { flag := raw as bool else { return \"bad\" }\nname := raw as string else { return \"bad\" }\nvalues := raw as readonly JsonValue[] else { return \"bad\" }\nreturn name + string(flag) + string(values.length) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksExpressionResultElseWithFailureCapture(): void {
+  result := checked("function save(): Result<void, string> => Success()\nfunction run(): void { save() else error { println(error) } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAllowsDeclarationElseContinueAndMutableMapInterior(): void {
+  result := checked("function run(values: Map<string, JsonValue>, items: JsonValue[]): void { for item of items { text := item as string else { continue }\nvalues[\"name\"] = text } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAllowsJsonCollectionsAndLenientGeneratedDecode(): void {
+  result := checked("class Options { enabled: bool\nname: string }\nfunction run(value: JsonValue, values: Map<string, JsonValue>, items: JsonValue[]): Result<Options, string> { values[\"items\"] = items\nreturn Options.fromJsonValue(value, true) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testDecoratesPrivateMethodParameterMembers(): void {
+  source := "class Option { readonly name: string\nreadonly multiple: bool }\nclass Spec { option(): void {}\nprivate add(option: Option, values: Map<string, JsonValue>): void { if option.multiple { raw := values.get(option.name) else { values[option.name] = []\nreturn }\nvalues[option.name] = raw } } }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  diagnostics := validateCheckedTypes(analysis)
+  for diagnostic of diagnostics { println(diagnostic.message) }
+  Assert.equal(diagnostics.length, 0)
 }
 
 export function testChecksJsonDeserializationBeforeClassDeclaration(): void {
@@ -46,14 +138,23 @@ export function testRejectsJsonDeserializationForUnsupportedFields(): void {
   Assert.equal(result.diagnostics[0].message, "Type \"Handler\" does not support automatic JSON deserialization")
 }
 
-export function testRejectsLenientJsonDeserializationUntilSupported(): void {
+export function testAcceptsLenientJsonDeserialization(): void {
   result := checked("class Config { name: string }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value, true)")
-  Assert.equal(result.diagnostics.length > 0, true)
-  Assert.equal(result.diagnostics[0].message, "Too many arguments")
+  Assert.equal(result.diagnostics.length, 0)
 }
 
 export function testChecksReadonlyArrayLiteralAndReadonlyField(): void {
   result := checked("class Request { readonly headers: int[] }\nfunction use(values: readonly int[]): int => values.length\nfunction main(): int { values := readonly [1, 2]\nrequest := Request { headers: values }\nreturn use(request.headers) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testContextuallyInfersArrayLiteralReadonlyness(): void {
+  result := checked("expectedBuilt: readonly byte[] := [1, 2, 3, 4, 5]")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksByteCastBuiltin(): void {
+  result := checked("function carriageReturn(): byte => byte(13)")
   Assert.equal(result.diagnostics.length, 0)
 }
 
@@ -171,6 +272,28 @@ export function testAcceptsReturnsFromExhaustiveCase(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testAcceptsReturnsFromExhaustiveResultCase(): void {
+  result := checked("function load(): Result<int, string> => Success { value: 1 }\nfunction answer(): Result<int, string> { case load() { success: Success -> { return Success { value: success.value } }, failure: Failure -> { return Failure { error: failure.error } } } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testDecoratesTypedResultArmPatterns(): void {
+  source := "function load(): Result<int, string> => Failure { error: \"no\" }\nfunction inspect(): void { case load() { _: Failure<string> -> { } _ -> { } } }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  createChecker(analysis).check("/main.do")
+  Assert.equal(validateCheckedTypes(analysis).length, 0)
+}
+
+export function testPostfixBangUnwrapsResultSuccessType(): void {
+  result := checked("function decode(): Result<string, string> => Success { value: \"ok\" }\nfunction consume(value: string): void {}\nfunction main(): void { consume(decode()!) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksResultStatusMethods(): void {
+  result := checked("function load(): Result<int, string> => Failure { error: \"no\" }\nfunction failed(): bool => load().isFailure()\nfunction succeeded(): bool => load().isSuccess()")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testAcceptsUnconditionalNonTerminatingLoop(): void {
   result := checked("function run(): int { while true {} }")
   Assert.equal(result.diagnostics.length, 0)
@@ -263,6 +386,11 @@ export function testChecksNativeResultMethodsThroughTryBindings(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksTryValueDeclarations(): void {
+  result := checked("function load(): Result<int, string> => Success { value: 1 }\nfunction run(): Result<int, string> { try const first = load()\ntry readonly second = load()\ntry let third = load()\nthird = third + first\nreturn Success { value: third + second } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testChecksExplicitAndStructuralInterfaceImplementations(): void {
   result := checked("interface Drawable { value: int\nrender(): int }\nclass Point implements Drawable { readonly value: int\nfunction render(): int => value }\nclass Other { value: int\nfunction render(): int => value }\nfunction read(shape: Drawable): int => shape.render()\nfunction main(): int { point := Point { value: 3 }\nother := Other { value: 4 }\nfirst := read(point)\nsecond := read(other)\nreturn first + second }")
   Assert.equal(result.diagnostics.length, 0)
@@ -288,4 +416,16 @@ export function testChecksIntrinsicJsonValueLiterals(): void {
 export function testRejectsNonJsonCollections(): void {
   result := checked("function main(): void { values: int[] := [1, 2]\npayload: JsonValue := values }")
   Assert.equal(result.diagnostics.length > 0, true)
+}
+
+export function testChecksContextualResultAndClassObjectLiterals(): void {
+  result := checked("class Payload { count: int }\nenum LoadError { Missing }\nfunction load(ok: bool): Result<Payload, LoadError> { if !ok { return { error: .Missing } }\nreturn { value: { count: 4 } } }")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testCollapsesDuplicateUnionMembers(): void {
+  result := checked("function choose(value: string | string): string => value")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
 }

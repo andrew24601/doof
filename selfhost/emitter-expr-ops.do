@@ -1,11 +1,87 @@
 // Assignment, identifier, operator, member, and index lowering.
 
-import { AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, MapResolvedType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { AsExpression, AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
+import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
 import { emitType } from "./emitter-types"
+import { isNumeric, sameType } from "./checker-types"
+
+/** Lowers checked `as` conversion to a Result without evaluating its source twice. */
+export function emitAs(expression: AsExpression, context: EmitContext): string {
+  sourceType := requireExpressionType(expression.expression, "as source")
+  resultType := requireExpressionType(expression, "as expression")
+  case resultType {
+    result: ResultResolvedType -> {
+      target := result.valueType
+      resultCpp := emitType(result, context.modulePath)
+      targetCpp := emitType(target, context.modulePath)
+      success := "doof::Success<" + targetCpp + ">"
+      failure := "doof::Failure<" + emitType(result.errorType, context.modulePath) + ">"
+      source := emitExpression(expression.expression, context)
+      if sameType(sourceType, target) { return success + "{" + source + "}" }
+      case sourceType {
+        sourceResult: ResultResolvedType -> {
+          let narrowed = ""
+          case sourceResult.valueType {
+            _: JsonValueResolvedType -> { narrowed = emitJsonAs("doof::success_value(_as_source)", target, resultCpp, success, failure) }
+            _ -> { }
+          }
+          if narrowed != "" {
+            let errorValue = "doof::failure_error(_as_source)"
+            if !sameType(sourceResult.errorType, result.errorType) {
+              errorValue = "doof::variant_promote<" + emitType(result.errorType, context.modulePath) + ">(" + errorValue + ")"
+            }
+            return "[&]() -> " + resultCpp + " { auto _as_source = " + source + "; if (doof::is_failure(_as_source)) return " + failure + "{" + errorValue + "}; return " + narrowed + "; }()"
+          }
+        }
+        _ -> { }
+      }
+      if isNumeric(sourceType) && isNumeric(target) {
+        return "[&]() -> " + resultCpp + " { auto _as_checked = doof::checked_numeric_as<" + targetCpp + ">(" + source + "); if (_as_checked.has_value()) return " + success + "{_as_checked.value()}; return " + failure + "{\"Numeric narrowing failed\"}; }()"
+      }
+      case sourceType {
+        _: JsonValueResolvedType -> { return emitJsonAs(source, target, resultCpp, success, failure) }
+        interface_: InterfaceType -> {
+          case target {
+            _: ClassType -> {
+              return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (std::holds_alternative<" + targetCpp + ">(_as_value)) return " + success + "{std::get<" + targetCpp + ">(_as_value)}; return " + failure + "{\"Interface narrowing failed\"}; }()"
+            }
+            _ -> { }
+          }
+        }
+        union_: UnionResolvedType -> {
+          return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (doof::variant_is<" + targetCpp + ">(_as_value)) return " + success + "{doof::variant_narrow<" + targetCpp + ">(_as_value)}; return " + failure + "{\"Union narrowing failed\"}; }()"
+        }
+        _ -> { }
+      }
+      return failure + "{\"Unsupported narrowing\"}"
+    }
+    _ -> { panic("as expression must resolve to Result") }
+  }
+  return ""
+}
+
+function emitJsonAs(source: string, target: ResolvedType, resultCpp: string, success: string, failure: string): string {
+  let condition = "true"
+  let value = source
+  case target {
+    primitive: PrimitiveType -> {
+      if primitive.name == "bool" { condition = "doof::json_is_boolean(_as_value)"; value = "doof::json_as_bool(_as_value)" }
+      else if primitive.name == "string" { condition = "doof::json_is_string(_as_value)"; value = "doof::json_as_string(_as_value)" }
+      else if primitive.name == "int" { condition = "doof::json_is_number(_as_value)"; value = "doof::json_as_int(_as_value)" }
+      else if primitive.name == "long" { condition = "doof::json_is_number(_as_value)"; value = "doof::json_as_long(_as_value)" }
+      else if primitive.name == "float" { condition = "doof::json_is_number(_as_value)"; value = "doof::json_as_float(_as_value)" }
+      else if primitive.name == "double" { condition = "doof::json_is_number(_as_value)"; value = "doof::json_as_double(_as_value)" }
+    }
+    _: ArrayResolvedType -> { condition = "doof::json_is_array(_as_value)"; value = "std::get<doof::JsonArray>(doof::json_storage(_as_value))" }
+    _: MapResolvedType -> { condition = "doof::json_is_object(_as_value)"; value = "doof::json_object(_as_value)" }
+    _: JsonValueResolvedType -> { value = "_as_value" }
+    _ -> { }
+  }
+  return "[&]() -> " + resultCpp + " { auto _as_value = " + source + "; if (" + condition + ") return " + success + "{" + value + "}; return " + failure + "{\"JsonValue narrowing failed\"}; }()"
+}
 
 export function emitAssignment(expression: AssignmentExpression, context: EmitContext): string {
   operator := if expression.operator == "\\=" then "/=" else expression.operator
@@ -84,6 +160,8 @@ export function cppIdentifier(name: string): string {
   if name == "template" { return "template_" }
   if name == "typename" { return "typename_" }
   if name == "union" { return "union_" }
+  if name == "short" { return "short_" }
+  if name == "delete" { return "delete_" }
   return name
 }
 
@@ -109,11 +187,25 @@ export function emitUnary(expression: UnaryExpression, context: EmitContext): st
   }
   operand := emitExpression(expression.operand, context)
   if !expression.prefix && expression.operator == "!" {
+    operandType := decoratedExpressionType(expression.operand)
+    if operandType != null {
+      case operandType! {
+        result: ResultResolvedType -> {
+          valueType := emitType(result.valueType, context.modulePath)
+          body := "auto _assert_value = " + operand + "; if (doof::is_failure(_assert_value)) doof::panic(\"! failed\"); "
+          case result.valueType {
+            _: VoidType -> { return "[&]() -> void { " + body + "}()" }
+            _ -> { }
+          }
+          return "[&]() -> " + valueType + " { " + body + "return std::move(doof::success_value(_assert_value)); }()"
+        }
+        _ -> { }
+      }
+    }
     case expression.operand {
       member: MemberExpression -> { return "doof::unwrap_optional(" + operand + ")" }
       _ -> { }
     }
-    operandType := decoratedExpressionType(expression.operand)
     if operandType != null {
       case operandType! {
         union_: UnionResolvedType -> {
@@ -221,12 +313,16 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       _: InterfaceType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: StreamResolvedType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: ArrayResolvedType -> { if expression.property == "length" { return "(" + object + ")->size()" } }
+      _: MapResolvedType -> { if expression.property == "size" { return object + "->size()" } }
       primitive: PrimitiveType -> {
         if primitive.name == "string" && expression.property == "length" { return object + ".size()" }
         if primitive.name == "string" && expression.property == "toLowerCase" { return "doof::string_toLowerCase" }
         if primitive.name == "string" && expression.property == "toUpperCase" { return "doof::string_toUpperCase" }
       }
-      result: ResultResolvedType -> { if expression.property == "value" || expression.property == "error" { return object + "." + cppIdentifier(expression.property) } }
+      result: ResultResolvedType -> {
+        if expression.property == "value" { return "doof::success_value(" + object + ")" }
+        if expression.property == "error" { return "doof::failure_error(" + object + ")" }
+      }
       enum_: EnumType -> {
         if expression.property == "value" { return "static_cast<int32_t>(" + object + ")" }
         return object + "::" + cppIdentifier(expression.property)

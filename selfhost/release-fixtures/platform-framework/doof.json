@@ -1,0 +1,10 @@
+{
+  "name": "selfhost-release-platform-framework",
+  "build": {
+    "entry": "main.do",
+    "native": {
+      "extraCopyPaths": ["platform.hpp"],
+      "macos": { "frameworks": ["CoreFoundation"] }
+    }
+  }
+}

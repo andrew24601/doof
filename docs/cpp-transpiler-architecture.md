@@ -63,7 +63,7 @@ The initial slice is split into small modules:
 - `selfhost/compiler.do` checks every analyzed module before invoking split module emission
 - `selfhost/compiler.do` runs concrete-instantiation discovery after checking and before header planning, and reports bounded specialization traces when discovery does not converge
 - the instantiation plan also records generic wrapper classes exposed directly in native signatures, keeping that explicitly permitted interop boundary template-based while all ordinary Doof generic declarations remain concrete
-- `selfhost/driver.do` provides the B4/B5/B6 command-line and file boundary and writes generated C++ artifacts
+- `selfhost/driver.do` provides the self-hosted command-line and file boundary and writes generated C++ artifacts
 
 The header planner stores rendered signatures and other small planning facts,
 not AST unions. This keeps implementation-only front-end types from leaking
@@ -77,8 +77,8 @@ generic variant promotion and subset narrowing avoid injecting helpers tied to
 the self-host AST's concrete expression inventory into generated headers. The
 type emitter qualifies nominal names from their resolved symbol's defining
 module; it does not infer ownership from hard-coded type-name inventories. The
-maintained B3 acceptance test compiles all 18 self-hosted modules as separate
-translation units.
+release gate compiles the complete self-hosted graph through the production
+parallel native build path.
 The current foundation covers a checked core of primitives, arrays, tuples,
 operators, calls, bindings, returns, conditionals, functions, classes, named
 construction, enum/type-alias declarations, assignments, range-based loops,
@@ -87,7 +87,7 @@ boundary for nullable multi-arm variant promotion, while the checker remains
 responsible for decorating assignment targets. The self-hosted slice now also
 discovers structural interface implementations, emits variant aliases, and
 dispatches interface members with `std::visit`; imports and multi-module
-dependency planning are covered by the completed B3 graph gate. AST bodies are
+dependency planning are covered by focused unit tests and the release gate. AST bodies are
 promoted into `Expression | Block` fields through the runtime's generic
 `variant_promote<Target>(...)` helper.
 
@@ -103,7 +103,7 @@ The split module emitter places the executable wrapper in the entry module. A
 `main(args: string[]): int` entry receives process arguments through a generated
 `std::vector<std::string>` bridge. The wrapper catches uncaught `doof::Panic`
 values, writes a `panic: <message>` diagnostic to stderr, and aborts, matching
-the TypeScript bootstrap emitter's process boundary. The B4 driver exposes file
+the TypeScript bootstrap emitter's process boundary. The self-hosted driver exposes file
 contents through the `std/fs`-shaped `readText` / `writeText` surface and retains only native
 path/discovery helpers while it loads an explicit source-file graph, including
 bare modules supplied with `--module <specifier> <path>`, invokes the
@@ -120,7 +120,9 @@ register their package once and parse normalized base plus host-platform
 package manifests with module emission, writes each generated module header at
 one canonical flat path, emits package-relative forwarding headers for sibling
 native includes, and rewrites copied include, source, and library paths for the
-generated project. The header planner derives native-namespace aliases from
+generated project. Source-relative quoted extern headers are likewise resolved
+against the owning Doof module and rewritten to that package's materialized
+output root before the flat generated header is rendered. The header planner derives native-namespace aliases from
 resolved extern signatures, including nominal types reached through re-exports.
 For a referenced type module, it also bridges that module's non-generic sibling
 exports and its directly imported nominal dependencies; it does not recursively
@@ -129,32 +131,43 @@ The driver materializes that explicit result without
 branching on package names. Reached manifest identity also configures the
 canonical namespace planner before emission, so generated types match native
 package headers. The `build` command then passes the materialized plan to
-`selfhost/native-build.do` and executes the selected compiler without a shell.
+`selfhost/native-build.do`. That planner exposes one task per source with an
+explicit source path, object output, compiler, and argument list, followed by a
+separate link argument list. The driver distributes independent object tasks
+across at most eight temporary compiler actors; each actor executes its batch
+serially, and the driver waits for every batch before linking. These task
+boundaries are also the intended seam for future incremental fingerprints and
+discovered header dependencies. POSIX compiler launch uses `posix_spawnp`, so
+launching from multiple actor threads does not cross the unsafe `fork()`
+boundary of a multithreaded process.
+Native `.c` tasks use the C driver adjacent to the configured GCC-compatible
+C++ driver (`clang`, `gcc`, or `cc`) and omit the generated-project C++ language
+standard flag; generated and native C++ tasks retain the configured C++ driver.
 For projects with more than one generated module, that plan first compiles
 `doof_runtime.hpp` as a precompiled header with the same language, define,
-include, optimization, and manifest compiler flags as the final build. Generated
-headers keep the runtime as their first include: Clang consumes an explicit
-`.pch`, while GCC discovers the adjacent `.gch`. Single-module builds skip the
-extra PCH step because its setup cost is unlikely to amortize.
+include, optimization, and manifest compiler flags as generated C++ object
+tasks. Generated headers keep the runtime as their first include: Clang
+consumes an explicit `.pch`, while GCC discovers the adjacent `.gch`. Native C,
+C++, and Objective-C++ tasks do not receive the explicit Clang PCH; in
+particular, a `c++-header` PCH must not be loaded by a `.mm` translation unit.
+Single-module builds skip the extra PCH step because its setup cost is unlikely
+to amortize.
 The bootstrap `package` command uses the same explicit plan beneath
 `<buildDir>/release`, prepends the GCC-compatible `-O2` and `NDEBUG` release
 defaults before manifest flags, and links the final executable directly into
 the root package's `dist/` directory.
 
-`src/selfhost-bootstrap.test.ts` compiles the TypeScript bootstrap emitter's
-17-module self-host source graph with the native C++ toolchain. The
-`selfhost/bootstrap.test.do` B3 test provides the corresponding self-hosted
-split translation-unit check, while its B4 test links and runs
-the generated driver, packages and runs a release executable from `dist/`, and
-then compiles and runs the generated target program.
-That B4 acceptance also checks and builds `samples/http-client` through the
-complete macOS `std/http`/WebSocket graph; its deterministic localhost runtime
-leg is opt-in via `DOOF_HTTP_RUNTIME_TEST=1` for network-restricted runners.
-Its B5 test feeds the complete driver-inclusive graph back through that
-generated compiler, links the resulting compiler, and verifies another
-generated target program. The B6 path feeds that generated compiler's output
-back through the same graph, links the next compiler, and verifies a second
-target program. The bootstrap runtime explicitly preserves both
+`scripts/release-gate.mjs` owns native bootstrap and acceptance orchestration
+outside the unit-test protocol. It builds the seed compiler with the TypeScript
+CLI, uses that compiler for B5, uses B5 for B6, and compares the generated text
+artifacts from B5 and B6 byte-for-byte. Every compiler build uses its production
+parallel native planner. The gate then exercises the B6 `check`, `emit`,
+`build`, `test`, and `package` commands against maintained packages covering
+runtime behavior, native interop, stdlib acquisition, executable resources, and
+optimized lowering. On macOS it also checks and builds `samples/http-client`
+through the complete `std/http`/WebSocket graph; its deterministic localhost
+runtime leg remains opt-in via `DOOF_HTTP_RUNTIME_TEST=1` for network-restricted
+runners. The bootstrap runtime explicitly preserves both
 `char` and `char32_t` string conversion because the self-hosted lexer indexes
 source strings while compiling its own emitter and driver.
 

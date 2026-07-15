@@ -133,6 +133,8 @@ For `build.target = "macos-app"`, `doof emit` also writes bundle support files s
 
 `doof emit`, `doof build`, and `doof run` use `<buildDir>/debug`. `doof package` uses `<buildDir>/release`; each profile keeps its own generated files, cached objects under `.doof-objects/`, and Reckon state under `.reckon/`. Release builds add `-O2`/`NDEBUG` (or `/O2`/`NDEBUG` with MSVC) before package and command-line native flags, so an explicit later flag can override optimization.
 
+Command-line executable builds default the output file name to the package `name` from `doof.json`; package-name path separators are replaced with `-`. The `executable` field (or legacy `build.targetExecutableName`) overrides that default.
+
 `doof test` writes each test harness under the owning package's `build/.doof-tests/<module>/` directory. Those harness builds also use `<harnessBuildDir>/.reckon/state.json` and `<harnessBuildDir>/.doof-objects/`, so repeated test runs skip unchanged harness compilation while still rerunning the selected tests.
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, flags, and resource mappings. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.

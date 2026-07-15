@@ -29,7 +29,21 @@ function parseTypeMember(parser: Parser): TypeAnnotation {
     result = ArrayType { kind: "array-type", elementType: result, readonly_: readonlyPrefix, span: SourceSpan { start, end: parser.location() } }
     readonlyPrefix = false
   }
-  if readonlyPrefix { parser.fail("readonly must qualify an array type") }
+  if readonlyPrefix {
+    case result {
+      named: NamedType -> {
+        if named.name == "Array" || named.name == "ReadonlyArray" {
+          named.name = "ReadonlyArray"
+          readonlyPrefix = false
+        } else if named.name == "Map" || named.name == "ReadonlyMap" {
+          named.name = "ReadonlyMap"
+          readonlyPrefix = false
+        }
+      }
+      _ -> { }
+    }
+  }
+  if readonlyPrefix { parser.fail("Unexpected readonly type modifier; expected an array, Array<T>, or Map<K, V> type") }
   return result
 }
 

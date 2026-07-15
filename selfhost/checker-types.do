@@ -58,14 +58,19 @@ export function unionType(types: ResolvedType[]): ResolvedType {
   for memberType of types {
     case memberType {
       union: UnionResolvedType -> {
-        for member of union.types { members.push(member) }
+        for member of union.types { pushUniqueType(members, member) }
       }
-      _ -> { members.push(memberType) }
+      _ -> { pushUniqueType(members, memberType) }
     }
   }
   if members.length == 0 { return unknownType() }
   if members.length == 1 { return members[0] }
   return UnionResolvedType { types: members }
+}
+
+function pushUniqueType(types: ResolvedType[], candidate: ResolvedType): void {
+  for existing of types { if sameType(existing, candidate) { return } }
+  types.push(candidate)
 }
 
 export function functionType(params: FunctionParamType[], returnType: ResolvedType, typeParams: string[] = []): ResolvedType {
@@ -481,10 +486,8 @@ function isJsonValueAssignable(value: ResolvedType): bool {
       return primitiveValue.name == "byte" || primitiveValue.name == "int" || primitiveValue.name == "long" ||
         primitiveValue.name == "float" || primitiveValue.name == "double" || primitiveValue.name == "string" || primitiveValue.name == "char" || primitiveValue.name == "bool"
     }
-    // Collection literals are checked contextually by the checker. A typed
-    // collection value is not implicitly a JsonValue in this bootstrap type
-    // model; keeping this boundary strict prevents recovery conversions from
-    // masking missing collection element information.
+    array: ArrayResolvedType -> { return isJsonValueType(array.elementType) }
+    map: MapResolvedType -> { return sameType(map.keyType, primitive("string")) && isJsonValueType(map.valueType) }
     _ -> { return false }
   }
   return false

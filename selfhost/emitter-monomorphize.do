@@ -216,7 +216,10 @@ function collectStatement(statement: Statement, modulePath: string, analysis: An
     destructuring: DestructuringStatement -> { collectExpression(destructuring.value, modulePath, analysis, plan, names, arguments) }
     try_: TryStatement -> {
       case try_.binding {
+        declaration: ConstDeclaration -> { collectStatement(declaration, modulePath, analysis, plan, names, arguments) }
+        declaration: ReadonlyDeclaration -> { collectStatement(declaration, modulePath, analysis, plan, names, arguments) }
         binding: ImmutableBinding -> { collectStatement(binding, modulePath, analysis, plan, names, arguments) }
+        declaration: LetDeclaration -> { collectStatement(declaration, modulePath, analysis, plan, names, arguments) }
         expression: ExpressionStatement -> { collectStatement(expression, modulePath, analysis, plan, names, arguments) }
       }
     }
@@ -285,7 +288,15 @@ function collectExpression(expression: Expression, modulePath: string, analysis:
       }
     }
     if_: IfExpression -> { collectExpression(if_.condition, modulePath, analysis, plan, names, arguments); collectExpression(if_.then_, modulePath, analysis, plan, names, arguments); collectExpression(if_.else_, modulePath, analysis, plan, names, arguments) }
-    case_: CaseExpression -> { collectExpression(case_.subject, modulePath, analysis, plan, names, arguments); for arm of case_.arms { collectExpression(arm.body, modulePath, analysis, plan, names, arguments) } }
+    case_: CaseExpression -> {
+      collectExpression(case_.subject, modulePath, analysis, plan, names, arguments)
+      for arm of case_.arms {
+        case arm.body {
+          block: Block -> { collectBlock(block, modulePath, analysis, plan, names, arguments) }
+          bodyExpression: Expression -> { collectExpression(bodyExpression, modulePath, analysis, plan, names, arguments) }
+        }
+      }
+    }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { collectExpression(property.value!, modulePath, analysis, plan, names, arguments) } } }
     async_: AsyncExpression -> {
       case async_.expression {
@@ -408,6 +419,10 @@ function addInterface(plan: InstantiationPlan, modulePath: string, name: string,
 }
 
 function addMethod(plan: InstantiationPlan, ownerType: ClassType, owner: ClassDeclaration, declaration: FunctionDeclaration, methodArgs: ResolvedType[]): void {
+  // Generic methods on ordinary classes map directly to C++ member templates.
+  // Whole-program method specialization is reserved for specialized generic
+  // owners, where the owner substitution must participate in the method key.
+  if owner.typeParams.length == 0 { return }
   ownerKey := classInstantiationKey(ownerType.symbol.module, ownerType.name, ownerType.typeArgs)
   key := methodInstantiationKey(ownerKey, declaration.name, methodArgs)
   for existing of plan.methods { if existing.key == key { return } }

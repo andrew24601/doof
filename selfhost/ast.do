@@ -160,6 +160,7 @@ export class MemberExpression {
   optional: bool
   force: bool
   resolvedStaticOwner: ClassDeclaration | null = null
+  resolvedCallableField: bool = false
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -210,6 +211,7 @@ export class ObjectLiteral {
   kind: string
   properties: ObjectProperty[]
   spread: Expression | null
+  resolvedClass: ClassDeclaration | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -248,6 +250,8 @@ export class ConstructExpression {
   args: ObjectProperty[]
   named: bool
   resolvedClass: ClassDeclaration | null = null
+  resolvedConstructor: FunctionDeclaration | null = null
+  resolvedConstructedType: ResolvedType | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -288,6 +292,14 @@ export class RetireExpression {
   span: SourceSpan
 }
 
+export class AsExpression {
+  kind: string
+  expression: Expression
+  targetType: TypeAnnotation
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
 export class ActorCreationExpression {
   kind: string
   className: string
@@ -302,7 +314,7 @@ export type Expression =
   UnaryExpression | AssignmentExpression | MemberExpression | IndexExpression |
   CallExpression | ArrayLiteral | ObjectLiteral | TupleLiteral |
   LambdaExpression | IfExpression | CaseExpression | ConstructExpression | DotShorthand |
-  ThisExpression | CallerExpression | AsyncExpression | RetireExpression | ActorCreationExpression
+  ThisExpression | CallerExpression | AsyncExpression | RetireExpression | AsExpression | ActorCreationExpression
 
 export class Parameter {
   name: string
@@ -425,7 +437,7 @@ export class CaseArm {
 export class CaseExpressionArm {
   kind: string
   patterns: CasePattern[]
-  body: Expression
+  body: Expression | Block
   span: SourceSpan
 }
 
@@ -433,7 +445,6 @@ export class TypePattern {
   kind: string
   name: string
   type_: TypeAnnotation
-  resolvedPatternKind: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -491,6 +502,7 @@ export class WithBinding {
   name: string
   type_: TypeAnnotation | null
   value: Expression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -530,7 +542,7 @@ export class DestructuringStatement {
 // Statement-level Result propagation used by std/json and std/fs.
 export class TryStatement {
   kind: string
-  binding: ImmutableBinding | ExpressionStatement
+  binding: ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration | ExpressionStatement
   span: SourceSpan
 }
 

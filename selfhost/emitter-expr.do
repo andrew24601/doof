@@ -4,17 +4,18 @@
 // single decorated-AST dispatch point and the public identifier helper used
 // by statement and declaration emission.
 
-import { ActorCreationExpression, ArrayLiteral, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
+import { ActorCreationExpression, ArrayLiteral, AsExpression, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CallerExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
 import { ClassType, ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
-import { emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
+import { emitAs, emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
 import { emitCall, emitConstruct } from "./emitter-expr-calls"
 import { emitArray, emitChar, emitNullLiteral, emitObject, emitString, emitTuple } from "./emitter-expr-literals"
 import { emitCaseExpression, emitDotShorthand, emitIfExpression } from "./emitter-expr-control"
 import { emitLambdaExpression } from "./emitter-expr-lambda"
-import { decoratedExpressionType, needsNullableVariantPromotion } from "./emitter-expr-utils"
-import { emitClassInnerType } from "./emitter-types"
+import { decoratedExpressionType, needsNullableVariantPromotion, needsVariantPromotion } from "./emitter-expr-utils"
+import { emitClassInnerType, emitType } from "./emitter-types"
 import { emitActorCreation, emitAsyncActorCall, emitRetireActor } from "./emitter-expr-actor"
+import { moduleDiagnosticPath } from "./emitter-names"
 
 export function emitExpression(expression: Expression, context: EmitContext, expected: ResolvedType | null = null): string {
   let value = ""
@@ -27,9 +28,16 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     char_: CharLiteral -> { value = emitChar(char_.value) }
     bool_: BoolLiteral -> { value = if bool_.value then "true" else "false" }
     null_: NullLiteral -> { value = emitNullLiteral(expected) }
+    caller: CallerExpression -> {
+      functionName := if context.currentFunctionName == "" then "<module>" else context.currentFunctionName
+      span := if context.sourceLocationSpanOverride == null then caller.span else context.sourceLocationSpanOverride!.span
+      fileName := moduleDiagnosticPath(context.modulePath, true)
+      value = "std::make_shared<doof::SourceLocation>(std::string(\"" + fileName + "\"), " + string(span.start.line) + ", std::string(\"" + functionName + "\"))"
+    }
     identifier: Identifier -> { value = emitIdentifier(identifier, context) }
     binary: BinaryExpression -> { value = emitBinary(binary, context) }
     unary: UnaryExpression -> { value = emitUnary(unary, context) }
+    as_: AsExpression -> { value = emitAs(as_, context) }
     assignment: AssignmentExpression -> { value = emitAssignment(assignment, context) }
     member: MemberExpression -> { value = emitMember(member, context) }
     index: IndexExpression -> { value = emitIndex(index, context) }
@@ -37,7 +45,7 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     array: ArrayLiteral -> { value = emitArray(array, context, expected) }
     object: ObjectLiteral -> { value = emitObject(object, context, expected) }
     tuple: TupleLiteral -> { value = emitTuple(tuple, context) }
-    lambda: LambdaExpression -> { value = emitLambdaExpression(lambda, context) }
+    lambda: LambdaExpression -> { value = emitLambdaExpression(lambda, context, expected) }
     if_: IfExpression -> { value = emitIfExpression(if_, context) }
     case_: CaseExpression -> { value = emitCaseExpression(case_, context, expected) }
     construct: ConstructExpression -> { value = emitConstruct(construct, context) }
@@ -55,24 +63,16 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
       }
       if structThis { value = "*this" }
       else if context.currentClassNative { value = "this->shared_from_this()" }
-      else {
-        value = "*this"
-        if expected != null {
-          case expected! {
-            class_: ClassType -> {
-              inner := emitClassInnerType(class_, context.modulePath)
-              value = "std::shared_ptr<" + inner + ">(this, [](" + inner + "*) {})"
-            }
-            _ -> { }
-          }
-        }
-      }
+      else { value = "this->shared_from_this()" }
     }
     _ -> { panic("Unsupported expression in initial C++ emitter: " + expression.kind) }
   }
   sourceType := decoratedExpressionType(expression)
   if needsNullableVariantPromotion(sourceType, expected) {
     return "doof::optional_value(" + value + ")"
+  }
+  if needsVariantPromotion(sourceType, expected) {
+    return "doof::variant_promote<" + emitType(expected!, context.modulePath) + ">(" + value + ")"
   }
   return value
 }

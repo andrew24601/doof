@@ -45,6 +45,7 @@ Key reminders:
 - `main()` may return `void` or `int`, and may optionally accept `args: string[]`.
 - Named calls use `callee{ ... }` with no whitespace before `{`.
 - `if` expressions use `then`: `if ready then start() else wait()`.
+- `for-of` evaluates its iterable once and retains returned temporaries through the loop.
 - `/` requires a floating operand. Use `\` for integer division.
 - `Map<K, V>` literals use `{ key: value }`. `Set<T>` literals use `[a, b, c]`.
 - Mutable arrays support `.reserve(capacity)` to pre-size backing storage without changing their length.

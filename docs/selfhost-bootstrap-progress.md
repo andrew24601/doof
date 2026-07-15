@@ -1,6 +1,6 @@
 # Self-Hosted Compiler Bootstrap Progress
 
-Status date: 2026-07-14
+Status date: 2026-07-15
 
 This document tracks the path from the Doof implementation of the compiler to
 a compiler that can rebuild itself. The TypeScript compiler remains the
@@ -22,10 +22,10 @@ Unit tests alone do not establish self-hosting.
 ## Current status
 
 The B6 two-stage bootstrap is complete. The self-hosted lexer, parser,
-resolver, analyzer, checker, C++ emitter, compiler CLI/driver, native class
-interop, and bootstrap tests are implemented in Doof. The generated compiler
-can rebuild the complete self-hosted source graph and run a generated
-multi-module program.
+resolver, analyzer, checker, C++ emitter, compiler CLI/driver, and native class
+interop are implemented in Doof. Bootstrap is verified by the dedicated release
+gate rather than by subverting the unit-test runner. The generated compiler can
+rebuild the complete self-hosted source graph and run generated programs.
 
 The bootstrap is complete for the current self-hosted language slice. The
 self-hosted checker and emitter now include the intrinsic `JsonValue` carrier,
@@ -49,14 +49,13 @@ validation/dispatch and remote stdlib acquisition remain planned.
 
 ### Verified recovery and current concerns
 
-The 2026-07-13 recovery pass restored all maintained B3-B6 gates after the
+The 2026-07-13 recovery pass restored the self-hosting path after the
 expression emitter split and production stdlib expansion. It removed stale
 module-count assumptions, enabled definite-return diagnostics (including
 unconditional-loop handling), preserved contextual array element types across
 class construction and function-call boundaries, and materialized the native
 JSON/filesystem/path/blob support required by the generated compiler. The
-TypeScript bootstrap inventory and the three self-hosted bootstrap acceptance
-tests are green again.
+complete source graph and native acceptance scenarios are green again.
 
 The passing bootstrap is now guarded by an explicit front-end completeness
 boundary. `selfhost/compiler.do` checks dependencies, validates the complete
@@ -81,11 +80,28 @@ curl or pkg-config inputs. A deterministic localhost runtime binary is always
 built; execution is enabled with `DOOF_HTTP_RUNTIME_TEST=1` on hosts that permit
 loopback sockets.
 
-The bootstrap acceptance now follows those same discovery boundaries. The seed
-compiler loads the self-hosted graph transitively instead of maintaining source
-inventories, and the B5 and B6 compilers rebuild the driver through the
-generated `build` command with `DOOF_STDLIB_ROOT` acquisition and manifest-owned
-native inputs. Only the initial seed link remains an explicit bootstrap step.
+The self-hosted native build now compiles generated and manifest-owned sources
+to explicit object tasks distributed across at most eight temporary actors,
+then links only after every batch succeeds. Each actor runs its assigned tasks
+serially, bounding native process concurrency. The plan records source and object paths so
+incremental fingerprints and discovered header dependencies can be added at
+the task boundary later. Clang's generated C++ PCH is attached only to generated
+`.cpp` tasks, fixing the macOS HTTP build where the Objective-C++ frontend
+rejected a `c++-header` PCH. The runtime process helper uses `posix_spawnp` on
+POSIX hosts so actor-threaded compiler launches are safe.
+
+Release self-bootstrap also retains computed `for-of` iterable owners in named
+C++ temporaries. Previously the self-hosted emitter dereferenced a temporary
+`shared_ptr` directly in a range-for; `-O2` could destroy the owner before
+iteration, skip every compile batch, and proceed to a link containing only
+missing object paths. The release gate gives each run unique seed, B5, and B6
+output directories so stale objects cannot mask missing compile execution.
+
+The release gate follows those same discovery boundaries. The TypeScript CLI
+builds the seed through its production parallel graph, and the B5 and B6
+compilers rebuild the driver through the generated `build` command with
+`DOOF_STDLIB_ROOT` acquisition and manifest-owned native inputs. B5 and B6
+generated text artifacts must match byte-for-byte.
 
 Remaining architectural risks are:
 
@@ -115,6 +131,14 @@ Remaining architectural risks are:
 | B4a | Minimal compiler CLI | Generated compiler exposes `emit` and `check` commands with a reusable option parser | Complete |
 | B5 | First bootstrap | Generated compiler builds the self-hosted source graph and runs a smoke test | Complete |
 | B6 | Two-stage bootstrap | The B5 compiler rebuilds the same graph and runs a second smoke test | Complete |
+
+The self-hosted front end accepts explicit typed lambdas, including return
+annotations such as `(path: string): SourceFile | null => ...`. Its compiler
+boundary converts parser failures into structured diagnostics, and the test
+runner renders root test-file parse errors with the path, line, column, source
+line, and caret. Built-in `SourceLocation`, `@caller`, `assert`, and
+`catchPanic` are available to self-hosted standard-library graphs; generic
+methods on non-generic classes lower as inline C++ member templates.
 
 Completed language/emitter coverage includes nominal classes, named
 construction, enums, aliases, nullable AST unions, branch-aware checking,
@@ -193,22 +217,29 @@ overrides the build-state root while the artifact remains in the package's
 package dependencies, pkg-config resolution, and remote stdlib fallback remain
 future CLI layers.
 
+The runnable driver also implements `test` with the TypeScript runner's static
+test convention: recursive `*.test.do` discovery (stopping at nested package
+manifests), exported `test*` signature validation, case-insensitive filtering,
+listing, a separate generated harness/build per test file, and isolated process
+execution per test. Each harness uses the existing native compile planner, so
+multi-module test graphs build the runtime PCH once and compile translation
+units across the bounded worker batches. Mock rewriting, coverage collection,
+captured child output, and configurable test timeouts remain follow-up work.
+
 ## Verification
 
 The maintained verification gates are:
 
 - `npm run build`
-- `npm test` — 2243 TypeScript tests passing
-- `doof test selfhost/compiler.test.do` — focused compiler/emitter tests,
-  including real `std/json` source and native-support gates
-- `DOOF_TEST_TIMEOUT_MS=240000 doof test selfhost/bootstrap.test.do` — three B3–B6 acceptance tests,
-  including the two-stage bootstrap
-- `src/selfhost-bootstrap.test.ts` — TypeScript-bootstrap native compilation
-  of the self-hosted source graph
+- `npm test` — 2244 TypeScript tests passing
+- `npm run test:selfhost` — focused Doof-native unit and component tests
+- `npm run test:selfhost:coverage` — the same suite with Doof line coverage
+- `npm run test:release` — seed/B5/B6 bootstrap, fixed-point comparison, and
+  portable plus platform-specific native acceptance fixtures
 
-Focused self-host tests should remain small and should compile generated C++
-when the behavior depends on C++ representation. The full bootstrap remains a
-periodic integration check rather than the primary edit loop.
+Focused self-host tests remain deterministic and do not invoke toolchains or
+subprocesses. Native representation and runtime behavior belong to the release
+gate, which is a periodic pre-release check rather than the primary edit loop.
 
 ## Next steps
 
@@ -237,9 +268,8 @@ Work through these in order, keeping all existing gates green after each step:
 7. **Expand source-graph coverage.** Maintain a parser/analyzer/checker/emitter/
    runtime parity matrix, then add each missing feature as a tested vertical
    slice with diagnostics and native behavior checks.
-8. **Strengthen parity and release confidence.** Add repeatable differential
-   checks for diagnostics and generated artifacts, then make the two-stage
-   bootstrap a required pre-release gate.
+8. **Strengthen parity and release confidence.** Extend the release gate's
+   fixed-point comparison with repeatable differential checks for diagnostics.
 
 ## Design constraints
 

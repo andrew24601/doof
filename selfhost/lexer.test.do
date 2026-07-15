@@ -75,6 +75,16 @@ export function testPositionsAndValues(): void {
   Assert.equal(tokens[3].offset, 10)
 }
 
+export function testLexesCallerIntrinsicAsOneToken(): void {
+  source := "source: SourceLocation = @caller,"
+  tokens := Lexer { source }.tokenize()
+  Assert.equal(tokens[4].kind, TokenType.CallerIntrinsic)
+  Assert.equal(tokens[4].line, 1)
+  Assert.equal(tokens[4].column, 26)
+  Assert.equal(tokenValue(tokens[5], source), ",", "token=" + tokenValue(tokens[5], source))
+  Assert.equal(tokens[5].kind, TokenType.Comma)
+}
+
 export function testInterpolationAndComments(): void {
   source := "`hello \${name}!`"
   tokens := Lexer { source }.tokenize()

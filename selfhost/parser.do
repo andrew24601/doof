@@ -21,7 +21,7 @@ import {
   parseTryStatement as parseTryStatementImpl,
 } from "./parser-statements"
 import { parseOptionalType as parseOptionalTypeImpl, parseTypeAnnotation as parseTypeAnnotationImpl } from "./parser-types"
-import { parseExpression as parseExpressionImpl, parseUnary as parseUnaryImpl } from "./parser-expressions"
+import { parseExpression as parseExpressionImpl, parseAdditive as parseAdditiveImpl, parseUnary as parseUnaryImpl } from "./parser-expressions"
 import {
   Program, Block, ClassDeclaration, FunctionDeclaration, NamedType,
   Statement, Expression, TypeAnnotation, AstLocation, SourceSpan,
@@ -32,8 +32,16 @@ export class Parser {
   tokens: Token[] = []
   pos: int = 0
   inForIterable: bool = false
+  errorMessage: string = ""
+  errorLine: int = 0
+  errorColumn: int = 0
+  errorOffset: int = 0
 
   function parse(): Program {
+    errorMessage = ""
+    errorLine = 0
+    errorColumn = 0
+    errorOffset = 0
     lexer := Lexer { source }
     tokens = lexer.tokenize()
     pos = 0
@@ -71,14 +79,18 @@ export class Parser {
 
   function expect(kind: TokenType, message: string = ""): Token {
     if check(kind) { return advance() }
-    let errorMessage = message
-    if errorMessage == "" { errorMessage = "Expected " + expectedLabel(kind) + " before '" + currentText() + "'" }
-    fail(errorMessage)
+    let expectedMessage = message
+    if expectedMessage == "" { expectedMessage = "Expected " + expectedLabel(kind) + " before '" + currentText() + "'" }
+    fail(expectedMessage)
     return current()
   }
 
   function fail(message: string): void {
     token := current()
+    errorMessage = message
+    errorLine = token.line
+    errorColumn = token.column
+    errorOffset = token.offset
     panic("Parse error at " + string(token.line) + ":" + string(token.column) + ": " + message)
   }
 
@@ -116,6 +128,11 @@ export class Parser {
   function sameLineAsPrevious(): bool {
     if pos == 0 { return false }
     return tokens[pos - 1].line == current().line
+  }
+
+  function previousIs(kind: TokenType): bool {
+    if pos == 0 { return false }
+    return tokens[pos - 1].kind == kind
   }
 
   function immediatelyAfterPrevious(): bool {
@@ -158,6 +175,7 @@ export class Parser {
   function parseTypeAnnotation(): TypeAnnotation { return parseTypeAnnotationImpl(this) }
 
   function parseExpression(): Expression { return parseExpressionImpl(this) }
+  function parseAdditive(): Expression { return parseAdditiveImpl(this) }
   function parseUnary(): Expression { return parseUnaryImpl(this) }
 }
 

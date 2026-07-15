@@ -8,6 +8,7 @@ import { ClassType, NullType, PrimitiveType, ResolvedType, Symbol, UnionResolved
 import { EmitContext } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { moduleNamespace } from "./emitter-names"
+import { isAssignable, sameType } from "./checker-types"
 
 export function decoratedExpressionType(expression: Expression): ResolvedType | null {
   case expression {
@@ -33,6 +34,19 @@ export function needsNullableVariantPromotion(source: ResolvedType | null, expec
     _ -> { }
   }
   return !hasNullMember(source)
+}
+
+// C++ std::variant does not implicitly convert one variant into a wider
+// variant, even when every source alternative exists in the target. Doof
+// union assignability does allow that promotion, so emission must make it
+// explicit at contextual boundaries such as returns and arguments.
+export function needsVariantPromotion(source: ResolvedType | null, expected: ResolvedType | null): bool {
+  if source == null || expected == null || sameType(source!, expected!) || hasNullMember(expected) { return false }
+  case expected! {
+    _: UnionResolvedType -> { return isAssignable(source!, expected!) }
+    _ -> { return false }
+  }
+  return false
 }
 
 export function isNullableVariantType(resolvedType: ResolvedType | null): bool {

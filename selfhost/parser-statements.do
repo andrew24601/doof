@@ -7,8 +7,9 @@ import {
   CasePattern, TypePattern, ValuePattern, WildcardPattern,
   IfStatement, WhileStatement, ForOfStatement, ForStatement, WithStatement,
   BreakStatement, ContinueStatement, ReturnStatement, YieldStatement,
-  ExpressionStatement, DestructuringStatement, ImmutableBinding, TryStatement,
-  UnaryExpression, Identifier, LetDeclaration, SourceSpan,
+  ExpressionStatement, DestructuringStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, TryStatement,
+  UnaryExpression, Identifier, LetDeclaration, LambdaExpression, CallExpression,
+  CallArgument, SourceSpan,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation } from "./ast"
 
@@ -139,12 +140,19 @@ export function parseCaseExpression(parser: Parser): Expression {
     let patterns: CasePattern[] = [parseCasePattern(parser)]
     while parser.match(TokenType.Pipe) { patterns.push(parseCasePattern(parser)) }
     parser.expect(TokenType.RightArrow)
-    body := parser.parseExpression()
+    body := parseCaseExpressionBody(parser)
     arms.push(CaseExpressionArm { kind: "case-expression-arm", patterns, body, span: parser.span(armStart) })
     parser.match(TokenType.Comma)
   }
   parser.expect(TokenType.RightBrace)
   return CaseExpression { kind: "case-expression", subject, arms, span: parser.span(start) }
+}
+
+// Keep the Expression/Block promotion at a typed boundary so generated C++
+// does not try to represent this choice as a native conditional expression.
+function parseCaseExpressionBody(parser: Parser): Expression | Block {
+  if parser.check(TokenType.LeftBrace) { return parseBlock(parser) }
+  return parser.parseExpression()
 }
 
 function parseInlineCaseArm(parser: Parser): Block {
@@ -167,7 +175,9 @@ function parseCasePattern(parser: Parser): CasePattern {
     typeValue := parser.parseTypeAnnotation()
     return TypePattern { kind: "type-pattern", name, type_: typeValue, span: parser.span(start) }
   }
-  value := parser.parseExpression()
+  // Pattern alternatives use `|` as a separator, so a value pattern must
+  // stop before bitwise-or rather than consume the rest of the arm.
+  value := parser.parseAdditive()
   return ValuePattern { kind: "value-pattern", value, span: parser.span(start) }
 }
 
@@ -326,9 +336,47 @@ function parseExpressionStatement(parser: Parser): Statement {
     parser.consumeSemicolon()
     return ImmutableBinding { kind: "immutable-binding", name, type_: null, value: rhs, exported: false, else_, failureName, span: parser.span(start) }
   }
-  value := parser.parseExpression()
+  let value = parser.parseExpression()
+  if parser.check(TokenType.Else) {
+    capture := parseElseCaptureAndBlock(parser)
+    parser.consumeSemicolon()
+    return ImmutableBinding {
+      kind: "immutable-binding", name: "_", type_: null, value, exported: false,
+      else_: capture.block, failureName: capture.failureName, span: parser.span(start),
+    }
+  }
+  value = parseTrailingLambdaExpressionStatement(parser, value)
   parser.consumeSemicolon()
   return ExpressionStatement { kind: "expression-statement", expression: value, span: parser.span(start) }
+}
+
+// Trailing lambdas are statement-only syntax, so attach the block only after
+// the ordinary expression parser has produced the complete call expression.
+function parseTrailingLambdaExpressionStatement(parser: Parser, expression: Expression): Expression {
+  if !parser.previousIs(TokenType.RightParen) || !parser.check(TokenType.LeftBrace) || !parser.sameLineAsPrevious() {
+    return expression
+  }
+  case expression {
+    call: CallExpression -> {
+      block := parseBlock(parser)
+      lambda := LambdaExpression {
+        kind: "lambda-expression", params: [], returnType: null, body: block,
+        parameterless: true, trailing: true, span: block.span,
+      }
+      call.args.push(CallArgument { name: null, value: lambda, span: block.span })
+      call.span = SourceSpan { start: call.span.start, end: block.span.end }
+      if parser.sameLineAsPrevious() && (
+        parser.check(TokenType.Dot) || parser.check(TokenType.DoubleColon) ||
+        parser.check(TokenType.QuestionDot) || parser.check(TokenType.BangDot) ||
+        parser.check(TokenType.LeftParen) || parser.check(TokenType.LeftBracket) ||
+        parser.check(TokenType.QuestionBracket) || parser.check(TokenType.Bang)
+      ) {
+        parser.fail("Chaining after a trailing lambda is not allowed; use an explicit lambda instead")
+      }
+      return call
+    }
+    _ -> { return expression }
+  }
 }
 
 export function parseTryStatement(parser: Parser): Statement {
@@ -344,6 +392,24 @@ export function parseTryStatement(parser: Parser): Statement {
       kind: "expression-statement",
       expression: UnaryExpression { kind: "unary-expression", operator, operand, prefix: true, span: SourceSpan { start, end: operand.span.end } },
       span: parser.span(start),
+    }
+  }
+  if parser.check(TokenType.Const) {
+    case parser.parseConst(false) {
+      binding: ConstDeclaration -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
+      _ -> { parser.fail("Expected const declaration after try") }
+    }
+  }
+  if parser.check(TokenType.Readonly) {
+    case parser.parseReadonly(false) {
+      binding: ReadonlyDeclaration -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
+      _ -> { parser.fail("Expected readonly declaration after try") }
+    }
+  }
+  if parser.check(TokenType.Let) {
+    case parser.parseLet() {
+      binding: LetDeclaration -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
+      _ -> { parser.fail("Expected named let declaration after try") }
     }
   }
   if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.ColonEqual {

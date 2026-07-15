@@ -1,9 +1,10 @@
 // Literal, array, object, tuple, and string expression lowering.
 
 import { ArrayLiteral, ObjectLiteral, StringLiteral, TupleLiteral } from "./ast"
-import { ArrayResolvedType, ClassType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
-import { emitExpression } from "./emitter-expr"
+import { cppIdentifier, emitExpression } from "./emitter-expr"
+import { emittedSymbolName, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion } from "./emitter-expr-utils"
 import { emitType } from "./emitter-types"
 
 export function emitNullLiteral(expected: ResolvedType | null): string {
@@ -87,6 +88,24 @@ export function emitArray(expression: ArrayLiteral, context: EmitContext, expect
 export function emitObject(expression: ObjectLiteral, context: EmitContext, expected: ResolvedType | null): string {
   if expected != null {
     case expected! {
+      result: ResultResolvedType -> {
+        value := findProperty(expression.properties, "value")
+        error := findProperty(expression.properties, "error")
+        if value != null {
+          emitted := if value!.value == null then cppIdentifier(value!.name) else emitExpression(value!.value!, context, result.valueType)
+          return "doof::Success<" + emitType(result.valueType, context.modulePath) + ">{ " + emitted + " }"
+        }
+        if error != null {
+          emitted := if error!.value == null then cppIdentifier(error!.name) else emitExpression(error!.value!, context, result.errorType)
+          return "doof::Failure<" + emitType(result.errorType, context.modulePath) + ">{ " + emitted + " }"
+        }
+      }
+      class_: ClassType -> { return emitClassObject(expression, context, class_) }
+      _ -> { }
+    }
+  }
+  if expected != null {
+    case expected! {
       map: MapResolvedType -> { return emitMapObject(expression, context, map) }
       _ -> { }
     }
@@ -107,6 +126,33 @@ export function emitObject(expression: ObjectLiteral, context: EmitContext, expe
     }
   }
   return "doof::json_value(std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(std::initializer_list<std::pair<std::string, doof::JsonValue>>{" + values + "}))"
+}
+
+function emitClassObject(expression: ObjectLiteral, context: EmitContext, resolved: ClassType): string {
+  class_ := expression.resolvedClass
+  if class_ == null { panic("Object literal has no resolved class in " + context.modulePath) }
+  let cppName = emittedSymbolName(resolved.symbol)
+  if resolved.symbol.module != "" && resolved.symbol.module != context.modulePath { cppName = "::" + exprModuleNamespaceFor(resolved.symbol.module) + "::" + cppName }
+  let values = ""
+  let first = true
+  for field of class_!.fields {
+    if field.static_ { continue }
+    for name of field.names {
+      if !first { values = values + ", " }
+      first = false
+      property := findProperty(expression.properties, name)
+      let value = "{}"
+      if property != null {
+        value = if property!.value == null then cppIdentifier(name) else emitExpression(property!.value!, context, field.resolvedType)
+        if property!.value == null && needsNullableVariantPromotion(property!.resolvedType, field.resolvedType) { value = "doof::optional_value(" + value + ")" }
+      } else if field.defaultValue != null {
+        value = emitExpression(field.defaultValue!, context, field.resolvedType)
+      }
+      values = values + value
+    }
+  }
+  if resolved.symbol.kind == "struct" { return cppName + "{" + values + "}" }
+  return "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
 }
 
 function emitMapObject(expression: ObjectLiteral, context: EmitContext, map: MapResolvedType): string {

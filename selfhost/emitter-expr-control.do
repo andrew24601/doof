@@ -1,11 +1,13 @@
 // Conditional and pattern-based expression lowering.
 
-import { CaseExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, TypePattern, ValuePattern, WildcardPattern } from "./ast"
-import { ResolvedType, ResultResolvedType } from "./semantic"
+import { Block, CaseExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, TypePattern, ValuePattern, WildcardPattern } from "./ast"
+import { ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
+import { emitCaseTypePattern } from "./emitter-case-pattern"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
+import { emitBlock } from "./emitter-stmt"
 import { exprModuleNamespaceFor } from "./emitter-expr-utils"
-import { emitType } from "./emitter-types"
+import { emitType, specializeEmitType } from "./emitter-types"
 
 export function emitDotShorthand(expression: DotShorthand, context: EmitContext): string {
   if expression.resolvedShorthandOwnerKind != "enum" && expression.resolvedShorthandOwnerKind != "class" {
@@ -43,59 +45,25 @@ export function emitCaseExpression(expression: CaseExpression, context: EmitCont
       let binding = ""
       case pattern {
         type_: TypePattern -> {
-          if subjectResult.kind == "result" {
-            case subjectResult {
-              subjectResult: ResultResolvedType -> {
-                case type_.type_ {
-                  named: NamedType -> {
-                    if named.name == "Success" {
-                      armType := "doof::Success<" + emitType(subjectResult.valueType, context.modulePath) + ">"
-                      condition = "std::holds_alternative<" + armType + ">(_case_subject)"
-                      if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(_case_subject);\n" }
-                    } else if named.name == "Failure" {
-                      armType := "doof::Failure<" + emitType(subjectResult.errorType, context.modulePath) + ">"
-                      condition = "std::holds_alternative<" + armType + ">(_case_subject)"
-                      if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(_case_subject);\n" }
-                    }
-                  }
-                  _ -> { }
-                }
-              }
-              _ -> { }
-            }
-          }
-          if condition == "true" && type_.resolvedType != null {
-            case type_.resolvedType! {
-              result: ResultResolvedType -> {
-                case type_.type_ {
-                  named: NamedType -> {
-                    if named.name == "Success" {
-                      armType := "doof::Success<" + emitType(result.valueType, context.modulePath) + ">"
-                      condition = "std::holds_alternative<" + armType + ">(_case_subject)"
-                      if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(_case_subject);\n" }
-                    } else if named.name == "Failure" {
-                      armType := "doof::Failure<" + emitType(result.errorType, context.modulePath) + ">"
-                      condition = "std::holds_alternative<" + armType + ">(_case_subject)"
-                      if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(_case_subject);\n" }
-                    }
-                  }
-                  _ -> { }
-                }
-              }
-              _ -> {
-                armType := emitType(type_.resolvedType!, context.modulePath)
-                condition = "std::holds_alternative<" + armType + ">(_case_subject)"
-                if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(_case_subject);\n" }
-              }
-            }
-          }
+          bindingName := if type_.name == "_" then "" else cppIdentifier(type_.name)
+          emitted := emitCaseTypePattern(type_, specializeEmitType(subjectResult, context), "_case_subject", bindingName, context.modulePath)
+          condition = emitted.condition
+          binding = emitted.binding
         }
         value: ValuePattern -> { condition = "_case_subject == " + emitExpression(value.value, context) }
         _: WildcardPattern -> { condition = "true" }
       }
       output = output + "    if (" + condition + ") {\n"
       if binding != "" { output = output + "        " + binding }
-      output = output + "        return " + emitExpression(arm.body, context, resultType) + ";\n"
+      case arm.body {
+        block: Block -> {
+          previousYieldState := context.inValueYieldBlock
+          context.inValueYieldBlock = true
+          output = output + emitBlock(block, 2, context)
+          context.inValueYieldBlock = previousYieldState
+        }
+        bodyExpression: Expression -> { output = output + "        return " + emitExpression(bodyExpression, context, resultType) + ";\n" }
+      }
       output = output + "    }\n"
     }
   }

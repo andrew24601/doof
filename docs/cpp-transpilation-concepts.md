@@ -66,7 +66,8 @@ Validation anchors:
 
 - `src/emitter-basics.test.ts`
 - `src/emitter-advanced.test.ts`
-- `selfhost/bootstrap.test.do`
+- `selfhost/emitter.test.do`
+- `scripts/release-gate.mjs`
 - `spec/02-type-system.md`
 
 ### Nullability and Unions
@@ -81,6 +82,11 @@ Strategy:
   value through `doof::optional_value(...)`; the checker must decorate the
   target expression so this decision is available at the emission boundary
 - broader unions use one flattened `std::variant` shape and explicit extraction
+- case type-pattern lowering follows the checked subject's C++ representation:
+  exact values bind directly, single-value nullable carriers use a null guard,
+  and only variant-backed unions use `holds_alternative`/variant narrowing;
+  union-valued patterns are handled generically as subset matches rather than
+  by recognizing particular AST alias names
   or coercion helpers; the self-hosted emitter derives the carrier from the
   flattened resolved members rather than matching particular alias names
 - self-hosted class-field lowering keeps the emitted carrier aligned with its
@@ -167,6 +173,11 @@ Strategy:
 - method placement depends on the owning declaration and module/header split
 - default parameters and named-argument ordering are normalized during emission
 - default parameter expressions may lower static class method calls as `Class::method(...)`
+- Doof identifiers that collide with C++ keywords are escaped consistently in
+  declarations, definitions, and call sites
+- `@caller` defaults are materialized with the invoking call or construction
+  span, and their generated `SourceLocation.fileName` is package-relative and
+  extensionless rather than the default declaration's source location
 
 Primary modules:
 
@@ -199,9 +210,15 @@ Strategy:
   locals remain ordinary stack values
 - emitted lambdas are wrapped in `doof::callback`, and first-class callback
   invocation lowers to checked `.call(...)`
+- contextual callback types control emitted lambda return types, including
+  explicit promotion from a narrow nominal return into an expected union;
+  checker decoration distinguishes callback-valued fields from ordinary methods
 - `callback.post(...)` lowers to the runtime callback post operation and returns
   `doof::Promise<R>`
 - `async` is actor-call-only and lowers to `Actor<T>::call_async`
+- actor-call lambda return types pass through whole-program generic lowering, so
+  compound returns refer to registered concrete nominal types rather than
+  reintroducing C++ templates
 - `retire actor` lowers to `Actor<T>::retire()` and returns the inner actor state
 - actor-related forms share the expression phase, with the self-hosted lowering isolated in `emitter-expr-actor.do`
 
@@ -226,10 +243,10 @@ Validation anchors:
 
 Strategy:
 
-- the self-hosted compiler monomorphizes every reached ordinary Doof-defined generic function, method, class, alias use, and interface instantiation before header planning
+- the self-hosted compiler monomorphizes reached generic functions, generic owner types, aliases, and interface instantiations before header planning; generic methods on non-generic classes remain inline C++ member templates so their definitions stay visible at every call site
 - instantiations are keyed by declaration identity plus canonical concrete arguments and discovered to a fixed point by walking substituted bodies and signatures
 - exact recursive instantiations deduplicate; expanding specialization chains produce a compiler diagnostic with a bounded instantiation trace
-- generic aliases are erased after concrete substitution in the self-hosted compiler; no Doof generic is represented by a C++ template there
+- generic aliases are erased after concrete substitution in the self-hosted compiler; inline methods on non-generic classes are the deliberate C++-template exception
 - generic native function imports produce module-owned concrete adapters whose bodies call the mapped C++ name with ordinary concrete arguments, leaving overload resolution and template deduction to C++
 - generic wrapper classes explicitly named by a native class/function signature remain C++ templates at that native boundary; their transitive Doof consumers do not force unrelated generics back to template lowering
 - the TypeScript bootstrap emitter retains its existing hybrid specialization and C++-template alias behavior while it remains the bootstrap oracle
@@ -261,9 +278,19 @@ Validation anchors:
 Strategy:
 
 - class values lower to shared pointer-managed objects
+- generated classes inherit `std::enable_shared_from_this<T>`; returning bare
+  `this` uses `shared_from_this()` so fluent method chains retain the owning
+  control block instead of creating a dangling non-owning pointer
 - struct values lower to direct values and are copied on assignment, parameter passing, and return
 - constructor and field initialization order is emitted explicitly
 - positional and named construction forms are normalized into the generated constructor call shape; classes emit `std::make_shared<T>(...)` while structs emit direct value construction
+- the self-hosted call emitter identifies positional construction from the
+  callee binding itself: direct class/struct bindings and imported nominal
+  symbols construct values, while method bindings remain calls even when their
+  retained owner symbol and return type are nominal
+- generated field constructors preserve defaults on their trailing
+  all-defaulted parameter suffix, including state construction through
+  `Actor<State>()`
 - member access uses `->` for classes and `.` for structs
 - the self-hosted parser and analyzer retain the nominal kind on declarations
   and symbols; self-hosted type, construction, member, `this`, and JSON lowering
@@ -283,11 +310,13 @@ Primary modules:
 - `src/emitter-decl.ts`
 - `src/emitter-expr-calls.ts`
 - `src/emitter-defaults.ts`
+- `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
 
 - `src/emitter-basics.test.ts`
 - `src/emitter-e2e-compile.test.ts`
+- `selfhost/emitter.test.do`
 - `spec/07-classes-and-interfaces.md`
 
 ### Interfaces and Polymorphism
@@ -369,6 +398,10 @@ Strategy:
 
 - statement lowering lives in `src/emitter-stmt.ts`
 - blocks, bindings, loops, `if`, `break`, `continue`, try/catch statements, and loop follow-up behavior are emitted with explicit control-flow state in `EmitContext`
+- `with` lowers to a nested C++ scope containing ordered `const` bindings, so
+  later initializers can use earlier bindings and bound class lifetimes end at
+  the closing brace; checked union types provide contextual variant promotion
+- `for-of` materializes its iterable expression before a C++ range-for or stream loop, ensuring the expression is evaluated once and retaining shared collection temporaries for the complete loop lifetime
 - expression-level and statement-level control flow stay separate, even when they model similar language concepts
 
 Primary modules:
@@ -376,6 +409,7 @@ Primary modules:
 - `src/emitter-stmt.ts`
 - `src/emitter-context.ts`
 - `src/emitter-expr-control.ts`
+- `selfhost/emitter-stmt.do`
 
 Validation anchors:
 
@@ -430,6 +464,8 @@ Strategy:
 - array and string `.contains(...)` / `.indexOf(...)` lower to their
   representation-specific `doof::array_*` and `doof::string_*` helpers; the
   self-hosted emitter selects these from the decorated receiver type
+- map `.size` lowers to the native container size call, while mutable-map
+  `.buildReadonly()` lowers through `doof::map_buildReadonly`
 - destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature
 - collection behavior depends on both type lowering and statement or expression emission helpers
 
@@ -466,6 +502,9 @@ Strategy:
 - self-hosted native package inputs are planned explicitly from reached
   manifests and copied beneath stable logical package roots, so equal native
   filenames from different packages do not collide
+- native include search roots contain both a reached package output root and
+  its parent, allowing package-qualified includes such as `http-server/x.hpp`
+  to resolve from files staged beneath `std/http-server/`
 - the self-hosted `build` command resolves those output-relative paths only at
   the compiler boundary and forwards registered sources, includes, library
   paths, libraries, frameworks, defines, and compiler/linker flags

@@ -16,6 +16,18 @@ export function testResolvesImportsAndExports(): void {
   Assert.equal(result.modules[0].imports[0].symbol != null, true)
 }
 
+export function testSuppressesMissingExportsWhenDependencyFailsToParse(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { first, second } from \"./broken\"\nfunction main(): void { }" },
+    SourceFile { path: "/broken.do", source: "export readonly value: readonly string = \"broken\"" },
+  ]
+  result := createAnalyzer(sources).analyze("/main.do")
+
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].module, "/broken.do")
+  Assert.equal(result.diagnostics[0].message.contains("Unexpected readonly type modifier"), true)
+}
+
 export function testResolvesExplicitBareModuleSources(): void {
   sources := [
     SourceFile { path: "/main.do", source: "import { add } from \"vendor/math\"\nfunction main(): int => add(1, 2)" },

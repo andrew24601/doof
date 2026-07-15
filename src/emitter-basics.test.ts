@@ -1083,6 +1083,12 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("doof::Promise<R> post(Args... args) const");
     expect(header).toContain("void dispatch(Args... args) const");
     expect(header).toContain("call_callback_unchecked");
+    expect(header).toContain("::posix_spawnp");
+    expect(header).toContain("run_command_in_directory");
+    expect(header).toContain("::chdir(directory.c_str())");
+    expect(header).toContain("run_command_limited");
+    expect(header).toContain("native compiler output truncated after");
+    expect(header).not.toContain("const pid_t child = ::fork()");
     expect(header).toContain("class ApplicationDomain final");
     expect(header).toContain("wait_and_dispatch_one");
     expect(header).toContain("inline bool starts_with");
@@ -1090,6 +1096,7 @@ describe("emitter — runtime header", () => {
     expect(header).toContain("T pop(const std::shared_ptr<std::vector<T>>& value)");
     expect(header).toContain("bool variant_is(const std::variant<Source...>& value)");
     expect(header).toContain("Target variant_narrow(const std::variant<Source...>& value)");
+    expect(header).toContain("struct is_variant_alternative : std::is_same<Candidate, Variant> {};");
     expect(header).toContain("Target variant_promote(const std::variant<Source...>& value)");
     expect(header).toContain("decltype(auto) resolved_type(const std::variant<T...>& value)");
   });

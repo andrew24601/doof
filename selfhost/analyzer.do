@@ -37,7 +37,7 @@ export class AnalysisResult {
   diagnostics: Diagnostic[] = []
 }
 
-readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "Map", "ReadonlyMap", "Result", "Stream", "Tuple", "Actor", "Promise"]
+readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "SourceLocation", "Map", "ReadonlyMap", "Result", "Stream", "Tuple", "Actor", "Promise"]
 
 export class ModuleAnalyzer {
   resolver: ModuleResolver
@@ -70,7 +70,20 @@ export class ModuleAnalyzer {
     }
 
     inProgress.push(path)
-    program := Parser { source: source.source }.parse()
+    parser := Parser { source: source.source }
+    parsed := catchPanic(=> parser.parse())
+    program := parsed else failure {
+      if parser.errorMessage == "" { panic(failure) }
+      location := SemanticLocation { line: parser.errorLine, column: parser.errorColumn, offset: parser.errorOffset }
+      diagnostics.push(Diagnostic {
+        severity: "error",
+        message: parser.errorMessage,
+        span: SemanticSpan { start: location, end: location },
+        module: path,
+      })
+      ignored := inProgress.pop()
+      return null
+    }
     info := ModuleInfo { path, program }
     modules.push(info)
     collectSymbols(info)
@@ -148,7 +161,9 @@ export class ModuleAnalyzer {
               named: NamedImport -> {
                 let imported: Symbol | null = null
                 if source != null { imported = findExport(source!, named.name) }
-                if imported == null {
+                // A failed dependency already owns the actionable diagnostic.
+                // Do not reinterpret its missing symbol table as missing exports.
+                if source != null && imported == null {
                   addError(info, "Module '" + import_.source + "' does not export '" + named.name + "'", named.span)
                 }
                 localName := if named.alias == null then named.name else named.alias!
@@ -190,11 +205,13 @@ export class ModuleAnalyzer {
             for specifier of list.specifiers {
               let exported: Symbol | null = null
               if source != null { exported = findExport(source!, specifier.name) }
-              if exported == null {
+              if source != null && exported == null {
                 addError(info, "Module '" + list.source! + "' does not export '" + specifier.name + "'", specifier.span)
               } else {
-                exportedName := if specifier.alias == null then specifier.name else specifier.alias!
-                info.exports.push(Symbol { kind: exported!.kind, name: exportedName, module: exported!.module, exported: true, originalName: if exported!.originalName == "" then exported!.name else exported!.originalName })
+                if exported != null {
+                  exportedName := if specifier.alias == null then specifier.name else specifier.alias!
+                  info.exports.push(Symbol { kind: exported!.kind, name: exportedName, module: exported!.module, exported: true, originalName: if exported!.originalName == "" then exported!.name else exported!.originalName })
+                }
               }
             }
             continue

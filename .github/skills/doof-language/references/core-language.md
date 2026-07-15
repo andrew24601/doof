@@ -235,6 +235,9 @@ while condition { doWork() }
 for let i = 0; i < 10; i += 1 { println(i) }
 ```
 
+`for-of` evaluates its iterable expression once and retains a returned
+collection or stream temporary for the whole loop.
+
 Other supported forms:
 
 - `loop then` blocks for natural completion

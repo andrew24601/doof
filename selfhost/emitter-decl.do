@@ -28,7 +28,7 @@ export function emitFunctionSignature(fn: FunctionDeclaration, name: string = ""
       _ -> { }
     }
   }
-  functionName := if name == "" then fn.name else name
+  functionName := cppIdentifier(if name == "" then fn.name else name)
   let genericParams: string[] = []
   for typeParam of ownerTypeParams { genericParams.push(typeParam) }
   for typeParam of fn.typeParams { genericParams.push(typeParam) }
@@ -168,8 +168,17 @@ function ensureKnown(resolvedType: ResolvedType, owner: string): void {
 
 export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContext, emittedName: string = "", concreteMethods: MethodInstantiation[] = []): string {
   if decl.native_ { return "" }
-  let inheritance = ""
   className := if emittedName == "" then decl.name else emittedName
+  let ownershipName = className
+  if emittedName == "" && decl.typeParams.length > 0 {
+    ownershipName = ownershipName + "<"
+    for index of 0..<decl.typeParams.length {
+      if index > 0 { ownershipName = ownershipName + ", " }
+      ownershipName = ownershipName + decl.typeParams[index]
+    }
+    ownershipName = ownershipName + ">"
+  }
+  let inheritance = if decl.struct_ then "" else " : public std::enable_shared_from_this<" + ownershipName + ">"
   let result = (if context.substitution == null then templatePrefix(decl.typeParams) else "") + "struct " + className + inheritance + " {\n"
   for field of decl.fields {
     for name of field.names {
@@ -184,8 +193,21 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
     }
   }
   if hasInstanceFields(decl) {
+    // C++ only permits defaults on a trailing all-defaulted parameter suffix.
+    // Mirror field defaults there so positional construction, including
+    // Actor<State>(), can omit the same values as named construction.
+    let lastRequiredParameter = -1
+    let parameterIndex = 0
+    for field of decl.fields {
+      if field.static_ { continue }
+      for name of field.names {
+        if field.defaultValue == null { lastRequiredParameter = parameterIndex }
+        parameterIndex = parameterIndex + 1
+      }
+    }
     result = result + "    " + className + "("
     let firstParameter = true
+    parameterIndex = 0
     for field of decl.fields {
       if field.static_ { continue }
       for name of field.names {
@@ -194,6 +216,10 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
         effectiveType := fieldTypeForEmission(field)
         fieldType := fieldTypeTextForEmission(field, effectiveType, context)
         result = result + fieldType + " " + cppIdentifier(name)
+        if parameterIndex > lastRequiredParameter && field.defaultValue != null {
+          result = result + " = " + emitExpression(field.defaultValue!, context, effectiveType)
+        }
+        parameterIndex = parameterIndex + 1
       }
     }
     result = result + ") : "
@@ -207,15 +233,21 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
       }
     }
     result = result + " {}\n"
+  } else if !decl.struct_ {
+    result = result + "    " + className + "() {}\n"
   }
   for method of decl.methods {
     if method.typeParams.length > 0 {
-      for instantiation of concreteMethods {
-        if instantiation.declaration.name != method.name { continue }
-        previousSubstitution := context.substitution
-        context.substitution = instantiation.substitution
-        result = result + emitInlineClassMethod(decl, method, context, instantiation.emittedName)
-        context.substitution = previousSubstitution
+      if decl.typeParams.length == 0 {
+        result = result + emitInlineClassMethod(decl, method, context)
+      } else {
+        for instantiation of concreteMethods {
+          if instantiation.declaration.name != method.name { continue }
+          previousSubstitution := context.substitution
+          context.substitution = instantiation.substitution
+          result = result + emitInlineClassMethod(decl, method, context, instantiation.emittedName)
+          context.substitution = previousSubstitution
+        }
       }
     } else if decl.typeParams.length > 0 || context.substitution != null {
       result = result + emitInlineClassMethod(decl, method, context)
@@ -328,7 +360,7 @@ function ownedClassName(symbol: Symbol, currentModulePath: string): string {
 }
 
 export function emitClassMethodDefinition(owner: ClassDeclaration, method: FunctionDeclaration, context: EmitContext): string {
-  if method.bodyless { return "" }
+  if method.bodyless || method.typeParams.length > 0 { return "" }
   previous := context.currentClass
   previousNative := context.currentClassNative
   previousReturnErrorType := context.currentReturnErrorType
@@ -354,7 +386,7 @@ export function emitClassMethodDefinition(owner: ClassDeclaration, method: Funct
     _ -> { context.currentReturnErrorType = "" }
   }
   ownerName := if owner.native_ then (if owner.nativeCppName == "" then owner.name else owner.nativeCppName) else owner.name
-  let result = emitFunctionSignature(method, ownerName + "::" + method.name, context.modulePath, false, context) + " {\n"
+  let result = emitFunctionSignature(method, ownerName + "::" + cppIdentifier(method.name), context.modulePath, false, context) + " {\n"
   case method.body {
     expression: Expression -> { result = result + "    return " + emitExpression(expression, context, functionReturnType(method)) + ";\n" }
     block: Block -> { result = result + emitBlock(block, 1, context) }

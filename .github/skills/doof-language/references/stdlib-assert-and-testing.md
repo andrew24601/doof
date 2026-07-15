@@ -36,6 +36,11 @@ export function testAdd(): void {
 - Test functions take no parameters and return `void`.
 - Use `assert(condition, message)` for simple checks and `Assert` for richer assertions.
 
+Repository unit suites should remain focused and deterministic. Small in-memory
+or filesystem-backed component fixtures are appropriate; toolchain invocation,
+subprocess orchestration, whole-repository compatibility sweeps, packaging, and
+bootstrap workflows belong in an explicit integration or release gate.
+
 Example:
 
 ```doof

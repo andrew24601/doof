@@ -97,6 +97,7 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `emitter-names.do` — stable generated module namespaces and artifact names
 - `emitter-monomorphize.do` — whole-program concrete generic instantiation discovery and naming
 - `emitter-types.do` — C++ type lowering
+- `emitter-case-pattern.do` — shared representation-driven type-pattern lowering
 - `emitter-expr.do` — expression lowering
 - `emitter-expr-actor.do` — actor construction, calls, async calls, and retirement lowering
 - `emitter-expr-lambda.do` — lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
@@ -111,8 +112,8 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `compiler.do` — self-hosted graph checking and emission orchestration
 - `module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings
 - `package-manifest.do` — normalized package identity, executable resources, and host-platform `build.native` manifest parsing
-- `driver.do` — runnable B4/B5/B6 compiler driver, executable-resource uptake, and native filesystem boundary
-- `bootstrap.test.do` — maintained B2/B3 native syntax gates and B4/B5/B6 bootstrap acceptance tests
+- `driver.do` — runnable self-hosted compiler driver, executable-resource uptake, and native filesystem boundary
+- `scripts/release-gate.mjs` — expensive seed/B5/B6 bootstrap, fixed-point comparison, and native release acceptance workflow
 
 **When a module grows too large:**
 1. Identify cohesive subsets of functionality
@@ -267,7 +268,6 @@ src/
   emitter-e2e-advanced.test.ts  # E2E tests: concurrency, try/catch, JSON, else-narrow
   emitter-e2e-combos.test.ts    # E2E tests: feature combinations & boundaries
   emitter-e2e-samples.test.ts   # E2E tests: emitted sample projects and package-style programs
-  selfhost-bootstrap.test.ts    # Native-toolchain syntax check for the emitted self-host source graph
   test-helpers.ts               # Shared test utilities (VirtualFS)
   index.ts                      # Public API exports
 ```

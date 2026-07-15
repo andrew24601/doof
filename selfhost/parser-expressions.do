@@ -11,6 +11,7 @@ import {
   ThisExpression, CallerExpression, IfExpression, LambdaExpression,
   TupleLiteral, ObjectLiteral, ConstructExpression, DotShorthand,
   AsyncExpression, RetireExpression, ActorCreationExpression,
+  AsExpression,
 } from "./ast"
 import type { Expression, TypeAnnotation } from "./ast"
 
@@ -46,7 +47,7 @@ function parseShift(parser: Parser): Expression {
   return left
 }
 
-function parseAdditive(parser: Parser): Expression { return parseBinaryLevel(parser, 9) }
+export function parseAdditive(parser: Parser): Expression { return parseBinaryLevel(parser, 9) }
 function parseMultiplicative(parser: Parser): Expression { return parseBinaryLevel(parser, 10) }
 
 function parseRange(parser: Parser): Expression {
@@ -139,7 +140,21 @@ export function parseUnary(parser: Parser): Expression {
     actor := parseUnary(parser)
     return RetireExpression { kind: "retire-expression", actor, span: SourceSpan { start, end: actor.span.end } }
   }
-  return parsePostfix(parser)
+  return parseAs(parser)
+}
+
+function parseAs(parser: Parser): Expression {
+  let expression = parsePostfix(parser)
+  while parser.check(TokenType.As) && parser.sameLineAsPrevious() {
+    start := expression.span.start
+    parser.advance()
+    targetType := parser.parseTypeAnnotation()
+    expression = AsExpression {
+      kind: "as-expression", expression, targetType,
+      span: SourceSpan { start, end: parser.location() },
+    }
+  }
+  return expression
 }
 
 // Keep the Expression alias conversion at a typed function boundary so the
@@ -299,7 +314,7 @@ function parsePrimary(parser: Parser): Expression {
       }
       parser.expect(TokenType.Greater)
     }
-    if parser.check(TokenType.LeftBrace) && startsWithUppercase(name) && !parser.inForIterable {
+    if parser.check(TokenType.LeftBrace) && startsWithUppercase(name) && !parser.inForIterable && looksLikeConstruction(parser) {
       return parseConstruction(parser, start, name, typeArgs)
     }
     return Identifier { kind: "identifier", name, span: parser.span(start) }
@@ -369,6 +384,12 @@ function parseArrayLiteral(parser: Parser): ArrayLiteral {
 
 function parseParenExpression(parser: Parser): Expression {
   start := parser.location()
+  if looksLikeParenthesizedLambda(parser) {
+    parser.expect(TokenType.LeftParen)
+    params := parseLambdaParameters(parser)
+    parser.expect(TokenType.RightParen)
+    return finishLambda(parser, params, start)
+  }
   parser.expect(TokenType.LeftParen)
   if parser.check(TokenType.RightParen) {
     parser.advance()
@@ -388,6 +409,42 @@ function parseParenExpression(parser: Parser): Expression {
   }
   parser.expect(TokenType.RightParen)
   return first
+}
+
+// A colon inside the parameter list belongs to a lambda parameter, not to a
+// parenthesized expression. Scan to the matching close before committing to
+// either grammar so typed, untyped, and explicit-return lambdas share one path.
+function looksLikeParenthesizedLambda(parser: Parser): bool {
+  let depth = 0
+  let offset = 0
+  while true {
+    token := parser.peek(offset)
+    if token.kind == TokenType.EndOfFile { return false }
+    if token.kind == TokenType.LeftParen {
+      depth = depth + 1
+    } else if token.kind == TokenType.RightParen {
+      depth = depth - 1
+      if depth == 0 {
+        after := parser.peek(offset + 1).kind
+        return after == TokenType.Arrow || after == TokenType.Colon
+      }
+    }
+    offset = offset + 1
+  }
+}
+
+function parseLambdaParameters(parser: Parser): Parameter[] {
+  let params: Parameter[] = []
+  while !parser.check(TokenType.RightParen) && !parser.atEnd() {
+    start := parser.location()
+    name := parser.text(parser.expect(TokenType.Identifier, "Expected lambda parameter name"))
+    type_ := parser.parseOptionalType()
+    let defaultValue: Expression | null = null
+    if parser.match(TokenType.Equal) { defaultValue = parser.parseExpression() }
+    params.push(Parameter { name, type_, defaultValue, span: parser.span(start) })
+    if !parser.match(TokenType.Comma) { break }
+  }
+  return params
 }
 
 function finishLambda(parser: Parser, params: Parameter[], start: AstLocation): Expression {
@@ -422,9 +479,16 @@ function parseObjectLiteral(parser: Parser): Expression {
       spread = parser.parseExpression()
     } else {
       propertyStart := parser.location()
-      name := parser.text(parser.expect(TokenType.Identifier))
+      let name = ""
       let value: Expression | null = null
-      if parser.match(TokenType.Colon) { value = parser.parseExpression() }
+      if parser.check(TokenType.StringLiteral) {
+        name = tokenValue(parser.advance(), parser.source)
+        parser.expect(TokenType.Colon, "Expected ':' after string map key")
+        value = parser.parseExpression()
+      } else {
+        name = parser.text(parser.expect(TokenType.Identifier))
+        if parser.match(TokenType.Colon) { value = parser.parseExpression() }
+      }
       properties.push(ObjectProperty { name, value, span: parser.span(propertyStart) })
     }
     if !parser.match(TokenType.Comma) { break }
@@ -446,6 +510,16 @@ function parseConstruction(parser: Parser, start: AstLocation, name: string, typ
   }
   parser.expect(TokenType.RightBrace)
   return ConstructExpression { kind: "construct-expression", type_: name, typeArgs, args: properties, named: true, span: parser.span(start) }
+}
+
+// Uppercase identifiers can also name constants at the end of a control-flow
+// condition. Only consume the following block when its opening tokens have the
+// shape of named construction fields.
+function looksLikeConstruction(parser: Parser): bool {
+  if parser.peek(1).kind == TokenType.Identifier && parser.peek(2).kind == TokenType.Colon { return true }
+  if parser.peek(1).kind == TokenType.Ellipsis { return true }
+  if parser.peek(1).kind == TokenType.Identifier && (parser.peek(2).kind == TokenType.Comma || parser.peek(2).kind == TokenType.RightBrace) { return true }
+  return parser.peek(1).kind == TokenType.RightBrace
 }
 
 function looksLikeGenericTypeArguments(parser: Parser): bool {
@@ -490,7 +564,23 @@ function parseIntValue(parser: Parser, raw: string): int {
 
 function parseLongValue(parser: Parser, raw: string): long {
   clean := raw.replaceAll("L", "").replaceAll("l", "")
-  return long(parseIntValue(parser, clean))
+  let base: long = 10L
+  let index = 0
+  if clean.length >= 2 && clean[0] == '0' && (clean[1] == 'x' || clean[1] == 'X') {
+    base = 16L
+    index = 2
+  } else if clean.length >= 2 && clean[0] == '0' && (clean[1] == 'b' || clean[1] == 'B') {
+    base = 2L
+    index = 2
+  }
+  let result: long = 0L
+  while index < clean.length {
+    ch := clean[index]
+    if ch == '_' { index = index + 1; continue }
+    result = result * base + long(digitValue(ch))
+    index = index + 1
+  }
+  return result
 }
 
 function digitValue(ch: char): int {

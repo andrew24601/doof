@@ -1,5 +1,4 @@
 import { Assert } from "std/assert"
-import { readText } from "std/fs"
 import { NativeBuildPlan, mergeNativeBuildPlans, parsePackageManifest } from "./package-manifest"
 
 export function testParsesAndNormalizesExecutableResources(): void {
@@ -106,29 +105,4 @@ export function testRejectsInvalidNativeStringArrays(): void {
     return
   }
   panic("expected invalid manifest failure")
-}
-
-export function testDiscoversRealStdTimeNativeFiles(): void {
-  root := absolutePath("../doof-stdlib/time")
-  manifest := try! parsePackageManifest(
-    try! readText(root + "/doof.json"),
-    root + "/doof.json",
-    root,
-    "macos",
-  )
-
-  Assert.equal(manifest.nativeBuild.sourceFiles.contains(root + "/doof_time.cpp"), true)
-  Assert.equal(manifest.nativeBuild.extraCopyPaths.contains(root + "/doof_time.hpp"), true)
-}
-
-export function testDiscoversRealStdPathPlatformFramework(): void {
-  root := absolutePath("../doof-stdlib/path")
-  manifest := try! parsePackageManifest(
-    try! readText(root + "/doof.json"),
-    root + "/doof.json",
-    root,
-    "macos",
-  )
-
-  Assert.equal(manifest.nativeBuild.frameworks.contains("CoreFoundation"), true)
 }

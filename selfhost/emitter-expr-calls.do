@@ -1,8 +1,8 @@
 // Call, native-constructor, and class-construction lowering.
 
-import { CallArgument, CallExpression, ConstructExpression, Expression, Identifier, MemberExpression, ObjectProperty, ThisExpression } from "./ast"
+import { CallArgument, CallExpression, ConstructExpression, Expression, FunctionDeclaration, Identifier, MemberExpression, ObjectProperty, SourceSpan, ThisExpression } from "./ast"
 import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, StreamResolvedType, Symbol } from "./semantic"
-import { EmitContext } from "./emitter-context"
+import { EmitContext, SourceLocationSpanOverride } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, emitExpectedExpression, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion, optionalExpectedType } from "./emitter-expr-utils"
@@ -12,6 +12,24 @@ import { classInstantiationKey, functionInstantiationKey, methodInstantiationKey
 import { emitSyncActorCall } from "./emitter-expr-actor"
 
 export function emitCall(expression: CallExpression, context: EmitContext, expected: ResolvedType | null = null): string {
+  case expression.callee {
+    identifier: Identifier -> {
+      if identifier.name == "catchPanic" && expression.args.length == 1 {
+        case expression.resolvedType! {
+          result: ResultResolvedType -> {
+            callback := emitExpression(expression.args[0].value, context)
+            successType := emitType(result.valueType, context.modulePath)
+            if result.valueType.kind == "void" {
+              return "[&]() -> doof::Result<void, std::string> { try { " + callback + ".call(); return doof::Success<void>{}; } catch (const doof::Panic& _panic) { return doof::Failure<std::string>{_panic.message()}; } }()"
+            }
+            return "[&]() -> doof::Result<" + successType + ", std::string> { try { return doof::Success<" + successType + ">{" + callback + ".call()}; } catch (const doof::Panic& _panic) { return doof::Failure<std::string>{_panic.message()}; } }()"
+          }
+          _ -> { panic("catchPanic has no Result type") }
+        }
+      }
+    }
+    _ -> { }
+  }
   case expression.callee {
     identifier: Identifier -> {
       if identifier.name == "Success" || identifier.name == "Failure" {
@@ -37,6 +55,10 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       if member.object.resolvedType != null {
         case member.object.resolvedType! {
           actor: ActorType -> { return emitSyncActorCall(expression, member, actor, context) }
+          _: ResultResolvedType -> {
+            if member.property == "isSuccess" { return "doof::is_success(" + emitExpression(member.object, context) + ")" }
+            if member.property == "isFailure" { return "doof::is_failure(" + emitExpression(member.object, context) + ")" }
+          }
           _ -> { }
         }
       }
@@ -48,7 +70,15 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
     _: Identifier -> { nativeConstructorCall = true }
     _ -> { }
   }
-  if nativeConstructorCall && expression.resolvedType != null {
+  if nativeConstructorCall && expression.resolvedConstructor != null && expression.callee.resolvedType != null {
+    case expression.callee.resolvedType! {
+      owner: ClassType -> {
+        return emitConstructorFactoryCall(owner, expression.resolvedConstructor!, expression.args, context, expression.span)
+      }
+      _ -> { }
+    }
+  }
+  if nativeConstructorCall && isClassCallee(expression.callee) && expression.resolvedType != null {
     case expression.resolvedType! {
       class_: ClassType -> {
         if class_.symbol.native_ {
@@ -67,7 +97,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             for i of expression.args.length..<constructorMethod!.params.length {
               if result != nativeName + "::constructor(" { result = result + ", " }
               if constructorMethod!.params[i].defaultValue == null { panic("Native constructor " + class_.name + " is missing a default argument") }
-              result = result + emitExpression(constructorMethod!.params[i].defaultValue!, context, constructorMethod!.params[i].resolvedType)
+              result = result + emitDefaultExpression(constructorMethod!.params[i].defaultValue!, context, constructorMethod!.params[i].resolvedType, expression.span)
             }
           }
           return result + ")"
@@ -113,11 +143,16 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             if member.property == "buildReadonly" { return "doof::array_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "contains" { return "doof::array_contains(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "indexOf" { return "doof::array_indexOf(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "some" { return "doof::array_some(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "every" { return "doof::array_every(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "filter" { return "doof::array_filter(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "map" { return "doof::array_map(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
           }
           _: MapResolvedType -> {
             if member.property == "has" { return "(" + emitExpression(member.object, context) + "->find(" + emitExpression(expression.args[0].value, context) + ") != " + emitExpression(member.object, context) + "->end())" }
             if member.property == "set" { return "doof::map_set(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", " + emitExpression(expression.args[1].value, context) + ", \"\", 0)" }
             if member.property == "get" && expression.args.length > 0 { return "doof::map_get(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "buildReadonly" { return "doof::map_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
           }
           _ -> { }
         }
@@ -204,6 +239,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
     }
   }
   functionDeclaration := expression.resolvedFunction
+  let usesConcreteInstantiation = false
   if functionDeclaration != null && (functionDeclaration!.typeParams.length > 0 || functionDeclaration!.native_) {
     let targetModule = context.modulePath
     let concreteMethodName = ""
@@ -230,6 +266,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       _ -> { }
     }
     if concreteMethodName != "" {
+      usesConcreteInstantiation = true
       case expression.callee {
         member: MemberExpression -> { callee = callee.substring(0, callee.length - member.property.length) + concreteMethodName }
         _ -> { }
@@ -238,16 +275,25 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       key := functionInstantiationKey(targetModule, functionDeclaration!.name, concreteGenericArgs)
       concreteName := concreteFunctionName(context, key)
       if concreteName != "" {
+        usesConcreteInstantiation = true
         callee = if targetModule != "" && targetModule != context.modulePath then "::" + exprModuleNamespaceFor(targetModule) + "::" + concreteName else concreteName
       }
     }
   }
-  let isIdentifierCallback = false
-  case expression.callee {
-    identifier: Identifier -> { isIdentifierCallback = !isBuiltinName(identifier.name) }
-    _ -> { }
+  if concreteGenericArgs.length > 0 && functionDeclaration != null && functionDeclaration!.typeParams.length > 0 && !usesConcreteInstantiation {
+    callee = callee + "<"
+    for i of 0..<concreteGenericArgs.length {
+      if i > 0 { callee = callee + ", " }
+      callee = callee + emitContextType(concreteGenericArgs[i], context)
+    }
+    callee = callee + ">"
   }
-  invokesCallback := isIdentifierCallback && functionType != null && functionDeclaration == null
+  let invokesCallback = false
+  case expression.callee {
+    identifier: Identifier -> { invokesCallback = !isBuiltinName(identifier.name) && functionType != null && functionDeclaration == null }
+    member: MemberExpression -> { invokesCallback = member.resolvedCallableField && functionType != null }
+    _ -> { invokesCallback = functionType != null && functionDeclaration == null }
+  }
   callPrefix := if invokesCallback then callee + ".call(" else callee + "("
   let result = callPrefix
   let named = false
@@ -261,7 +307,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       if argument != null || parameter.defaultValue != null {
         if result != callPrefix { result = result + ", " }
         if argument != null { result = result + emitExpectedExpression(argument!.value, context, expected) }
-        else { result = result + emitExpression(parameter.defaultValue!, context, expected) }
+        else { result = result + emitDefaultExpression(parameter.defaultValue!, context, expected, expression.span) }
       }
     }
   } else {
@@ -282,7 +328,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         parameter := functionDeclaration!.params[i]
         if parameter.defaultValue != null {
           if result != callPrefix { result = result + ", " }
-          result = result + emitExpression(parameter.defaultValue!, context, parameter.resolvedType)
+          result = result + emitDefaultExpression(parameter.defaultValue!, context, parameter.resolvedType, expression.span)
         }
       }
     }
@@ -294,7 +340,14 @@ function isClassCallee(callee: Expression): bool {
   case callee {
     identifier: Identifier -> {
       if identifier.resolvedBinding == null { return false }
-      return identifier.resolvedBinding!.kind == "class" || identifier.resolvedBinding!.kind == "struct"
+      binding := identifier.resolvedBinding!
+      if binding.kind == "class" || binding.kind == "struct" { return true }
+      // Method bindings retain their owner symbol for cross-module naming.  An
+      // owner class does not make the method identifier a class constructor.
+      if binding.kind == "import" && binding.symbol != null {
+        return binding.symbol!.kind == "class" || binding.symbol!.kind == "struct"
+      }
+      return false
     }
     _ -> { return false }
   }
@@ -324,8 +377,10 @@ function emitInterfaceCall(member: MemberExpression, call: CallExpression, conte
 function builtinName(name: string): string {
   if name == "println" { return "doof::println" }
   if name == "panic" { return "doof::panic" }
+  if name == "assert" { return "doof::assert_" }
   if name == "absolutePath" { return "doof::absolute_path" }
   if name == "string" { return "doof::to_string" }
+  if name == "byte" { return "static_cast<uint8_t>" }
   if name == "int" { return "static_cast<int32_t>" }
   if name == "long" { return "static_cast<int64_t>" }
   if name == "float" { return "static_cast<float>" }
@@ -336,7 +391,7 @@ function builtinName(name: string): string {
 }
 
 function isBuiltinName(name: string): bool {
-  return name == "println" || name == "panic" || name == "string" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool" || name == "readFile" || name == "writeFile" || name == "absolutePath"
+  return name == "println" || name == "panic" || name == "assert" || name == "catchPanic" || name == "string" || name == "byte" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool" || name == "readFile" || name == "writeFile" || name == "absolutePath"
 }
 
 export function emitConstruct(expression: ConstructExpression, context: EmitContext): string {
@@ -358,6 +413,14 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
   }
   class_ := expression.resolvedClass
   if class_ == null { panic("Cannot construct unresolved class " + expression.type_) }
+  if expression.resolvedConstructor != null && expression.resolvedConstructedType != null {
+    case expression.resolvedConstructedType! {
+      owner: ClassType -> {
+        return emitNamedConstructorFactoryCall(owner, expression.resolvedConstructor!, expression, context)
+      }
+      _ -> { }
+    }
+  }
   let cppName = expression.type_
   let native = class_!.native_
   let structValue = false
@@ -396,7 +459,7 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
             _ -> { value = emitExpectedExpression(property!.value!, context, field.resolvedType) }
           }
         }
-      } else if field.defaultValue != null { value = emitExpression(field.defaultValue!, context, field.resolvedType) }
+      } else if field.defaultValue != null { value = emitDefaultExpression(field.defaultValue!, context, field.resolvedType, expression.span) }
       else { value = "{}" }
       if expression.type_ == "FunctionDeclaration" && name == "body" {
         value = "doof::variant_promote<" + emitContextType(field.resolvedType!, context) + ">(" + value + ")"
@@ -416,6 +479,52 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
   if native { return "std::make_shared<" + cppName + ">(" + values + ")" }
   if structValue { return cppName + "{" + values + "}" }
   return "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
+}
+
+function emitConstructorFactoryCall(owner: ClassType, constructorMethod: FunctionDeclaration, args: CallArgument[], context: EmitContext, callSiteSpan: SourceSpan): string {
+  let cppName = if owner.symbol.native_ then "::" + (if owner.symbol.nativeCppName == "" then owner.symbol.name else owner.symbol.nativeCppName) else if owner.symbol.module != "" && owner.symbol.module != context.modulePath then "::" + exprModuleNamespaceFor(owner.symbol.module) + "::" + emittedSymbolName(owner.symbol) else emittedSymbolName(owner.symbol)
+  concrete := concreteClassName(owner, context)
+  if concrete != "" { cppName = concrete }
+  let result = cppName + "::constructor("
+  for i of 0..<args.length {
+    if i > 0 { result = result + ", " }
+    let expectedType: ResolvedType | null = null
+    if i < constructorMethod.params.length { expectedType = constructorMethod.params[i].resolvedType }
+    result = result + emitExpression(args[i].value, context, expectedType)
+  }
+  for i of args.length..<constructorMethod.params.length {
+    if i > 0 { result = result + ", " }
+    if constructorMethod.params[i].defaultValue == null { panic("Constructor " + owner.name + " is missing argument " + constructorMethod.params[i].name) }
+    result = result + emitDefaultExpression(constructorMethod.params[i].defaultValue!, context, constructorMethod.params[i].resolvedType, callSiteSpan)
+  }
+  return result + ")"
+}
+
+function emitNamedConstructorFactoryCall(owner: ClassType, constructorMethod: FunctionDeclaration, expression: ConstructExpression, context: EmitContext): string {
+  let cppName = if owner.symbol.native_ then "::" + (if owner.symbol.nativeCppName == "" then owner.symbol.name else owner.symbol.nativeCppName) else if owner.symbol.module != "" && owner.symbol.module != context.modulePath then "::" + exprModuleNamespaceFor(owner.symbol.module) + "::" + emittedSymbolName(owner.symbol) else emittedSymbolName(owner.symbol)
+  concrete := concreteClassName(owner, context)
+  if concrete != "" { cppName = concrete }
+  let result = cppName + "::constructor("
+  for i of 0..<constructorMethod.params.length {
+    if i > 0 { result = result + ", " }
+    parameter := constructorMethod.params[i]
+    property := findProperty(expression.args, parameter.name)
+    if property != null {
+      if property!.value == null { result = result + cppIdentifier(property!.name) }
+      else { result = result + emitExpression(property!.value!, context, parameter.resolvedType) }
+    } else if parameter.defaultValue != null {
+      result = result + emitDefaultExpression(parameter.defaultValue!, context, parameter.resolvedType, expression.span)
+    } else { panic("Constructor " + owner.name + " is missing argument " + parameter.name) }
+  }
+  return result + ")"
+}
+
+function emitDefaultExpression(expression: Expression, context: EmitContext, expected: ResolvedType | null, callSiteSpan: SourceSpan): string {
+  previous := context.sourceLocationSpanOverride
+  context.sourceLocationSpanOverride = SourceLocationSpanOverride { span: callSiteSpan }
+  result := emitExpression(expression, context, expected)
+  context.sourceLocationSpanOverride = previous
+  return result
 }
 
 function concreteFunctionName(context: EmitContext, key: string): string {

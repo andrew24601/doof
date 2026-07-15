@@ -12,6 +12,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `samples/` — example programs and larger package-style projects used as references and e2e coverage targets
 - `stdlib/` — bundled standard library sources and support assets
 - `scripts/` — helper build and packaging scripts for samples and app targets
+- `scripts/release-gate.mjs` — expensive self-host bootstrap, fixed-point comparison, coverage, and native release acceptance
 - `selfhost/` — Doof implementations of compiler front-end components and their Doof-native tests
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
@@ -44,19 +45,21 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 - `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
-- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `emit`, `check`, project-directory entrypoints, and explicit `--module` mappings)
+- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `package`, `emit`, `check`, `test`, project-directory entrypoints, and explicit `--module` mappings)
+- `selfhost/test-runner.do` — static test discovery, signature validation, id filtering, portable display paths, and per-module harness generation
+- `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, and harness imports
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
 - `selfhost/package-manifest.do` — normalized package identity, root executable resources, and host-platform `build.native` manifest parsing
 - `selfhost/emitter-project.do` — package-relative generated support files, native-copy paths, and output native-build planning
 - `selfhost/native-build.do` — output-relative native path resolution and GCC-compatible compile/link argument planning
-- `selfhost/driver.do` — native filesystem/JSON runtime boundary, executable-resource uptake, and generic project materialization for the self-hosted CLI
-- `selfhost/compiler.test.do` — self-hosted compiler pipeline tests
+- `selfhost/driver.do` — native filesystem/process boundary, executable-resource uptake, project materialization, and isolated test execution for the self-hosted CLI
+- `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
-- `selfhost/package-manifest.test.do` — native manifest parsing, platform merge, validation, and real-stdlib tests
+- `selfhost/package-manifest.test.do` — focused native manifest parsing, platform merge, and validation tests
 - `selfhost/emitter-project.test.do` — package-relative native planning, generated-header mirrors, and collision isolation tests
 - `selfhost/project.test.do` — root project manifest and native-plan tests
-- `selfhost/bootstrap.test.do` — maintained B3 native split-emission gate, B4/B5 compiler bootstrap, and B6 two-stage smoke tests
+- `selfhost/release-fixtures/` — maintained native/runtime, stdlib, test-runner, resource, and platform packages used only by the release gate
 - `selfhost/samples/nullable-variant.do` — focused native-compilation fixture for nullable variant lowering
 - `selfhost/samples/nullable-ast-construction.do` — focused fixture for avoiding duplicate nullable AST-variant promotion
 - `selfhost/samples/nullable-alias-assignment.do` — focused fixture for nullable `Expression`/`Statement`-style alias assignment
@@ -67,6 +70,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-names.do` — stable generated module namespaces and artifact names
 - `selfhost/emitter-monomorphize.do` — fixed-point discovery and stable naming of concrete functions, methods, classes, interfaces, and native adapters
 - `selfhost/emitter-types.do` — self-hosted resolved-type to C++ type lowering
+- `selfhost/emitter-case-pattern.do` — shared representation-driven type-pattern lowering for statement and expression cases
 - `selfhost/emitter-expr.do` — self-hosted decorated-AST expression dispatcher
 - `selfhost/emitter-expr-utils.do` — shared self-hosted expression type and promotion helpers
 - `selfhost/emitter-expr-literals.do` — self-hosted literal, array, object, tuple, and string lowering
@@ -81,8 +85,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary
 - `selfhost/emitter-module.do` — self-hosted module planning, dependency includes, and split `.hpp` / `.cpp` orchestration
 - `selfhost/emitter-project.do` — self-hosted generated support-file and native package output planning
-- `selfhost/emitter.test.do` — native tests for the initial self-hosted emitter slice
-- `src/selfhost-bootstrap.test.ts` — native-toolchain syntax compilation of the TypeScript-emitted self-host source graph
+- `selfhost/emitter.test.do` — focused string and structure tests for the self-hosted emitter
 
 ## `src/` by Concern
 

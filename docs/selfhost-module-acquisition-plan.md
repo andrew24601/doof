@@ -169,8 +169,8 @@ Acceptance:
 ## Verification gates
 
 - `doof test selfhost/module-acquisition.test.do`
-- `doof test selfhost/compiler.test.do`
-- `DOOF_TEST_TIMEOUT_MS=240000 doof test selfhost/bootstrap.test.do`
+- `npm run test:selfhost`
+- `npm run test:release`
 - `npm run build`
 - `npm test`
 
@@ -229,5 +229,5 @@ checks in this file as implementation progresses.
   package-stable namespace ownership supplied by reached manifests.
 - Added focused planner, CLI, and namespace tests plus generated-driver builds
   for root/transitive `std/time` inputs and a platform-framework package.
-- Raised the full bootstrap test timeout to 240 seconds because B5/B6 now
-  rebuild the additional package-namespace and native-build handoff modules.
+- The former bootstrap test required a 240-second timeout because B5/B6
+  rebuilt the additional package-namespace and native-build handoff modules.

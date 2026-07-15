@@ -17,7 +17,7 @@ import {
   MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType,
   Symbol, TupleResolvedType, UnionResolvedType,
 } from "./semantic"
-import { moduleHeaderName, moduleNamespace } from "./emitter-names"
+import { moduleHeaderName, moduleNamespace, moduleNativeHeaderPath } from "./emitter-names"
 
 export class HeaderPlan {
   functionSignatures: string[] = []
@@ -54,7 +54,7 @@ export function planHeaders(programs: Program[], context: EmitContext): HeaderPl
     if hasNonTypeOnlyImport(context.imports, imported.sourceModule) { continue }
     includeName := moduleHeaderName(imported.sourceModule)
     addUnique(plan.typeOnlyModuleIncludes, includeName)
-    if imported.symbol != null && (imported.symbol!.kind == "class" || imported.symbol!.kind == "struct") {
+    if imported.symbol != null && (imported.symbol!.kind == "class" || imported.symbol!.kind == "struct") && !surfaceSymbolIsGeneric(context, imported.symbol!) {
       declaration := "namespace " + moduleNamespace(imported.symbol!.module) + " { struct " + imported.symbol!.name + "; }\n"
       addUnique(plan.typeOnlyForwardDeclarations, declaration)
     }
@@ -64,9 +64,11 @@ export function planHeaders(programs: Program[], context: EmitContext): HeaderPl
       for imported of context.imports {
         if imported.symbol != null {
           if imported.symbol!.kind == "function" {
-            target := if imported.symbol!.native_ then imported.symbol!.nativeCppName else moduleNamespace(imported.symbol!.module) + "::" + imported.symbol!.name
-            addUnique(plan.nativeAliases, "namespace " + namespace + " { using ::" + target + "; }\n")
-          } else {
+            if imported.symbol!.native_ || !surfaceFunctionIsGeneric(context, imported.symbol!) {
+              target := if imported.symbol!.native_ then imported.symbol!.nativeCppName else moduleNamespace(imported.symbol!.module) + "::" + imported.symbol!.name
+              addUnique(plan.nativeAliases, "namespace " + namespace + " { using ::" + target + "; }\n")
+            }
+          } else if !surfaceSymbolIsGeneric(context, imported.symbol!) {
             addNativeSymbolAlias(imported.symbol!, namespace, plan)
           }
           collectNativeModuleSurfaceAliases(imported.symbol!.module, namespace, plan, context)
@@ -88,7 +90,7 @@ function collectNativeModuleSurfaceAliases(modulePath: string, namespace: string
       if isNativeAliasType(symbol) && !surfaceTypeIsGeneric(surface, symbol.name) { addNativeSymbolAlias(symbol, namespace, plan) }
     }
     for imported of surface.imports {
-      if imported.symbol != null && isNativeAliasType(imported.symbol!) {
+      if imported.symbol != null && isNativeAliasType(imported.symbol!) && !surfaceSymbolIsGeneric(context, imported.symbol!) {
         addNativeSymbolAlias(imported.symbol!, namespace, plan)
       }
     }
@@ -109,7 +111,8 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
   case statement {
     class_: ClassDeclaration -> {
       if class_.native_ {
-        include := if class_.nativeHeader == "" then class_.name + ".hpp" else class_.nativeHeader
+        rawInclude := if class_.nativeHeader == "" then class_.name + ".hpp" else class_.nativeHeader
+        include := moduleNativeHeaderPath(context.modulePath, rawInclude)
         addUnique(plan.nativeIncludes, include)
         namespace := nativeNamespace(class_.nativeCppName)
         addUnique(plan.nativeNamespaces, namespace)
@@ -128,7 +131,7 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
     readonly_: ReadonlyDeclaration -> { if readonly_.exported { plan.exportedValueDefinitions.push(emitExportedValue(readonly_.name, readonly_.value, context)) } }
     fn: FunctionDeclaration -> {
       if fn.native_ {
-        if fn.nativeHeader != "" { addUnique(plan.nativeIncludes, fn.nativeHeader) }
+        if fn.nativeHeader != "" { addUnique(plan.nativeIncludes, moduleNativeHeaderPath(context.modulePath, fn.nativeHeader)) }
         namespace := nativeNamespace(fn.nativeCppName)
         addUnique(plan.nativeNamespaces, namespace)
         if fn.resolvedType != null { collectNativeTypeAliases(fn.resolvedType!, namespace, plan, context) }
@@ -193,6 +196,16 @@ function collectNativeTypeAliases(type_: ResolvedType, namespace: string, plan: 
 function surfaceSymbolIsGeneric(context: EmitContext, symbol: Symbol): bool {
   for surface of context.moduleSurfaces {
     if surface.path == symbol.module { return surfaceTypeIsGeneric(surface, symbol.name) }
+  }
+  return false
+}
+
+function surfaceFunctionIsGeneric(context: EmitContext, symbol: Symbol): bool {
+  for surface of context.moduleSurfaces {
+    if surface.path == symbol.module {
+      for genericName of surface.genericFunctions { if genericName == symbol.name { return true } }
+      return false
+    }
   }
   return false
 }

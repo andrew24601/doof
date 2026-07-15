@@ -553,6 +553,9 @@ export class Lexer {
     if count > 1 { advance() }
     if count > 2 { advance() }
     if count > 3 { advance() }
+    if count > 4 { advance() }
+    if count > 5 { advance() }
+    if count > 6 { advance() }
     addToken(kind, start, count, start, count, false, tokenLine, tokenColumn)
   }
 

@@ -91,7 +91,12 @@ function planPackageNativeBuild(project: ProjectEmission, package_: NativePackag
     copiedAny = true
   }
 
-  if copiedAny { appendUnique(project.nativeBuild.includePaths, package_.outputRoot) }
+  if copiedAny {
+    appendUnique(project.nativeBuild.includePaths, package_.outputRoot)
+    if package_.outputRoot != "" {
+      appendUnique(project.nativeBuild.includePaths, projectParentPath(package_.outputRoot))
+    }
+  }
   appendUniqueValues(project.nativeBuild.linkLibraries, native.linkLibraries)
   appendUniqueValues(project.nativeBuild.frameworks, native.frameworks)
   appendUniqueValues(project.nativeBuild.pkgConfigPackages, native.pkgConfigPackages)

@@ -18,7 +18,7 @@ export function emitGeneratedJsonDeclarations(owner: ClassDeclaration, context: 
   let result = "    doof::JsonObject toJsonObject() const;\n"
   if canGenerateJsonDeserialization(owner) {
     valueType := jsonResultValueType(owner)
-    result = result + "    static doof::Result<" + valueType + ", std::string> fromJsonValue(const doof::JsonValue& _json);\n"
+    result = result + "    static doof::Result<" + valueType + ", std::string> fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);\n"
   }
   return result
 }
@@ -46,7 +46,7 @@ function emitToJsonObject(owner: ClassDeclaration, context: EmitContext): string
 function emitFromJsonValue(owner: ClassDeclaration, context: EmitContext): string {
   valueType := jsonResultValueType(owner)
   failureType := "doof::Failure<std::string>"
-  let result = "doof::Result<" + valueType + ", std::string> " + owner.name + "::fromJsonValue(const doof::JsonValue& _json) {\n"
+  let result = "doof::Result<" + valueType + ", std::string> " + owner.name + "::fromJsonValue(const doof::JsonValue& _json, bool _lenient) {\n"
   result = result + "    const auto* _object = doof::json_as_object(_json);\n"
   result = result + "    if (_object == nullptr) { return " + failureType + "{\"Expected JSON object\"}; }\n"
   for field of owner.fields {
@@ -98,9 +98,9 @@ function emitJsonValidation(json: string, type_: ResolvedType, name: string, fai
 function emitJsonTypeCheck(json: string, type_: ResolvedType): string {
   case type_ {
     primitive: PrimitiveType -> {
-      if primitive.name == "bool" { return "doof::json_is_boolean(" + json + ")" }
-      if primitive.name == "string" || primitive.name == "char" { return "doof::json_is_string(" + json + ")" }
-      return "doof::json_is_number(" + json + ")"
+      if primitive.name == "bool" { return "(_lenient ? doof::json_is_lenient_boolean(" + json + ") : doof::json_is_boolean(" + json + "))" }
+      if primitive.name == "string" || primitive.name == "char" { return "(_lenient ? doof::json_is_lenient_string(" + json + ") : doof::json_is_string(" + json + "))" }
+      return "(_lenient ? doof::json_is_lenient_number(" + json + ") : doof::json_is_number(" + json + "))"
     }
     _: JsonValueResolvedType -> { return "true" }
     union_: UnionResolvedType -> {
@@ -127,14 +127,14 @@ function emitJsonRead(json: string, type_: ResolvedType, context: EmitContext): 
 }
 
 function emitPrimitiveJsonRead(json: string, name: string): string {
-  if name == "bool" { return "doof::json_as_bool(" + json + ")" }
-  if name == "byte" { return "static_cast<uint8_t>(doof::json_as_int(" + json + "))" }
-  if name == "int" { return "doof::json_as_int(" + json + ")" }
-  if name == "long" { return "doof::json_as_long(" + json + ")" }
-  if name == "float" { return "doof::json_as_float(" + json + ")" }
-  if name == "double" { return "doof::json_as_double(" + json + ")" }
+  if name == "bool" { return "(_lenient ? doof::json_as_bool_lenient(" + json + ") : doof::json_as_bool(" + json + "))" }
+  if name == "byte" { return "static_cast<uint8_t>(_lenient ? doof::json_as_int_lenient(" + json + ") : doof::json_as_int(" + json + "))" }
+  if name == "int" { return "(_lenient ? doof::json_as_int_lenient(" + json + ") : doof::json_as_int(" + json + "))" }
+  if name == "long" { return "(_lenient ? doof::json_as_long_lenient(" + json + ") : doof::json_as_long(" + json + "))" }
+  if name == "float" { return "(_lenient ? doof::json_as_float_lenient(" + json + ") : doof::json_as_float(" + json + "))" }
+  if name == "double" { return "(_lenient ? doof::json_as_double_lenient(" + json + ") : doof::json_as_double(" + json + "))" }
   if name == "char" { return "static_cast<char32_t>(doof::json_as_string(" + json + ")[0])" }
-  return "doof::json_as_string(" + json + ")"
+  return "(_lenient ? doof::json_as_string_lenient(" + json + ") : doof::json_as_string(" + json + "))"
 }
 
 function jsonTypeName(type_: ResolvedType): string {

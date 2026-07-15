@@ -119,7 +119,10 @@ function collectStatementExpressions(statement: Statement, result: Expression[])
     destructuring: DestructuringStatement -> { result.push(destructuring.value) }
     try_: TryStatement -> {
       case try_.binding {
+        declaration: ConstDeclaration -> { collectStatementExpressions(declaration, result) }
+        declaration: ReadonlyDeclaration -> { collectStatementExpressions(declaration, result) }
         binding: ImmutableBinding -> { collectStatementExpressions(binding, result) }
+        declaration: LetDeclaration -> { collectStatementExpressions(declaration, result) }
         expression: ExpressionStatement -> { collectStatementExpressions(expression, result) }
       }
     }
@@ -157,7 +160,12 @@ function collectNestedExpressions(expression: Expression, result: Expression[]):
     if_: IfExpression -> { result.push(if_.condition); result.push(if_.then_); result.push(if_.else_) }
     case_: CaseExpression -> {
       result.push(case_.subject)
-      for arm of case_.arms { result.push(arm.body) }
+      for arm of case_.arms {
+        case arm.body {
+          block: Block -> { collectBlockExpressions(block, result) }
+          bodyExpression: Expression -> { result.push(bodyExpression) }
+        }
+      }
     }
     async_: AsyncExpression -> {
       case async_.expression {

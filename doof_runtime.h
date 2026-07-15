@@ -35,10 +35,15 @@
 #include <vector>
 
 #if defined(_WIN32)
+#include <direct.h>
+#include <fcntl.h>
+#include <io.h>
 #include <process.h>
 #else
+#include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char** environ;
 #endif
 
 /* __DOOF_OBSERVER_PLATFORM_SUPPORT__ */
@@ -87,9 +92,54 @@ inline int32_t run_command(
     const intptr_t result = ::_spawnvp(_P_WAIT, command.c_str(), argv.data());
     return result < 0 ? -1 : static_cast<int32_t>(result);
 #else
-    const pid_t child = ::fork();
+    pid_t child = 0;
+    const int spawn_result = ::posix_spawnp(
+        &child,
+        command.c_str(),
+        nullptr,
+        nullptr,
+        const_cast<char* const*>(argv.data()),
+        environ
+    );
+    if (spawn_result != 0) return -1;
+    int status = 0;
+    if (::waitpid(child, &status, 0) < 0) return -1;
+    if (WIFEXITED(status)) return static_cast<int32_t>(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) return static_cast<int32_t>(128 + WTERMSIG(status));
+    return -1;
+#endif
+}
+
+// Executes a command from an explicit working directory. Test processes use
+// this boundary so relative fixture and artifact paths resolve from the package
+// that owns the test, independently of the compiler invocation directory.
+inline int32_t run_command_in_directory(
+    const std::string& command,
+    const std::shared_ptr<std::vector<std::string>>& arguments,
+    const std::string& directory
+) {
+    std::vector<const char*> argv;
+    argv.reserve(arguments->size() + 2);
+    argv.push_back(command.c_str());
+    for (const auto& argument : *arguments) argv.push_back(argument.c_str());
+    argv.push_back(nullptr);
+#if defined(_WIN32)
+    static std::mutex working_directory_mutex;
+    const std::lock_guard<std::mutex> lock(working_directory_mutex);
+    std::error_code error;
+    const auto previous_directory = std::filesystem::current_path(error);
+    if (error) return -1;
+    std::filesystem::current_path(directory, error);
+    if (error) return -1;
+    const intptr_t result = ::_spawnvp(_P_WAIT, command.c_str(), argv.data());
+    std::filesystem::current_path(previous_directory, error);
+    if (error || result < 0) return -1;
+    return static_cast<int32_t>(result);
+#else
+    pid_t child = ::fork();
     if (child < 0) return -1;
     if (child == 0) {
+        if (::chdir(directory.c_str()) != 0) ::_exit(127);
         ::execvp(command.c_str(), const_cast<char* const*>(argv.data()));
         ::_exit(127);
     }
@@ -99,6 +149,171 @@ inline int32_t run_command(
     if (WIFSIGNALED(status)) return static_cast<int32_t>(128 + WTERMSIG(status));
     return -1;
 #endif
+}
+
+struct LimitedCommandOutputState {
+    std::mutex mutex;
+    int32_t maximum_lines = 0;
+    int32_t remaining_lines = 0;
+    bool truncation_reported = false;
+};
+
+inline LimitedCommandOutputState& limited_command_output_state() {
+    static LimitedCommandOutputState state;
+    return state;
+}
+
+inline void reset_command_output_limit(int32_t maximum_lines) {
+    auto& state = limited_command_output_state();
+    const std::lock_guard<std::mutex> lock(state.mutex);
+    state.maximum_lines = std::max<int32_t>(0, maximum_lines);
+    state.remaining_lines = state.maximum_lines;
+    state.truncation_reported = false;
+}
+
+struct CapturedCommandOutput {
+    std::string text;
+    bool truncated = false;
+};
+
+inline void append_captured_command_output(
+    CapturedCommandOutput& output,
+    const char* bytes,
+    std::size_t count,
+    int32_t maximum_lines
+) {
+    constexpr std::size_t maximum_bytes = 256 * 1024;
+    int32_t lines = static_cast<int32_t>(std::count(output.text.begin(), output.text.end(), '\n'));
+    for (std::size_t index = 0; index < count; ++index) {
+        if (lines >= maximum_lines || output.text.size() >= maximum_bytes) {
+            output.truncated = true;
+            continue;
+        }
+        output.text.push_back(bytes[index]);
+        if (bytes[index] == '\n') ++lines;
+    }
+}
+
+inline void print_captured_command_output(const CapturedCommandOutput& output) {
+    auto& state = limited_command_output_state();
+    const std::lock_guard<std::mutex> lock(state.mutex);
+    std::istringstream lines(output.text);
+    std::string line;
+    bool omitted = output.truncated;
+    while (std::getline(lines, line)) {
+        if (state.remaining_lines <= 0) {
+            omitted = true;
+            continue;
+        }
+        std::cerr << line << '\n';
+        --state.remaining_lines;
+    }
+    if (omitted && !state.truncation_reported) {
+        std::cerr << ("... native compiler output truncated after " +
+                      std::to_string(state.maximum_lines) + " lines\n");
+        state.truncation_reported = true;
+    }
+}
+
+// Executes a compiler without a shell while draining all output. Only the
+// configured number of lines are printed across concurrently running tasks.
+inline int32_t run_command_limited(
+    const std::string& command,
+    const std::shared_ptr<std::vector<std::string>>& arguments
+) {
+    std::vector<const char*> argv;
+    argv.reserve(arguments->size() + 2);
+    argv.push_back(command.c_str());
+    for (const auto& argument : *arguments) argv.push_back(argument.c_str());
+    argv.push_back(nullptr);
+
+    int32_t maximum_lines = 0;
+    {
+        auto& state = limited_command_output_state();
+        const std::lock_guard<std::mutex> lock(state.mutex);
+        maximum_lines = state.maximum_lines;
+    }
+    CapturedCommandOutput output;
+    int32_t exit_code = -1;
+#if defined(_WIN32)
+    int descriptors[2];
+    if (::_pipe(descriptors, 4096, _O_BINARY) != 0) return -1;
+    intptr_t child = -1;
+    {
+        static std::mutex spawn_mutex;
+        const std::lock_guard<std::mutex> lock(spawn_mutex);
+        const int saved_stdout = ::_dup(1);
+        const int saved_stderr = ::_dup(2);
+        if (saved_stdout < 0 || saved_stderr < 0 || ::_dup2(descriptors[1], 1) != 0 || ::_dup2(descriptors[1], 2) != 0) {
+            if (saved_stdout >= 0) ::_close(saved_stdout);
+            if (saved_stderr >= 0) ::_close(saved_stderr);
+            ::_close(descriptors[0]);
+            ::_close(descriptors[1]);
+            return -1;
+        }
+        child = ::_spawnvp(_P_NOWAIT, command.c_str(), argv.data());
+        ::_dup2(saved_stdout, 1);
+        ::_dup2(saved_stderr, 2);
+        ::_close(saved_stdout);
+        ::_close(saved_stderr);
+        ::_close(descriptors[1]);
+    }
+    if (child < 0) {
+        ::_close(descriptors[0]);
+        return -1;
+    }
+    char buffer[4096];
+    for (;;) {
+        const int count = ::_read(descriptors[0], buffer, sizeof(buffer));
+        if (count <= 0) break;
+        append_captured_command_output(output, buffer, static_cast<std::size_t>(count), maximum_lines);
+    }
+    ::_close(descriptors[0]);
+    int status = 0;
+    exit_code = ::_cwait(&status, child, 0) < 0 ? -1 : static_cast<int32_t>(status);
+#else
+    int descriptors[2];
+    if (::pipe(descriptors) != 0) return -1;
+    posix_spawn_file_actions_t actions;
+    if (::posix_spawn_file_actions_init(&actions) != 0) {
+        ::close(descriptors[0]);
+        ::close(descriptors[1]);
+        return -1;
+    }
+    ::posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDOUT_FILENO);
+    ::posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDERR_FILENO);
+    ::posix_spawn_file_actions_addclose(&actions, descriptors[0]);
+    ::posix_spawn_file_actions_addclose(&actions, descriptors[1]);
+    pid_t child = 0;
+    const int spawn_result = ::posix_spawnp(
+        &child,
+        command.c_str(),
+        &actions,
+        nullptr,
+        const_cast<char* const*>(argv.data()),
+        environ
+    );
+    ::posix_spawn_file_actions_destroy(&actions);
+    ::close(descriptors[1]);
+    if (spawn_result != 0) {
+        ::close(descriptors[0]);
+        return -1;
+    }
+    char buffer[4096];
+    for (;;) {
+        const ssize_t count = ::read(descriptors[0], buffer, sizeof(buffer));
+        if (count <= 0) break;
+        append_captured_command_output(output, buffer, static_cast<std::size_t>(count), maximum_lines);
+    }
+    ::close(descriptors[0]);
+    int status = 0;
+    if (::waitpid(child, &status, 0) >= 0) {
+        if (WIFEXITED(status)) exit_code = static_cast<int32_t>(WEXITSTATUS(status));
+        else if (WIFSIGNALED(status)) exit_code = static_cast<int32_t>(128 + WTERMSIG(status));
+    }
+#endif
+    print_captured_command_output(output);
+    return exit_code;
 }
 
 inline std::string host_platform() {
@@ -1648,7 +1863,7 @@ auto span(const std::shared_ptr<T>& value) {
 }
 
 template <typename Candidate, typename Variant>
-struct is_variant_alternative;
+struct is_variant_alternative : std::is_same<Candidate, Variant> {};
 
 template <typename Candidate, typename... Alternatives>
 struct is_variant_alternative<Candidate, std::variant<Alternatives...>>

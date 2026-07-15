@@ -1,6 +1,6 @@
 import { Assert } from "std/assert"
 
-import { ModuleNamespaceMapping, configureModuleNamespaces, moduleNamespace } from "./emitter-names"
+import { ModuleNamespaceMapping, configureModuleNamespaces, moduleDiagnosticPath, moduleNamespace } from "./emitter-names"
 
 export function testUsesPackageIdentityForOwnedModuleNamespaces(): void {
   configureModuleNamespaces([
@@ -24,4 +24,13 @@ export function testChoosesMostSpecificPackageNamespaceMapping(): void {
 export function testRetainsPathNamespaceWithoutPackageOwnership(): void {
   configureModuleNamespaces([])
   Assert.equal(moduleNamespace("/app/main.do"), "app_app_main_")
+}
+
+export function testFormatsPackageRelativeDiagnosticPaths(): void {
+  configureModuleNamespaces([
+    ModuleNamespaceMapping { logicalPrefix: "/workspace/assert", packageName: "std/assert" },
+  ])
+  Assert.equal(moduleDiagnosticPath("/workspace/assert/tests/assert.test.do", true), "tests/assert.test")
+  Assert.equal(moduleDiagnosticPath("/workspace/assert/tests/assert.test.do", false), "tests/assert.test.do")
+  configureModuleNamespaces([])
 }

@@ -181,6 +181,8 @@ for name of names {
 Current iterable forms are arrays, maps, sets, finite `Range` values, and
 `Stream<T>` values. A stream yields one element at a time by calling `next()`
 until it returns `false`, then reading the current element with `value()`.
+The iterable expression is evaluated exactly once, and a collection or stream
+temporary returned by that expression remains alive until the loop completes.
 
 ```javascript
 class Counter implements Stream<int> {

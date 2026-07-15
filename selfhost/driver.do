@@ -12,15 +12,36 @@ import { CliRequest, ModuleSource, cliUsage, parseCli } from "./cli"
 import { NativePackageInput, ProjectEmission, planProjectEmission } from "./emitter-project"
 import { ModuleNamespaceMapping } from "./emitter-names"
 import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
-import { planNativeCompile } from "./native-build"
+import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from "./native-build"
 import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
+import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
 import { Diagnostic, SourceFile } from "./semantic"
-import { exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
+import { DiscoveredTest, discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath } from "./test-runner"
+import { EntryKind, exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
 
 import function hostPlatform(): string from "doof_runtime.hpp" as doof::host_platform
 import function runNativeCompiler(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command
+import function runNativeTest(command: string, arguments: string[], directory: string): int from "doof_runtime.hpp" as doof::run_command_in_directory
+import function resetNativeCompilerOutput(maximumLines: int): void from "doof_runtime.hpp" as doof::reset_command_output_limit
+import function runNativeCompilerLimited(command: string, arguments: string[]): int from "doof_runtime.hpp" as doof::run_command_limited
+
+readonly MAX_PRINTED_DIAGNOSTICS = 8
+readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 40
+
+/** Owns a serial batch of compiler tasks; up to eight workers overlap. */
+class NativeCompilerWorker {
+  tasks: NativeCompileTask[]
+
+  compile(): int {
+    for task of this.tasks {
+      exitCode := runNativeCompilerLimited(task.compiler, task.arguments)
+      if exitCode != 0 { return exitCode }
+    }
+    return 0
+  }
+}
 
 function driverWithExtension(path: string): string {
   if path.endsWith(".do") { return path }
@@ -179,6 +200,7 @@ function registerReachedPackage(acquisition: ModuleAcquisition): void {
   configuredDriverSourceState.namespaceMappings.push(ModuleNamespaceMapping {
     logicalPrefix: acquisition.logicalPrefix,
     packageName: manifest.name,
+    outputRoot: driverPackageOutputRoot(acquisition.logicalPrefix),
   })
 }
 
@@ -331,22 +353,209 @@ function buildProject(
   if compiler == "" { compiler = environmentValue("CXX") }
   if compiler == "" { compiler = "c++" }
   plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release, hostPlatform())
+  resetNativeCompilerOutput(MAX_NATIVE_COMPILER_OUTPUT_LINES)
   if plan.precompiledHeaderArguments.length > 0 {
-    pchExitCode := runNativeCompiler(plan.compiler, plan.precompiledHeaderArguments)
+    pchExitCode := runNativeCompilerLimited(plan.compiler, plan.precompiledHeaderArguments)
     if pchExitCode != 0 {
       println("error: native compiler failed to build the precompiled runtime header with code " + string(pchExitCode))
       return pchExitCode
     }
   }
-  exitCode := runNativeCompiler(plan.compiler, plan.arguments)
+
+  // A bounded set of actor domains prevents large graphs from spawning one
+  // compiler process per translation unit while still overlapping eight jobs.
+  let workers: Actor<NativeCompilerWorker>[] = []
+  let promises: Promise<int>[] = []
+  for task of plan.compileTasks {
+    ensureOutputDirectory(parentPath(task.outputPath))
+  }
+  compileBatches := batchNativeCompileTasks(plan.compileTasks)
+  for batch of compileBatches {
+    worker := Actor<NativeCompilerWorker>(batch)
+    workers.push(worker)
+    promises.push(async worker.compile())
+  }
+  let compileExitCode = 0
+  for index of 0..<promises.length {
+    exitCode := try! promises[index].get()
+    retire workers[index]
+    if compileExitCode == 0 && exitCode != 0 { compileExitCode = exitCode }
+  }
+  if compileExitCode != 0 {
+    println("error: native object compiler exited with code " + string(compileExitCode))
+    return compileExitCode
+  }
+
+  exitCode := runNativeCompilerLimited(plan.compiler, plan.linkArguments)
   if exitCode != 0 {
-    println("error: native compiler exited with code " + string(exitCode))
+    println("error: native linker exited with code " + string(exitCode))
   }
   return exitCode
 }
 
 function printDiagnostics(diagnostics: Diagnostic[]): void {
-  for diagnostic of diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  displayCount := if diagnostics.length < MAX_PRINTED_DIAGNOSTICS then diagnostics.length else MAX_PRINTED_DIAGNOSTICS
+  for index of 0..<displayCount {
+    diagnostic := diagnostics[index]
+    println(
+      diagnostic.module + ":" + string(diagnostic.span.start.line) + ":" + string(diagnostic.span.start.column) +
+      ": " + diagnostic.severity + ": " + diagnostic.message,
+    )
+  }
+  if diagnostics.length > displayCount {
+    println("... " + string(diagnostics.length - displayCount) + " more diagnostics omitted")
+  }
+}
+
+function collectTestFiles(path: string, results: string[], root: bool = true): void {
+  if !isDirectory(path) {
+    if path.endsWith(".do") { results.push(path) }
+    return
+  }
+  if !root && exists(joinPath(path, "doof.json")) { return }
+  entries := try! readDir(path)
+  for entry of entries {
+    entryPath := joinPath(path, entry.name)
+    if entry.kind == EntryKind.Directory {
+      collectTestFiles(entryPath, results, false)
+    } else if entry.kind == EntryKind.File && entry.name.endsWith(".test.do") {
+      results.push(entryPath)
+    }
+  }
+}
+
+function sortedTestFiles(values: string[]): string[] {
+  let result: string[] = []
+  let last = ""
+  for count of 0..<values.length {
+    let candidate: string | null = null
+    for value of values {
+      if (result.length == 0 || value > last) && (candidate == null || value < candidate!) { candidate = value }
+    }
+    if candidate != null { result.push(candidate!); last = candidate! }
+  }
+  return result
+}
+
+function sortedDiscoveredTests(values: DiscoveredTest[]): DiscoveredTest[] {
+  let result: DiscoveredTest[] = []
+  let last = ""
+  for count of 0..<values.length {
+    let candidate: DiscoveredTest | null = null
+    for value of values {
+      if (result.length == 0 || value.id > last) && (candidate == null || value.id < candidate!.id) { candidate = value }
+    }
+    if candidate != null { result.push(candidate!); last = candidate!.id }
+  }
+  return result
+}
+
+function selectedModuleTests(tests: DiscoveredTest[], modulePath: string): DiscoveredTest[] {
+  let selected: DiscoveredTest[] = []
+  for test of tests { if test.modulePath == modulePath { selected.push(test) } }
+  return selected
+}
+
+function safeTestOutputName(displayPath: string): string {
+  return displayPath.replaceAll("/", "_").replaceAll("\\", "_").replaceAll(".", "_").replaceAll("-", "_")
+}
+
+/** Runs the TypeScript-compatible one-harness-per-module test convention. */
+function testRequest(request: CliRequest): int {
+  target := absolutePath(request.entry)
+  if !exists(target) {
+    println("error: File not found: " + target)
+    return 1
+  }
+  rootDirectory := if isDirectory(target) then target else parentPath(target)
+  let testFiles: string[] = []
+  collectTestFiles(target, testFiles)
+  testFiles = sortedTestFiles(testFiles)
+  let discovered: DiscoveredTest[] = []
+  for testFile of testFiles {
+    source := readText(testFile) else {
+      println("error: Could not read test file: " + testFile)
+      return 1
+    }
+    parser := Parser { source }
+    parsed := catchPanic(=> parser.parse())
+    program := parsed else failure {
+      if parser.errorMessage == "" { panic(failure) }
+      println(formatParseFailure(testFile, source, parser.errorLine, parser.errorColumn, parser.errorMessage))
+      return 1
+    }
+    discovery := discoverModuleTests(program, testFile, rootDirectory)
+    for error of discovery.errors { println(error) }
+    if discovery.errors.length > 0 { return 1 }
+    for test of discovery.tests { discovered.push(test) }
+  }
+  discovered = sortedDiscoveredTests(discovered)
+  selected := filterDiscoveredTests(discovered, request.filter)
+  if selected.length == 0 {
+    suffix := if request.filter == "" then "" else " matching \"" + request.filter + "\""
+    println("error: No tests found under " + target + suffix)
+    return 1
+  }
+
+  let passed = 0
+  let failed = 0
+  for testFile of testFiles {
+    moduleTests := selectedModuleTests(selected, testFile)
+    if moduleTests.length == 0 { continue }
+    project := readProjectSpec(testFile, hostPlatform())
+    buildRoot := if request.outputDirectory == ""
+      then joinPath(project.rootDirectory, project.buildDirectory)
+      else absolutePath(request.outputDirectory)
+    outputDirectory := joinPath(joinPath(buildRoot, ".doof-tests"), safeTestOutputName(testDisplayPath(rootDirectory, testFile)))
+    harnessPath := joinPath(outputDirectory, "__doof_tests__.do")
+    ensureOutputDirectory(outputDirectory)
+    try! writeText(harnessPath, generateTestHarness(harnessPath, moduleTests))
+
+    stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
+    let namespaceMappings: ModuleNamespaceMapping[] = [ModuleNamespaceMapping {
+      logicalPrefix: driverLogicalPrefix(project.rootDirectory),
+      packageName: project.name,
+      outputRoot: "",
+    }]
+    loader := sourceLoaderForRequest(harnessPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
+    result := compileWithLoader([], driverLogicalPath(harnessPath), loader, namespaceMappings)
+    if result.diagnostics.length > 0 {
+      printDiagnostics(result.diagnostics)
+      return 1
+    }
+    if request.listOnly {
+      for test of moduleTests { println(test.id) }
+      continue
+    }
+    if result.emission == null { panic("self-hosted test compiler produced no emission") }
+    rootManifest := PackageManifest {
+      name: project.name,
+      manifestPath: project.manifestPath,
+      rootDirectory: project.rootDirectory,
+      nativeBuild: project.nativeBuild,
+    }
+    emission := planProjectEmission(result.emission!, projectNativePackages(project.rootDirectory, rootManifest))
+    materializeProject(outputDirectory, emission)
+    materializeRuntimeHeader(outputDirectory)
+    binary := joinPath(outputDirectory, "doof-tests")
+    println("BUILD " + testDisplayPath(rootDirectory, testFile))
+    buildExitCode := buildProject(request, outputDirectory, binary, emission)
+    if buildExitCode != 0 { return buildExitCode }
+
+    for test of moduleTests {
+      exitCode := runNativeTest(binary, [test.id], project.rootDirectory)
+      if exitCode == 0 {
+        passed = passed + 1
+        println("PASS " + test.id)
+      } else {
+        failed = failed + 1
+        println("FAIL " + test.id)
+      }
+    }
+  }
+  if request.listOnly { return 0 }
+  println("Tests finished: " + string(passed) + " passed, " + string(failed) + " failed")
+  return if failed == 0 then 0 else 1
 }
 
 function emitRequest(request: CliRequest): int {
@@ -357,6 +566,7 @@ function emitRequest(request: CliRequest): int {
   let namespaceMappings: ModuleNamespaceMapping[] = [ModuleNamespaceMapping {
     logicalPrefix: driverLogicalPrefix(project.rootDirectory),
     packageName: project.name,
+    outputRoot: "",
   }]
   loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
   result := compileWithLoader([], entry, loader, namespaceMappings)
@@ -412,5 +622,6 @@ function main(args: string[]): int {
     println(cliUsage())
     return 2
   }
+  if parsed.request!.command == "test" { return testRequest(parsed.request!) }
   return emitRequest(parsed.request!)
 }

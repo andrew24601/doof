@@ -25,6 +25,9 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:coverage": "vitest run --coverage",
+    "test:selfhost": "npm run build && node dist/bin.js test selfhost",
+    "test:selfhost:coverage": "npm run build && node dist/bin.js test selfhost --coverage --coverage-output build/coverage/selfhost/selfhost.json",
+    "test:release": "node scripts/release-gate.mjs",
     "test:watch": "vitest"
   },
   "keywords": [],

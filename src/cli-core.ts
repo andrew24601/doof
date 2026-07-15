@@ -250,6 +250,11 @@ function getResolvedWasmOutputBinaryName(outputBinaryName: string | undefined): 
   return path.posix.extname(name) ? name : `${name}.wasm`;
 }
 
+/** Mirrors the self-hosted CLI's package-name-to-executable-name lowering. */
+function getPackageOutputBinaryName(packageName: string | undefined): string | undefined {
+  return packageName?.replaceAll("/", "-").replaceAll("\\", "-");
+}
+
 export function findCompilerToolchain(): CompilerToolchain {
   return resolveCompilerToolchain(null);
 }
@@ -406,9 +411,11 @@ export function runPipelineWithFs(
   if (verbose) log("  No type errors");
 
   const buildTarget = packageGraph.rootPackage.buildTarget;
+  const configuredOutputBinaryName = packageGraph.rootPackage.manifest.build?.targetExecutableName;
+  const packageOutputBinaryName = getPackageOutputBinaryName(packageGraph.rootPackage.manifest.name);
   const outputBinaryName = buildTarget?.kind === "wasm"
-    ? getResolvedWasmOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName)
-    : getResolvedOutputBinaryName(packageGraph.rootPackage.manifest.build?.targetExecutableName);
+    ? getResolvedWasmOutputBinaryName(configuredOutputBinaryName ?? packageOutputBinaryName)
+    : getResolvedOutputBinaryName(configuredOutputBinaryName ?? packageOutputBinaryName);
 
   if (verbose) log("Emitting C++...");
   const emittedProject = emitProject(normalizedEntryPath, analysisResult, {

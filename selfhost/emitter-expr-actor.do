@@ -4,7 +4,7 @@ import { ActorCreationExpression, AsyncExpression, Block, CallExpression, Expres
 import { ActorType, FunctionType, PromiseType, ResolvedType, VoidType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { emitClassInnerType, emitType } from "./emitter-types"
+import { emitClassInnerType, emitContextType } from "./emitter-types"
 
 export function emitActorCreation(expression: ActorCreationExpression, context: EmitContext): string {
   if expression.resolvedType == null { panic("Actor creation is missing its resolved type") }
@@ -76,7 +76,10 @@ function emitActorMethodCall(expression: CallExpression, member: MemberExpressio
   }
   returnType := expression.resolvedType
   if returnType == null { panic("Actor method call is missing its resolved return type") }
-  cppReturn := emitType(returnType!, context.modulePath)
+  // Actor calls may return compound types containing reached generic nominals.
+  // Lower those through the whole-program concrete-type registry just like
+  // declarations do, or the lambda signature can reintroduce C++ templates.
+  cppReturn := emitContextType(returnType!, context)
   callName := if async_ then "call_async" else "call_sync"
   capture := if args == "" then "[]" else if async_ then "[=]" else "[&]"
   let lambda = capture + "(" + className + "& _self)"

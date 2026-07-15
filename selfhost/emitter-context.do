@@ -4,7 +4,7 @@
 // only the declarations needed by class construction and method field access;
 // module dependency state belongs to the module/header planner.
 
-import { Program } from "./ast"
+import { Program, SourceSpan } from "./ast"
 import { ImportBinding, NamespaceBinding, Symbol, TypeSubstitution } from "./semantic"
 
 export class EmitModuleSurface {
@@ -12,6 +12,11 @@ export class EmitModuleSurface {
   exports: Symbol[] = []
   imports: ImportBinding[] = []
   genericTypes: string[] = []
+  genericFunctions: string[] = []
+}
+
+export class SourceLocationSpanOverride {
+  span: SourceSpan
 }
 
 export class EmitContext {
@@ -24,6 +29,9 @@ export class EmitContext {
   currentFunctionStatic: bool = false
   currentReturnErrorType: string = ""
   currentFunctionName: string = ""
+  inValueYieldBlock: bool = false
+  // Call-site override used while materializing defaults such as @caller.
+  sourceLocationSpanOverride: SourceLocationSpanOverride | null = null
   genericTypeParams: string[] = []
   // Concrete Doof monomorphization substitution active while emitting a
   // specialized function, class, or method body.

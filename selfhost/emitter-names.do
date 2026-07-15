@@ -7,6 +7,8 @@
 export class ModuleNamespaceMapping {
   logicalPrefix: string
   packageName: string
+  // Native files are materialized below this project-relative directory.
+  outputRoot: string = ""
 }
 
 let configuredModuleNamespaceMappings: ModuleNamespaceMapping[] = []
@@ -42,6 +44,52 @@ export function moduleNamespace(path: string): string {
     return namespace
   }
   return "app_" + moduleStem(path) + "_"
+}
+
+/** Formats source paths embedded in runtime diagnostics and @caller values. */
+export function moduleDiagnosticPath(path: string, stripExtension: bool): string {
+  let normalized = path.replaceAll("\\", "/")
+  mapping := namespaceMappingForPath(normalized)
+  if mapping != null {
+    normalized = normalized.substring(mapping!.logicalPrefix.length, normalized.length)
+  }
+  while normalized.startsWith("/") {
+    normalized = normalized.substring(1, normalized.length)
+  }
+  if stripExtension && normalized.endsWith(".do") {
+    normalized = normalized.substring(0, normalized.length - 3)
+  }
+  return if normalized == "" then "<module>" else normalized
+}
+
+/** Resolves a quoted source-relative native header into the emitted package tree. */
+export function moduleNativeHeaderPath(modulePath: string, headerPath: string): string {
+  if !headerPath.startsWith("./") && !headerPath.startsWith("../") { return headerPath }
+  mapping := namespaceMappingForPath(modulePath)
+  if mapping == null { return headerPath }
+
+  let relativeModulePath = modulePath.substring(mapping!.logicalPrefix.length, modulePath.length)
+  while relativeModulePath.startsWith("/") {
+    relativeModulePath = relativeModulePath.substring(1, relativeModulePath.length)
+  }
+  components := relativeModulePath.split("/")
+  if components.length > 0 { ignoredModuleName := components.pop() }
+  for component of headerPath.replaceAll("\\", "/").split("/") {
+    if component == "" || component == "." { continue }
+    if component == ".." {
+      if components.length == 0 { return headerPath }
+      ignoredParent := components.pop()
+    } else {
+      components.push(component)
+    }
+  }
+
+  let result = mapping!.outputRoot
+  for component of components {
+    if result != "" { result = result + "/" }
+    result = result + component
+  }
+  return result
 }
 
 function namespaceMappingForPath(path: string): ModuleNamespaceMapping | null {

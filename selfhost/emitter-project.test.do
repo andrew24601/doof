@@ -75,6 +75,7 @@ export function testForwardsPackageHeadersToCanonicalGeneratedHeaders(): void {
   Assert.equal(project.supportFiles.length, 1)
   Assert.equal(project.supportFiles[0].relativePath, "std/fs/types.hpp")
   Assert.equal(project.supportFiles[0].content, "#pragma once\n#include \"std_fs_types.hpp\"\n")
+  Assert.equal(project.nativeBuild.includePaths.contains("std"), true)
 }
 
 export function testPreservesNonPathNativeBuildOptions(): void {

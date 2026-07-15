@@ -11,6 +11,8 @@ export class CliRequest {
   compiler: string = ""
   sourcePaths: string[] = []
   moduleSources: ModuleSource[] = []
+  filter: string = ""
+  listOnly: bool = false
 }
 
 export class ModuleSource {
@@ -25,19 +27,22 @@ export class CliParseResult {
 }
 
 export function cliUsage(): string {
-  return "usage: doof-selfhost <build|package|emit|check> [entry.do|package-dir] [options]\n" +
+  return "usage: doof-selfhost <build|package|emit|check|test> [entry.do|package-dir] [options]\n" +
     "\n" +
     "commands:\n" +
     "  build   emit generated C++ and build the executable\n" +
     "  package build an optimized executable in the package dist directory\n" +
     "  emit    check the source graph and write generated C++\n" +
     "  check   check the source graph without writing output\n" +
+    "  test    discover and run exported test functions\n" +
     "\n" +
     "options:\n" +
     "  -o, --output-directory <path>  output root (package uses <path>/release)\n" +
     "  --compiler <path>           C++ compiler command (default: CXX or c++)\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
     "  --module <specifier> <path> map an external import to a source file\n" +
+    "  --filter <text>             run tests whose id contains text\n" +
+    "  --list                      list tests without building or running\n" +
     "  -h, --help                  show this help"
 }
 
@@ -48,7 +53,7 @@ export function parseCli(args: string[]): CliParseResult {
   }
 
   command := args[0]
-  if command != "build" && command != "package" && command != "emit" && command != "check" {
+  if command != "build" && command != "package" && command != "emit" && command != "check" && command != "test" {
     return CliParseResult { request: null, error: "unknown command '" + command + "'" }
   }
   request := CliRequest { command, entry: if args.length < 2 then "." else args[1] }
@@ -74,6 +79,17 @@ export function parseCli(args: string[]): CliParseResult {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --source" } }
       request.sourcePaths.push(args[index + 1])
       index = index + 2
+      continue
+    }
+    if argument == "--filter" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --filter" } }
+      request.filter = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--list" {
+      request.listOnly = true
+      index = index + 1
       continue
     }
     if argument == "--module" {

@@ -156,7 +156,7 @@ function nativeCppName(symbol: Symbol): string {
 }
 
 function expressionAlternatives(ownerModule: string, currentModulePath: string): string {
-  return "std::shared_ptr<" + ownedName("IntLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LongLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FloatLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DoubleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("StringLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CharLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BoolLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("NullLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Identifier", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BinaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("AssignmentExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("MemberExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IndexExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ObjectLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TupleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LambdaExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ConstructExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DotShorthand", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ThisExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallerExpression", ownerModule, currentModulePath) + ">"
+  return "std::shared_ptr<" + ownedName("IntLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LongLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FloatLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DoubleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("StringLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CharLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BoolLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("NullLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Identifier", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BinaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnaryExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("AssignmentExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("MemberExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IndexExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ObjectLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TupleLiteral", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LambdaExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ConstructExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DotShorthand", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ThisExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CallerExpression", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("AsExpression", ownerModule, currentModulePath) + ">"
 }
 
 function statementAlternatives(ownerModule: string, currentModulePath: string): string {
@@ -208,7 +208,7 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
 
   // A nullable class already has a natural nullptr representation.  Primitive
   // nullable values use optional; larger unions retain an explicit variant.
-  if hasNull && nonNull.length == 1 {
+  if hasNull && nonNull.length == 1 && usesNaturalNullableMember(nonNull[0]) {
     case nonNull[0] {
       _: ClassType -> { return emitType(nonNull[0], currentModulePath) }
       _: ArrayResolvedType -> { return emitType(nonNull[0], currentModulePath) }
@@ -230,6 +230,46 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
     panic("Cannot emit empty resolved union in " + currentModulePath)
   }
   return result + ">"
+}
+
+/** Whether a checked type is represented by std::variant in generated C++. */
+export function usesVariantRepresentation(type_: ResolvedType): bool {
+  case type_ {
+    _: InterfaceType -> { return true }
+    union_: UnionResolvedType -> { return !usesNaturalNullableUnion(union_) }
+    _ -> { return false }
+  }
+  return false
+}
+
+/** Whether a union uses a natural nullable/optional carrier instead of variant. */
+export function usesNullableSingleValueRepresentation(type_: ResolvedType): bool {
+  case type_ {
+    union_: UnionResolvedType -> { return usesNaturalNullableUnion(union_) }
+    _ -> { return false }
+  }
+  return false
+}
+
+function usesNaturalNullableUnion(union_: UnionResolvedType): bool {
+  flattened := flattenUnionMembers(union_.types)
+  let nonNull: ResolvedType[] = []
+  let hasNull = false
+  for member of flattened {
+    if member.kind == "null" { hasNull = true }
+    else { nonNull.push(member) }
+  }
+  return hasNull && nonNull.length == 1 && usesNaturalNullableMember(nonNull[0])
+}
+
+function usesNaturalNullableMember(member: ResolvedType): bool {
+  case member {
+    _: ClassType -> { return true }
+    _: ArrayResolvedType -> { return true }
+    _: PrimitiveType -> { return true }
+    _ -> { return false }
+  }
+  return false
 }
 
 // Keep lowering defensive against nested compound types even though the

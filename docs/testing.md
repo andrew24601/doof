@@ -29,13 +29,31 @@ export function testSubtract(): void {
 ## Execution Model
 
 The test runner treats each `.test.do` file as its own compilation unit.
+The self-hosted runner prints `BUILD <file>` before compiling each generated
+test harness. Native compiler output is capped at 40 lines across parallel
+compile tasks, followed by one truncation notice, so template diagnostics do
+not overwhelm the surrounding test output.
 
 - Discovery is static, not reflective
 - The runner generates a temporary harness for each discovered test file
 - Each harness is compiled independently, so one test file's mocks do not leak into another test file
 - Each discovered test function still runs in its own process, so a failed assertion only fails that test
+- Each test process starts in the owning package root, so relative fixture and artifact paths do not depend on where `doof test` was invoked
 
 This matters for mocks: the root `.test.do` file defines the mock environment for the modules it imports.
+
+### Self-hosted CLI
+
+The self-hosted CLI supports file and recursive-directory discovery, `--list`,
+case-insensitive `--filter`, one harness/build per test file, and one process per
+test. Harness builds use the normal self-hosted native planner, including its
+runtime precompiled header for multi-module graphs and bounded parallel object
+compilation.
+
+The first self-hosted implementation does not yet support mocks or coverage.
+Child test output is inherited directly, and `DOOF_TEST_TIMEOUT_MS` remains a
+TypeScript-runner-only option until the self-hosted process boundary grows a
+timed execution API.
 
 ## Mocking Overview
 
@@ -216,6 +234,27 @@ Use `npm run test:coverage` for coverage on the fast tier. To collect coverage f
 ```bash
 npm run test:e2e -- --coverage
 ```
+
+### Self-hosted compiler tiers
+
+The self-hosted suite follows a strict unit/component boundary. `*.test.do`
+files may use focused in-memory inputs and small filesystem fixtures, but they
+must not invoke native toolchains, spawn subprocesses, sweep the complete source
+tree, package executables, or orchestrate bootstrap stages.
+
+```bash
+npm run test:selfhost
+npm run test:selfhost:coverage
+npm run test:release
+```
+
+`test:selfhost` runs the focused Doof-native suite. The coverage variant writes
+Doof source coverage beneath `build/coverage/selfhost`. `test:release` is the
+expensive acceptance workflow: it builds the seed and B5/B6 compilers through
+the production parallel build paths, compares B5/B6 generated text artifacts,
+then runs the native, stdlib, test-runner, packaging, and platform fixtures.
+Set `DOOF_STDLIB_ROOT` when the stdlib is not at `../doof-stdlib`; on macOS,
+`DOOF_HTTP_RUNTIME_TEST=1` also enables the localhost HTTP runtime leg.
 
 ## Assertions
 

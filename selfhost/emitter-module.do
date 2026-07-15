@@ -294,18 +294,20 @@ function emitModuleSurfaces(result: AnalysisResult): EmitModuleSurface[] {
   let surfaces: EmitModuleSurface[] = []
   for module of result.modules {
     let genericTypes: string[] = []
-    for statement of module.program.statements { collectGenericSurfaceTypes(statement, genericTypes) }
-    surfaces.push(EmitModuleSurface { path: module.path, exports: module.exports, imports: module.imports, genericTypes })
+    let genericFunctions: string[] = []
+    for statement of module.program.statements { collectGenericSurfaceSymbols(statement, genericTypes, genericFunctions) }
+    surfaces.push(EmitModuleSurface { path: module.path, exports: module.exports, imports: module.imports, genericTypes, genericFunctions })
   }
   return surfaces
 }
 
-function collectGenericSurfaceTypes(statement: Statement, names: string[]): void {
+function collectGenericSurfaceSymbols(statement: Statement, typeNames: string[], functionNames: string[]): void {
   case statement {
-    class_: ClassDeclaration -> { if class_.typeParams.length > 0 { names.push(class_.name) } }
-    interface_: InterfaceDeclaration -> { if interface_.typeParams.length > 0 { names.push(interface_.name) } }
-    alias: TypeAliasDeclaration -> { if alias.typeParams.length > 0 { names.push(alias.name) } }
-    export_: ExportDeclaration -> { collectGenericSurfaceTypes(export_.declaration, names) }
+    class_: ClassDeclaration -> { if class_.typeParams.length > 0 { typeNames.push(class_.name) } }
+    interface_: InterfaceDeclaration -> { if interface_.typeParams.length > 0 { typeNames.push(interface_.name) } }
+    alias: TypeAliasDeclaration -> { if alias.typeParams.length > 0 { typeNames.push(alias.name) } }
+    function_: FunctionDeclaration -> { if function_.typeParams.length > 0 { functionNames.push(function_.name) } }
+    export_: ExportDeclaration -> { collectGenericSurfaceSymbols(export_.declaration, typeNames, functionNames) }
     _ -> { }
   }
 }

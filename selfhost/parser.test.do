@@ -1,12 +1,11 @@
 import { Assert } from "std/assert"
-import { readText } from "std/fs"
 import { Parser, parse } from "./parser"
 import {
-  IntLiteral, DoubleLiteral, BinaryExpression, CallExpression,
+  IntLiteral, LongLiteral, DoubleLiteral, BinaryExpression, CallExpression,
   MemberExpression, FunctionDeclaration, ClassDeclaration, ArrayLiteral, Block,
-  IfStatement, ExpressionStatement, ImmutableBinding,
-  StringLiteral, LambdaExpression, AsyncExpression, RetireExpression,
-  ActorCreationExpression, InterfaceDeclaration,
+  IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
+  StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
+  ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, UnionType, YieldStatement,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
@@ -28,6 +27,13 @@ function assertDouble(expression: Expression, expected: double): void {
   }
 }
 
+function assertLong(expression: Expression, expected: long): void {
+  case expression {
+    value: LongLiteral -> { Assert.equal(value.kind, "long-literal"); Assert.equal(value.value, expected) }
+    _ -> { panic("expected long literal") }
+  }
+}
+
 export function testParsesPrimitiveLiterals(): void {
   intStmt := first("42")
   Assert.equal(intStmt.kind, "expression-statement")
@@ -37,6 +43,17 @@ export function testParsesPrimitiveLiterals(): void {
   }
   case first("3.14") {
     statement: ExpressionStatement -> { assertDouble(statement.expression, 3.14) }
+    _ -> { panic("expected expression statement") }
+  }
+}
+
+export function testParsesLongLiteralsWithoutIntTruncation(): void {
+  case first("72623859790382856L") {
+    statement: ExpressionStatement -> { assertLong(statement.expression, 72623859790382856L) }
+    _ -> { panic("expected expression statement") }
+  }
+  case first("4294967295L") {
+    statement: ExpressionStatement -> { assertLong(statement.expression, 4294967295L) }
     _ -> { panic("expected expression statement") }
   }
 }
@@ -80,6 +97,31 @@ export function testParsesPostfixCallsAndMembers(): void {
   }
 }
 
+export function testParsesTrailingLambdaAfterMethodCall(): void {
+  case first("receiver.onMessage() { this.values.push(it) }") {
+    statement: ExpressionStatement -> {
+      case statement.expression {
+        call: CallExpression -> {
+          Assert.equal(call.args.length, 1)
+          case call.args[0].value {
+            lambda: LambdaExpression -> {
+              Assert.equal(lambda.parameterless, true)
+              Assert.equal(lambda.trailing, true)
+              case lambda.body {
+                body: Block -> { Assert.equal(body.statements.length, 1) }
+                _ -> { panic("expected trailing lambda block") }
+              }
+            }
+            _ -> { panic("expected trailing lambda argument") }
+          }
+        }
+        _ -> { panic("expected call expression") }
+      }
+    }
+    _ -> { panic("expected expression statement") }
+  }
+}
+
 export function testParsesReadonlyArrayLiteral(): void {
   case first("readonly [1, 2]") {
     statement: ExpressionStatement -> {
@@ -92,6 +134,21 @@ export function testParsesReadonlyArrayLiteral(): void {
       }
     }
     _ -> { panic("expected expression statement") }
+  }
+}
+
+export function testParsesReadonlyMapType(): void {
+  case first("function read(value: readonly Map<string, JsonValue>): void { }") {
+    fn: FunctionDeclaration -> {
+      case fn.params[0].type_! {
+        named: NamedType -> {
+          Assert.equal(named.name, "ReadonlyMap")
+          Assert.equal(named.typeArgs.length, 2)
+        }
+        _ -> { panic("expected readonly map named type") }
+      }
+    }
+    _ -> { panic("expected function declaration") }
   }
 }
 
@@ -216,6 +273,80 @@ export function testParsesDeclarationElseForms(): void {
   }
 }
 
+export function testParsesAsNarrowingBeforeDeclarationElse(): void {
+  program := parse("value := raw as bool else { return }")
+  case program.statements[0] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        as_: AsExpression -> {
+          Assert.equal(as_.kind, "as-expression")
+          case as_.targetType {
+            named: NamedType -> { Assert.equal(named.name, "bool") }
+            _ -> { panic("expected named as target") }
+          }
+        }
+        _ -> { panic("expected as expression") }
+      }
+      Assert.equal(binding.else_ != null, true)
+    }
+    _ -> { panic("expected declaration-else binding") }
+  }
+}
+
+export function testParsesTryValueDeclarations(): void {
+  program := parse(`
+    try const first = load()
+    try readonly second = load()
+    try let third = load()
+  `)
+  Assert.equal(program.statements.length, 3)
+  case program.statements[0] {
+    try_: TryStatement -> { case try_.binding { declaration: ConstDeclaration -> { Assert.equal(declaration.name, "first") }
+      _ -> { panic("expected const try binding") } } }
+    _ -> { panic("expected try statement") }
+  }
+  case program.statements[1] {
+    try_: TryStatement -> { case try_.binding { declaration: ReadonlyDeclaration -> { Assert.equal(declaration.name, "second") }
+      _ -> { panic("expected readonly try binding") } } }
+    _ -> { panic("expected try statement") }
+  }
+  case program.statements[2] {
+    try_: TryStatement -> { case try_.binding { declaration: LetDeclaration -> { Assert.equal(declaration.name, "third") }
+      _ -> { panic("expected let try binding") } } }
+    _ -> { panic("expected try statement") }
+  }
+}
+
+export function testParsesMultipleValuePatternsAsAlternatives(): void {
+  program := parse(`result := case ext {
+    ".html" | ".htm" -> "text/html",
+    _ -> "unknown"
+  }`)
+  case program.statements[0] {
+    statement: ImmutableBinding -> { case statement.value {
+      expression: CaseExpression -> {
+        Assert.equal(expression.arms[0].patterns.length, 2)
+        Assert.equal(expression.arms[0].patterns[0].kind, "value-pattern")
+        Assert.equal(expression.arms[0].patterns[1].kind, "value-pattern")
+      }
+      _ -> { panic("expected case expression") }
+    } }
+    _ -> { panic("expected immutable binding") }
+  }
+}
+
+export function testParsesExpressionResultElseAsDiscardBinding(): void {
+  program := parse("save() else error { println(error) }")
+  case program.statements[0] {
+    binding: ImmutableBinding -> {
+      Assert.equal(binding.name, "_")
+      Assert.equal(binding.failureName, "error")
+      Assert.equal(binding.else_ != null, true)
+    }
+    _ -> { panic("expected result-else discard binding") }
+  }
+}
+
 export function testPreservesTemplateInterpolationParts(): void {
   case first("`hello \${name}!`") {
     statement: ExpressionStatement -> {
@@ -299,18 +430,110 @@ export function testTracksSourceSpans(): void {
   Assert.equal(program.statements[0].span.end.offset, 14)
 }
 
-export function testParsesSelfhostCompilerSources(): void {
-  files := ["selfhost/lexer.do", "selfhost/ast.do", "selfhost/parser.do", "selfhost/parser-declarations.do", "selfhost/parser-statements.do", "selfhost/parser-types.do", "selfhost/parser-expressions.do"]
-  for path of files {
-    let source = try! readText(path)
-    program := parse(source)
-    Assert.equal(program.kind, "program")
-    Assert.equal(program.statements.length > 0, true)
+export function testParsesQuotedStringMapKeys(): void {
+  case first("options := { \"DOOF_STDLIB_ROOT\": absolutePath(\"../doof-stdlib\") }") {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        object: ObjectLiteral -> {
+          Assert.equal(object.properties.length, 1)
+          Assert.equal(object.properties[0].name, "DOOF_STDLIB_ROOT")
+          case object.properties[0].value! {
+            _: CallExpression -> { }
+            _ -> { panic("expected map value expression") }
+          }
+        }
+        _ -> { panic("expected string-keyed map literal") }
+      }
+    }
+    _ -> { panic("expected immutable binding") }
   }
+}
+
+export function testParsesTypedLambdaParametersAndReturnTypes(): void {
+  program := parse("loader := (path: string): SourceFile | null => null")
+  case program.statements[0] {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        lambda: LambdaExpression -> {
+          Assert.equal(lambda.params.length, 1)
+          Assert.equal(lambda.params[0].name, "path")
+          case lambda.params[0].type_! {
+            _: NamedType -> { }
+            _ -> { panic("expected named parameter type") }
+          }
+          case lambda.returnType! {
+            _: UnionType -> { }
+            _ -> { panic("expected union return type") }
+          }
+        }
+        _ -> { panic("expected typed lambda") }
+      }
+    }
+    _ -> { panic("expected lambda binding") }
+  }
+}
+
+export function testRetainsStructuredParseFailureLocation(): void {
+  parser := Parser { source: "value := (path: string): int => path\nnext :=" }
+  result := catchPanic(=> parser.parse())
+  case result {
+    _: Failure<string> -> { }
+    _ -> { panic("expected parse failure") }
+  }
+  Assert.equal(parser.errorMessage, "Expected an expression")
+  Assert.equal(parser.errorLine, 2)
+  Assert.equal(parser.errorColumn, 8)
+  Assert.equal(parser.errorOffset > 0, true)
 }
 
 export function testParsesMemberComparisonInWhile(): void {
   parse("function f(): void { while index < raw.length { return } }")
+}
+
+export function testDoesNotParseUppercaseConditionOperandAsConstruction(): void {
+  program := parse("function f(signature: long): void { if signature != CENTRAL_DIRECTORY_SIGNATURE { return } }")
+  case program.statements[0] {
+    function_: FunctionDeclaration -> {
+      case function_.body {
+        body: Block -> {
+          case body.statements[0] {
+            if_: IfStatement -> {
+              case if_.condition {
+                binary: BinaryExpression -> { Assert.equal(binary.operator, "!=") }
+                _ -> { panic("expected binary condition") }
+              }
+            }
+            _ -> { panic("expected if statement") }
+          }
+        }
+        _ -> { panic("expected function body") }
+      }
+    }
+    _ -> { panic("expected function declaration") }
+  }
+}
+
+export function testParsesBlockBodiedCaseExpressionArms(): void {
+  case first("result := case value { f: Failure -> { Assert.fail(f.error.message)\nyield null } }") {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        case_: CaseExpression -> {
+          case case_.arms[0].body {
+            block: Block -> {
+              Assert.equal(block.statements.length, 2)
+              case block.statements[1] {
+                _: YieldStatement -> { }
+                _ -> { panic("expected yield statement") }
+              }
+            }
+            _ -> { panic("expected block case arm") }
+          }
+        }
+        _ -> { panic("expected case expression") }
+      }
+    }
+    _ -> { panic("expected immutable binding") }
+  }
 }
 
 export function testParsesNegatedDiagnosticCall(): void {
@@ -345,20 +568,5 @@ export function testParsesGenericNativeFunction(): void {
       Assert.equal(fn.typeParams[0], "T")
     }
     _ -> { panic("expected generic native function") }
-  }
-}
-
-export function testParsesSelfhostSemanticSources(): void {
-  for path of [
-    "selfhost/resolver.do", "selfhost/ast.do", "selfhost/semantic.do",
-    "selfhost/parser.do", "selfhost/parser-declarations.do", "selfhost/parser-statements.do", "selfhost/parser-types.do", "selfhost/parser-expressions.do", "selfhost/analyzer.do", "selfhost/checker-types.do", "selfhost/json-semantics.do",
-    "selfhost/checker.do", "selfhost/emitter-context.do", "selfhost/emitter-types.do",
-    "selfhost/emitter-expr-utils.do", "selfhost/emitter-expr-literals.do", "selfhost/emitter-expr-ops.do", "selfhost/emitter-expr-calls.do", "selfhost/emitter-expr-control.do", "selfhost/emitter-expr-lambda.do", "selfhost/emitter-expr.do", "selfhost/emitter-stmt.do", "selfhost/emitter-json.do", "selfhost/emitter-decl.do",
-    "selfhost/emitter-header.do", "selfhost/emitter-module.do",
-    "selfhost/compiler.do",
-  ] {
-    source := try! readText(path)
-    parsed := parse(source)
-    Assert.equal(parsed.statements.length > 0, true)
   }
 }

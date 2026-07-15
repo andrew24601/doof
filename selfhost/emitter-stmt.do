@@ -9,13 +9,14 @@ import {
   ReadonlyDeclaration, ConstDeclaration, ReturnStatement, Statement,
   WhileStatement, CaseStatement, NamedType, TypePattern, ValuePattern, WildcardPattern,
   Identifier, BreakStatement, ContinueStatement, DestructuringStatement, ForOfStatement, ForStatement, BinaryExpression,
-  TryStatement,
+  TryStatement, WithStatement, YieldStatement,
 } from "./ast"
 import type { TypeAnnotation } from "./ast"
-import { ArrayResolvedType, InterfaceType, ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, InterfaceType, ResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
+import { emitCaseTypePattern } from "./emitter-case-pattern"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { emitType } from "./emitter-types"
+import { emitType, specializeEmitType, usesVariantRepresentation } from "./emitter-types"
 
 export function emitBlock(block: Block, level: int, context: EmitContext): string {
   let result = ""
@@ -36,12 +37,17 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
     }
     let_: LetDeclaration -> { return emitLocalDeclaration(ind, let_.name, let_.type_, let_.resolvedType!, let_.value, context, false) }
     return_: ReturnStatement -> { return ind + emitReturn(return_, context) }
+    yield_: YieldStatement -> {
+      if !context.inValueYieldBlock { panic("yield statement is outside a value-producing block") }
+      return ind + "return " + emitExpression(yield_.value, context) + ";\n"
+    }
     expression: ExpressionStatement -> { return ind + emitExpression(expression.expression, context) + ";\n" }
     if_: IfStatement -> { return emitIf(if_, level, context) }
     case_: CaseStatement -> { return emitCase(case_, level, context) }
     while_: WhileStatement -> { return emitWhile(while_, level, context) }
     forOf: ForOfStatement -> { return emitForOf(forOf, level, context) }
     for_: ForStatement -> { return emitFor(for_, level, context) }
+    with_: WithStatement -> { return emitWith(with_, level, context) }
     destructuring: DestructuringStatement -> { return emitDestructuring(destructuring, level, context) }
     try_: TryStatement -> { return emitTry(try_, level, context) }
     _: BreakStatement -> { return ind + "break;\n" }
@@ -50,6 +56,29 @@ export function emitStatement(statement: Statement, level: int = 1, context: Emi
     _ -> { panic("Unsupported statement in initial C++ emitter: " + statement.kind) }
   }
   return ""
+}
+
+/** Lowers ordered immutable bindings into a lexical C++ scope. */
+function emitWith(statement: WithStatement, level: int, context: EmitContext): string {
+  ind := indent(level)
+  innerInd := indent(level + 1)
+  let output = ind + "{\n"
+  for binding of statement.bindings {
+    if binding.resolvedType == null { panic("With binding was not resolved before emission: " + binding.name) }
+    resolvedType := binding.resolvedType!
+    value := emitExpression(binding.value, context, resolvedType)
+    let declarationType = "auto"
+    case resolvedType {
+      _: ClassType -> { declarationType = emitType(resolvedType, context.modulePath) }
+      union_: UnionResolvedType -> {
+        if usesVariantRepresentation(union_) { declarationType = emitType(resolvedType, context.modulePath) }
+      }
+      _ -> { }
+    }
+    output = output + innerInd + "const " + declarationType + " " + cppIdentifier(binding.name) + " = " + value + ";\n"
+  }
+  output = output + emitBlock(statement.body, level + 1, context)
+  return output + ind + "}\n"
 }
 
 function emitDestructuring(statement: DestructuringStatement, level: int, context: EmitContext): string {
@@ -129,7 +158,10 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
   temporaryName := "_try_value_" + string(context.tryCounter)
   let value: Expression = Identifier { kind: "identifier", name: "<try>", span: statement.span }
   case statement.binding {
+    declaration: ConstDeclaration -> { value = declaration.value }
+    declaration: ReadonlyDeclaration -> { value = declaration.value }
     binding: ImmutableBinding -> { value = binding.value }
+    declaration: LetDeclaration -> { value = declaration.value }
     expression: ExpressionStatement -> { value = expression.expression }
   }
   if context.currentReturnErrorType != "" {
@@ -137,8 +169,17 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
       let output = ind + "auto " + temporaryName + " = " + emitExpression(value, context) + ";\n"
       output = output + ind + "if (doof::is_failure(" + temporaryName + ")) return doof::Failure<" + errorType + ">{doof::failure_error(" + temporaryName + ")};\n"
       case statement.binding {
+        declaration: ConstDeclaration -> {
+          output = output + ind + "const auto " + cppIdentifier(declaration.name) + " = doof::success_value(" + temporaryName + ");\n"
+        }
+        declaration: ReadonlyDeclaration -> {
+          output = output + ind + "const auto " + cppIdentifier(declaration.name) + " = doof::success_value(" + temporaryName + ");\n"
+        }
         binding: ImmutableBinding -> {
           output = output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::success_value(" + temporaryName + ");\n"
+        }
+        declaration: LetDeclaration -> {
+          output = output + ind + "auto " + cppIdentifier(declaration.name) + " = doof::success_value(" + temporaryName + ");\n"
         }
         _: ExpressionStatement -> { }
       }
@@ -167,10 +208,8 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
   subject := "_case_subject"
   let result = ind + "{\n" + inner + "auto " + subject + " = " + emitExpression(statement.subject, context) + ";\n"
   let previous = false
-  // The checker has already classified the subject and each type pattern.
-  // Pattern presence selects the discriminated-union lowering for aliases
-  // whose carrier is not recoverable from the subject alone.
-  variant := hasTypePattern(statement) || isVariantCaseType(caseSubjectType(statement.subject))
+  subjectType := caseSubjectType(statement.subject)
+  if subjectType == null { panic("Case statement subject has no resolved type") }
 
   for arm of statement.arms {
     for pattern of arm.patterns {
@@ -179,38 +218,10 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
       let isWildcard = false
       case pattern {
         type_: TypePattern -> {
-          if type_.resolvedPatternKind == "expression" || type_.resolvedPatternKind == "statement" || type_.resolvedPatternKind == "type-annotation" {
-            if type_.resolvedType == null { panic("Case pattern has no resolved type") }
-            typeName := emitType(type_.resolvedType!, context.modulePath)
-            condition = "doof::variant_is<" + typeName + ">(" + subject + ")"
-            if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = doof::variant_narrow<" + typeName + ">(" + subject + ");\n" }
-          } else if isResultCasePattern(type_) {
-            case type_.resolvedType! {
-              resultType: ResultResolvedType -> {
-                let armType = ""
-                case type_.type_ {
-                  named: NamedType -> {
-                    if named.name == "Success" { armType = "doof::Success<" + emitType(resultType.valueType, context.modulePath) + ">" }
-                    if named.name == "Failure" { armType = "doof::Failure<" + emitType(resultType.errorType, context.modulePath) + ">" }
-                  }
-                  _ -> { }
-                }
-                if armType != "" {
-                  condition = "std::holds_alternative<" + armType + ">(" + subject + ")"
-                  if type_.name != "_" { binding = "const auto& " + cppIdentifier(type_.name) + " = std::get<" + armType + ">(" + subject + ");\n" }
-                }
-              }
-              _ -> { }
-            }
-          } else if variant {
-            if type_.resolvedType == null { panic("Case pattern has no resolved type") }
-            typeName := emitType(type_.resolvedType!, context.modulePath)
-            condition = "std::holds_alternative<" + typeName + ">(" + subject + ")"
-            if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = std::get<" + typeName + ">(" + subject + ");\n" }
-          } else {
-            condition = "true"
-            if type_.name != "_" { binding = "const auto " + cppIdentifier(type_.name) + " = " + subject + ";\n" }
-          }
+          bindingName := if type_.name == "_" then "" else cppIdentifier(type_.name)
+          emitted := emitCaseTypePattern(type_, specializeEmitType(subjectType!, context), subject, bindingName, context.modulePath)
+          condition = emitted.condition
+          binding = emitted.binding
         }
         value: ValuePattern -> { condition = subject + " == " + emitExpression(value.value, context) }
         _: WildcardPattern -> { isWildcard = true }
@@ -233,14 +244,6 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
   return result + ind + "}\n"
 }
 
-function isResultCasePattern(pattern: TypePattern): bool {
-  if pattern.resolvedType == null { return false }
-  case pattern.resolvedType! {
-    _: ResultResolvedType -> { return true }
-    _ -> { return false }
-  }
-}
-
 function caseSubjectType(expression: Expression): ResolvedType | null {
   if expression.resolvedType != null { return expression.resolvedType }
   case expression {
@@ -250,31 +253,6 @@ function caseSubjectType(expression: Expression): ResolvedType | null {
     _ -> { }
   }
   return null
-}
-
-function isVariantCaseType(resolvedType: ResolvedType | null): bool {
-  if resolvedType == null { return false }
-  case resolvedType! {
-    union_: UnionResolvedType -> {
-      let nonNull = 0
-      for member of union_.types { if member.kind != "null" { nonNull = nonNull + 1 } }
-      return nonNull > 1
-    }
-    _ -> { }
-  }
-  return false
-}
-
-function hasTypePattern(statement: CaseStatement): bool {
-  for arm of statement.arms {
-    for pattern of arm.patterns {
-      case pattern {
-        _: TypePattern -> { return true }
-        _ -> { }
-      }
-    }
-  }
-  return false
 }
 
 function emitReturn(statement: ReturnStatement, context: EmitContext): string {
@@ -317,11 +295,14 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
     _ -> { }
   }
   iterable := emitExpression(statement.iterable, context)
+  context.tryCounter = context.tryCounter + 1
+  iterableName := "_iterable_" + string(context.tryCounter)
+  iterableBinding := ind + "const auto& " + iterableName + " = " + iterable + ";\n"
   if statement.iterable.resolvedType != null {
     case statement.iterable.resolvedType! {
       _: StreamResolvedType -> {
-        return ind + "while (std::visit([](auto&& _obj) { return _obj->next(); }, " + iterable + ")) {\n" +
-          ind + "    const auto " + name + " = std::visit([](auto&& _obj) { return _obj->value(); }, " + iterable + ");\n" +
+        return iterableBinding + ind + "while (std::visit([](auto&& _obj) { return _obj->next(); }, " + iterableName + ")) {\n" +
+          ind + "    const auto " + name + " = std::visit([](auto&& _obj) { return _obj->value(); }, " + iterableName + ");\n" +
           emitBlock(statement.body, level + 1, context) + ind + "}\n"
       }
       _ -> { }
@@ -333,10 +314,10 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
       if i > 0 { names = names + ", " }
       names = names + cppIdentifier(statement.bindings[i])
     }
-    return ind + "for (const auto& [" + names + "] : *" + iterable + ") {\n" +
+    return iterableBinding + ind + "for (const auto& [" + names + "] : *" + iterableName + ") {\n" +
       emitBlock(statement.body, level + 1, context) + ind + "}\n"
   }
-  return ind + "for (const auto& " + name + " : *" + iterable + ") {\n" +
+  return iterableBinding + ind + "for (const auto& " + name + " : *" + iterableName + ") {\n" +
     emitBlock(statement.body, level + 1, context) + ind + "}\n"
 }
 

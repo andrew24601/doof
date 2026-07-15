@@ -11,7 +11,7 @@ import {
   ExpressionStatement, ForOfStatement, ForStatement, Identifier, IfExpression,
   IfStatement, ImmutableBinding, IndexExpression, LambdaExpression,
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration, RetireExpression, ReturnStatement,
-  Statement, StringLiteral, TryStatement, TupleLiteral, UnaryExpression,
+  Statement, StringLiteral, ThisExpression, TryStatement, TupleLiteral, UnaryExpression,
   WhileStatement, WithStatement,
 } from "./ast"
 import { FunctionType, ResolvedType, ResultResolvedType, VoidType } from "./semantic"
@@ -20,8 +20,14 @@ import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { emitBlock } from "./emitter-stmt"
 import { emitType } from "./emitter-types"
 
-export function emitLambdaExpression(expression: LambdaExpression, context: EmitContext): string {
-  functionType := lambdaFunctionType(expression)
+export function emitLambdaExpression(expression: LambdaExpression, context: EmitContext, expected: ResolvedType | null = null): string {
+  let functionType = lambdaFunctionType(expression)
+  if expected != null {
+    case expected! {
+      expectedFunction: FunctionType -> { functionType = expectedFunction }
+      _ -> { }
+    }
+  }
   let params = ""
   for i of 0..<expression.params.length {
     if i > 0 { params = params + ", " }
@@ -103,7 +109,13 @@ function lambdaCaptureNames(expression: LambdaExpression): string[] {
       collectExpressionCaptures(body, bodyStart, bodyEnd, result, false)
     }
   }
-  return result
+  let captures: string[] = []
+  for name of result {
+    let parameter = false
+    for item of expression.params { if cppIdentifier(item.name) == name { parameter = true } }
+    if !parameter { captures.push(name) }
+  }
+  return captures
 }
 
 function scanBlockForLambdas(block: Block, result: string[]): void {
@@ -162,7 +174,10 @@ function scanStatementForLambdas(statement: Statement, result: string[]): void {
     }
     try_: TryStatement -> {
       case try_.binding {
+        declaration: ConstDeclaration -> { scanExpressionForLambdas(declaration.value, result) }
+        declaration: ReadonlyDeclaration -> { scanExpressionForLambdas(declaration.value, result) }
         binding: ImmutableBinding -> { scanExpressionForLambdas(binding.value, result) }
+        declaration: LetDeclaration -> { scanExpressionForLambdas(declaration.value, result) }
         expression: ExpressionStatement -> { scanExpressionForLambdas(expression.expression, result) }
       }
     }
@@ -206,7 +221,12 @@ function scanExpressionForLambdas(expression: Expression, result: string[]): voi
       scanExpressionForLambdas(if_.then_, result)
       scanExpressionForLambdas(if_.else_, result) }
     case_: CaseExpression -> { scanExpressionForLambdas(case_.subject, result)
-      for arm of case_.arms { scanExpressionForLambdas(arm.body, result) } }
+      for arm of case_.arms {
+        case arm.body {
+          block: Block -> { scanBlockForLambdas(block, result) }
+          bodyExpression: Expression -> { scanExpressionForLambdas(bodyExpression, result) }
+        }
+      } }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { scanExpressionForLambdas(property.value!, result) } } }
     async_: AsyncExpression -> {
       case async_.expression {
@@ -270,7 +290,10 @@ function collectStatementCaptures(statement: Statement, bodyStart: int, bodyEnd:
       collectBlockCaptures(with_.body, bodyStart, bodyEnd, result, mutableOnly) }
     try_: TryStatement -> {
       case try_.binding {
+        declaration: ConstDeclaration -> { collectExpressionCaptures(declaration.value, bodyStart, bodyEnd, result, mutableOnly) }
+        declaration: ReadonlyDeclaration -> { collectExpressionCaptures(declaration.value, bodyStart, bodyEnd, result, mutableOnly) }
         binding: ImmutableBinding -> { collectExpressionCaptures(binding.value, bodyStart, bodyEnd, result, mutableOnly) }
+        declaration: LetDeclaration -> { collectExpressionCaptures(declaration.value, bodyStart, bodyEnd, result, mutableOnly) }
         expression: ExpressionStatement -> { collectExpressionCaptures(expression.expression, bodyStart, bodyEnd, result, mutableOnly) }
       }
     }
@@ -282,6 +305,7 @@ function collectStatementCaptures(statement: Statement, bodyStart: int, bodyEnd:
 function collectExpressionCaptures(expression: Expression, bodyStart: int, bodyEnd: int, result: string[], mutableOnly: bool): void {
   case expression {
     identifier: Identifier -> { collectIdentifierCapture(identifier, bodyStart, bodyEnd, result, mutableOnly) }
+    _: ThisExpression -> { if !mutableOnly { addUnique(result, "this") } }
     binary: BinaryExpression -> { collectExpressionCaptures(binary.left, bodyStart, bodyEnd, result, mutableOnly)
       collectExpressionCaptures(binary.right, bodyStart, bodyEnd, result, mutableOnly) }
     unary: UnaryExpression -> { collectExpressionCaptures(unary.operand, bodyStart, bodyEnd, result, mutableOnly) }
@@ -309,7 +333,12 @@ function collectExpressionCaptures(expression: Expression, bodyStart: int, bodyE
       collectExpressionCaptures(if_.then_, bodyStart, bodyEnd, result, mutableOnly)
       collectExpressionCaptures(if_.else_, bodyStart, bodyEnd, result, mutableOnly) }
     case_: CaseExpression -> { collectExpressionCaptures(case_.subject, bodyStart, bodyEnd, result, mutableOnly)
-      for arm of case_.arms { collectExpressionCaptures(arm.body, bodyStart, bodyEnd, result, mutableOnly) } }
+      for arm of case_.arms {
+        case arm.body {
+          block: Block -> { collectBlockCaptures(block, bodyStart, bodyEnd, result, mutableOnly) }
+          bodyExpression: Expression -> { collectExpressionCaptures(bodyExpression, bodyStart, bodyEnd, result, mutableOnly) }
+        }
+      } }
     construct: ConstructExpression -> { for property of construct.args { if property.value != null { collectExpressionCaptures(property.value!, bodyStart, bodyEnd, result, mutableOnly) } } }
     async_: AsyncExpression -> {
       case async_.expression {
