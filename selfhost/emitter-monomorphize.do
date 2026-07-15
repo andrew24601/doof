@@ -170,6 +170,7 @@ function collectClassBody(class_: ClassDeclaration, modulePath: string, analysis
     // methods are discovered from their concrete call sites.
     if method.typeParams.length == 0 { collectFunctionBody(method, modulePath, analysis, plan, names, arguments) }
   }
+  if class_.destructor_ != null { collectBlock(class_.destructor_!, modulePath, analysis, plan, names, arguments) }
 }
 
 function collectStatement(statement: Statement, modulePath: string, analysis: AnalysisResult, plan: InstantiationPlan, names: string[], arguments: ResolvedType[]): void {

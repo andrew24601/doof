@@ -605,8 +605,10 @@ function digitValue(ch: char): int {
 function parseDoubleValue(parser: Parser, raw: string): double {
   let dot = -1
   for i of 0..<raw.length { if raw[i] == '.' { dot = i; break } }
-  if dot < 0 { return double(parseIntValue(parser, raw)) }
-  whole := parseIntValue(parser, raw.substring(0, dot))
+  if dot < 0 { return double(parseLongValue(parser, raw)) }
+  // The integral portion of a double can exceed int even when the final
+  // floating-point value is valid (for example nanoseconds-per-day).
+  whole := parseLongValue(parser, raw.substring(0, dot))
   fractionText := raw.substring(dot + 1, raw.length)
   fraction := parseIntValue(parser, fractionText)
   let divisor = 1.0

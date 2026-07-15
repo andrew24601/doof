@@ -62,7 +62,7 @@ function emitFromJsonValue(owner: ClassDeclaration, context: EmitContext): strin
     }
   }
   let constructed = owner.name + "{" + arguments + "}"
-  if !owner.struct_ { constructed = "std::make_shared<" + owner.name + ">(" + constructed + ")" }
+  if !owner.struct_ { constructed = "std::make_shared<" + owner.name + ">(" + arguments + ")" }
   return result + "    return doof::Success<" + valueType + ">{" + constructed + "};\n}\n"
 }
 

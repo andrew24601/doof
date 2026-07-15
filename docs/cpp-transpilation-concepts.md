@@ -284,6 +284,9 @@ Strategy:
 - struct values lower to direct values and are copied on assignment, parameter passing, and return
 - constructor and field initialization order is emitted explicitly
 - positional and named construction forms are normalized into the generated constructor call shape; classes emit `std::make_shared<T>(...)` while structs emit direct value construction
+- self-hosted class construction passes field arguments directly to
+  `std::make_shared<T>(...)`, avoiding an intermediate class temporary whose
+  destructor would otherwise run before the owned instance leaves scope
 - the self-hosted call emitter identifies positional construction from the
   callee binding itself: direct class/struct bindings and imported nominal
   symbols construct values, while method bindings remain calls even when their
@@ -303,6 +306,8 @@ Strategy:
   (`Channel<std::string>::constructor(...)`) when type arguments are explicit or inferred
 - field defaults may call static class/struct methods and lower to the same `Type::method(...)`
   form used by ordinary static calls
+- class destructor blocks lower to C++ destructors in both emitters, preserving
+  deterministic cleanup when the last `shared_ptr` owner leaves scope
 - structs are not emitted with shared ownership bases, destructors, weak references, or interface dispatch support in v1
 
 Primary modules:

@@ -554,6 +554,7 @@ export class ClassDeclaration {
   implements_: NamedType[]
   fields: ClassField[]
   methods: FunctionDeclaration[]
+  destructor_: Block | null = null
   exported: bool
   private_: bool
   native_: bool = false

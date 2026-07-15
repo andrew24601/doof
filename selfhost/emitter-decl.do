@@ -256,6 +256,11 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
       result = result + "    " + templatePrefix(method.typeParams) + staticPrefix + emitFunctionSignature(method, "", context.modulePath, true, context, decl.typeParams) + ";\n"
     }
   }
+  if decl.destructor_ != null {
+    result = result + "    ~" + className + "() {\n"
+    result = result + emitBlock(decl.destructor_!, 2, context)
+    result = result + "    }\n"
+  }
   result = result + emitGeneratedJsonDeclarations(decl, context)
   return result + "};\n"
 }

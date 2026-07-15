@@ -111,7 +111,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
           if i > 0 { values = values + ", " }
           values = values + emitExpression(expression.args[i].value, context)
         }
-        return if class_.symbol.kind == "struct" then cppName + "{" + values + "}" else "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
+        return if class_.symbol.kind == "struct" then cppName + "{" + values + "}" else "std::make_shared<" + cppName + ">(" + values + ")"
         }
       }
       _ -> { }
@@ -478,7 +478,7 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
   }
   if native { return "std::make_shared<" + cppName + ">(" + values + ")" }
   if structValue { return cppName + "{" + values + "}" }
-  return "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
+  return "std::make_shared<" + cppName + ">(" + values + ")"
 }
 
 function emitConstructorFactoryCall(owner: ClassType, constructorMethod: FunctionDeclaration, args: CallArgument[], context: EmitContext, callSiteSpan: SourceSpan): string {

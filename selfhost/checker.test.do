@@ -309,6 +309,17 @@ export function testResolvesImplicitClassMethodCalls(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksClassDestructorBody(): void {
+  result := checked("class Resource { function close(): void {}\ndestructor { close() } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsStructDestructor(): void {
+  result := checked("struct Resource { destructor {} }")
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].message, "Struct \"Resource\" cannot declare a destructor")
+}
+
 export function testResolvesClassAndMethodTypeParameters(): void {
   source := "class Box<T> { map<U>(transform: (it: T): U): Box<U> => Box<U> {} }"
   result := checked(source)

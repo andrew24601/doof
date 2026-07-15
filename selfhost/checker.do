@@ -366,6 +366,21 @@ export class ModuleChecker {
       if field.defaultValue != null && field.type_ != null { checkExpression(field.defaultValue!, classScope, optionalResolvedType(fieldType)) }
     }
     for method of class_.methods { checkFunction(method, classScope, owner) }
+    if class_.destructor_ != null {
+      if class_.struct_ {
+        typeError("Struct \"" + class_.name + "\" cannot declare a destructor", class_.destructor_!.span)
+      } else {
+        destructorScope := Scope {
+          parent: classScope,
+          returnType: voidType(),
+          thisType: owner,
+          functionName: class_.name + ".destructor",
+        }
+        addClassFields(destructorScope, owner)
+        addClassMethods(destructorScope, owner)
+        checkBlock(class_.destructor_!, destructorScope)
+      }
+    }
     for interfaceRef of class_.implements_ {
       target := resolveType(interfaceRef, info!, classScope)
       case target {

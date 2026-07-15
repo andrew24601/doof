@@ -305,7 +305,15 @@ export function testEmitsClassesMethodsAndConstruction(): void {
   Assert.equal(result.header.contains("int32_t double();"), true)
   Assert.equal(result.source.contains("int32_t Point::double()"), true)
   Assert.equal(result.source.contains("this->x"), true)
-  Assert.equal(result.source.contains("std::make_shared<Point>(Point{4})"), true)
+  Assert.equal(result.source.contains("std::make_shared<Point>(4)"), true)
+}
+
+export function testEmitsClassDestructorBody(): void {
+  result := emit("class Resource { value: int = 1\ndestructor { println(\"closed\") } }\nfunction open(): Resource => Resource {}")
+  Assert.equal(result.header.contains("~Resource()"), true)
+  Assert.equal(result.header.contains("doof::println(std::string(\"closed\"));"), true)
+  Assert.equal(result.source.contains("std::make_shared<Resource>(1)"), true)
+  Assert.equal(result.source.contains("std::make_shared<Resource>(Resource{"), false)
 }
 
 export function testEmitsStrictPrimitiveJsonDeserialization(): void {
@@ -317,7 +325,7 @@ export function testEmitsStrictPrimitiveJsonDeserialization(): void {
   Assert.equal(result.source.contains("_field_count = 10;"), true)
   Assert.equal(result.source.contains("_field_notes = std::nullopt;"), true)
   Assert.equal(result.source.contains("doof::json_is_null(_iterator_notes->second)"), true)
-  Assert.equal(result.source.contains("std::make_shared<Config>(Config{_field_name, _field_enabled, _field_count, _field_notes})"), true)
+  Assert.equal(result.source.contains("std::make_shared<Config>(_field_name, _field_enabled, _field_count, _field_notes)"), true)
 }
 
 export function testEmitsStructJsonDeserializationByValue(): void {

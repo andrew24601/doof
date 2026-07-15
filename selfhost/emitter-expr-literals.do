@@ -152,7 +152,7 @@ function emitClassObject(expression: ObjectLiteral, context: EmitContext, resolv
     }
   }
   if resolved.symbol.kind == "struct" { return cppName + "{" + values + "}" }
-  return "std::make_shared<" + cppName + ">(" + cppName + "{" + values + "})"
+  return "std::make_shared<" + cppName + ">(" + values + ")"
 }
 
 function emitMapObject(expression: ObjectLiteral, context: EmitContext, map: MapResolvedType): string {

@@ -189,6 +189,7 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
 
   let fields: ClassField[] = []
   let methods: FunctionDeclaration[] = []
+  let destructor_: Block | null = null
   while !parser.check(TokenType.RightBrace) && !parser.atEnd() {
     if parser.check(TokenType.Function) {
       methods.push(parseFunction(parser, false, false, false, false))
@@ -215,11 +216,9 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
         fields.push(parseClassField(parser, false, true))
       }
     } else if parser.check(TokenType.Destructor) {
-      // Destructors are runtime-only cleanup hooks.  The self-hosted AST
-      // has no destructor node yet, but consuming the body keeps std/time
-      // source compatible for analysis of its public types.
+      if destructor_ != null { parser.fail("A class may declare at most one destructor") }
       parser.advance()
-      parser.parseBlock()
+      destructor_ = parser.parseBlock()
     } else if parser.check(TokenType.Static) {
       if checkAheadMethod(parser, 1) {
         parser.advance()
@@ -235,7 +234,7 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
     }
   }
   parser.expect(TokenType.RightBrace)
-  return ClassDeclaration { kind: "class-declaration", name, struct_, typeParams, implements_, fields, methods, exported, private_, span: parser.span(start) }
+  return ClassDeclaration { kind: "class-declaration", name, struct_, typeParams, implements_, fields, methods, destructor_, exported, private_, span: parser.span(start) }
 }
 
 function checkAheadMethod(parser: Parser, offset: int): bool {

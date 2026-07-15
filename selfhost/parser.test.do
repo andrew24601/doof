@@ -58,6 +58,13 @@ export function testParsesLongLiteralsWithoutIntTruncation(): void {
   }
 }
 
+export function testParsesLargeDoubleLiteralsWithoutIntTruncation(): void {
+  case first("86400000000000.0") {
+    statement: ExpressionStatement -> { assertDouble(statement.expression, 86400000000000.0) }
+    _ -> { panic("expected expression statement") }
+  }
+}
+
 export function testPreservesOperatorPrecedence(): void {
   case first("1 + 2 * 3") {
     statement: ExpressionStatement -> {
@@ -394,6 +401,16 @@ export function testPreservesStructDeclarations(): void {
   case first("struct Point { x: int }") {
     structDecl: ClassDeclaration -> { Assert.equal(structDecl.struct_, true) }
     _ -> { panic("expected struct declaration") }
+  }
+}
+
+export function testParsesClassDestructorBody(): void {
+  case first("class Resource { destructor { println(\"closed\") } }") {
+    classDecl: ClassDeclaration -> {
+      Assert.isTrue(classDecl.destructor_ != null)
+      Assert.equal(classDecl.destructor_!.statements.length, 1)
+    }
+    _ -> { panic("expected class declaration") }
   }
 }
 
