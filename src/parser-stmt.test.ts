@@ -947,6 +947,20 @@ describe("Parser — extern class declarations", () => {
     }
   });
 
+  it("parses isolated native method contracts", () => {
+    const stmt = firstStmt(`import class NativeProcess {
+      isolated static spawn(command: string): NativeProcess
+      isolated wait(): int
+    }`);
+    expect(stmt.kind).toBe("extern-class-declaration");
+    if (stmt.kind === "extern-class-declaration") {
+      expect(stmt.methods.map((method) => ({ name: method.name, static_: method.static_, isolated_: method.isolated_ }))).toEqual([
+        { name: "spawn", static_: true, isolated_: true },
+        { name: "wait", static_: false, isolated_: true },
+      ]);
+    }
+  });
+
   it("parses deeply nested C++ namespace", () => {
     const stmt = firstStmt(`import class Foo from "<foo.h>" as a::b::c::Foo {
       bar(): int
@@ -1004,7 +1018,19 @@ describe("Parser — import function declarations", () => {
       expect(stmt.cppName).toBeNull();
       expect(stmt.params).toHaveLength(1);
       expect(stmt.params[0].name).toBe("x");
+      expect(stmt.isolated_).toBe(false);
       expect(stmt.exported).toBe(false);
+    }
+  });
+
+  it("parses isolated native function contract", () => {
+    const stmt = firstStmt(`import isolated function poll(): int from "native.hpp" as native::poll`);
+    expect(stmt.kind).toBe("extern-function-declaration");
+    if (stmt.kind === "extern-function-declaration") {
+      expect(stmt.name).toBe("poll");
+      expect(stmt.isolated_).toBe(true);
+      expect(stmt.headerPath).toBe("native.hpp");
+      expect(stmt.cppName).toBe("native::poll");
     }
   });
 
@@ -1076,6 +1102,16 @@ describe("Parser — import function declarations", () => {
         expect(stmt.declaration.exported).toBe(true);
         expect(stmt.declaration.cppName).toBe("std::sin");
       }
+    }
+  });
+
+  it("parses exported isolated native function contract", () => {
+    const program = parse(`export import isolated function poll(): int from "native.hpp"`);
+    const stmt = program.statements[0];
+    expect(stmt.kind).toBe("export-declaration");
+    if (stmt.kind === "export-declaration" && stmt.declaration.kind === "extern-function-declaration") {
+      expect(stmt.declaration.exported).toBe(true);
+      expect(stmt.declaration.isolated_).toBe(true);
     }
   });
 

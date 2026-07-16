@@ -12,6 +12,7 @@ import {
   parseFunction as parseFunctionImpl, parseClass as parseClassImpl,
   parseInterface as parseInterfaceImpl, parseEnum as parseEnumImpl,
   parseTypeAlias as parseTypeAliasImpl, parseImport as parseImportImpl,
+  parseMockImport as parseMockImportImpl,
 } from "./parser-declarations"
 import {
   parseStatement as parseStatementImpl, parseBlock as parseBlockImpl,
@@ -162,6 +163,7 @@ export class Parser {
   function parseEnum(exported: bool): Statement { return parseEnumImpl(this, exported) }
   function parseTypeAlias(exported: bool): Statement { return parseTypeAliasImpl(this, exported) }
   function parseImport(): Statement { return parseImportImpl(this) }
+  function parseMockImport(): Statement { return parseMockImportImpl(this) }
 
   function parseBlock(): Block { return parseBlockImpl(this) }
   function parseCaseExpression(): Expression { return parseCaseExpressionImpl(this) }

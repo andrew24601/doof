@@ -132,6 +132,7 @@ export function classSatisfiesConcreteInterface(result: AnalysisResult, class_: 
       for required of interface_.fields {
         actualField := findClassField(class_.fields, required.name)
         if actualField == null || actualField!.type_ == null { return false }
+        if required.readonly_ && !actualField!.readonly_ { return false }
         actualBase := if actualField!.resolvedType == null then resolveAnnotation(actualField!.type_!, classModuleFor(result, classType_.symbol), result, class_.typeParams) else actualField!.resolvedType!
         requiredBase := if required.resolvedType == null then resolveAnnotation(required.type_, classModuleFor(result, interfaceType_.symbol), result, interface_.typeParams) else required.resolvedType!
         actual := substituteTypeParams(actualBase, class_.typeParams, classType_.typeArgs)
@@ -165,6 +166,7 @@ export function classSatisfiesInterface(result: AnalysisResult, classSymbol: Sym
           for required of interface_.fields {
             classField := findClassField(class_.fields, required.name)
             if classField == null { return false }
+            if required.readonly_ && !classField!.readonly_ { return false }
             actual := if classField!.resolvedType == null then resolveAnnotation(classField!.type_!, classModuleFor(result, classSymbol), result) else classField!.resolvedType!
             expected := if required.resolvedType == null then resolveAnnotation(required.type_, classModuleFor(result, interfaceSymbol), result) else required.resolvedType!
             if !isAssignable(actual, expected) { return false }
@@ -232,4 +234,3 @@ export function classModuleFor(result: AnalysisResult, symbol: Symbol): ModuleIn
   if module == null { panic("Missing module for symbol " + symbol.name) }
   return module!
 }
-

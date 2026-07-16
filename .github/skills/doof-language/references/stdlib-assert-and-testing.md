@@ -90,6 +90,7 @@ Important rules:
 
 - Put `mock import` directives at the top of the root `.test.do` file.
 - Mock substitutions affect only that test file's module graph.
+- Source-module and dependency specifiers match exactly; glob patterns are not supported.
 - `.calls` entries use the original parameter names as fields.
 - Generic mock functions, generic mock classes or methods, and static mock methods are rejected.
 

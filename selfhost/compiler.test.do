@@ -24,6 +24,27 @@ export function testCompilesAnImportedProject(): void {
   Assert.equal(result.emission!.modules[0].header.contains("#include \"math.hpp\""), true)
 }
 
+export function testCompilesMockImportReplacementInsteadOfOriginalDependency(): void {
+  result := compile([
+    SourceFile { path: "/main.test.do", source: "mock import for \"./service\" { \"./dep\" => \"./dep.mock\" }\nimport { run } from \"./service\"\nfunction main(): int => run()" },
+    SourceFile { path: "/service.do", source: "import { value } from \"./dep\"\nexport function run(): int => value()" },
+    SourceFile { path: "/dep.do", source: "export function value(): MissingOriginalType => missingOriginalValue" },
+    SourceFile { path: "/dep.mock.do", source: "export function value(): int => 7" },
+  ], "/main.test.do")
+
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  let sawMock = false
+  let sawOriginal = false
+  for module of result.emission!.modules {
+    if module.modulePath == "/dep.mock.do" { sawMock = true }
+    if module.modulePath == "/dep.do" { sawOriginal = true }
+  }
+  Assert.equal(sawMock, true)
+  Assert.equal(sawOriginal, false)
+}
+
 export function testMonomorphizesDoofFunctionsAndClasses(): void {
   result := compile([SourceFile {
     path: "/main.do",

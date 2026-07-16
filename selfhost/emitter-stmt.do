@@ -10,9 +10,10 @@ import {
   WhileStatement, CaseStatement, NamedType, TypePattern, ValuePattern, WildcardPattern,
   Identifier, BreakStatement, ContinueStatement, DestructuringStatement, ForOfStatement, ForStatement, BinaryExpression,
   TryStatement, WithStatement, YieldStatement,
+  MockImportDirective,
 } from "./ast"
 import type { TypeAnnotation } from "./ast"
-import { ArrayResolvedType, ClassType, InterfaceType, ResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, InterfaceType, RangeResolvedType, ResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitCaseTypePattern } from "./emitter-case-pattern"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
@@ -29,11 +30,12 @@ export function emitBlock(block: Block, level: int, context: EmitContext): strin
 export function emitStatement(statement: Statement, level: int = 1, context: EmitContext): string {
   ind := indent(level)
   case statement {
+    _: MockImportDirective -> { return "" }
     const_: ConstDeclaration -> { return emitLocalDeclaration(ind, const_.name, const_.type_, const_.resolvedType!, const_.value, context, true) }
     readonly_: ReadonlyDeclaration -> { return emitLocalDeclaration(ind, readonly_.name, readonly_.type_, readonly_.resolvedType!, readonly_.value, context, true) }
     binding: ImmutableBinding -> {
       if binding.else_ != null { return emitBindingElse(binding, level, context) }
-      return emitLocalDeclaration(ind, binding.name, binding.type_, binding.resolvedType!, binding.value, context, true)
+      return emitLocalDeclaration(ind, binding.name, binding.type_, binding.resolvedType!, binding.value, context, true, true)
     }
     let_: LetDeclaration -> { return emitLocalDeclaration(ind, let_.name, let_.type_, let_.resolvedType!, let_.value, context, false) }
     return_: ReturnStatement -> { return ind + emitReturn(return_, context) }
@@ -189,10 +191,15 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
   return ""
 }
 
-function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotation | null, resolvedType: ResolvedType | null, value: Expression, context: EmitContext, readonly_: bool): string {
+function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotation | null, resolvedType: ResolvedType | null, value: Expression, context: EmitContext, readonly_: bool, shallowImmutable: bool = false): string {
   if resolvedType == null { panic("Local declaration was not resolved before emission") }
   let typeText = if annotation == null then "auto" else emitType(resolvedType!, context.modulePath)
-  let prefix = if readonly_ then "const " else ""
+  let shallowStruct = false
+  case resolvedType! {
+    class_: ClassType -> { shallowStruct = shallowImmutable && class_.symbol.kind == "struct" }
+    _ -> { }
+  }
+  let prefix = if readonly_ && !shallowStruct then "const " else ""
   let expected: ResolvedType | null = resolvedType
   let valueText = emitExpression(value, context, expected)
   if !readonly_ && isCapturedMutable(context, name) {
@@ -300,6 +307,10 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
   iterableBinding := ind + "const auto& " + iterableName + " = " + iterable + ";\n"
   if statement.iterable.resolvedType != null {
     case statement.iterable.resolvedType! {
+      _: RangeResolvedType -> {
+        return iterableBinding + ind + "for (const auto& " + name + " : " + iterableName + ") {\n" +
+          emitBlock(statement.body, level + 1, context) + ind + "}\n"
+      }
       _: StreamResolvedType -> {
         return iterableBinding + ind + "while (std::visit([](auto&& _obj) { return _obj->next(); }, " + iterableName + ")) {\n" +
           ind + "    const auto " + name + " = std::visit([](auto&& _obj) { return _obj->value(); }, " + iterableName + ");\n" +

@@ -838,7 +838,7 @@ function bindingMatchesRetiredSpan(binding: Binding | undefined, retiredSpan: So
   return !!binding && spanKey(binding.span) === spanKey(retiredSpan);
 }
 
-function walkExpression(expr: Expression, visit: (expr: Expression) => void): void {
+export function walkExpression(expr: Expression, visit: (expr: Expression) => void): void {
   visit(expr);
   switch (expr.kind) {
     case "binary-expression":
@@ -952,7 +952,7 @@ function walkExpression(expr: Expression, visit: (expr: Expression) => void): vo
   }
 }
 
-function walkStatementExpressions(stmt: Statement, visit: (expr: Expression) => void): void {
+export function walkStatementExpressions(stmt: Statement, visit: (expr: Expression) => void): void {
   switch (stmt.kind) {
     case "const-declaration":
     case "readonly-declaration":
@@ -1049,7 +1049,7 @@ function walkStatementExpressions(stmt: Statement, visit: (expr: Expression) => 
   }
 }
 
-function walkStatementListExpressions(stmts: Statement[], visit: (expr: Expression) => void): void {
+export function walkStatementListExpressions(stmts: Statement[], visit: (expr: Expression) => void): void {
   for (const stmt of stmts) {
     walkStatementExpressions(stmt, visit);
   }

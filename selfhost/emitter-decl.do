@@ -187,7 +187,8 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
       ensureKnown(effectiveType, decl.name + "." + name)
       result = result + "    " + (if field.static_ then "static " else "") + fieldType + " " + cppIdentifier(name)
       if field.defaultValue != null && !field.static_ {
-        result = result + " = " + emitExpression(field.defaultValue!, context, effectiveType)
+        defaultText := emitExpression(field.defaultValue!, context, effectiveType)
+        if !defaultNeedsImportedDefinition(defaultText, context) { result = result + " = " + defaultText }
       }
       result = result + ";\n"
     }
@@ -205,6 +206,18 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
         parameterIndex = parameterIndex + 1
       }
     }
+    let suppressTrailingDefaults = false
+    parameterIndex = 0
+    for field of decl.fields {
+      if field.static_ { continue }
+      for name of field.names {
+        if parameterIndex > lastRequiredParameter && field.defaultValue != null {
+          defaultText := emitExpression(field.defaultValue!, context, fieldTypeForEmission(field))
+          if defaultNeedsImportedDefinition(defaultText, context) { suppressTrailingDefaults = true }
+        }
+        parameterIndex = parameterIndex + 1
+      }
+    }
     result = result + "    " + className + "("
     let firstParameter = true
     parameterIndex = 0
@@ -216,8 +229,9 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
         effectiveType := fieldTypeForEmission(field)
         fieldType := fieldTypeTextForEmission(field, effectiveType, context)
         result = result + fieldType + " " + cppIdentifier(name)
-        if parameterIndex > lastRequiredParameter && field.defaultValue != null {
-          result = result + " = " + emitExpression(field.defaultValue!, context, effectiveType)
+        if !suppressTrailingDefaults && parameterIndex > lastRequiredParameter && field.defaultValue != null {
+          defaultText := emitExpression(field.defaultValue!, context, effectiveType)
+          if !defaultNeedsImportedDefinition(defaultText, context) { result = result + " = " + defaultText }
         }
         parameterIndex = parameterIndex + 1
       }
@@ -263,6 +277,16 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
   }
   result = result + emitGeneratedJsonDeclarations(decl, context)
   return result + "};\n"
+}
+
+// Imported static calls require a complete type, which may be unavailable
+// while breaking a generated-header cycle. Call sites already materialize
+// Doof defaults, so those expressions do not also belong in the C++ header.
+function defaultNeedsImportedDefinition(defaultText: string, context: EmitContext): bool {
+  for imported of context.imports {
+    if defaultText.contains("::" + moduleNamespace(imported.sourceModule) + "::") { return true }
+  }
+  return false
 }
 
 function fieldTypeForEmission(field: ClassField): ResolvedType {

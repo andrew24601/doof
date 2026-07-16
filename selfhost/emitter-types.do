@@ -5,7 +5,7 @@
 // emitter modules.
 
 import {
-  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
+  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
   NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
@@ -111,7 +111,10 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
       if class_.symbol.kind == "struct" { return emitClassInnerType(class_, currentModulePath) }
       return "std::shared_ptr<" + emitClassInnerType(class_, currentModulePath) + ">"
     }
-    enum_: EnumType -> { return ownedName(enum_.name, enum_.symbol.module, currentModulePath) }
+    enum_: EnumType -> {
+      if enum_.name == "ParseError" && enum_.symbol.module == "<builtin>" { return "doof::ParseError" }
+      return ownedName(enum_.name, enum_.symbol.module, currentModulePath)
+    }
     interface_: InterfaceType -> {
       name := if interface_.typeArgs.length == 0 then interface_.name else concreteName(interface_.name, interface_.typeArgs)
       return ownedName(name, interface_.symbol.module, currentModulePath)
@@ -124,6 +127,7 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
       return "std::shared_ptr<doof::ordered_map<" + emitType(map.keyType, currentModulePath) + ", " + emitType(map.valueType, currentModulePath) + ">>"
     }
     stream: StreamResolvedType -> { return concreteName("Stream", [stream.elementType]) }
+    _: RangeResolvedType -> { return "doof::Range" }
     _: JsonValueResolvedType -> { return "doof::JsonValue" }
     result: ResultResolvedType -> { return "doof::Result<" + emitType(result.valueType, currentModulePath) + ", " + emitType(result.errorType, currentModulePath) + ">" }
     actor: ActorType -> { return "std::shared_ptr<doof::Actor<" + emitClassInnerType(actor.innerClass, currentModulePath) + ">>" }
@@ -160,7 +164,7 @@ function expressionAlternatives(ownerModule: string, currentModulePath: string):
 }
 
 function statementAlternatives(ownerModule: string, currentModulePath: string): string {
-  return "std::shared_ptr<" + ownedName("ConstDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReadonlyDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImmutableBinding", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LetDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FunctionDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ClassDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("InterfaceDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("EnumDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TypeAliasDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportList", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WhileStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForOfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WithStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReturnStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("YieldStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BreakStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ContinueStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExpressionStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DestructuringStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TryStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Block", ownerModule, currentModulePath) + ">"
+  return "std::shared_ptr<" + ownedName("ConstDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReadonlyDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImmutableBinding", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("LetDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("FunctionDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ClassDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("InterfaceDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("EnumDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TypeAliasDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ImportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("MockImportDirective", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportDeclaration", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExportList", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("IfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("CaseStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WhileStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ForOfStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("WithStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ReturnStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("YieldStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("BreakStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ContinueStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("ExpressionStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("DestructuringStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("TryStatement", ownerModule, currentModulePath) + ">, std::shared_ptr<" + ownedName("Block", ownerModule, currentModulePath) + ">"
 }
 
 function emitPrimitive(name: string): string {
@@ -210,8 +214,12 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
   // nullable values use optional; larger unions retain an explicit variant.
   if hasNull && nonNull.length == 1 && usesNaturalNullableMember(nonNull[0]) {
     case nonNull[0] {
-      _: ClassType -> { return emitType(nonNull[0], currentModulePath) }
+      class_: ClassType -> {
+        if class_.symbol.kind == "struct" { return "std::optional<" + emitType(nonNull[0], currentModulePath) + ">" }
+        return emitType(nonNull[0], currentModulePath)
+      }
       _: ArrayResolvedType -> { return emitType(nonNull[0], currentModulePath) }
+      _: MapResolvedType -> { return emitType(nonNull[0], currentModulePath) }
       _: PrimitiveType -> { return "std::optional<" + emitType(nonNull[0], currentModulePath) + ">" }
       _ -> { }
     }
@@ -273,6 +281,7 @@ function usesNaturalNullableMember(member: ResolvedType): bool {
   case member {
     _: ClassType -> { return true }
     _: ArrayResolvedType -> { return true }
+    _: MapResolvedType -> { return true }
     _: PrimitiveType -> { return true }
     _ -> { return false }
   }

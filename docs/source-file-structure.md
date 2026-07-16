@@ -14,6 +14,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `scripts/` — helper build and packaging scripts for samples and app targets
 - `scripts/release-gate.mjs` — expensive self-host bootstrap, fixed-point comparison, coverage, and native release acceptance
 - `selfhost/` — Doof implementations of compiler front-end components and their Doof-native tests
+- `docs/actor-memory-isolation-plan.md` — ownership invariant, isolation-effect semantics, implementation slices, and acceptance checks
 - `observer-ui/` — editable HTML/CSS/JS assets embedded in observed `doof run --observe` builds
 - `doof_observer_platform.h` — platform socket includes for observer-enabled runtime output
 - `doof_observer_runtime.h` — observer server fragment with UI asset placeholders
@@ -30,7 +31,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/lexer.test.do` — Doof-native lexer tests covering hot-path tokens, keywords, literals, interpolation, positions, large inputs, and diagnostics
 - `selfhost/ast.do` — nominal self-hosted syntax-tree node classes, tagged with `kind` values and source spans
 - `selfhost/parser.do` — self-hosted parser façade, token state, diagnostics, and public parse entry points
-- `selfhost/parser-declarations.do` — self-hosted declaration, class, interface, enum, import, and export parsing
+- `selfhost/parser-declarations.do` — self-hosted declaration, class, interface, enum, import/export, and mock-import directive parsing
 - `selfhost/parser-statements.do` — self-hosted statement, control-flow, try, destructuring, and case-pattern parsing
 - `selfhost/parser-types.do` — self-hosted type annotation parsing
 - `selfhost/parser-expressions.do` — self-hosted precedence-climbing expression, literal, lambda, and construction parsing
@@ -38,7 +39,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/semantic.do` — shared module symbols, semantic spans, resolved types, bindings, scopes, and diagnostics
 - `selfhost/resolver.do` — deterministic relative and rooted bare-module resolution over in-memory sources or a demand-driven source loader
 - `selfhost/resolver.test.do` — resolver tests for barrel probing, explicit mappings, and cached loader requests
-- `selfhost/analyzer.do` — phased module symbol collection, import/re-export resolution, and named-type decoration
+- `selfhost/analyzer.do` — phased module symbol collection, scoped mock-import rewriting, import/re-export resolution, and named-type decoration
 - `selfhost/analyzer.test.do` — analyzer tests for imports, re-exports, and resolved named types
 - `selfhost/checker-types.do` — resolved-type construction, assignability, joins, and numeric rules
 - `selfhost/json-semantics.do` — shared checker/emitter eligibility for automatic JSON methods
@@ -55,6 +56,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-validation.do` — graph-wide decorated-AST validation before emission
 - `selfhost/checker-common.do` — state-aware diagnostics and expression decoration helpers
 - `selfhost/checker-actor-boundary.do` — post-substitution actor-call boundary validation for deeply immutable payloads and actor-affine callbacks
+- `selfhost/checker-isolation.do` — transitive mutable-global effect inference for explicit isolation, actor calls, and actor construction
 - `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 - `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
@@ -144,6 +146,7 @@ Tests:
 - `checker-diagnostics.ts` — shared checker diagnostics that must stay consistent across modules
 - `checker-readonly.ts` — readonly-specific validation helpers
 - `checker-actor-boundary.ts` — actor-call boundary safety validation
+- `checker-isolation.ts` — transitive isolation-effect inference and actor execution-path validation
 - `checker-internal.ts` — shared checker contracts and built-ins
 - `checker-test-helpers.ts` — shared checker fixtures
 

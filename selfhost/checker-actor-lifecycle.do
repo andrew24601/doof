@@ -7,12 +7,13 @@
 import {
   ActorCreationExpression, ArrayLiteral, AssignmentExpression, AsyncExpression,
   BinaryExpression, Block, CallExpression, CaseExpression, CaseStatement,
-  ConstDeclaration, DestructuringStatement, ExportDeclaration,
+  ConstDeclaration, ConstructExpression, DestructuringStatement, ExportDeclaration,
   Expression, ExpressionStatement, ForOfStatement, ForStatement, Identifier,
   IfExpression, IfStatement, ImmutableBinding, IndexExpression, LambdaExpression,
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration,
   RetireExpression, ReturnStatement, SourceSpan, Statement, StringLiteral, TryStatement,
   TupleLiteral, UnaryExpression, WhileStatement, WithStatement, YieldStatement,
+  AsExpression, ValuePattern,
 } from "./ast"
 import { ActorType, Binding, Diagnostic, SemanticLocation, SemanticSpan } from "./semantic"
 
@@ -73,7 +74,7 @@ function collectExpressionIdentifiers(expression: Expression, result: Identifier
   for child of nested { collectExpressionIdentifiers(child, result) }
 }
 
-function collectStatementExpressions(statement: Statement, result: Expression[]): void {
+export function collectStatementExpressions(statement: Statement, result: Expression[]): void {
   case statement {
     value: ConstDeclaration -> { result.push(value.value) }
     value: ReadonlyDeclaration -> { result.push(value.value) }
@@ -110,6 +111,12 @@ function collectStatementExpressions(statement: Statement, result: Expression[])
     case_: CaseStatement -> {
       result.push(case_.subject)
       for arm of case_.arms {
+        for pattern of arm.patterns {
+          case pattern {
+            value: ValuePattern -> { result.push(value.value) }
+            _ -> { }
+          }
+        }
         case arm.body {
           block: Block -> { collectBlockExpressions(block, result) }
           expression: Expression -> { result.push(expression) }
@@ -132,11 +139,11 @@ function collectStatementExpressions(statement: Statement, result: Expression[])
   }
 }
 
-function collectBlockExpressions(block: Block, result: Expression[]): void {
+export function collectBlockExpressions(block: Block, result: Expression[]): void {
   for statement of block.statements { collectStatementExpressions(statement, result) }
 }
 
-function collectNestedExpressions(expression: Expression, result: Expression[]): void {
+export function collectNestedExpressions(expression: Expression, result: Expression[]): void {
   case expression {
     string_: StringLiteral -> { for interpolation of string_.interpolations { result.push(interpolation) } }
     binary: BinaryExpression -> { result.push(binary.left); result.push(binary.right) }
@@ -161,6 +168,12 @@ function collectNestedExpressions(expression: Expression, result: Expression[]):
     case_: CaseExpression -> {
       result.push(case_.subject)
       for arm of case_.arms {
+        for pattern of arm.patterns {
+          case pattern {
+            value: ValuePattern -> { result.push(value.value) }
+            _ -> { }
+          }
+        }
         case arm.body {
           block: Block -> { collectBlockExpressions(block, result) }
           bodyExpression: Expression -> { result.push(bodyExpression) }
@@ -175,6 +188,10 @@ function collectNestedExpressions(expression: Expression, result: Expression[]):
     }
     retire_: RetireExpression -> { result.push(retire_.actor) }
     actor: ActorCreationExpression -> { for argument of actor.args { result.push(argument) } }
+    construct: ConstructExpression -> {
+      for property of construct.args { if property.value != null { result.push(property.value!) } }
+    }
+    as_: AsExpression -> { result.push(as_.expression) }
     _ -> { }
   }
 }

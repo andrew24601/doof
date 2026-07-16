@@ -6,6 +6,7 @@ import {
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
   ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, UnionType, YieldStatement,
+  MockImportDirective,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
@@ -31,6 +32,22 @@ function assertLong(expression: Expression, expected: long): void {
   case expression {
     value: LongLiteral -> { Assert.equal(value.kind, "long-literal"); Assert.equal(value.value, expected) }
     _ -> { panic("expected long literal") }
+  }
+}
+
+export function testParsesMockImportDirectives(): void {
+  case first("mock import for \"../scene\" {\n  \"./event\" => \"./scene_event.mock\",\n  \"./model\" => \"./scene_model.mock\";\n  \"./render\" => \"./scene_render.mock\"\n}") {
+    directive: MockImportDirective -> {
+      Assert.equal(directive.kind, "mock-import-directive")
+      Assert.equal(directive.sourcePattern, "../scene")
+      Assert.equal(directive.mappings.length, 3)
+      Assert.equal(directive.mappings[0].dependency, "./event")
+      Assert.equal(directive.mappings[0].replacement, "./scene_event.mock")
+      Assert.equal(directive.mappings[1].dependency, "./model")
+      Assert.equal(directive.mappings[2].replacement, "./scene_render.mock")
+      Assert.equal(directive.mappings[0].span.start.line, 2)
+    }
+    _ -> { panic("expected mock import directive") }
   }
 }
 
@@ -61,6 +78,15 @@ export function testParsesLongLiteralsWithoutIntTruncation(): void {
 export function testParsesLargeDoubleLiteralsWithoutIntTruncation(): void {
   case first("86400000000000.0") {
     statement: ExpressionStatement -> { assertDouble(statement.expression, 86400000000000.0) }
+    _ -> { panic("expected expression statement") }
+  }
+  case first("1.4142135623730951") {
+    statement: ExpressionStatement -> {
+      case statement.expression {
+        value: DoubleLiteral -> { Assert.isTrue(value.value > 1.414 && value.value < 1.415) }
+        _ -> { panic("expected double literal") }
+      }
+    }
     _ -> { panic("expected expression statement") }
   }
 }
@@ -558,7 +584,7 @@ export function testParsesNegatedDiagnosticCall(): void {
 }
 
 export function testParsesNativeClassSurface(): void {
-  program := parse("export import class Client from \"<client.hpp>\" as native::Client { value: int get(): int static make(value: int): Client raw(): int => 7 label(): string { return \"ok\" } }")
+  program := parse("export import class Client from \"<client.hpp>\" as native::Client { value: int get(): int isolated static make(value: int): Client raw(): int => 7 label(): string { return \"ok\" } }")
   case program.statements[0] {
     class_: ClassDeclaration -> {
       Assert.equal(class_.exported, true)
@@ -569,11 +595,23 @@ export function testParsesNativeClassSurface(): void {
       Assert.equal(class_.methods.length, 4)
       Assert.equal(class_.methods[0].bodyless, true)
       Assert.equal(class_.methods[1].static_, true)
+      Assert.equal(class_.methods[1].isolated_, true)
       Assert.equal(class_.methods[1].bodyless, true)
       Assert.equal(class_.methods[2].bodyless, false)
       Assert.equal(class_.methods[3].bodyless, false)
     }
     _ -> { panic("expected native class declaration") }
+  }
+}
+
+export function testParsesExportedIsolatedFunction(): void {
+  program := parse("export isolated function compute(value: int): int => value")
+  case program.statements[0] {
+    function_: FunctionDeclaration -> {
+      Assert.equal(function_.exported, true)
+      Assert.equal(function_.isolated_, true)
+    }
+    _ -> { panic("expected isolated function declaration") }
   }
 }
 
@@ -585,5 +623,18 @@ export function testParsesGenericNativeFunction(): void {
       Assert.equal(fn.typeParams[0], "T")
     }
     _ -> { panic("expected generic native function") }
+  }
+}
+
+export function testParsesIsolatedNativeFunction(): void {
+  program := parse("export import isolated function poll(): int from \"native.hpp\" as native::poll")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> {
+      Assert.equal(fn.exported, true)
+      Assert.equal(fn.isolated_, true)
+      Assert.equal(fn.bodyless, true)
+      Assert.equal(fn.native_, true)
+    }
+    _ -> { panic("expected isolated native function") }
   }
 }

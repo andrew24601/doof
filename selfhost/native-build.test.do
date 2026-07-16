@@ -1,7 +1,7 @@
 import { Assert } from "std/assert"
 
 import { ModuleEmission } from "./emitter-module"
-import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from "./native-build"
+import { NativeCompileTask, NativeCompileTaskBatch, batchNativeCompileTasks, planNativeCompile } from "./native-build"
 import { NativeBuildPlan } from "./package-manifest"
 
 export function testPlansGeneratedAndManifestNativeSources(): void {
@@ -199,6 +199,7 @@ export function testBatchesCompileTasksAcrossAtMostEightWorkers(): void {
   }
 
   batches := batchNativeCompileTasks(tasks)
+  readonly frozenBatches: readonly NativeCompileTaskBatch[] = batches
   Assert.equal(batches.length, 8)
   Assert.equal(batches[0].length, 3)
   Assert.equal(batches[1].length, 3)

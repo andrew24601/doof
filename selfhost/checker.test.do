@@ -1,7 +1,7 @@
 import { Assert } from "std/assert"
 import { createAnalyzer } from "./analyzer"
 import { createChecker, validateCheckedTypes } from "./checker"
-import { CheckResult, SourceFile } from "./semantic"
+import { CheckResult, Diagnostic, SourceFile } from "./semantic"
 import { AsExpression, AssignmentExpression, Block, ClassDeclaration, ConstructExpression, Expression, ExpressionStatement, Identifier, IfStatement, FunctionDeclaration, ImmutableBinding, ObjectLiteral, WithStatement } from "./ast"
 import { typeName, unknownType } from "./checker-types"
 
@@ -11,6 +11,18 @@ function checked(source: string): CheckResult {
   checker := createChecker(analysis)
   semantic := checker.check("/main.do")
   return CheckResult { diagnostics: semantic.diagnostics }
+}
+
+function checkedSources(sources: SourceFile[], entry: string): CheckResult {
+  analysis := createAnalyzer(sources).analyze(entry)
+  checker := createChecker(analysis)
+  let diagnostics: Diagnostic[] = []
+  for i of 0..<analysis.modules.length {
+    module := analysis.modules[analysis.modules.length - 1 - i]
+    checkedModule := checker.check(module.path)
+    for diagnostic of checkedModule.diagnostics { diagnostics.push(diagnostic) }
+  }
+  return CheckResult { diagnostics }
 }
 
 export function testInfersExpressionsAndCalls(): void {
@@ -28,6 +40,26 @@ export function testInfersExpressionsAndCalls(): void {
 export function testChecksArrayAndStringSearchMembers(): void {
   result := checked("function main(): int { values := [1, 2, 3]\ntext := \"hello\"\nif values.contains(2) && text.contains(\"ell\") { return values.indexOf(3) + text.indexOf(\"e\") }\nreturn 0 }")
   Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksRangeValuesSignaturesAndMembers(): void {
+  result := checked("function first(values: Range): int { for value of values { return value }\nreturn values.lowerBound + values.upperBound }\nfunction main(): int => first(1..<4)")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testResolvesImportedRangeSignatures(): void {
+  result := checkedSources([
+    SourceFile { path: "/main.do", source: "import { first } from \"./range\"\nfunction main(): int => first(1..3)" },
+    SourceFile { path: "/range.do", source: "export function first(values: int | Range): int => 1" },
+  ], "/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsUnsupportedRangeBounds(): void {
+  result := checked("function main(): void { floatRange := 1.0..3.0\nlongRange := 1L..<3L }")
+  Assert.equal(result.diagnostics.length, 4)
+  Assert.equal(result.diagnostics[0].message.contains("requires integer bounds"), true)
+  Assert.equal(result.diagnostics[2].message.contains("currently requires int-compatible bounds"), true)
 }
 
 export function testArrayPopReturnsResult(): void {
@@ -284,9 +316,20 @@ export function testChecksJsonDeserializationBeforeClassDeclaration(): void {
 }
 
 export function testRejectsJsonDeserializationForUnsupportedFields(): void {
-  result := checked("class Handler { values: int[] }\nfunction parse(value: JsonValue): Result<Handler, string> => Handler.fromJsonValue(value)")
+  result := checked("class Handler { callback: (value: int): void }\nfunction parse(value: JsonValue): Result<Handler, string> => Handler.fromJsonValue(value)")
   Assert.equal(result.diagnostics.length > 0, true)
   Assert.equal(result.diagnostics[0].message, "Type \"Handler\" does not support automatic JSON deserialization")
+}
+
+export function testChecksContextualNumericLiteralAssignments(): void {
+  result := checked("function update(): double { let value: double = 1.0\nvalue = 2\nreturn value }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksRecursiveAutomaticJsonTypes(): void {
+  source := "enum Kind { One, Two }\nclass Point { x: double\ny: double }\nclass Payload { kind: Kind\nids: int[]\npoints: Point[]\nselected: Point | null = null }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)"
+  result := checked(source)
+  Assert.equal(result.diagnostics.length, 0)
 }
 
 export function testAcceptsLenientJsonDeserialization(): void {
@@ -349,6 +392,128 @@ export function testValidatesNestedAndGenericActorBoundaryPayloads(): void {
   generic := checked("class Worker { function echo<T>(value: T): T => value }\nworker := Actor<Worker>()\nother := Actor<Worker>()\nresult := worker.echo<Actor<Worker> >(other)")
   Assert.equal(generic.diagnostics.length > 0, true)
   Assert.equal(generic.diagnostics[0].message.contains("Actor<T> references"), true)
+}
+
+export function testRejectsActorMethodsThatAccessMutableModuleState(): void {
+  result := checked("shared := [0]\nclass Worker { function run(): void { shared.push(1) } }\nfunction main(): void { worker := Actor<Worker>()\nworker.run() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Actor method \"run\" is not isolated"), true)
+  Assert.equal(result.diagnostics[0].message.contains("mutable module binding \"shared\""), true)
+}
+
+export function testEnforcesExplicitIsolationTransitively(): void {
+  result := checked("shared := [0]\nfunction mutate(): void { shared.push(1) }\nisolated function run(): void { mutate() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Isolated function \"run\" cannot call non-isolated function \"mutate\""), true)
+}
+
+export function testAllowsActorMethodsToCallIsolatedNativeMethodContracts(): void {
+  result := checked("import class NativeProcess from \"native_process.hpp\" { isolated static run(): int }\nclass Worker { function compile(): int => NativeProcess.run() }\nfunction main(): void { worker := Actor<Worker>()\nworker.compile() }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAllowsActorMethodsToCallIsolatedNativeFunctionContracts(): void {
+  result := checked("import isolated function nativeRun(): int from \"native.hpp\"\nclass Worker { function run(): int => nativeRun() }\nfunction main(): void { worker := Actor<Worker>()\nworker.run() }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsActorMethodsThatCallNativeFunctionsWithoutIsolatedContracts(): void {
+  result := checked("import function nativeRun(): int from \"native.hpp\"\nclass Worker { function run(): int => nativeRun() }\nfunction main(): void { worker := Actor<Worker>()\nworker.run() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Actor method \"run\" is not isolated"), true)
+  Assert.equal(result.diagnostics[0].message.contains("non-isolated function \"nativeRun\""), true)
+}
+
+export function testRejectsActorMethodsThatTransitivelyAccessImportedMutableState(): void {
+  result := checkedSources([
+    SourceFile { path: "/main.do", source: "import { mutate } from \"./state\"\nclass Worker { function run(): void { mutate() } }\nfunction main(): void { worker := Actor<Worker>()\nworker.run() }" },
+    SourceFile { path: "/state.do", source: "values := [0]\nexport function mutate(): void { values.push(1) }" },
+  ], "/main.do")
+  Assert.equal(result.diagnostics.length > 0, true)
+  let found = false
+  for diagnostic of result.diagnostics {
+    if diagnostic.message.contains("Actor method \"run\" is not isolated") && diagnostic.message.contains("non-isolated function \"mutate\"") { found = true }
+  }
+  Assert.equal(found, true)
+}
+
+export function testAllowsActorLocalMutationAndRecursiveIsolatedCalls(): void {
+  result := checked("readonly SCALE = 2\nfunction multiply(value: int): int => value * SCALE\nclass Worker { value: int\nfunction step(remaining: int): void { if remaining <= 0 { return }\nthis.value = multiply(this.value)\nstep(remaining - 1) } }\nfunction main(): void { worker := Actor<Worker>(1)\nworker.step(3) }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsMutableActorConstructionArguments(): void {
+  result := checked("class Payload { value: int }\nclass Worker { payload: Payload }\nfunction main(): void { payload := Payload { value: 1 }\nworker := Actor<Worker>(payload) }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Actor constructor argument 1"), true)
+  Assert.equal(result.diagnostics[0].message.contains("field \"value\" is mutable"), true)
+}
+
+export function testRejectsActorDefaultsThatCaptureMutableModuleState(): void {
+  result := checked("shared := [0]\nclass Worker { values: int[] = shared }\nfunction main(): void { worker := Actor<Worker>() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Actor<Worker> construction is not isolated"), true)
+  Assert.equal(result.diagnostics[0].message.contains("mutable module binding \"shared\""), true)
+}
+
+export function testReadonlyInterfaceFieldsRequireReadonlyImplementations(): void {
+  result := checked("interface Payload { readonly value: int }\nclass MutablePayload implements Payload { value: int }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("does not satisfy interface \"Payload\""), true)
+}
+
+export function testRejectsMutableStaticStateReachedFromActorMethods(): void {
+  result := checked("class Globals { static count: int = 0 }\nclass Worker { function run(): void { Globals.count = Globals.count + 1 } }\nfunction main(): void { worker := Actor<Worker>()\nworker.run() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  let found = false
+  for diagnostic of result.diagnostics { if diagnostic.message.contains("mutable static field \"Globals.count\"") { found = true } }
+  Assert.equal(found, true)
+}
+
+export function testPropagatesIsolationThroughInterfaceDispatch(): void {
+  source := "shared := [0]\ninterface Job { run(): void }\nclass UnsafeJob implements Job { function run(): void { shared.push(1) } }\nclass Worker { job: Job = UnsafeJob {}\nfunction execute(): void { this.job.run() } }\nfunction main(): void { worker := Actor<Worker>()\nworker.execute() }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  semantic := createChecker(analysis).check("/main.do")
+  let unsafeFound = false
+  let workerFound = false
+  for statement of analysis.modules[0].program.statements {
+    case statement {
+      class_: ClassDeclaration -> {
+        if class_.name == "UnsafeJob" { unsafeFound = true; Assert.equal(class_.methods[0].resolvedIsolated, false) }
+        if class_.name == "Worker" { workerFound = true; Assert.equal(class_.methods[0].resolvedIsolated, false) }
+      }
+      _ -> { }
+    }
+  }
+  Assert.equal(unsafeFound, true)
+  Assert.equal(workerFound, true)
+  result := CheckResult { diagnostics: semantic.diagnostics }
+  Assert.equal(result.diagnostics.length > 0, true)
+  let found = false
+  for diagnostic of result.diagnostics {
+    if diagnostic.message.contains("Actor method \"execute\" is not isolated") && diagnostic.message.contains("non-isolated function \"run\"") { found = true }
+  }
+  Assert.equal(found, true)
+}
+
+export function testRejectsMutableImplementationsWidenedToBoundaryInterfaces(): void {
+  result := checked("interface Payload { readonly id: int }\nclass MutablePayload implements Payload { readonly id: int\nvalue: int }\nclass Worker { function accept(payload: Payload): void {} }\nfunction main(): void { worker := Actor<Worker>()\npayload: Payload := MutablePayload { id: 1, value: 2 }\nworker.accept(payload) }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  let found = false
+  for diagnostic of result.diagnostics {
+    if diagnostic.message.contains("implementation \"MutablePayload\"") && diagnostic.message.contains("field \"value\" is mutable") { found = true }
+  }
+  Assert.equal(found, true)
+}
+
+export function testRequiresActorConstructorFactoriesToBeIsolated(): void {
+  result := checked("shared := [0]\nclass Worker { values: int[]\nstatic constructor(): Worker => Worker { values: shared } }\nfunction main(): void { worker := Actor<Worker>() }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  let found = false
+  for diagnostic of result.diagnostics {
+    if diagnostic.message.contains("Actor<Worker> construction is not isolated") && diagnostic.message.contains("non-isolated function \"constructor\"") { found = true }
+  }
+  Assert.equal(found, true)
 }
 
 export function testChecksPromiseVoidGet(): void {
@@ -589,5 +754,33 @@ export function testChecksContextualResultAndClassObjectLiterals(): void {
 export function testCollapsesDuplicateUnionMembers(): void {
   result := checked("function choose(value: string | string): string => value")
   for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksEmptyMapsWithNonStringKeyTypes(): void {
+  result := checked("class State { glyphs: Map<int, string> = {} }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksStringCompoundAssignmentFromChar(): void {
+  result := checked("function main(): string { let value = \"\"\nvalue += 'x'\nreturn value + 'y' }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testResolvesImportedReadonlyValueTypes(): void {
+  result := checkedSources([
+    SourceFile { path: "/constants.do", source: "export readonly TAU = 6.283185307179586" },
+    SourceFile { path: "/main.do", source: "import { TAU } from \"./constants\"\nfunction scale(value: double): double => value * TAU" },
+  ], "/main.do")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testAssignsJsonValueNullableUnions(): void {
+  result := checked("function wrap(value: JsonValue): JsonValue | null { return value }\nfunction keep(value: JsonValue | null): JsonValue | null { let current: JsonValue | null = value\ncurrent = value\nreturn current }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testResolvesMapKeyAndValueArrays(): void {
+  result := checked("function main(): int { values: Map<int, string> = {}\nreturn values.keys().length + values.values().length }")
   Assert.equal(result.diagnostics.length, 0)
 }

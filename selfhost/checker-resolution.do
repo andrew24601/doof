@@ -3,7 +3,7 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -27,7 +27,7 @@ import {
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
-  nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
+  nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
@@ -48,6 +48,7 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       if named.name == "JsonValue" { return decorateType(state, annotation, jsonValueType()) }
       if named.name == "JsonObject" { return decorateType(state, annotation, jsonObjectType()) }
       if named.name == "SourceLocation" { return decorateType(state, annotation, builtinSourceLocationType()) }
+      if named.name == "Range" { return decorateType(state, annotation, rangeType()) }
       if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name)) }
       if named.name == "Tuple" {
         let elements: ResolvedType[] = []
@@ -209,6 +210,8 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "has" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }], primitive("bool")) }
       if property == "get" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }], resultType(map.valueType, primitive("string"))) }
       if property == "set" { return functionType([FunctionParamType { name: "key", type_: map.keyType, hasDefault: false }, FunctionParamType { name: "value", type_: map.valueType, hasDefault: false }], voidType()) }
+      if property == "keys" { return functionType([], arrayType(map.keyType)) }
+      if property == "values" { return functionType([], arrayType(map.valueType)) }
       if property == "buildReadonly" { return functionType([], mapType(map.keyType, map.valueType, true)) }
       return unknownType()
     }
@@ -221,6 +224,10 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
     stream: StreamResolvedType -> {
       if property == "next" { return functionType([], primitive("bool")) }
       if property == "value" { return functionType([], stream.elementType) }
+      return unknownType()
+    }
+    _: RangeResolvedType -> {
+      if property == "lowerBound" || property == "upperBound" { return primitive("int") }
       return unknownType()
     }
     actor: ActorType -> { return memberType(state, actor.innerClass, property, span) }

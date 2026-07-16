@@ -197,6 +197,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
       if declaration != null {
         case declaration! {
           classDeclaration: ClassDeclaration -> {
+            expression.resolvedClass = classDeclaration
             for field of classDeclaration.fields {
               if field.static_ { continue }
               for name of field.names {
@@ -440,4 +441,3 @@ export function callableField(state: CheckerState, objectType: ResolvedType, pro
   }
   return false
 }
-

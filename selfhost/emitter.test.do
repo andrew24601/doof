@@ -40,10 +40,30 @@ export function testLambdaCapturesExplicitThis(): void {
   Assert.equal(result.source.contains("[this](int32_t value)"), true)
 }
 
+export function testLambdaCapturesThisForImplicitMethodCalls(): void {
+  result := emit("class Receiver { handle(value: int): void {}\nmake(): (value: int): void => (value: int): void => handle(value) }")
+  Assert.equal(result.source.contains("[this](int32_t value)"), true)
+  Assert.equal(result.source.contains("return handle(value)"), true)
+}
+
 export function testEmitsJsonValueAsNarrowing(): void {
   result := emit("function read(raw: JsonValue): bool { value := raw as bool else { return false }\nreturn value }")
   Assert.equal(result.source.contains("doof::json_is_boolean(_as_value)"), true)
   Assert.equal(result.source.contains("doof::json_as_bool(_as_value)"), true)
+}
+
+export function testEmitsRangeValuesSignaturesAndMembers(): void {
+  result := emit("function first(values: Range): int { for value of values { return value }\nreturn values.lowerBound + values.upperBound }\nfunction main(): int => first(1..<4)")
+  Assert.equal(result.header.contains("int32_t first(doof::Range values)"), true)
+  Assert.equal(result.source.contains("for (const auto& value : _iterable_"), true)
+  Assert.equal(result.source.contains("values.lowerBound + values.upperBound"), true)
+  Assert.equal(result.source.contains("first(doof::range_exclusive(1, 4))"), true)
+}
+
+export function testEmitsNullableJsonValueAsNarrowing(): void {
+  result := emit("function read(value: JsonValue | null): Result<string, string> => value! as string")
+  Assert.equal(result.source.contains("std::get<doof::JsonValue>(value)"), true)
+  Assert.equal(result.source.contains("doof::unwrap_optional(value)"), false)
 }
 
 export function testEmitsRepresentationAwareNullableAsNarrowing(): void {
@@ -257,6 +277,11 @@ export function testEmitsCheckedCoreExpressions(): void {
   Assert.equal(result.source.contains("return ("), true)
 }
 
+export function testPreservesFullFloatingPointLiteralText(): void {
+  result := emit("function value(): double => 1.4142135623730951")
+  Assert.equal(result.source.contains("1.4142135623730951"), true)
+}
+
 export function testEmitsArrayAndStringSearchMembers(): void {
   result := emit("function main(): int { values := [1, 2, 3]\ntext := \"hello\"\nif values.contains(2) && text.contains(\"ell\") { return values.indexOf(3) + text.indexOf(\"e\") }\nreturn 0 }")
   Assert.equal(result.source.contains("doof::array_contains(values, 2"), true)
@@ -266,8 +291,9 @@ export function testEmitsArrayAndStringSearchMembers(): void {
 }
 
 export function testEmitsMapSizeAsContainerCall(): void {
-  result := emit("function size(values: readonly Map<string, int>): int => values.size\nfunction freeze(values: Map<string, int>): readonly Map<string, int> => values.buildReadonly()")
+  result := emit("function size(values: readonly Map<string, int>): int => values.size\nfunction keys(values: Map<string, int>): string[] => values.keys()\nfunction freeze(values: Map<string, int>): readonly Map<string, int> => values.buildReadonly()")
   Assert.equal(result.source.contains("values->size()"), true)
+  Assert.equal(result.source.contains("doof::map_keys(values"), true)
   Assert.equal(result.source.contains("doof::map_buildReadonly(values"), true)
 }
 
@@ -419,6 +445,14 @@ export function testPreservesJsonCollectionSerialization(): void {
   Assert.equal(result.source.contains("doof::json_value(this->values)"), true)
 }
 
+export function testEmitsRecursiveAutomaticJsonTypes(): void {
+  result := emit("enum Kind { One, Two }\nclass Point { x: double\ny: double }\nclass Payload { kind: Kind\nids: int[]\npoints: Point[]\nselected: Point | null = null }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)")
+  Assert.equal(result.header.contains("Kind_fromName"), true)
+  Assert.equal(result.source.contains("this->kind"), true)
+  Assert.equal(result.source.contains("for (const auto& _element : *this->ids)"), true)
+  Assert.equal(result.source.contains("Point::fromJsonValue"), true)
+}
+
 export function testEmitsStructThisByValue(): void {
   result := emit("struct Point { length, kind, resolvedType, span, push, value: int\nfunction copy(): Point => this }\nstruct Methods { startsWith(): int => 1\npop(): int => 2 }\nfunction read(point: Point): int => point.length + point.kind + point.resolvedType + point.span + point.push + point.value\nfunction invoke(methods: Methods): int => methods.startsWith() + methods.pop()")
   Assert.equal(result.source.contains("return *this;"), true)
@@ -489,10 +523,102 @@ export function testHeaderPlannerIncludesRequiredStandardLibrary(): void {
   Assert.equal(result.source.contains("std::pow(value, value)"), true)
 }
 
+export function testBreaksCircularStructHeaderDependencies(): void {
+  sources := [
+    SourceFile {
+      path: "/render.do",
+      source: "import { Transform } from \"./transform\"\nexport struct Point3 { x: double\ny: double\nz: double }\nexport class Camera { transform: Transform }",
+    },
+    SourceFile {
+      path: "/transform.do",
+      source: "import { Point3 } from \"./render\"\nexport struct Vec3 { x: double\ny: double\nz: double\nstatic fromPoint(point: Point3): Vec3 => Vec3 { x: point.x, y: point.y, z: point.z } }\nexport struct Transform { position: Point3 }",
+    },
+    SourceFile { path: "/main.do", source: "import { Camera } from \"./render\"\nfunction main(): int => 0" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  Assert.equal(analysis.diagnostics.length, 0)
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/render.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/transform.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let renderHeader = ""
+  let transformHeader = ""
+  for module of graph.modules {
+    if module.modulePath == "/render.do" { renderHeader = module.header }
+    if module.modulePath == "/transform.do" { transformHeader = module.header }
+  }
+
+  renderTransformForward := renderHeader.indexOf("namespace app_transform_ { struct Transform; }")
+  renderPointDefinition := renderHeader.indexOf("struct Point3 {")
+  renderTransformInclude := renderHeader.indexOf("#include \"transform.hpp\"")
+  Assert.isTrue(renderTransformForward >= 0)
+  Assert.isTrue(renderTransformForward < renderTransformInclude)
+  Assert.isTrue(renderPointDefinition < renderTransformInclude)
+
+  transformPointForward := transformHeader.indexOf("namespace app_render_ { struct Point3; }")
+  transformRenderInclude := transformHeader.indexOf("#include \"render.hpp\"")
+  transformDefinition := transformHeader.indexOf("struct Transform {")
+  Assert.isTrue(transformPointForward >= 0)
+  Assert.isTrue(transformPointForward < transformRenderInclude)
+  Assert.isTrue(transformDefinition > transformRenderInclude)
+}
+
+export function testKeepsImportedStaticDefaultsOutOfHeaders(): void {
+  sources := [
+    SourceFile { path: "/dep.do", source: "export class Dep { static create(): Dep => Dep {} }" },
+    SourceFile { path: "/main.do", source: "import { Dep } from \"./dep\"\nclass Holder { count: int = 1\ndep: Dep = Dep.create() }\nfunction make(): Holder => Holder()" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  Assert.equal(analysis.diagnostics.length, 0)
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/dep.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let header = ""
+  let source = ""
+  for module of graph.modules {
+    if module.modulePath == "/main.do" { header = module.header; source = module.source }
+  }
+  Assert.equal(header.contains("Dep::create()"), false)
+  Assert.equal(header.contains("Holder(int32_t count = 1"), false)
+  Assert.equal(source.contains("std::make_shared<Holder>(1, ::app_dep_::Dep::create())"), true)
+}
+
+export function testEmitsNullableStructParametersAsOptionalValues(): void {
+  result := emit("struct Point { x: int }\nfunction read(point: Point | null = null): bool => point == null")
+  Assert.equal(result.header.contains("bool read(std::optional<Point> point = std::nullopt)"), true)
+  Assert.equal(result.source.contains("doof::is_null(point)"), true)
+}
+
+export function testEmitsNullableMapsWithTheirPointerCarrier(): void {
+  result := emit("function read(value: Map<string, int> | null): int => value!.size")
+  Assert.equal(result.header.contains("std::variant<std::monostate"), false)
+  Assert.equal(result.header.contains("std::shared_ptr<doof::ordered_map<std::string, int32_t>> value"), true)
+}
+
+export function testKeepsImmutableStructBindingInteriorMutable(): void {
+  result := emit("struct Point { x: int\nsum(): int => x }\nfunction read(): int { point := Point(4)\nreturn point.sum() }")
+  Assert.equal(result.source.contains("auto point ="), true)
+  Assert.equal(result.source.contains("const auto point"), false)
+}
+
+export function testUsesBuiltinParseErrorForNumericParseCasePatterns(): void {
+  result := emit("function parsed(value: string): bool => case int.parse(value) { success: Success -> true, failure: Failure -> false }")
+  Assert.equal(result.source.contains("std::holds_alternative<doof::Failure<doof::ParseError>>"), true)
+  Assert.equal(result.source.contains("std::get<doof::Failure<doof::ParseError>>"), true)
+}
+
+export function testEmitsEveryNumericParseNamespace(): void {
+  result := emit("function parsed(value: string): bool => case double.parse(value) { _: Success -> true, _: Failure -> false }")
+  Assert.equal(result.source.contains("doof::parse_double(value)"), true)
+}
+
 export function testEmitsEnumsAndTypeAliases(): void {
   result := emit("enum Color { Red, Green = 3 }\ntype MaybeColor = Color | null\nfunction main(): int { color := Color.Red\nreturn 0 }")
   Assert.equal(result.header.contains("enum class Color"), true)
   Assert.equal(result.header.contains("Green = 3"), true)
+  Assert.equal(result.header.contains("operator<<(std::ostream& output, Color value)"), true)
   Assert.equal(result.header.contains("using MaybeColor ="), true)
   Assert.equal(result.source.contains("Color::Red"), true)
 }
@@ -552,6 +678,23 @@ export function testEmitsNativeClassInterop(): void {
   Assert.equal(result.source.contains("std::shared_ptr<::native::Client> native::Client::same()"), true)
   Assert.equal(result.source.contains("this->shared_from_this()"), true)
   Assert.equal(result.source.contains("client->get()"), true)
+}
+
+export function testEmitsNativeCppNameThroughLocalExportList(): void {
+  sources := [
+    SourceFile { path: "/main.do", source: "import { NativeImage } from \"./native\"\nfunction load(image: NativeImage): NativeImage => image" },
+    SourceFile { path: "/native.do", source: "import class NativeImage from \"native_image.hpp\" as doof_image::NativeImage {}\nexport { NativeImage }" },
+  ]
+  analysis := createAnalyzer(sources).analyze("/main.do")
+  checker := createChecker(analysis)
+  Assert.equal(checker.check("/native.do").diagnostics.length, 0)
+  Assert.equal(checker.check("/main.do").diagnostics.length, 0)
+  graph := emitModuleGraph(analysis, "/main.do")
+  let header = ""
+  for module of graph.modules { if module.modulePath == "/main.do" { header = module.header } }
+
+  Assert.equal(header.contains("std::shared_ptr<::doof_image::NativeImage>"), true)
+  Assert.equal(header.contains("app_native_::NativeImage"), false)
 }
 
 export function testResolvesNestedSourceRelativeNativeHeaderIntoPackageOutput(): void {
@@ -615,6 +758,7 @@ export function testEmitsNativeAliasesForImportedModuleTypeSurface(): void {
   graph := emitModuleGraph(analysis, "/main.do")
   let header = ""
   for module of graph.modules { if module.modulePath == "/main.do" { header = module.header } }
+  Assert.isTrue(header.indexOf("#include \"types.hpp\"") < header.indexOf("namespace doof_fs"))
   Assert.equal(header.contains("namespace doof_fs { using EntryKind = ::app_types_::EntryKind; }"), true)
   Assert.equal(header.contains("namespace doof_fs { using Instant = ::app_time_::Instant; }"), true)
   Assert.equal(header.contains("using IoError = ::app_types_::IoError;"), true)

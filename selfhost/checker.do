@@ -11,6 +11,7 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 import { discoverInterfaceImplementations, findModule } from "./checker-interfaces"
 import { predeclareModuleBindings } from "./checker-symbols"
 import { validateCheckedTypes as validateCheckedTypesImpl } from "./checker-validation"
+import { validateIsolationEffects } from "./checker-isolation"
 
 export class ModuleChecker {
   state: CheckerState
@@ -36,6 +37,7 @@ function checkModule(state: CheckerState, entry: string): CheckResult {
     collectRetiredActorBindings(statement, retiredActors)
   }
   validateInterfaces(state, state.info!)
+  validateIsolationEffects(state.result, state.info!, state.diagnostics)
   return CheckResult { diagnostics: state.diagnostics }
 }
 

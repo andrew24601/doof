@@ -24,9 +24,11 @@ export function emitNullLiteral(expected: ResolvedType | null): string {
             _: PrimitiveType -> { return "std::nullopt" }
             class_: ClassType -> {
               if class_.name == "Expression" || class_.name == "Statement" || class_.name == "TypeAnnotation" { return "std::monostate{}" }
+              if class_.symbol.kind == "struct" { return "std::nullopt" }
               return "nullptr"
             }
             _: ArrayResolvedType -> { return "nullptr" }
+            _: MapResolvedType -> { return "nullptr" }
             _ -> { }
           }
         }

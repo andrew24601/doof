@@ -75,6 +75,7 @@ import { checkStatements, checkStatement, checkBlock } from "./checker-stmt.js";
 import { checkFunction, checkClass, checkMethod } from "./checker-decl.js";
 import { reportUnsupportedHashCollectionConstraint } from "./checker-diagnostics.js";
 import { inferExprType } from "./checker-expr.js";
+import { validateIsolationEffects } from "./checker-isolation.js";
 import { lookupFieldType, getPositionalFieldTypes } from "./checker-member.js";
 import {
   checkCatchExpression,
@@ -732,6 +733,7 @@ export class TypeChecker {
     this.checkStatements(table.program.statements, moduleScope, table, info);
     validateModuleValueDeclarationOrder(table, info);
     this.validateTypeDeclarations(table, info);
+    validateIsolationEffects(this.host, table, info);
     validateEmitReadyDeclarations(table, info);
     this.validateInterfacesHaveImplementors(table, info);
 

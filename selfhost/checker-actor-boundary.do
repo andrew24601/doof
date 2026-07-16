@@ -12,7 +12,7 @@ import {
   TypeParameterType, UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
 import { ClassDeclaration, ExportDeclaration, InterfaceDeclaration, Statement } from "./ast"
-import { substituteTypeParams, typeName } from "./checker-types"
+import { classType, substituteTypeParams, typeName } from "./checker-types"
 
 export class ActorBoundaryViolation {
   reason: string
@@ -118,6 +118,17 @@ function findInterfaceViolation(result: AnalysisResult, type_: InterfaceType, se
     violation := findViolation(result, effective, nextSeen)
     if violation != null {
       return ActorBoundaryViolation { reason: "field \"" + field.name + "\" cannot cross actor boundaries: " + violation!.reason }
+    }
+  }
+  if declaration!.resolvedSymbol != null {
+    for implementation of declaration!.resolvedSymbol!.implementations {
+      implementationType := classType(implementation.name, implementation)
+      violation := findClassViolation(result, implementationType, nextSeen)
+      if violation != null {
+        return ActorBoundaryViolation {
+          reason: "implementation \"" + implementation.name + "\" cannot cross actor boundaries: " + violation!.reason,
+        }
+      }
     }
   }
   return null

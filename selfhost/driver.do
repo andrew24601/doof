@@ -25,7 +25,7 @@ import { ExecOptions, run, platform } from "std/os"
 import { absolute } from "std/path"
 
 readonly MAX_PRINTED_DIAGNOSTICS = 8
-readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 40
+readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 10
 readonly MAX_NATIVE_COMPILER_OUTPUT_BYTES = 262144L
 
 function hostPlatform(): string {
@@ -35,7 +35,8 @@ function hostPlatform(): string {
 
 class NativeCommandResult {
   readonly exitCode: int
-  readonly output: string
+  readonly output: readonly byte[] = []
+  readonly error: string = ""
   readonly truncated: bool
 }
 
@@ -44,7 +45,7 @@ class NativeCompilerBatchResult {
   readonly outputs: readonly NativeCommandResult[]
 }
 
-function runNativeCommand(
+isolated function runNativeCommand(
   command: string,
   arguments: string[],
   directory: string | null = null,
@@ -57,11 +58,10 @@ function runNativeCommand(
     inheritOutput,
     maxOutputBytes: MAX_NATIVE_COMPILER_OUTPUT_BYTES,
   }) else error {
-    return NativeCommandResult { exitCode: -1, output: error, truncated: false }
+    return NativeCommandResult { exitCode: -1, error, truncated: false }
   }
-  output := if inheritOutput
-    then ""
-    else BlobReader(executed.stdout).readString(long(executed.stdout.length))
+  let output: readonly byte[] = []
+  if !inheritOutput { output = executed.stdout }
   return NativeCommandResult {
     exitCode: executed.exitCode,
     output,
@@ -71,7 +71,10 @@ function runNativeCommand(
 
 function printNativeCommandOutput(result: NativeCommandResult, remainingLines: int): int {
   let remaining = remainingLines
-  for line of result.output.split("\n") {
+  output := if result.error != ""
+    then result.error
+    else BlobReader(result.output).readString(long(result.output.length))
+  for line of output.split("\n") {
     if line == "" { continue }
     if remaining <= 0 { return 0 }
     println(line)
@@ -82,12 +85,14 @@ function printNativeCommandOutput(result: NativeCommandResult, remainingLines: i
 
 /** Owns a serial batch of compiler tasks; up to eight workers overlap. */
 class NativeCompilerWorker {
-  tasks: NativeCompileTask[]
+  readonly tasks: readonly NativeCompileTask[]
 
   compile(): NativeCompilerBatchResult {
     let outputs: NativeCommandResult[] = []
     for task of this.tasks {
-      result := runNativeCommand(task.compiler, task.arguments)
+      let arguments: string[] = []
+      for argument of task.arguments { arguments.push(argument) }
+      result := runNativeCommand(task.compiler, arguments)
       outputs.push(result)
       if result.exitCode != 0 {
         return NativeCompilerBatchResult { exitCode: result.exitCode, outputs: outputs.buildReadonly() }

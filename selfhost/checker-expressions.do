@@ -3,7 +3,7 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -27,7 +27,7 @@ import {
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
-  nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
+  nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
@@ -122,10 +122,38 @@ export function checkCasePatterns(state: CheckerState, patterns: CasePattern[], 
 
 export function checkExpression(state: CheckerState, expression: Expression, scope: Scope, expected: ResolvedType | null): ResolvedType {
   case expression {
-    _: IntLiteral -> { return finish(state, expression, primitive("int")) }
-    _: LongLiteral -> { return finish(state, expression, primitive("long")) }
-    _: FloatLiteral -> { return finish(state, expression, primitive("float")) }
-    _: DoubleLiteral -> { return finish(state, expression, primitive("double")) }
+    _: IntLiteral -> {
+      if expected != null { case expected! {
+        primitiveExpected: PrimitiveType -> {
+          if primitiveExpected.name == "byte" || primitiveExpected.name == "long" || primitiveExpected.name == "float" || primitiveExpected.name == "double" {
+            return finish(state, expression, expected!)
+          }
+        }
+        _ -> { }
+      } }
+      return finish(state, expression, primitive("int"))
+    }
+    _: LongLiteral -> {
+      if expected != null { case expected! {
+        primitiveExpected: PrimitiveType -> { if primitiveExpected.name == "double" { return finish(state, expression, expected!) } }
+        _ -> { }
+      } }
+      return finish(state, expression, primitive("long"))
+    }
+    _: FloatLiteral -> {
+      if expected != null { case expected! {
+        primitiveExpected: PrimitiveType -> { if primitiveExpected.name == "double" { return finish(state, expression, expected!) } }
+        _ -> { }
+      } }
+      return finish(state, expression, primitive("float"))
+    }
+    _: DoubleLiteral -> {
+      if expected != null { case expected! {
+        primitiveExpected: PrimitiveType -> { if primitiveExpected.name == "float" { return finish(state, expression, expected!) } }
+        _ -> { }
+      } }
+      return finish(state, expression, primitive("double"))
+    }
     string_: StringLiteral -> {
       for interpolation of string_.interpolations { checkExpression(state, interpolation, scope, null) }
       return finish(state, expression, primitive("string"))
@@ -238,7 +266,14 @@ export function checkExpression(state: CheckerState, expression: Expression, sco
       for i of 0..<actorCreation.args.length {
         let expectedArgument: ResolvedType | null = null
         if constructorMethod != null && i < constructorMethod!.params.length { expectedArgument = constructorMethod!.params[i].resolvedType }
-        checkExpression(state, actorCreation.args[i], scope, expectedArgument)
+        actual := checkExpression(state, actorCreation.args[i], scope, expectedArgument)
+        violation := findActorBoundaryViolation(state.result, actual)
+        if violation != null {
+          typeError(state,
+            "Actor constructor argument " + string(i + 1) + " of type \"" + typeName(actual) + "\" cannot cross actor boundary: " + violation!.reason,
+            actorCreation.args[i].span,
+          )
+        }
       }
       return finish(state, expression, actorType(inner))
     }
@@ -372,16 +407,32 @@ export function checkBinary(state: CheckerState, expression: BinaryExpression, s
     return finish(state, expression, coalescedType(state, left, right))
   }
   if operator == "..<" || operator == ".." {
-    return finish(state, expression, arrayType(primitive("int")))
+    validateRangeOperand(state, operator, "left", left, expression.left.span)
+    validateRangeOperand(state, operator, "right", right, expression.right.span)
+    return finish(state, expression, rangeType())
   }
   if operator == "==" || operator == "!=" || operator == "<" || operator == "<=" || operator == ">" || operator == ">=" {
     return finish(state, expression, primitive("bool"))
   }
-  if operator == "+" && typeName(left) == "string" && (typeName(right) == "string" || typeName(right) == "unknown") { return finish(state, expression, primitive("string")) }
-  if operator == "+" && typeName(right) == "string" && typeName(left) == "unknown" { return finish(state, expression, primitive("string")) }
+  if operator == "+" && typeName(left) == "string" && (typeName(right) == "string" || typeName(right) == "char" || typeName(right) == "unknown") { return finish(state, expression, primitive("string")) }
+  if operator == "+" && typeName(right) == "string" && (typeName(left) == "char" || typeName(left) == "unknown") { return finish(state, expression, primitive("string")) }
   if isNumeric(left) && isNumeric(right) { return finish(state, expression, numericResult(left, right)) }
   typeError(state, "Operator '" + operator + "' is not defined for " + typeName(left) + " and " + typeName(right), expression.span)
   return finish(state, expression, unknownType())
+}
+
+function validateRangeOperand(state: CheckerState, operator: string, side: string, operand: ResolvedType, span: SourceSpan): void {
+  if operand.kind == "unknown" { return }
+  case operand {
+    primitive_: PrimitiveType -> {
+      if primitive_.name != "byte" && primitive_.name != "int" && primitive_.name != "long" {
+        typeError(state, "Range operator \"" + operator + "\" requires integer bounds, got " + side + " bound of type \"" + typeName(operand) + "\"", span)
+      } else if primitive_.name == "long" {
+        typeError(state, "Range operator \"" + operator + "\" currently requires int-compatible bounds, got " + side + " bound of type \"long\"", span)
+      }
+    }
+    _ -> { typeError(state, "Range operator \"" + operator + "\" requires integer bounds, got " + side + " bound of type \"" + typeName(operand) + "\"", span) }
+  }
 }
 
 export function coalescedType(state: CheckerState, left: ResolvedType, right: ResolvedType): ResolvedType {
@@ -532,7 +583,7 @@ export function checkAssignment(state: CheckerState, expression: AssignmentExpre
       if target == null { typeError(state, "Unknown assignment target '" + identifier.name + "'", identifier.span) }
       else {
         if !target!.mutable { typeError(state, "Cannot assign to immutable binding '" + identifier.name + "'", identifier.span) }
-        if !isAssignable(value, target!.type_) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(target!.type_), expression.span) }
+        if expression.operator == "=" && !isAssignable(value, target!.type_) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(target!.type_), expression.span) }
       }
     }
     index: IndexExpression -> {
@@ -541,13 +592,13 @@ export function checkAssignment(state: CheckerState, expression: AssignmentExpre
         array: ArrayResolvedType -> {
           checkExpression(state, index.index, scope, optionalResolvedType(primitive("int")))
           if array.readonly_ { typeError(state, "Cannot assign through readonly array", expression.span) }
-          if !isAssignable(value, array.elementType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(array.elementType), expression.span) }
+          if expression.operator == "=" && !isAssignable(value, array.elementType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(array.elementType), expression.span) }
         }
         map: MapResolvedType -> {
           key := checkExpression(state, index.index, scope, optionalResolvedType(map.keyType))
           if !isAssignable(key, map.keyType) { typeError(state, "Cannot use " + typeName(key) + " as map key " + typeName(map.keyType), index.index.span) }
           if map.readonly_ { typeError(state, "Cannot assign through readonly map", expression.span) }
-          if !isAssignable(value, map.valueType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(map.valueType), expression.span) }
+          if expression.operator == "=" && !isAssignable(value, map.valueType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(map.valueType), expression.span) }
         }
         _ -> { typeError(state, "Index assignment requires an array or map", expression.span) }
       }
@@ -555,10 +606,9 @@ export function checkAssignment(state: CheckerState, expression: AssignmentExpre
     member: MemberExpression -> {
       checkExpression(state, member.object, scope, null)
       targetType := memberType(state, checkExpression(state, member.object, scope, null), member.property, member.span)
-      if !isAssignable(value, targetType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(targetType), expression.span) }
+      if expression.operator == "=" && !isAssignable(value, targetType) { typeError(state, "Cannot assign " + typeName(value) + " to " + typeName(targetType), expression.span) }
     }
     _ -> { typeError(state, "Assignment target must be a binding", expression.target.span) }
   }
   return finish(state, expression, value)
 }
-

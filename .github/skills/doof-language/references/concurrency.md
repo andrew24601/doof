@@ -58,9 +58,15 @@ async { 42 }      // error: async blocks are not supported
 
 Use a temporary actor for background mutable work.
 
-`isolated` remains a recognized compatibility and purity marker, but it does
-not create worker-pool execution and does not make non-actor calls eligible for
-`async`.
+`isolated` is an enforced transitive effect. Isolated code cannot access mutable
+module/static state or call non-isolated code. It may mutate `this`, parameters,
+locals, and freshly created values. Ordinary functions are inferred isolated
+when they meet the same rules. The modifier does not create worker-pool
+execution and does not make non-actor calls eligible for `async`.
+
+Bodyless native code needs an explicit trusted contract because the compiler
+cannot inspect its implementation. Use `import isolated function` for native
+free functions and `isolated` on native class methods.
 
 ## Retirement
 
@@ -117,6 +123,17 @@ queued actor method completes and reports thrown runtime failures as
 
 Actor references may be copied inside the domain that owns them. They may not be
 passed into another actor method.
+
+`Actor<T>(...)` construction is also a boundary. Explicit constructor arguments
+must be boundary-safe, and omitted defaults or constructor factories must be
+isolated so they cannot capture mutable module/static state into the new actor.
+
+Interface-typed payloads are safe only when every known concrete implementation
+is safe. A readonly interface field must be implemented by a readonly class
+field; widening cannot be used to conceal mutable storage.
+
+Calling a method through `Actor<T>` requires that method to be inferred
+isolated, including all transitive helper calls.
 
 ## Actor-Affine Callbacks
 

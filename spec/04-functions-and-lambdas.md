@@ -167,6 +167,12 @@ Top-level and class-level function declarations accept modifiers that control vi
 | `isolated` | top-level, class method | Declares the function safe for concurrent execution |
 | `static` | class method | Binds the function to the class rather than an instance |
 
+`isolated` is checked transitively. Isolated code may mutate `this`, parameters,
+locals, and freshly created values, but it cannot access mutable module/static
+state or call non-isolated code. Ordinary declarations are also inferred
+isolated when they satisfy these rules; the modifier makes the guarantee an
+explicit compile-time contract.
+
 #### `export`
 
 ```doof

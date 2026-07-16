@@ -1,11 +1,11 @@
 // Assignment, identifier, operator, member, and index lowering.
 
 import { AsExpression, AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
-import { emitType, naturalNullableUnionMember } from "./emitter-types"
+import { emitType, naturalNullableUnionMember, usesVariantRepresentation } from "./emitter-types"
 import { isNumeric, sameType } from "./checker-types"
 
 /** Lowers checked `as` conversion to a Result without evaluating its source twice. */
@@ -52,6 +52,11 @@ export function emitAs(expression: AsExpression, context: EmitContext): string {
           }
         }
         union_: UnionResolvedType -> {
+          if unionContainsJsonValue(union_) {
+            narrowedJson := "std::get<doof::JsonValue>(_as_nullable)"
+            jsonNarrowing := emitJsonAs(narrowedJson, target, resultCpp, success, failure)
+            return "[&]() -> " + resultCpp + " { auto _as_nullable = " + source + "; if (doof::is_null(_as_nullable)) return " + failure + "{\"JsonValue narrowing failed\"}; return " + jsonNarrowing + "; }()"
+          }
           member := naturalNullableUnionMember(union_)
           if member != null {
             if sameType(member!, target) {
@@ -81,6 +86,16 @@ export function emitAs(expression: AsExpression, context: EmitContext): string {
     _ -> { panic("as expression must resolve to Result") }
   }
   return ""
+}
+
+function unionContainsJsonValue(union_: UnionResolvedType): bool {
+  for member of union_.types {
+    case member {
+      _: JsonValueResolvedType -> { return true }
+      _ -> { }
+    }
+  }
+  return false
 }
 
 function emitJsonAs(source: string, target: ResolvedType, resultCpp: string, success: string, failure: string): string {
@@ -230,6 +245,11 @@ export function emitUnary(expression: UnaryExpression, context: EmitContext): st
       case operandType! {
         union_: UnionResolvedType -> {
           if hasSinglePrimitiveMember(union_) { return operand + ".value()" }
+          if usesVariantRepresentation(union_) {
+            let nonNullMembers: ResolvedType[] = []
+            for member of union_.types { if member.kind != "null" { nonNullMembers.push(member) } }
+            if nonNullMembers.length == 1 { return "std::get<" + emitType(nonNullMembers[0], context.modulePath) + ">(" + operand + ")" }
+          }
           if isNullableVariantType(operandType) { return "doof::unwrap_optional(" + operand + ")" }
         }
         _ -> { }
@@ -245,6 +265,12 @@ function binaryOperator(operator: string): string {
 }
 
 export function emitBinary(expression: BinaryExpression, context: EmitContext): string {
+  if expression.operator == ".." {
+    return "doof::range(" + emitExpression(expression.left, context) + ", " + emitExpression(expression.right, context) + ")"
+  }
+  if expression.operator == "..<" {
+    return "doof::range_exclusive(" + emitExpression(expression.left, context) + ", " + emitExpression(expression.right, context) + ")"
+  }
   if expression.operator == "??" {
     left := emitExpression(expression.left, context)
     right := emitExpression(expression.right, context)
@@ -333,6 +359,9 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       _: StreamResolvedType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: ArrayResolvedType -> { if expression.property == "length" { return "static_cast<int32_t>((" + object + ")->size())" } }
       _: MapResolvedType -> { if expression.property == "size" { return object + "->size()" } }
+      _: RangeResolvedType -> {
+        if expression.property == "lowerBound" || expression.property == "upperBound" { return object + "." + expression.property }
+      }
       primitive: PrimitiveType -> {
         if primitive.name == "string" && expression.property == "length" { return "static_cast<int32_t>(" + object + ".size())" }
         if primitive.name == "string" && expression.property == "toLowerCase" { return "doof::string_toLowerCase" }

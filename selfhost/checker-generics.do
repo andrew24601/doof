@@ -170,6 +170,18 @@ export function functionDeclarationForCallee(callee: Expression, calleeType: Res
               }
             }
           }
+          actor: ActorType -> {
+            declaration := declarationFor(result, actor.innerClass.symbol)
+            if declaration != null {
+              case declaration! {
+                classDeclaration: ClassDeclaration -> {
+                  method := findClassMethod(classDeclaration.methods, member.property, false)
+                  if method != null { return method }
+                }
+                _ -> { }
+              }
+            }
+          }
           interface_: InterfaceType -> {
             declaration := declarationFor(result, interface_.symbol)
             if declaration != null {

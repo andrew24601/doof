@@ -60,6 +60,7 @@ Ideal file size: 200-500 lines. If a file exceeds ~700 lines, consider refactori
 - [checker-expr-ops.ts](src/checker-expr-ops.ts) (~180 lines) — Binary/unary operator typing and enum expectation helpers
 - [checker-diagnostics.ts](src/checker-diagnostics.ts) — Shared checker diagnostics that must remain consistent across modules
 - [checker-actor-boundary.ts](src/checker-actor-boundary.ts) — Actor-call boundary validation for immutable values and forbidden handles
+- [checker-isolation.ts](src/checker-isolation.ts) — Transitive isolation-effect inference for explicit contracts, actor calls, and actor construction
 - [ast.ts](src/ast.ts) (700 lines) — AST node definitions with `Typed` mixin for resolved types
 - See [docs/source-file-structure.md](docs/source-file-structure.md) for the live workspace map and the full emitter module inventory.
 - [emitter-module.ts](src/emitter-module.ts) (~940 lines) — Project and module emission entry points, `.hpp` / `.cpp` splitting, and generated support files
@@ -92,6 +93,7 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `parser-types.do` — type annotation parsing
 - `parser-expressions.do` — precedence-climbing expression and literal parsing
 - `checker-actor-boundary.do` — actor-call boundary validation after generic substitution
+- `checker-isolation.do` — transitive mutable-global effect inference for actor-dispatched execution
 - `checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `checker.do` — public checker façade and per-module orchestration
 - `checker-state.do` — mutable state passed explicitly through self-hosted checker phases
@@ -231,6 +233,7 @@ src/
   checker-result.ts             # Result/catch/try propagation helpers
   checker-expr-ops.ts           # Binary and unary operator typing helpers
   checker-actor-boundary.ts     # Actor-call boundary validation helpers
+  checker-isolation.ts          # Transitive isolation-effect inference and validation
   checker-test-helpers.ts       # Shared checker test utilities
   checker-inference.test.ts     # Checker tests: type inference & scope
   checker-compat.test.ts        # Checker tests: type compatibility & validation

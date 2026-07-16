@@ -14,6 +14,7 @@ import {
 import type { Statement, Expression, TypeAnnotation } from "./ast"
 
 export function parseStatement(parser: Parser): Statement {
+  if parser.check(TokenType.Mock) { return parser.parseMockImport() }
   if parser.check(TokenType.Export) { return parser.parseExport() }
   if parser.check(TokenType.Import) { return parser.parseImport() }
   if parser.check(TokenType.Const) { return parser.parseConst(false) }

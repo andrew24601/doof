@@ -233,6 +233,28 @@ export * as trig from "./math/trig"
 
 ---
 
+## Test-Only Import Substitution
+
+A root `.test.do` module can replace a dependency imported by one specific
+source module in its compilation graph:
+
+```javascript
+mock import for "./checkout" {
+    "./payments" => "./payments.mock"
+}
+```
+
+The `for` value is the source module's extensionless specifier relative to the
+root test file. Dependency keys are the quoted specifiers as written by that
+source module. Both values match exactly; wildcard or glob matching is not
+defined. Replacement specifiers resolve relative to the root test file.
+
+Directives must appear before ordinary statements in the root `.test.do` file,
+apply only to that test module's graph, and cannot substitute a dependency with
+itself. A root test module cannot import another `.test.do` module.
+
+---
+
 ## Module Organisation
 
 ### Barrel Files (`index.do`)
@@ -782,7 +804,25 @@ import function cos(x: float): float from "<cmath>"
 
 // Import with a C++ qualified name
 import function cos(x: float): float from "<cmath>" as std::cos
+
+// Promise that a native implementation is safe to call from isolated code
+import isolated function monotonicNanos(): long from "native_time.hpp"
 ```
+
+Bodyless native functions and class methods that are safe to call from isolated
+code must declare that contract explicitly:
+
+```javascript
+import isolated function poll(): int from "native_process.hpp" as native::poll
+
+import class NativeProcess from "native_process.hpp" {
+    isolated static spawn(command: string): NativeProcess
+    isolated wait(): int
+}
+```
+
+The compiler trusts these declarations because it cannot inspect the native
+implementation. Omitting `isolated` keeps the function or method non-isolated.
 
 The declaration specifies the function's name, parameters, return type, and optionally the header to include and the C++ qualified name to use at call sites.
 

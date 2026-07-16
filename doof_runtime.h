@@ -2015,7 +2015,9 @@ doof::Promise<R> callback<R(Args...)>::post(Args... args) const {
 
 template <typename T>
 class Actor : public std::enable_shared_from_this<Actor<T>>, public detail::CallbackDomain {
-    std::unique_ptr<T> instance_;
+    // Actor state remains reachable only through this actor until retirement,
+    // but class methods require shared ownership for Doof's `this` lowering.
+    std::shared_ptr<T> instance_;
     std::thread thread_;
     std::queue<std::function<void()>> mailbox_;
     std::mutex mutex_;
@@ -2041,7 +2043,7 @@ class Actor : public std::enable_shared_from_this<Actor<T>>, public detail::Call
 public:
     template <typename... Args>
     explicit Actor(Args&&... args)
-        : instance_(std::make_unique<T>(std::forward<Args>(args)...)) {
+        : instance_(std::make_shared<T>(std::forward<Args>(args)...)) {
         thread_ = std::thread(&Actor::run, this);
     }
 
@@ -2135,7 +2137,7 @@ public:
             mailbox_.push([this, &prom]() {
                 try {
                     if (!instance_) doof::panic("actor is already retired");
-                    prom.set_value(std::shared_ptr<T>(std::move(instance_)));
+                    prom.set_value(std::move(instance_));
                     stopped_ = true;
                 } catch (...) {
                     prom.set_exception(std::current_exception());

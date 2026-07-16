@@ -248,12 +248,14 @@ function parsePrimary(parser: Parser): Expression {
     return LongLiteral { kind: "long-literal", value, span: parser.span(start) }
   }
   if parser.check(TokenType.FloatLiteral) {
-    value := float(parseDoubleValue(parser, parser.text(parser.advance()).replaceAll("f", "").replaceAll("F", "")))
-    return FloatLiteral { kind: "float-literal", value, span: parser.span(start) }
+    raw := parser.text(parser.advance()).replaceAll("f", "").replaceAll("F", "")
+    value := float(parseDoubleValue(parser, raw))
+    return FloatLiteral { kind: "float-literal", value, raw, span: parser.span(start) }
   }
   if parser.check(TokenType.DoubleLiteral) {
-    value := parseDoubleValue(parser, parser.text(parser.advance()))
-    return DoubleLiteral { kind: "double-literal", value, span: parser.span(start) }
+    raw := parser.text(parser.advance())
+    value := parseDoubleValue(parser, raw)
+    return DoubleLiteral { kind: "double-literal", value, raw, span: parser.span(start) }
   }
   if parser.check(TokenType.StringLiteral) || parser.check(TokenType.TemplateLiteralStart) || parser.check(TokenType.TemplateLiteralMiddle) {
     return parseStringLiteral(parser)
@@ -610,10 +612,13 @@ function parseDoubleValue(parser: Parser, raw: string): double {
   // floating-point value is valid (for example nanoseconds-per-day).
   whole := parseLongValue(parser, raw.substring(0, dot))
   fractionText := raw.substring(dot + 1, raw.length)
-  fraction := parseIntValue(parser, fractionText)
+  let fraction = 0.0
   let divisor = 1.0
-  for i of 0..<fractionText.length { divisor = divisor * 10.0 }
-  return double(whole) + double(fraction) / divisor
+  for i of 0..<fractionText.length {
+    fraction = fraction * 10.0 + double(digitValue(fractionText[i]))
+    divisor = divisor * 10.0
+  }
+  return double(whole) + fraction / divisor
 }
 
 function isAssignmentOperator(parser: Parser, kind: TokenType): bool {

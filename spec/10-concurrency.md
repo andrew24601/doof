@@ -88,6 +88,19 @@ Rejected:
 Actor references may be copied within the domain that owns them. They may not be
 passed into another actor method.
 
+Actor construction is also a boundary. Every explicit `Actor<T>(...)`
+constructor argument must be boundary-safe. Mutable arguments are rejected even
+when the caller will not reassign its binding, because Doof does not currently
+have uniqueness or move types that could prove ownership transfer.
+
+For interface-typed values, boundary safety must hold for every known concrete
+implementation. A readonly interface field must be implemented by a readonly
+class field, so widening cannot hide mutable storage at the boundary.
+
+Omitted field defaults and static constructor factories used by actor creation
+must be isolated. They may construct fresh mutable actor state, but they must not
+capture mutable module or static state into the new domain.
+
 ---
 
 ## Retirement
@@ -198,16 +211,43 @@ because posted callback arguments and results cross actor domains.
 
 ## Isolated Functions
 
-`isolated` remains a recognized function modifier as a compatibility and purity
-marker. It does not authorize worker-pool dispatch or create a separate
-concurrent execution domain. `async` does not run isolated functions on a worker
-pool.
+Isolation is an inferred transitive effect. A function or method is isolated
+when it does not access mutable module/static state and calls only isolated
+code. Mutation through `this`, parameters, locals, and freshly created values is
+allowed because those references already belong to the current domain.
+
+`isolated` is an enforced promise:
+
+```doof
+shared := [0]
+
+isolated function invalid(): void {
+    shared.push(1) // error: accesses mutable module state
+}
+```
+
+Ordinary functions without the modifier are still inferred isolated when their
+bodies satisfy the rules. Recursive call groups are isolated when no member
+accesses mutable global state or reaches a non-isolated callee. Bodyless/native
+functions must explicitly declare `isolated` to provide that contract. Native
+free functions use `import isolated function name(...): Type from "header"`;
+native class methods place `isolated` before `static` or the method name.
+
+An ordinary class method may be non-isolated for local use. Calling a method
+through `Actor<T>` requires its inferred effect to be isolated and is rejected
+otherwise. This prevents actor code from reaching root-domain mutable globals
+either directly or through helper calls.
+
+`isolated` does not create a worker-pool execution domain. `async` remains valid
+only for actor method calls.
 
 ---
 
 ## Summary
 
 - Actors are the only concurrent mutable execution domains.
+- Actor construction and actor method calls enforce domain boundaries.
+- Actor-dispatched methods cannot reach mutable module/static state.
 - Actor calls are synchronous unless marked `async`.
 - `async` is actor-call-only.
 - `retire actor` drains accepted work and returns the actor state.

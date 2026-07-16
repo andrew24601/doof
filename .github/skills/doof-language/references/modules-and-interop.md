@@ -162,6 +162,8 @@ import class NativeEvent from "./native_event.hpp" as native::Event {
 - Use `Native...` names for low-level bridge types and reserve unprefixed names for Doof-first wrappers or domain models
 - Export raw extern declarations only from focused interop modules; prefer re-exporting them from a barrel rather than repeating declarations
 - Prefer `import function` for narrow stateless bridges instead of introducing synthetic bridge classes
+- Use `import isolated function` for a bodyless native free function whose implementation does not access mutable shared state; actor-dispatched code may only call it with this explicit contract.
+- Mark bodyless native class methods `isolated` only when their implementation does not access mutable shared state; the contract is required for calls from actor-dispatched code.
 
 Example:
 
@@ -193,7 +195,10 @@ This keeps the boundary declarative and removes duplicate integer-to-enum conver
 
 ### Exporting Extern Declarations
 
-`export import class` and `export import function` are supported. Prefer exporting them from a dedicated interop module and re-exporting through a barrel when that raw native surface is intentionally public.
+`export import class`, `export import function`, and `export import isolated function`
+are supported. Prefer exporting them from a dedicated interop module and
+re-exporting through a barrel when that raw native surface is intentionally
+public.
 
 For `import function`, function-typed parameters also lower to
 `doof::callback<R(Args...)>`. The compiler does not erase them to

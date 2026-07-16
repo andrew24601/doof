@@ -22,8 +22,8 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
   case expression {
     int_: IntLiteral -> { value = string(int_.value) }
     long_: LongLiteral -> { value = string(long_.value) + "LL" }
-    float_: FloatLiteral -> { value = decimalLiteral(string(float_.value)) + "f" }
-    double_: DoubleLiteral -> { value = decimalLiteral(string(double_.value)) }
+    float_: FloatLiteral -> { value = decimalLiteral(if float_.raw == "" then string(float_.value) else float_.raw) + "f" }
+    double_: DoubleLiteral -> { value = decimalLiteral(if double_.raw == "" then string(double_.value) else double_.raw) }
     string_: StringLiteral -> { value = emitString(string_, context) }
     char_: CharLiteral -> { value = emitChar(char_.value) }
     bool_: BoolLiteral -> { value = if bool_.value then "true" else "false" }

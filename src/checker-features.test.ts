@@ -827,6 +827,328 @@ describe("Concurrency", () => {
     );
     expect(cr.diagnostics).toHaveLength(0);
   });
+
+  it("rejects actor methods that access mutable module state", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          shared := [0]
+
+          class Worker {
+            run(): void { shared.push(1) }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.run()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method "run" is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('mutable module binding "shared"'))).toBe(true);
+  });
+
+  it("rejects actor methods that transitively access imported mutable module state", () => {
+    const cr = check(
+      {
+        "/state.do": `
+          values := [0]
+          export function mutate(): void { values.push(1) }
+        `,
+        "/main.do": `
+          import { mutate } from "./state"
+
+          class Worker {
+            run(): void { mutate() }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.run()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method "run" is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('non-isolated function "mutate"'))).toBe(true);
+  });
+
+  it("enforces explicit isolated declarations transitively", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          shared := [0]
+          function mutate(): void { shared.push(1) }
+          isolated function run(): void { mutate() }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Isolated function "run" cannot call non-isolated function "mutate"'))).toBe(true);
+  });
+
+  it("allows actor methods to call isolated native method contracts", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          import class NativeProcess from "native_process.hpp" {
+            isolated static run(): int
+          }
+
+          class Worker {
+            compile(): int => NativeProcess.run()
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.compile()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("allows actor methods to call isolated native function contracts", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          import isolated function nativeRun(): int from "native.hpp"
+
+          class Worker {
+            run(): int => nativeRun()
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.run()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects actor methods that call native functions without an isolated contract", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          import function nativeRun(): int from "native.hpp"
+
+          class Worker {
+            run(): int => nativeRun()
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.run()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method "run" is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('non-isolated function "nativeRun"'))).toBe(true);
+  });
+
+  it("allows actor-local mutation and transitively isolated recursive calls", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          readonly SCALE = 2
+
+          function multiply(value: int): int => value * SCALE
+
+          class Worker {
+            value: int
+
+            step(remaining: int): void {
+              if remaining <= 0 { return }
+              this.value = multiply(this.value)
+              step(remaining - 1)
+            }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>(1)
+            worker.step(3)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("rejects mutable actor-construction arguments", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Payload { value: int }
+          class Worker { payload: Payload }
+
+          function main(): void {
+            payload := Payload { value: 1 }
+            worker := Actor<Worker>(payload)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes("Actor constructor argument 1"))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("rejects actor defaults that capture mutable module state", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          shared := [0]
+
+          class Worker {
+            values: int[] = shared
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor<Worker> construction is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('mutable module binding "shared"'))).toBe(true);
+  });
+
+  it("requires readonly interface fields to have readonly implementations", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          interface Payload { readonly value: int }
+
+          class MutablePayload implements Payload {
+            value: int
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('does not satisfy interface "Payload"'))).toBe(true);
+  });
+
+  it("rejects mutable static state reached from actor methods", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          class Globals { static count: int = 0 }
+
+          class Worker {
+            run(): void { Globals.count = Globals.count + 1 }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.run()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('mutable static field "Globals.count"'))).toBe(true);
+  });
+
+  it("propagates isolation effects through interface dispatch", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          shared := [0]
+
+          interface Job { run(): void }
+          class UnsafeJob implements Job {
+            run(): void { shared.push(1) }
+          }
+
+          class Worker {
+            job: Job = UnsafeJob {}
+            execute(): void { this.job.run() }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            worker.execute()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor method "execute" is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('non-isolated function "run"'))).toBe(true);
+  });
+
+  it("rejects mutable concrete implementations widened to actor-boundary interfaces", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          interface Payload { readonly id: int }
+          class MutablePayload implements Payload {
+            readonly id: int
+            value: int
+          }
+          class Worker { accept(payload: Payload): void {} }
+
+          function main(): void {
+            worker := Actor<Worker>()
+            payload: Payload := MutablePayload { id: 1, value: 2 }
+            worker.accept(payload)
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('implementation "MutablePayload"'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('field "value" is mutable'))).toBe(true);
+  });
+
+  it("requires actor constructor factories to be isolated", () => {
+    const cr = check(
+      {
+        "/main.do": `
+          shared := [0]
+
+          class Worker {
+            values: int[]
+            static constructor(): Worker => Worker { values: shared }
+          }
+
+          function main(): void {
+            worker := Actor<Worker>()
+          }
+        `,
+      },
+      "/main.do",
+    );
+
+    expect(cr.diagnostics.some((d) => d.message.includes('Actor<Worker> construction is not isolated'))).toBe(true);
+    expect(cr.diagnostics.some((d) => d.message.includes('non-isolated function "constructor"'))).toBe(true);
+  });
 });
 
 describe("checker — for-of ranges", () => {

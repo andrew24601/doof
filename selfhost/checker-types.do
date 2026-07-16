@@ -3,7 +3,7 @@
 import {
   ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
   InterfaceType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import type {
@@ -30,6 +30,8 @@ export function mapType(key: ResolvedType, value: ResolvedType, readonly_: bool 
 export function streamType(element: ResolvedType): ResolvedType {
   return StreamResolvedType { elementType: element }
 }
+
+export function rangeType(): ResolvedType { return RangeResolvedType {} }
 
 export function jsonValueType(): ResolvedType { return JsonValueResolvedType {} }
 
@@ -209,6 +211,7 @@ export function typeName(resolvedType: ResolvedType): string {
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly " else "") + typeName(array.elementType) + "[]" }
     map: MapResolvedType -> { return (if map.readonly_ then "readonly " else "") + "Map<" + typeName(map.keyType) + ", " + typeName(map.valueType) + ">" }
     stream: StreamResolvedType -> { return "Stream<" + typeName(stream.elementType) + ">" }
+    _: RangeResolvedType -> { return "Range" }
     _: JsonValueResolvedType -> { return "JsonValue" }
     result: ResultResolvedType -> { return "Result<" + typeName(result.valueType) + ", " + typeName(result.errorType) + ">" }
     actor: ActorType -> { return "Actor<" + typeName(actor.innerClass) + ">" }
@@ -405,7 +408,7 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
       }
     }
     _: JsonValueResolvedType -> {
-      return sameType(value, target)
+      if sameType(value, target) { return true }
     }
     _ -> { }
   }

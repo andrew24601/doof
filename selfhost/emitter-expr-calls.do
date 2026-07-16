@@ -111,6 +111,20 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
           if i > 0 { values = values + ", " }
           values = values + emitExpression(expression.args[i].value, context)
         }
+        if expression.resolvedClass != null {
+          let fieldIndex = 0
+          for field of expression.resolvedClass!.fields {
+            if field.static_ { continue }
+            for name of field.names {
+              if fieldIndex >= expression.args.length {
+                if values != "" { values = values + ", " }
+                if field.defaultValue == null { panic("Construction of '" + class_.name + "' is missing required field '" + name + "'") }
+                values = values + emitDefaultExpression(field.defaultValue!, context, field.resolvedType, expression.span)
+              }
+              fieldIndex = fieldIndex + 1
+            }
+          }
+        }
         return if class_.symbol.kind == "struct" then cppName + "{" + values + "}" else "std::make_shared<" + cppName + ">(" + values + ")"
         }
       }
@@ -152,6 +166,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             if member.property == "has" { return "(" + emitExpression(member.object, context) + "->find(" + emitExpression(expression.args[0].value, context) + ") != " + emitExpression(member.object, context) + "->end())" }
             if member.property == "set" { return "doof::map_set(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", " + emitExpression(expression.args[1].value, context) + ", \"\", 0)" }
             if member.property == "get" && expression.args.length > 0 { return "doof::map_get(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
+            if member.property == "keys" { return "doof::map_keys(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "buildReadonly" { return "doof::map_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
           }
           _ -> { }
@@ -200,7 +215,11 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         return object + "->toJsonObject()"
       }
       case member.object {
-        identifier: Identifier -> { if identifier.name == "int" && member.property == "parse" { return "doof::parse_int(" + emitExpression(expression.args[0].value, context) + ")" } }
+        identifier: Identifier -> {
+          if member.property == "parse" && isNumericTypeNamespace(identifier.name) {
+            return "doof::parse_" + identifier.name + "(" + emitExpression(expression.args[0].value, context) + ")"
+          }
+        }
         _ -> { }
       }
       if member.property == "fromJsonValue" && (!nominalReceiver || member.resolvedStaticOwner != null) {
@@ -345,6 +364,10 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
     }
   }
   return result + ")"
+}
+
+function isNumericTypeNamespace(name: string): bool {
+  return name == "byte" || name == "int" || name == "long" || name == "float" || name == "double"
 }
 
 function isClassCallee(callee: Expression): bool {

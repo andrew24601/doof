@@ -8,7 +8,7 @@ import {
   Identifier, ConstDeclaration, ReadonlyDeclaration, LetDeclaration,
   FunctionDeclaration, ImportDeclaration, NamespaceImport, NamedImport,
   TypeAliasDeclaration, ClassDeclaration, InterfaceDeclaration, EnumDeclaration,
-  ExportList,
+  ExportList, MockImportDirective, MockImportMapping,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation, ImportSpecifier } from "./ast"
 
@@ -18,12 +18,17 @@ export function parseExport(parser: Parser): Statement {
   if parser.check(TokenType.Import) {
     parser.advance()
     if parser.check(TokenType.Class) { return parseNativeClass(parser, true, start) }
-    if parser.check(TokenType.Function) { return parseNativeFunction(parser, true, start) }
-    parser.fail("Expected class after export import")
+    isolated_ := parser.match(TokenType.Isolated)
+    if parser.check(TokenType.Function) { return parseNativeFunction(parser, true, isolated_, start) }
+    parser.fail("Expected class or function after export import")
   }
   if parser.check(TokenType.Const) { return parseConst(parser, true) }
   if parser.check(TokenType.Readonly) { return parseReadonly(parser, true) }
   if parser.check(TokenType.Function) { return parseFunction(parser, true, false, false, false) }
+  if parser.check(TokenType.Isolated) && parser.peek(1).kind == TokenType.Function {
+    parser.advance()
+    return parseFunction(parser, true, false, true, false)
+  }
   if parser.check(TokenType.Class) || parser.check(TokenType.Struct) { return parseClass(parser, true, false) }
   if parser.check(TokenType.Interface) { return parseInterface(parser, true) }
   if parser.check(TokenType.Enum) { return parseEnum(parser, true) }
@@ -339,7 +344,9 @@ export function parseImport(parser: Parser): Statement {
   start := parser.location()
   parser.expect(TokenType.Import)
   if parser.check(TokenType.Class) { return parseNativeClass(parser, false, start) }
-  if parser.check(TokenType.Function) { return parseNativeFunction(parser, false, start) }
+  isolated_ := parser.match(TokenType.Isolated)
+  if parser.check(TokenType.Function) { return parseNativeFunction(parser, false, isolated_, start) }
+  if isolated_ { parser.fail("Expected function after import isolated") }
   typeOnly := parser.match(TokenType.Type)
   let specifiers: ImportSpecifier[] = []
   if parser.match(TokenType.Star) {
@@ -364,6 +371,29 @@ export function parseImport(parser: Parser): Statement {
   return ImportDeclaration { kind: "import-declaration", specifiers, source: sourceValue, typeOnly, span: parser.span(start) }
 }
 
+export function parseMockImport(parser: Parser): Statement {
+  start := parser.location()
+  parser.expect(TokenType.Mock)
+  parser.expect(TokenType.Import, "Expected import after mock")
+  parser.expect(TokenType.For)
+  sourcePattern := parser.text(parser.expect(TokenType.StringLiteral))
+  parser.expect(TokenType.LeftBrace)
+
+  let mappings: MockImportMapping[] = []
+  while !parser.check(TokenType.RightBrace) && !parser.atEnd() {
+    mappingStart := parser.location()
+    dependency := parser.text(parser.expect(TokenType.StringLiteral))
+    parser.expect(TokenType.Arrow, "Expected => in mock import mapping")
+    replacement := parser.text(parser.expect(TokenType.StringLiteral))
+    mappings.push(MockImportMapping { dependency, replacement, span: parser.span(mappingStart) })
+    if !parser.match(TokenType.Comma) { parser.match(TokenType.Semicolon) }
+  }
+
+  parser.expect(TokenType.RightBrace)
+  parser.consumeSemicolon()
+  return MockImportDirective { kind: "mock-import-directive", sourcePattern, mappings, span: parser.span(start) }
+}
+
 function parseNativeClass(parser: Parser, exported: bool, start: AstLocation): ClassDeclaration {
   parser.expect(TokenType.Class)
   name := parser.text(parser.expect(TokenType.Identifier))
@@ -377,7 +407,9 @@ function parseNativeClass(parser: Parser, exported: bool, start: AstLocation): C
   let methods: FunctionDeclaration[] = []
   while !parser.check(TokenType.RightBrace) && !parser.atEnd() {
     if (parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.LeftParen) ||
-        (parser.check(TokenType.Static) && parser.peek(1).kind == TokenType.Identifier && parser.peek(2).kind == TokenType.LeftParen) {
+        (parser.check(TokenType.Static) && parser.peek(1).kind == TokenType.Identifier && parser.peek(2).kind == TokenType.LeftParen) ||
+        (parser.check(TokenType.Isolated) && parser.peek(1).kind == TokenType.Identifier && parser.peek(2).kind == TokenType.LeftParen) ||
+        (parser.check(TokenType.Isolated) && parser.peek(1).kind == TokenType.Static && parser.peek(2).kind == TokenType.Identifier && parser.peek(3).kind == TokenType.LeftParen) {
       methods.push(parseNativeMethod(parser))
     } else {
       fields.push(parseClassField(parser, false, false))
@@ -393,6 +425,7 @@ function parseNativeClass(parser: Parser, exported: bool, start: AstLocation): C
 
 function parseNativeMethod(parser: Parser): FunctionDeclaration {
   start := parser.location()
+  isolated_ := parser.match(TokenType.Isolated)
   static_ := parser.match(TokenType.Static)
   name := parser.text(parser.expect(TokenType.Identifier))
   parser.expect(TokenType.LeftParen)
@@ -404,7 +437,7 @@ function parseNativeMethod(parser: Parser): FunctionDeclaration {
     body := parseExpressionBody(parser)
     return FunctionDeclaration {
       kind: "function-declaration", name, typeParams: [], params, returnType, body,
-      exported: false, static_, isolated_: false, private_: false, bodyless: false,
+      exported: false, static_, isolated_, private_: false, bodyless: false,
       span: parser.span(start),
     }
   }
@@ -412,7 +445,7 @@ function parseNativeMethod(parser: Parser): FunctionDeclaration {
     body := parser.parseBlock()
     return FunctionDeclaration {
       kind: "function-declaration", name, typeParams: [], params, returnType, body,
-      exported: false, static_, isolated_: false, private_: false, bodyless: false,
+      exported: false, static_, isolated_, private_: false, bodyless: false,
       span: parser.span(start),
     }
   }
@@ -420,12 +453,12 @@ function parseNativeMethod(parser: Parser): FunctionDeclaration {
   body := Block { kind: "block", statements: [], span: parser.span(start) }
   return FunctionDeclaration {
     kind: "function-declaration", name, typeParams: [], params, returnType, body,
-    exported: false, static_, isolated_: false, private_: false, bodyless: true,
+    exported: false, static_, isolated_, private_: false, bodyless: true,
     span: parser.span(start),
   }
 }
 
-function parseNativeFunction(parser: Parser, exported: bool, start: AstLocation): FunctionDeclaration {
+function parseNativeFunction(parser: Parser, exported: bool, isolated_: bool, start: AstLocation): FunctionDeclaration {
   parser.expect(TokenType.Function)
   name := parser.text(parser.expect(TokenType.Identifier))
   typeParams := parseTypeParameterNames(parser)
@@ -442,7 +475,7 @@ function parseNativeFunction(parser: Parser, exported: bool, start: AstLocation)
   return FunctionDeclaration {
     kind: "function-declaration", name, typeParams, params, returnType,
     body: Block { kind: "block", statements: [], span: parser.span(start) },
-    exported, static_: false, isolated_: false, private_: false, bodyless: true,
+    exported, static_: false, isolated_, private_: false, bodyless: true,
     native_: true, nativeHeader: headerPath, nativeCppName: cppName, span: parser.span(start),
   }
 }

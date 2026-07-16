@@ -254,14 +254,29 @@ declaration time, because the same method may be an ordinary local method and
 generic substitution can determine the concrete payload types that cross the
 boundary.
 
+Actor construction is a boundary too. Explicit constructor arguments use the
+same boundary walk. Omitted field defaults and constructor factories are checked
+with the isolation-effect graph so a new actor cannot capture mutable root
+state.
+
+Isolation is inferred over the decorated call graph. Mutable module/static
+access is a direct non-isolated effect; callers become non-isolated
+transitively. Recursive groups remain isolated unless they reach a direct
+violation. Explicit `isolated` declarations are checked contracts, while actor
+call sites require the concrete target method to have an inferred isolated
+effect. Mutation through fields, parameters, and locals is actor-local and does
+not itself violate isolation.
+
 Primary modules:
 
 - `src/checker-expr.ts`
 - `src/checker-actor-boundary.ts`
+- `src/checker-isolation.ts`
 - `src/checker-readonly.ts`
 - `src/checker-types.ts`
 - `selfhost/checker-calls.do`
 - `selfhost/checker-actor-boundary.do`
+- `selfhost/checker-isolation.do`
 - `selfhost/checker-actor-lifecycle.do`
 - `selfhost/checker-types.do`
 
@@ -273,6 +288,9 @@ Keep aligned:
   `Actor<T>` and `Promise<T>`
 - function values are actor-affine callbacks; validate their parameter and
   return payload types rather than rejecting the callback value itself
+- readonly interface fields must remain readonly in every implementation
+- seed and self-hosted isolation graphs must use decorated call targets and
+  stay aligned on direct, transitive, imported, and recursive effects
 - same-binding actor use after `retire actor` is diagnosed in straight-line
   statement order as a conservative use-after-retire check
 

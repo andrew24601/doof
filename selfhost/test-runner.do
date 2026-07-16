@@ -2,7 +2,8 @@
 //
 // Filesystem traversal, native compilation, and process isolation remain in
 // driver.do. Keeping this module pure makes the test convention independently
-// testable and leaves room for mock-graph and coverage metadata later.
+// testable and leaves room for coverage metadata later. Mock roots are found
+// by the analyzer when each generated harness imports its test module.
 
 import { Block, ExportList, FunctionDeclaration, NamedType, Program } from "./ast"
 import type { Statement } from "./ast"

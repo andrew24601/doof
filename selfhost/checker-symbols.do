@@ -3,7 +3,7 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -27,7 +27,7 @@ import {
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
-  nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
+  nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
@@ -175,9 +175,18 @@ export function builtinNamespaceMemberType(namespaceName: string, memberName: st
   if memberName == "parse" {
     return functionType([
       FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false },
-    ], resultType(primitive(namespaceName), primitive("string")))
+    ], resultType(primitive(namespaceName), builtinParseErrorType()))
   }
   return unknownType()
+}
+
+function builtinParseErrorType(): ResolvedType {
+  return enumType("ParseError", Symbol {
+    kind: "enum",
+    name: "ParseError",
+    module: "<builtin>",
+    exported: false,
+  })
 }
 
 export function namespaceMemberType(info: ModuleInfo, namespaceName: string, memberName: string, result: AnalysisResult): ResolvedType {
@@ -209,6 +218,9 @@ export function symbolType(symbol: Symbol, info: ModuleInfo, result: AnalysisRes
       return functionType(functionParametersFor(fn, info, result), if fn.returnType == null then unknownType() else resolveAnnotation(fn.returnType!, info, result, fn.typeParams), fn.typeParams)
     }
     alias: TypeAliasDeclaration -> { return resolveAnnotation(alias.type_, info, result) }
+    const_: ConstDeclaration -> { if const_.resolvedType != null { return const_.resolvedType! } }
+    readonly_: ReadonlyDeclaration -> { if readonly_.resolvedType != null { return readonly_.resolvedType! } }
+    binding: ImmutableBinding -> { if binding.resolvedType != null { return binding.resolvedType! } }
     _ -> { return unknownType() }
   }
   return unknownType()
@@ -245,6 +257,7 @@ export function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, 
       if named.name == "JsonValue" { return jsonValueType() }
       if named.name == "JsonObject" { return jsonObjectType() }
       if named.name == "SourceLocation" { return builtinSourceLocationType() }
+      if named.name == "Range" { return rangeType() }
       for typeParam of typeParams { if named.name == typeParam { return typeParameter(named.name) } }
       if named.name == "Tuple" {
         let elements: ResolvedType[] = []
@@ -397,6 +410,7 @@ export function iterableElement(iterable: ResolvedType): ResolvedType {
     array: ArrayResolvedType -> { return array.elementType }
     map: MapResolvedType -> { return tupleType([map.keyType, map.valueType]) }
     stream: StreamResolvedType -> { return stream.elementType }
+    _: RangeResolvedType -> { return primitive("int") }
     _ -> { return unknownType() }
   }
   return unknownType()

@@ -163,7 +163,7 @@ export function checkObject(state: CheckerState, expression: ObjectLiteral, scop
         if containsJsonValue(state, union_) { expectedValue = jsonValueType() }
       }
       map: MapResolvedType -> {
-        if !sameType(map.keyType, primitive("string")) { typeError(state, "Object literal keys must be strings", expression.span) }
+        if expression.properties.length > 0 && !sameType(map.keyType, primitive("string")) { typeError(state, "Object literal keys must be strings", expression.span) }
         expectedValue = map.valueType
       }
       _ -> { }

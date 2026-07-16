@@ -2,7 +2,7 @@
 name: doof-language
 description: Write, read, and reason about Doof programming language code. Doof is a statically-typed, compiled language with TypeScript-like syntax that transpiles to C++. Use when writing .do files, designing Doof APIs, implementing Doof classes/functions, writing .test.do files, using assert or the doof test runner, handling errors with Result types, or working with Doof's module system, pattern matching, concurrency, or JSON serialization.
 metadata:
-    version: "1.4"
+    version: "1.5"
     languageVersion: "0.1"
 ---
 
@@ -50,6 +50,7 @@ Key reminders:
 - `Map<K, V>` literals use `{ key: value }`. `Set<T>` literals use `[a, b, c]`.
 - Mutable arrays support `.reserve(capacity)` to pre-size backing storage without changing their length.
 - Runtime counters use `metricsIncrement(name: string, value: long)` and `metricsSnapshotPrometheus()`.
+- Native free functions callable from actor-dispatched code require an explicit `import isolated function` contract.
 
 ## Reference Map
 

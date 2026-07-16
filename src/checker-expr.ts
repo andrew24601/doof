@@ -2804,8 +2804,18 @@ function inferExprTypeInner(
     }
 
     case "actor-creation-expression": {
-      for (const arg of expr.args) {
-        inferExprType(host, arg, scope, table, info);
+      for (let index = 0; index < expr.args.length; index++) {
+        const arg = expr.args[index];
+        const argumentType = inferExprType(host, arg, scope, table, info);
+        const violation = findActorBoundaryViolation(host, argumentType, table);
+        if (violation) {
+          info.diagnostics.push({
+            severity: "error",
+            message: `Actor constructor argument ${index + 1} of type "${typeToString(argumentType)}" cannot cross actor boundary: ${violation.reason}`,
+            span: arg.span,
+            module: table.path,
+          });
+        }
       }
       const sym = table.symbols.get(expr.className);
       if (sym?.symbolKind === "class") {

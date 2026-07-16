@@ -50,7 +50,9 @@ test. Harness builds use the normal self-hosted native planner, including its
 runtime precompiled header for multi-module graphs and bounded parallel object
 compilation.
 
-The first self-hosted implementation does not yet support mocks or coverage.
+The self-hosted compiler supports `mock import` graph rewriting with the same
+root-test scoping and exact source matching as the TypeScript compiler. Recorded
+`mock function` and `mock class` call tracking are not yet supported there.
 Child test output is inherited directly, and `DOOF_TEST_TIMEOUT_MS` remains a
 TypeScript-runner-only option until the self-hosted process boundary grows a
 timed execution API.
@@ -87,7 +89,7 @@ Rules:
 - `mock import` is only valid in `.test.do` files
 - It must appear at the top of the root test file, before ordinary statements
 - It applies to the module graph rooted at that test file only
-- Exact source matches and wildcard source patterns are supported; more specific matches win
+- Source-module and dependency specifiers are matched exactly
 
 Typical layout:
 

@@ -2,6 +2,7 @@ import type { InterfaceField } from "./ast.js";
 import type { CheckerHost } from "./checker-internal.js";
 import { applyDeepReadonly } from "./checker-readonly.js";
 import {
+  isAssignableTo,
   substituteTypeParams,
   type ClassType,
   type InterfaceType,
@@ -209,6 +210,21 @@ function findInterfaceBoundaryViolation(
   for (const field of ifaceDecl.fields) {
     const violation = findInterfaceFieldBoundaryViolation(host, field, paramMap, table, seen, visited);
     if (violation) return violation;
+  }
+
+  for (const [, module] of host.analysisResult.modules) {
+    for (const [, symbol] of module.symbols) {
+      if (symbol.symbolKind !== "class") continue;
+      const implementation: ClassType = { kind: "class", symbol };
+      if (!isAssignableTo(implementation, type)) continue;
+      const violation = findClassBoundaryViolation(host, implementation, table, seen, visited);
+      if (violation) {
+        return {
+          reason: `implementation "${symbol.name}" cannot cross actor boundaries: ${violation.reason}`,
+          offendingType: violation.offendingType,
+        };
+      }
+    }
   }
 
   return null;

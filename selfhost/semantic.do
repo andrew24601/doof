@@ -119,6 +119,12 @@ export class StreamResolvedType {
   elementType: ResolvedType
 }
 
+// Finite integer ranges are immutable runtime values with an exclusive upper
+// bound. Keep them distinct from arrays so signatures retain Range semantics.
+export class RangeResolvedType {
+  kind: string = "range"
+}
+
 // JsonValue is recursive, so it is represented as a dedicated intrinsic
 // semantic type rather than expanding into a finite union of containers.
 export class JsonValueResolvedType {
@@ -162,7 +168,7 @@ export class TypeParameterType {
 }
 
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
-  ActorType | PromiseType | ArrayResolvedType | MapResolvedType | StreamResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
+  ActorType | PromiseType | ArrayResolvedType | MapResolvedType | StreamResolvedType | RangeResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
   NullType | VoidType | UnknownType | TypeParameterType
 
 export class TypeSubstitution {

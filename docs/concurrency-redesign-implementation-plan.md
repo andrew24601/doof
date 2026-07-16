@@ -148,8 +148,9 @@ This slice finishes the actor-only callback and retirement safety surface:
 
 ## Final policy decisions
 
-- `isolated` remains a recognized compatibility and purity marker. It does not
-  authorize worker-pool dispatch and has no concurrency authority.
+- `isolated` is an enforced transitive effect contract. It does not authorize
+  worker-pool dispatch, but actor call targets must be inferred isolated so
+  actor execution cannot reach mutable module/static state.
 - Actor-boundary validation remains a call-site rule. The checker validates the
   effective actor method signature after generic substitution, where it has the
   concrete parameter and return payload types that actually cross the boundary.

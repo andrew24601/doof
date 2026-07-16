@@ -9,11 +9,14 @@ import { NativeBuildPlan } from "./package-manifest"
 
 /** One independently executable object compilation task. */
 export class NativeCompileTask {
-  compiler: string
-  sourcePath: string
-  outputPath: string
-  arguments: string[] = []
+  readonly compiler: string
+  readonly sourcePath: string
+  readonly outputPath: string
+  readonly arguments: string[] = []
 }
+
+/** One immutable serial work queue assigned to a native compiler actor. */
+export type NativeCompileTaskBatch = readonly NativeCompileTask[]
 
 /** A complete native compiler invocation for one emitted executable. */
 export class NativeCompilePlan {
@@ -28,13 +31,15 @@ export class NativeCompilePlan {
 export function batchNativeCompileTasks(
   tasks: NativeCompileTask[],
   maximumWorkers: int = 8,
-): NativeCompileTask[][] {
+): readonly NativeCompileTaskBatch[] {
   if tasks.length == 0 || maximumWorkers <= 0 { return [] }
   workerCount := if tasks.length < maximumWorkers then tasks.length else maximumWorkers
   let batches: NativeCompileTask[][] = []
   while batches.length < workerCount { batches.push([]) }
   for index of 0..<tasks.length { batches[index % workerCount].push(tasks[index]) }
-  return batches
+  let readonlyBatches: NativeCompileTaskBatch[] = []
+  for batch of batches { readonlyBatches.push(batch.buildReadonly()) }
+  return readonlyBatches.buildReadonly()
 }
 
 /**
@@ -97,7 +102,12 @@ export function planNativeCompile(
       arguments.push(clangPchPath)
     }
     appendObjectArguments(arguments, sourcePath, objectPath)
-    compileTasks.push(NativeCompileTask { compiler, sourcePath, outputPath: objectPath, arguments })
+    compileTasks.push(NativeCompileTask {
+      compiler,
+      sourcePath,
+      outputPath: objectPath,
+      arguments: arguments.buildReadonly(),
+    })
     objectPaths.push(objectPath)
   }
   for index of 0..<native.sourceFiles.length {
@@ -107,7 +117,12 @@ export function planNativeCompile(
     arguments := copyNativeCompileArguments(compileArguments, cSource)
     appendObjectArguments(arguments, sourcePath, objectPath)
     taskCompiler := if cSource then deriveCCompiler(compiler) else compiler
-    compileTasks.push(NativeCompileTask { compiler: taskCompiler, sourcePath, outputPath: objectPath, arguments })
+    compileTasks.push(NativeCompileTask {
+      compiler: taskCompiler,
+      sourcePath,
+      outputPath: objectPath,
+      arguments: arguments.buildReadonly(),
+    })
     objectPaths.push(objectPath)
   }
 

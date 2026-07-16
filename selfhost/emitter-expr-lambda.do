@@ -359,7 +359,11 @@ function collectIdentifierCapture(identifier: Identifier, bodyStart: int, bodyEn
     if !mutableOnly { addUnique(result, "this") }
     return
   }
-  if binding.symbol != null || binding.kind == "builtin" || binding.kind == "method" || binding.kind == "import" { return }
+  if binding.kind == "method" {
+    if !mutableOnly { addUnique(result, "this") }
+    return
+  }
+  if binding.symbol != null || binding.kind == "builtin" || binding.kind == "import" { return }
   bindingStart := binding.span.start.offset
   if bindingStart >= bodyStart && bindingStart <= bodyEnd { return }
   if mutableOnly && !binding.mutable { return }

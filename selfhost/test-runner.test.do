@@ -1,5 +1,7 @@
 import { Assert } from "std/assert"
 import { Parser } from "./parser"
+import { compile } from "./compiler"
+import { SourceFile } from "./semantic"
 import {
   discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath,
 } from "./test-runner"
@@ -73,6 +75,24 @@ export function testGeneratesPerIdHarnessWithRelativeImport(): void {
   Assert.equal(harness.contains("if testId == \"src/math.test.do::testAdds\""), true)
   Assert.equal(harness.contains("testAdds()"), true)
   Assert.equal(harness.contains("PASS src/math.test.do::testAdds"), false)
+}
+
+export function testGeneratedHarnessPreservesTestMockImportRoot(): void {
+  program := Parser { source: "mock import for \"../scene\" { \"./event\" => \"./scene_event.mock\" }\nexport function testScene(): void { ignored := Scene() }\nimport { Scene } from \"../scene\"\n" }.parse()
+  tests := discoverModuleTests(program, "/game/tests/scene.test.do", "/game")
+  harnessPath := "/game/build/.doof-tests/scene/__doof_tests__.do"
+  harness := generateTestHarness(harnessPath, tests.tests)
+  result := compile([
+    SourceFile { path: harnessPath, source: harness },
+    SourceFile { path: "/game/tests/scene.test.do", source: "mock import for \"../scene\" { \"./event\" => \"./scene_event.mock\" }\nimport { Scene } from \"../scene\"\nexport function testScene(): void { ignored := Scene() }" },
+    SourceFile { path: "/game/scene.do", source: "import { GameEvent } from \"./event\"\nexport class Scene { event: GameEvent = GameEvent() }" },
+    SourceFile { path: "/game/event.do", source: "export class GameEvent { missing: UnknownProductionType }" },
+    SourceFile { path: "/game/tests/scene_event.mock.do", source: "export class GameEvent {}" },
+  ], harnessPath)
+
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
 }
 
 export function testBuildsPortableDisplayPaths(): void {

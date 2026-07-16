@@ -13,7 +13,7 @@ import {
   ConstDeclaration, ContinueStatement, DestructuringStatement, DoubleLiteral,
   DotShorthand, EnumDeclaration, ExportDeclaration, ExportList, Expression, ExpressionStatement,
   FloatLiteral, ForOfStatement, ForStatement, FunctionDeclaration, AstFunctionType,
-  IfExpression, IfStatement, ImmutableBinding, Identifier, ImportDeclaration,
+  IfExpression, IfStatement, ImmutableBinding, Identifier, ImportDeclaration, MockImportDirective,
   IndexExpression, IntLiteral, InterfaceDeclaration, LetDeclaration,
   LambdaExpression, LongLiteral, MemberExpression, NamedType, NullLiteral,
   NamedImport, NamespaceImport, ObjectLiteral, ObjectProperty, Program,
@@ -60,6 +60,7 @@ export function checkStatement(state: CheckerState, statement: Statement, scope:
       alias.resolvedType = optionalResolvedType(resolvedAlias)
       return true
     }
+    _: MockImportDirective -> { return true }
     if_: IfStatement -> {
       requireBool(state, checkExpression(state, if_.condition, scope, null), if_.condition.span)
       thenCompletes := checkBlock(state, if_.body, scope)
@@ -391,7 +392,11 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
 export function checkInterface(state: CheckerState, interface_: InterfaceDeclaration, scope: Scope): void {
   interfaceScope := Scope { parent: scope, typeParams: [] }
   for typeParam of interface_.typeParams { interfaceScope.typeParams.push(typeParam) }
-  for field of interface_.fields { field.resolvedType = optionalResolvedType(resolveType(state, field.type_, state.info!, interfaceScope)) }
+  for field of interface_.fields {
+    let fieldType = resolveType(state, field.type_, state.info!, interfaceScope)
+    if field.readonly_ { fieldType = applyDeepReadonly(fieldType) }
+    field.resolvedType = optionalResolvedType(fieldType)
+  }
   for method of interface_.methods { checkFunction(state, method, interfaceScope, null) }
 }
 

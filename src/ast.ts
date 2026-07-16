@@ -537,6 +537,8 @@ export interface FunctionDeclaration extends Typed {
   exported: boolean;
   static_: boolean;
   isolated_: boolean;
+  /** Set by the checker after transitive mutable-global effect analysis. */
+  resolvedIsolated?: boolean;
   private_: boolean;
   span: SourceSpan;
 }
@@ -858,6 +860,8 @@ export interface ExternClassMethod {
   kind: "extern-class-method";
   name: string;
   static_: boolean;
+  /** Native implementation promises not to access mutable shared state. */
+  isolated_: boolean;
   params: Parameter[];
   returnType: TypeAnnotation;
   body: Expression | Block;
@@ -871,7 +875,7 @@ export interface ExternClassMethod {
 // ============================================================================
 
 /**
- * `import function name(params): Type from "header" [as cpp::name]`
+ * `import [isolated] function name(params): Type from "header" [as cpp::name]`
  * Declares the signature of an external C/C++ function for interop.
  */
 export interface ExternFunctionDeclaration {
@@ -885,6 +889,8 @@ export interface ExternFunctionDeclaration {
   cppName: string | null;
   params: Parameter[];
   returnType: TypeAnnotation;
+  /** Native implementation promises not to access mutable shared state. */
+  isolated_: boolean;
   exported: boolean;
   span: SourceSpan;
 }

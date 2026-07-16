@@ -306,6 +306,10 @@ Current placement rules that matter for declaration-order bugs:
 - imported classes referenced through pointer-shaped header surfaces are
   forward-declared before module includes so circular `.hpp` dependencies can
   still use `std::shared_ptr<T>` fields and constructor parameters
+- the self-hosted header planner completes primitive-only local structs before
+  generated module includes and keeps imported static default calls out of
+  headers; call sites materialize those defaults so value-type cycles do not
+  require either side to use an incomplete definition
 - ordinary private implementation classes that are not part of the header API
   are emitted in the module `.cpp` inside an unnamed namespace; their class
   declarations come before private function prototypes, and their method

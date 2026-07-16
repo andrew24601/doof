@@ -1422,9 +1422,13 @@ export class Parser {
       return this.parseExternClassDeclaration(startLoc);
     }
 
-    // import function — extern C/C++ function declaration
+    // import [isolated] function — extern C/C++ function declaration
+    const isolated_ = this.match(TokenType.Isolated);
     if (this.check(TokenType.Function)) {
-      return this.parseExternFunctionDeclaration(startLoc, false);
+      return this.parseExternFunctionDeclaration(startLoc, false, isolated_);
+    }
+    if (isolated_) {
+      throw this.error(`Expected function after import isolated`);
     }
 
     let typeOnly = false;
@@ -1508,7 +1512,10 @@ export class Parser {
       // Method: name(params): RetType or static name(params): RetType
       if (
         (this.check(TokenType.Identifier) && this.peek(1).type === TokenType.LeftParen) ||
-        (this.check(TokenType.Static) && this.peek(1).type === TokenType.Identifier && this.peek(2).type === TokenType.LeftParen)
+        (this.check(TokenType.Static) && this.peek(1).type === TokenType.Identifier && this.peek(2).type === TokenType.LeftParen) ||
+        (this.check(TokenType.Isolated) && this.peek(1).type === TokenType.Identifier && this.peek(2).type === TokenType.LeftParen) ||
+        (this.check(TokenType.Isolated) && this.peek(1).type === TokenType.Static
+          && this.peek(2).type === TokenType.Identifier && this.peek(3).type === TokenType.LeftParen)
       ) {
         methods.push(this.parseExternClassMethod());
       } else {
@@ -1556,6 +1563,7 @@ export class Parser {
 
   private parseExternClassMethod(): ExternClassMethod {
     const startLoc = this.loc();
+    const isolated_ = this.match(TokenType.Isolated);
     const static_ = this.match(TokenType.Static);
     const name = this.expect(TokenType.Identifier).value;
     this.expect(TokenType.LeftParen);
@@ -1585,6 +1593,7 @@ export class Parser {
       kind: "extern-class-method",
       name,
       static_,
+      isolated_,
       params,
       returnType,
       body,
@@ -1594,13 +1603,14 @@ export class Parser {
   }
 
   /**
-   * Parse `import function name(params): Type from "header" [as cpp::name]`.
+   * Parse `import [isolated] function name(params): Type from "header" [as cpp::name]`.
    *
    * The `import` token has already been consumed; startLoc points to it.
    */
   private parseExternFunctionDeclaration(
     startLoc: SourceLocation,
     exported: boolean,
+    isolated_: boolean = false,
   ): ExternFunctionDeclaration {
     this.expect(TokenType.Function);
     const name = this.expect(TokenType.Identifier).value;
@@ -1635,6 +1645,7 @@ export class Parser {
       cppName,
       params,
       returnType,
+      isolated_,
       exported,
       span: this.span(startLoc),
     };
@@ -1752,10 +1763,12 @@ export class Parser {
         declaration = this.parseTypeAlias(true);
         break;
       case TokenType.Import:
-        if (this.peek(1).type === TokenType.Function) {
+        if (this.peek(1).type === TokenType.Function
+          || (this.peek(1).type === TokenType.Isolated && this.peek(2).type === TokenType.Function)) {
           const importLoc = this.loc();
           this.advance(); // consume 'import'
-          declaration = this.parseExternFunctionDeclaration(importLoc, true);
+          const isolated_ = this.match(TokenType.Isolated);
+          declaration = this.parseExternFunctionDeclaration(importLoc, true, isolated_);
           break;
         }
         if (this.peek(1).type === TokenType.Class) {

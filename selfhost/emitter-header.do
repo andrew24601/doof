@@ -24,6 +24,7 @@ export class HeaderPlan {
   nativeAdapterSignatures: string[] = []
   genericFunctionDefinitions: string[] = []
   exportedValueDefinitions: string[] = []
+  earlyClassDefinitions: string[] = []
   classDefinitions: string[] = []
   interfaceAliases: string[] = []
   enumDefinitions: string[] = []
@@ -50,13 +51,16 @@ export function planHeaders(programs: Program[], context: EmitContext): HeaderPl
     for statement of program.statements { collect(statement, plan, context) }
   }
   for imported of context.imports {
-    if !imported.typeOnly { continue }
-    if hasNonTypeOnlyImport(context.imports, imported.sourceModule) { continue }
-    includeName := moduleHeaderName(imported.sourceModule)
-    addUnique(plan.typeOnlyModuleIncludes, includeName)
     if imported.symbol != null && (imported.symbol!.kind == "class" || imported.symbol!.kind == "struct") && !surfaceSymbolIsGeneric(context, imported.symbol!) {
       declaration := "namespace " + moduleNamespace(imported.symbol!.module) + " { struct " + imported.symbol!.name + "; }\n"
       addUnique(plan.typeOnlyForwardDeclarations, declaration)
+    } else if imported.symbol != null && imported.symbol!.kind == "enum" {
+      declaration := "namespace " + moduleNamespace(imported.symbol!.module) + " { enum class " + imported.symbol!.name + "; }\n"
+      addUnique(plan.typeOnlyForwardDeclarations, declaration)
+    }
+    if imported.typeOnly && !hasNonTypeOnlyImport(context.imports, imported.sourceModule) {
+      includeName := moduleHeaderName(imported.sourceModule)
+      addUnique(plan.typeOnlyModuleIncludes, includeName)
     }
   }
   for namespace of plan.nativeNamespaces {
@@ -119,7 +123,9 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
         collectNativeClassAliases(class_, namespace, plan, context)
       } else if class_.typeParams.length == 0 || isNativeTemplateClass(context, class_.name) {
         if class_.typeParams.length == 0 { plan.classForwardDeclarations.push("struct " + class_.name + ";\n") }
-        plan.classDefinitions.push(emitClassDeclaration(class_, context))
+        definition := emitClassDeclaration(class_, context)
+        if classCanEmitBeforeModuleIncludes(class_) { plan.earlyClassDefinitions.push(definition) }
+        else { plan.classDefinitions.push(definition) }
       }
     }
     interface_: InterfaceDeclaration -> { if interface_.typeParams.length == 0 { plan.interfaceAliases.push(emitInterfaceAlias(interface_, context)) } }
@@ -151,6 +157,53 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
     }
     export_: ExportDeclaration -> { collect(export_.declaration, plan, context) }
     _ -> { }
+  }
+}
+
+// Primitive-only structs can be completed before generated module includes.
+// This gives the opposite side of a header cycle the complete value types it
+// needs while structs that store imported values still wait for their headers.
+function classCanEmitBeforeModuleIncludes(class_: ClassDeclaration): bool {
+  if !class_.struct_ || class_.typeParams.length > 0 { return false }
+  for field of class_.fields {
+    if !field.static_ && field.resolvedType != null && typeNeedsCompleteNominalDefinition(field.resolvedType!) { return false }
+  }
+  return true
+}
+
+function typeNeedsCompleteNominalDefinition(type_: ResolvedType): bool {
+  case type_ {
+    class_: ClassType -> {
+      if class_.symbol.kind == "struct" || class_.symbol.native_ { return true }
+      for argument of class_.typeArgs { if typeNeedsCompleteNominalDefinition(argument) { return true } }
+      return false
+    }
+    enum_: EnumType -> { return true }
+    interface_: InterfaceType -> {
+      for argument of interface_.typeArgs { if typeNeedsCompleteNominalDefinition(argument) { return true } }
+      return false
+    }
+    array: ArrayResolvedType -> { return typeNeedsCompleteNominalDefinition(array.elementType) }
+    map: MapResolvedType -> {
+      return typeNeedsCompleteNominalDefinition(map.keyType) || typeNeedsCompleteNominalDefinition(map.valueType)
+    }
+    stream: StreamResolvedType -> { return typeNeedsCompleteNominalDefinition(stream.elementType) }
+    result: ResultResolvedType -> {
+      return typeNeedsCompleteNominalDefinition(result.valueType) || typeNeedsCompleteNominalDefinition(result.errorType)
+    }
+    tuple: TupleResolvedType -> {
+      for element of tuple.elements { if typeNeedsCompleteNominalDefinition(element) { return true } }
+      return false
+    }
+    union_: UnionResolvedType -> {
+      for member of union_.types { if typeNeedsCompleteNominalDefinition(member) { return true } }
+      return false
+    }
+    function_: FunctionType -> {
+      for parameter of function_.params { if typeNeedsCompleteNominalDefinition(parameter.type_) { return true } }
+      return typeNeedsCompleteNominalDefinition(function_.returnType)
+    }
+    _ -> { return false }
   }
 }
 
@@ -226,22 +279,28 @@ export function renderHeader(plan: HeaderPlan, guardName: string): string {
   // Keep the runtime as the first header so GCC can consume its adjacent .gch.
   result = result + "#include \"doof_runtime.hpp\"\n"
   result = result + "#include <cstdint>\n#include <cmath>\n#include <functional>\n"
-  result = result + "#include <memory>\n#include <optional>\n#include <string>\n"
+  result = result + "#include <memory>\n#include <optional>\n#include <ostream>\n#include <string>\n"
   result = result + "#include <tuple>\n#include <type_traits>\n#include <variant>\n#include <vector>\n"
+  for declaration of plan.typeOnlyForwardDeclarations { result = result + declaration }
+  if plan.typeOnlyForwardDeclarations.length > 0 { result = result + "\n" }
+  result = result + "namespace " + guardName + " {\n"
+  for declaration of plan.classForwardDeclarations { result = result + "    " + declaration }
+  result = result + "}\n\n"
+  if plan.earlyClassDefinitions.length > 0 {
+    result = result + "namespace " + guardName + " {\n"
+    for definition of plan.earlyClassDefinitions { result = result + "    " + definition }
+    result = result + "}\n\n"
+  }
   for include of plan.moduleIncludes {
     if !containsValue(plan.typeOnlyModuleIncludes, include) { result = result + "#include \"" + include + "\"\n" }
   }
-  for declaration of plan.typeOnlyForwardDeclarations { result = result + declaration }
-  if plan.typeOnlyForwardDeclarations.length > 0 { result = result + "\n" }
+  if plan.moduleIncludes.length > 0 { result = result + "\n" }
   for alias of plan.nativeAliases { result = result + alias }
   for include of plan.nativeIncludes {
     if include.startsWith("<") { result = result + "#include " + include + "\n" }
     else { result = result + "#include \"" + include + "\"\n" }
   }
-  result = result + "\n"
-  result = result + "namespace " + guardName + " {\n"
-  for declaration of plan.classForwardDeclarations { result = result + "    " + declaration }
-  result = result + "}\n\n"
+  if plan.nativeAliases.length > 0 || plan.nativeIncludes.length > 0 { result = result + "\n" }
   result = result + "namespace " + guardName + " {\n"
   for alias of plan.interfaceAliases { result = result + "    " + alias }
   for definition of plan.enumDefinitions { result = result + "    " + definition }
@@ -304,7 +363,13 @@ function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext)
   for variant of declaration.variants {
     result = result + "    case " + declaration.name + "::" + variant.name + ": return \"" + variant.name + "\";\n"
   }
-  return result + "  }\n  return \"\";\n}\n"
+  result = result + "  }\n  return \"\";\n}\n"
+  result = result + "inline std::optional<" + declaration.name + "> " + declaration.name + "_fromName(std::string_view value) {\n"
+  for variant of declaration.variants {
+    result = result + "  if (value == \"" + variant.name + "\") return " + declaration.name + "::" + variant.name + ";\n"
+  }
+  result = result + "  return std::nullopt;\n}\n"
+  return result + "inline std::ostream& operator<<(std::ostream& output, " + declaration.name + " value) { return output << " + declaration.name + "_name(value); }\n"
 }
 
 function emitTypeAlias(alias: TypeAliasDeclaration, context: EmitContext): string {

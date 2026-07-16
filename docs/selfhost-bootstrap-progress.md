@@ -231,8 +231,10 @@ manifests), exported `test*` signature validation, case-insensitive filtering,
 listing, a separate generated harness/build per test file, and isolated process
 execution per test. Each harness uses the existing native compile planner, so
 multi-module test graphs build the runtime PCH once and compile translation
-units across the bounded worker batches. Mock rewriting, coverage collection,
-captured child output, and configurable test timeouts remain follow-up work.
+units across the bounded worker batches. Root-scoped `mock import` rewriting
+matches the TypeScript analyzer using exact source-module and dependency specifiers.
+Recorded mock functions/classes, coverage collection, captured child output,
+and configurable test timeouts remain follow-up work.
 
 ## Verification
 

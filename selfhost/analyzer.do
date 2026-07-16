@@ -17,7 +17,7 @@ import {
   NamedImport, NamedType, NamespaceImport, ReadonlyDeclaration, ReturnStatement,
   YieldStatement, WhileStatement, WithStatement, BreakStatement, ContinueStatement,
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
-  CaseStatement,
+  CaseStatement, MockImportDirective,
 } from "./ast"
 import type { ImportDeclaration, Program, SourceSpan, Statement, TryStatement, TypeAnnotation } from "./ast"
 
@@ -29,6 +29,8 @@ export class ModuleInfo {
   imports: ImportBinding[] = []
   namespaceImports: NamespaceBinding[] = []
   reExports: string[] = []
+  mockImportDirectives: MockImportDirective[] = []
+  mockRootPath: string | null = null
   diagnostics: Diagnostic[] = []
 }
 
@@ -37,7 +39,7 @@ export class AnalysisResult {
   diagnostics: Diagnostic[] = []
 }
 
-readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "SourceLocation", "Map", "ReadonlyMap", "Result", "Stream", "Tuple", "Actor", "Promise"]
+readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "SourceLocation", "Map", "ReadonlyMap", "Result", "Stream", "Range", "Tuple", "Actor", "Promise"]
 
 export class ModuleAnalyzer {
   resolver: ModuleResolver
@@ -52,12 +54,12 @@ export class ModuleAnalyzer {
     resolver.loadedPaths = []
     resolver.diagnostics = []
     resolver.failedPaths = []
-    ignored := analyzeModule(if entry.endsWith(".do") then entry else entry + ".do")
+    ignored := analyzeModule(if entry.endsWith(".do") then entry else entry + ".do", null)
     for diagnostic of resolver.diagnostics { diagnostics.push(diagnostic) }
     return AnalysisResult { modules, diagnostics }
   }
 
-  private function analyzeModule(path: string): ModuleInfo | null {
+  private function analyzeModule(path: string, inheritedMockRootPath: string | null): ModuleInfo | null {
     existing := findModule(path)
     if existing != null { return existing }
     if contains(inProgress, path) { return null }
@@ -90,8 +92,14 @@ export class ModuleAnalyzer {
       ignored := try! inProgress.pop()
       return null
     }
-    info := ModuleInfo { path, program }
+    mockImportDirectives := collectMockImportDirectives(program)
+    let mockRootPath = inheritedMockRootPath
+    if mockRootPath == null && mockImportDirectives.length > 0 && path.endsWith(".test.do") {
+      mockRootPath = path
+    }
+    info := ModuleInfo { path, program, mockImportDirectives, mockRootPath }
     modules.push(info)
+    validateMockImportDirectives(info, inheritedMockRootPath)
     collectSymbols(info)
     resolveImports(info)
     resolveExportLists(info)
@@ -156,12 +164,32 @@ export class ModuleAnalyzer {
     return null
   }
 
+  /** Retains declaration identity when an export list introduces a public name. */
+  private function exportedSymbol(symbol: Symbol, exportedName: string): Symbol {
+    return Symbol {
+      kind: symbol.kind,
+      name: exportedName,
+      module: symbol.module,
+      exported: true,
+      originalName: if symbol.originalName == "" then symbol.name else symbol.originalName,
+      native_: symbol.native_,
+      nativeHeader: symbol.nativeHeader,
+      nativeCppName: symbol.nativeCppName,
+      implementations: symbol.implementations,
+      implementedInterfaceTypes: symbol.implementedInterfaceTypes,
+    }
+  }
+
   private function resolveImports(info: ModuleInfo): void {
     for statement of info.program.statements {
       case statement {
         import_: ImportDeclaration -> {
-          sourcePath := resolver.resolve(info.path, import_.source)
-          source := analyzeModule(sourcePath)
+          sourcePath := resolveImportPath(info, import_.source)
+          if info.path.endsWith(".test.do") && info.mockRootPath == info.path && sourcePath.endsWith(".test.do") {
+            addError(info, "Test file \"" + info.path + "\" cannot import another test file \"" + sourcePath + "\"", import_.span)
+            continue
+          }
+          source := analyzeModule(sourcePath, info.mockRootPath)
           for specifier of import_.specifiers {
             case specifier {
               named: NamedImport -> {
@@ -205,8 +233,8 @@ export class ModuleAnalyzer {
       case statement {
         list: ExportList -> {
           if list.source != null {
-            sourcePath := resolver.resolve(info.path, list.source!)
-            source := analyzeModule(sourcePath)
+            sourcePath := resolveImportPath(info, list.source!)
+            source := analyzeModule(sourcePath, info.mockRootPath)
             info.reExports.push(sourcePath)
             for specifier of list.specifiers {
               let exported: Symbol | null = null
@@ -216,7 +244,7 @@ export class ModuleAnalyzer {
               } else {
                 if exported != null {
                   exportedName := if specifier.alias == null then specifier.name else specifier.alias!
-                  info.exports.push(Symbol { kind: exported!.kind, name: exportedName, module: exported!.module, exported: true, originalName: if exported!.originalName == "" then exported!.name else exported!.originalName })
+                  info.exports.push(exportedSymbol(exported!, exportedName))
                 }
               }
             }
@@ -227,7 +255,7 @@ export class ModuleAnalyzer {
             if local != null {
               exportedName := if specifier.alias == null then specifier.name else specifier.alias!
               if findExport(info, exportedName) == null {
-                info.exports.push(Symbol { kind: local.kind, name: exportedName, module: local.module, exported: true })
+                info.exports.push(exportedSymbol(local!, exportedName))
               }
             } else {
               addError(info, "Cannot export unknown symbol '" + specifier.name + "'", specifier.span)
@@ -313,6 +341,7 @@ export class ModuleAnalyzer {
     block: Block | null = null,
     export_: ExportDeclaration | null = null,
     import_: ImportDeclaration | null = null,
+    mockImport: MockImportDirective | null = null,
     if_: IfStatement | null = null,
     case_: CaseStatement | null = null,
     while_: WhileStatement | null = null,
@@ -326,6 +355,102 @@ export class ModuleAnalyzer {
     expression: ExpressionStatement | null = null,
     destructuring: DestructuringStatement | null = null,
   ): void { }
+
+  /** Applies the root test's mock environment before ordinary path resolution. */
+  private function resolveImportPath(info: ModuleInfo, specifier: string): string {
+    if info.mockRootPath == null { return resolver.resolve(info.path, specifier) }
+    root := findModule(info.mockRootPath!)
+    if root == null || root!.mockImportDirectives.length == 0 { return resolver.resolve(info.path, specifier) }
+    sourceSpecifier := relativeModuleSpecifier(info.mockRootPath!, info.path)
+    replacement := findMockReplacement(root!.mockImportDirectives, sourceSpecifier, specifier)
+    if replacement == null { return resolver.resolve(info.path, specifier) }
+    return resolver.resolve(info.mockRootPath!, replacement!)
+  }
+
+  private function validateMockImportDirectives(info: ModuleInfo, inheritedMockRootPath: string | null): void {
+    if info.mockImportDirectives.length == 0 { return }
+    if !info.path.endsWith(".test.do") {
+      for directive of info.mockImportDirectives {
+        addError(info, "mock import directives are only valid in .test.do files", directive.span)
+      }
+    }
+    if inheritedMockRootPath != null && inheritedMockRootPath != info.path {
+      for directive of info.mockImportDirectives {
+        addError(info, "mock import directives are only valid in the root test file", directive.span)
+      }
+    }
+
+    let sawOrdinaryStatement = false
+    for statement of info.program.statements {
+      case statement {
+        directive: MockImportDirective -> {
+          if sawOrdinaryStatement {
+            addError(info, "mock import directives must appear at the top of the file before other statements", directive.span)
+          }
+        }
+        _ -> { sawOrdinaryStatement = true }
+      }
+    }
+
+    for directive of info.mockImportDirectives {
+      for mapping of directive.mappings {
+        if mapping.dependency == mapping.replacement {
+          addError(info, "mock import cannot substitute \"" + mapping.dependency + "\" with itself", mapping.span)
+        }
+      }
+    }
+  }
+}
+
+function collectMockImportDirectives(program: Program): MockImportDirective[] {
+  let directives: MockImportDirective[] = []
+  for statement of program.statements {
+    case statement {
+      directive: MockImportDirective -> { directives.push(directive) }
+      _ -> { }
+    }
+  }
+  return directives
+}
+
+function relativeModuleSpecifier(fromModule: string, toModule: string): string {
+  fromComponents := parentPathComponents(fromModule.replaceAll("\\", "/"))
+  toComponents := moduleSpecifierPath(toModule.replaceAll("\\", "/")).split("/")
+  let common = 0
+  while common < fromComponents.length && common < toComponents.length && fromComponents[common] == toComponents[common] { common = common + 1 }
+  let result = ""
+  for ignored of common..<fromComponents.length { result = result + "../" }
+  for index of common..<toComponents.length {
+    if result != "" && !result.endsWith("/") { result = result + "/" }
+    result = result + toComponents[index]
+  }
+  return if result.startsWith(".") then result else "./" + result
+}
+
+function parentPathComponents(path: string): string[] {
+  components := path.split("/")
+  if components.length > 0 { ignored := try! components.pop() }
+  return components
+}
+
+function moduleSpecifierPath(path: string): string {
+  if path.endsWith("/index.do") { return path.substring(0, path.length - 9) }
+  if path.endsWith(".do") { return path.substring(0, path.length - 3) }
+  return path
+}
+
+function findMockReplacement(
+  directives: MockImportDirective[],
+  sourceSpecifier: string,
+  dependencySpecifier: string,
+): string | null {
+  for directive of directives {
+    if directive.sourcePattern != sourceSpecifier { continue }
+    for mapping of directive.mappings {
+      if mapping.dependency == dependencySpecifier { return mapping.replacement }
+    }
+  }
+  return null
 }
 
 export function createAnalyzer(sources: SourceFile[]): ModuleAnalyzer {

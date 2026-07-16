@@ -34,7 +34,6 @@ import type {
   Parameter,
   SourceSpan,
   MockImportDirective,
-  MockImportMapping,
 } from "./ast.js";
 import type {
   ModuleSymbol,
@@ -795,45 +794,19 @@ function toModuleSpecifier(fromModule: string, toModule: string): string {
   return prefixedPath.replace(/\/index\.do$/, "").replace(/\.do$/, "");
 }
 
-function getPatternSpecificity(pattern: string, sourceSpecifier: string): number | null {
-  if (pattern === sourceSpecifier) return 300;
-  if (pattern === "*") return 0;
-
-  if (pattern.endsWith("/**")) {
-    const base = pattern.slice(0, -3);
-    return sourceSpecifier.startsWith(`${base}/`) ? 100 : null;
-  }
-
-  if (pattern.endsWith("/*")) {
-    const base = pattern.slice(0, -2);
-    if (!sourceSpecifier.startsWith(`${base}/`)) return null;
-    const suffix = sourceSpecifier.slice(base.length + 1);
-    return suffix.length > 0 && !suffix.includes("/") ? 200 : null;
-  }
-
-  return null;
-}
-
 function findMockReplacement(
   directives: MockImportDirective[],
   sourceSpecifier: string,
   dependencySpecifier: string,
 ): string | null {
-  let bestMatch: { specificity: number; mapping: MockImportMapping } | null = null;
-
   for (const directive of directives) {
-    const specificity = getPatternSpecificity(directive.sourcePattern, sourceSpecifier);
-    if (specificity === null) continue;
+    if (directive.sourcePattern !== sourceSpecifier) continue;
 
     for (const mapping of directive.mappings) {
-      if (mapping.dependency !== dependencySpecifier) continue;
-      if (!bestMatch || specificity > bestMatch.specificity) {
-        bestMatch = { specificity, mapping };
-      }
+      if (mapping.dependency === dependencySpecifier) return mapping.replacement;
     }
   }
-
-  return bestMatch?.mapping.replacement ?? null;
+  return null;
 }
 
 // ============================================================================
@@ -871,7 +844,7 @@ function synthesizeClassDecl(ext: ExternClassDeclaration): ClassDeclaration {
     bodyless: m.bodyless,
     exported: false,
     static_: m.static_,
-    isolated_: false,
+    isolated_: m.isolated_,
     private_: false,
     span: m.span,
   }));
@@ -913,7 +886,7 @@ function synthesizeExternFuncDecl(ext: ExternFunctionDeclaration): FunctionDecla
     bodyless: true,
     exported: ext.exported,
     static_: false,
-    isolated_: false,
+    isolated_: ext.isolated_,
     private_: false,
     span: ext.span,
   };

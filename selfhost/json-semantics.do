@@ -7,10 +7,10 @@ import {
   ArrayType, BoolLiteral, CharLiteral, ClassDeclaration, ClassField, DoubleLiteral, FloatLiteral,
   IntLiteral, LongLiteral, NamedType, StringLiteral, TypeAnnotation, UnionType,
 } from "./ast"
-import { ArrayResolvedType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, EnumType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, UnionResolvedType } from "./semantic"
 
 export function canGenerateJsonSerialization(owner: ClassDeclaration): bool {
-  if owner.native_ || owner.typeParams.length > 0 { return false }
+  if owner.native_ || owner.typeParams.length > 0 || hasDedicatedConstructor(owner) { return false }
   for field of owner.fields {
     if field.static_ { continue }
     if !isGeneratedJsonSerializationField(field) { return false }
@@ -19,7 +19,7 @@ export function canGenerateJsonSerialization(owner: ClassDeclaration): bool {
 }
 
 export function canGenerateJsonDeserialization(owner: ClassDeclaration): bool {
-  if owner.native_ || owner.typeParams.length > 0 { return false }
+  if owner.native_ || owner.typeParams.length > 0 || hasDedicatedConstructor(owner) { return false }
   for field of owner.fields {
     if field.static_ { continue }
     if !isGeneratedJsonDeserializationField(field) { return false }
@@ -27,41 +27,44 @@ export function canGenerateJsonDeserialization(owner: ClassDeclaration): bool {
   return true
 }
 
-export function nullableJsonPrimitive(type_: ResolvedType): ResolvedType | null {
+export function nullableJsonMember(type_: ResolvedType): ResolvedType | null {
   case type_ {
     union_: UnionResolvedType -> {
-      let primitiveValues: ResolvedType[] = []
+      let values: ResolvedType[] = []
       let nullCount = 0
       for member of union_.types {
         case member {
-          primitive: PrimitiveType -> {
-            if primitiveValues.length > 0 { return null }
-            primitiveValues.push(primitive)
-          }
           _: NullType -> { nullCount = nullCount + 1 }
-          _ -> { return null }
+          _ -> {
+            if values.length > 0 || !isGeneratedJsonType(member) { return null }
+            values.push(member)
+          }
         }
       }
-      if primitiveValues.length != 1 || nullCount != 1 || union_.types.length != 2 { return null }
-      return primitiveValues[0]
+      if values.length != 1 || nullCount != 1 || union_.types.length != 2 { return null }
+      return values[0]
     }
     _ -> { return null }
   }
   return null
 }
 
-function isGeneratedJsonFieldType(type_: ResolvedType): bool {
+function isGeneratedJsonType(type_: ResolvedType): bool {
   case type_ {
     _: PrimitiveType -> { return true }
     _: JsonValueResolvedType -> { return true }
-    _: UnionResolvedType -> { return nullableJsonPrimitive(type_) != null }
+    _: NullType -> { return true }
+    _: EnumType -> { return true }
+    class_: ClassType -> { return !class_.symbol.native_ && class_.typeArgs.length == 0 }
+    array: ArrayResolvedType -> { return isGeneratedJsonType(array.elementType) }
+    _: UnionResolvedType -> { return nullableJsonMember(type_) != null }
     _ -> { return false }
   }
   return false
 }
 
 function isGeneratedJsonSerializationType(type_: ResolvedType): bool {
-  if isGeneratedJsonFieldType(type_) { return true }
+  if isGeneratedJsonType(type_) { return true }
   case type_ {
     _: NullType -> { return true }
     array: ArrayResolvedType -> { return array.elementType.kind == "json-value" }
@@ -80,7 +83,7 @@ function isGeneratedJsonSerializationType(type_: ResolvedType): bool {
 // Use syntax/default literals until the normal class-checking pass decorates
 // the field, then defer to the resolved semantic type thereafter.
 function isGeneratedJsonDeserializationField(field: ClassField): bool {
-  if field.resolvedType != null { return isGeneratedJsonFieldType(field.resolvedType!) }
+  if field.resolvedType != null { return isGeneratedJsonType(field.resolvedType!) }
   if field.type_ != null { return isGeneratedJsonDeserializationAnnotation(field.type_!) }
   if field.defaultValue == null { return false }
   case field.defaultValue! {
@@ -103,11 +106,18 @@ function isGeneratedJsonSerializationField(field: ClassField): bool {
 }
 
 function isGeneratedJsonDeserializationAnnotation(annotation: TypeAnnotation): bool {
+  if annotation.resolvedType != null { return isGeneratedJsonType(annotation.resolvedType!) }
   case annotation {
     named: NamedType -> {
-      return named.name == "byte" || named.name == "int" || named.name == "long" ||
+      if named.name == "byte" || named.name == "int" || named.name == "long" ||
         named.name == "float" || named.name == "double" || named.name == "string" ||
-        named.name == "char" || named.name == "bool" || named.name == "JsonValue"
+        named.name == "char" || named.name == "bool" || named.name == "JsonValue" { return true }
+      return named.typeArgs.length == 0 && named.resolvedSymbol != null &&
+        (named.resolvedSymbol!.kind == "class" || named.resolvedSymbol!.kind == "struct" || named.resolvedSymbol!.kind == "enum") &&
+        !named.resolvedSymbol!.native_
+    }
+    array: ArrayType -> {
+      return isGeneratedJsonDeserializationAnnotation(array.elementType)
     }
     union_: UnionType -> {
       if union_.types.length != 2 { return false }
@@ -155,6 +165,13 @@ function isGeneratedJsonSerializationAnnotation(annotation: TypeAnnotation): boo
       }
     }
     _ -> { return false }
+  }
+  return false
+}
+
+function hasDedicatedConstructor(owner: ClassDeclaration): bool {
+  for method of owner.methods {
+    if method.static_ && method.name == "constructor" { return true }
   }
   return false
 }

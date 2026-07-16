@@ -159,6 +159,10 @@ Strategy:
 - when an exported generated type is part of a native interop surface, its own
   header also exposes the concrete field dependencies native code may dereference
   directly; ordinary Doof-only headers still prefer forward declarations
+- circular generated headers declare imported nominal types before includes;
+  primitive-only structs may be completed before those includes, while defaults
+  that call imported statics are materialized at call sites instead of requiring
+  a complete imported type in the header
 
 Primary modules:
 
@@ -228,6 +232,10 @@ Strategy:
 - `callback.post(...)` lowers to the runtime callback post operation and returns
   `doof::Promise<R>`
 - `async` is actor-call-only and lowers to `Actor<T>::call_async`
+- the runtime holds an actor's inner class instance in one actor-owned
+  `std::shared_ptr<T>` so ordinary Doof `this` lowering through
+  `shared_from_this()` remains valid; the pointer is not exposed before
+  retirement
 - actor-call lambda return types pass through whole-program generic lowering, so
   compound returns refer to registered concrete nominal types rather than
   reintroducing C++ templates

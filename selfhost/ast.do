@@ -4,7 +4,7 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, ResultResolvedType, StreamResolvedType,
+  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, RangeResolvedType, ResultResolvedType, StreamResolvedType,
   FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
   UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
@@ -78,6 +78,7 @@ export class LongLiteral {
 export class FloatLiteral {
   kind: string
   value: float
+  raw: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -85,6 +86,7 @@ export class FloatLiteral {
 export class DoubleLiteral {
   kind: string
   value: double
+  raw: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -188,6 +190,7 @@ export class CallExpression {
   resolvedGenericTypeArgs: ResolvedType[] = []
   resolvedFunction: FunctionDeclaration | null = null
   resolvedConstructor: FunctionDeclaration | null = null
+  resolvedClass: ClassDeclaration | null = null
   resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
@@ -381,6 +384,7 @@ export class FunctionDeclaration {
   exported: bool
   static_: bool
   isolated_: bool
+  resolvedIsolated: bool = false
   private_: bool
   bodyless: bool = false
   native_: bool = false
@@ -644,6 +648,19 @@ export class ImportDeclaration {
   span: SourceSpan
 }
 
+export class MockImportMapping {
+  dependency: string
+  replacement: string
+  span: SourceSpan
+}
+
+export class MockImportDirective {
+  kind: string
+  sourcePattern: string
+  mappings: MockImportMapping[]
+  span: SourceSpan
+}
+
 export class ExportDeclaration {
   kind: string
   declaration: Statement
@@ -666,7 +683,7 @@ export class ExportList {
 export type Statement =
   ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration |
   FunctionDeclaration | ClassDeclaration | InterfaceDeclaration |
-  EnumDeclaration | TypeAliasDeclaration | ImportDeclaration |
+  EnumDeclaration | TypeAliasDeclaration | ImportDeclaration | MockImportDirective |
   ExportDeclaration | ExportList | IfStatement | CaseStatement | WhileStatement |
   ForStatement | ForOfStatement | WithStatement | ReturnStatement |
   YieldStatement | BreakStatement | ContinueStatement | ExpressionStatement |

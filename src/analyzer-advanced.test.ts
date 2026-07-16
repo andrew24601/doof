@@ -87,15 +87,11 @@ describe("NamedType AST decoration — resolvedSymbol", () => {
   });
 });
 
-describe("mock import precedence and validation", () => {
-  it("prefers more specific source patterns over broader wildcards", () => {
+describe("mock import source matching and validation", () => {
+  it("rewrites only exact source-module matches", () => {
     const result = analyze(
       {
         "/main.test.do": `
-          mock import for "*" {
-            "./paymentGateway" => "./mocks/mockPayment"
-          }
-
           mock import for "./trustedModule" {
             "./paymentGateway" => "./realGateway"
           }
@@ -117,14 +113,13 @@ describe("mock import precedence and validation", () => {
         `,
         "/paymentGateway.do": `export function charge(): void {}`,
         "/realGateway.do": `export function charge(): void {}`,
-        "/mocks/mockPayment.do": `export function charge(): void {}`,
       },
       "/main.test.do",
     );
 
     expect(result.diagnostics).toHaveLength(0);
     expect(result.modules.get("/trustedModule.do")?.imports[0].sourceModule).toBe("/realGateway.do");
-    expect(result.modules.get("/otherModule.do")?.imports[0].sourceModule).toBe("/mocks/mockPayment.do");
+    expect(result.modules.get("/otherModule.do")?.imports[0].sourceModule).toBe("/paymentGateway.do");
   });
 
   it("rejects mock import directives that are not at the top of the file", () => {
