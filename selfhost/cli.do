@@ -18,6 +18,9 @@ export class CliRequest {
   macosSignIdentity: string = ""
   macosSandbox: bool = false
   macosEntitlements: string = ""
+  iosDestination: string = "simulator"
+  iosSignIdentity: string = ""
+  iosProvisioningProfile: string = ""
 }
 
 export class ModuleSource {
@@ -49,6 +52,9 @@ export function cliUsage(): string {
     "  --macos-sign-identity <id>  Developer ID Application identity\n" +
     "  --macos-sandbox             enable App Sandbox entitlement\n" +
     "  --macos-entitlements <path> merge additional entitlements plist\n" +
+    "  --ios-destination <kind>   iOS build destination: simulator or device\n" +
+    "  --ios-sign-identity <id>   Apple signing identity for device/package builds\n" +
+    "  --ios-provisioning-profile <path> provisioning profile for device/package builds\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
     "  --module <specifier> <path> map an external import to a source file\n" +
     "  --filter <text>             run tests whose id contains text\n" +
@@ -116,6 +122,28 @@ export function parseCli(args: string[]): CliParseResult {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --macos-entitlements" } }
       request.macosEntitlements = args[index + 1]
       index = index + 2
+      continue
+    }
+    if argument == "--ios-destination" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --ios-destination" } }
+      value := args[index + 1]
+      if value != "simulator" && value != "device" {
+        return CliParseResult { request: null, error: "invalid value for --ios-destination: " + value }
+      }
+      request.iosDestination = value
+      index += 2
+      continue
+    }
+    if argument == "--ios-sign-identity" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --ios-sign-identity" } }
+      request.iosSignIdentity = args[index + 1]
+      index += 2
+      continue
+    }
+    if argument == "--ios-provisioning-profile" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --ios-provisioning-profile" } }
+      request.iosProvisioningProfile = args[index + 1]
+      index += 2
       continue
     }
     if argument == "--source" {

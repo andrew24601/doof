@@ -175,6 +175,12 @@ try {
       run(b6Compiler, ["build", platformFixture, "-o", platformOutput]);
       run(builtProgramPath(platformOutput, "selfhost-release-platform-framework"), [], { cwd: runRoot });
 
+      const iosFixture = copyFixture("ios-app");
+      const iosOutput = path.join(runRoot, "verify", "ios-app");
+      run(b6Compiler, ["build", iosFixture, "-o", iosOutput, "--ios-destination", "simulator"]);
+      requirePath(path.join(iosOutput, "SelfhostIOS.app", "SelfhostIOS"), "self-hosted iOS simulator app executable");
+      requirePath(path.join(iosOutput, "SelfhostIOS.app", "Info.plist"), "self-hosted iOS simulator app plist");
+
       const httpFixture = path.join(repositoryRoot, "samples", "http-client");
       run(b6Compiler, ["check", httpFixture]);
       run(b6Compiler, ["build", httpFixture, "-o", path.join(runRoot, "verify", "http-client")]);

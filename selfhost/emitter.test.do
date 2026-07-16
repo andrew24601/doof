@@ -29,6 +29,21 @@ function emitMonomorphized(source: string): ModuleEmission {
   return graph.modules[0]
 }
 
+export function testEmitsIOSAppEntryWithoutNativeMain(): void {
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source: "function main(): void {}" }]).analyze("/main.do")
+  Assert.equal(analysis.diagnostics.length, 0)
+  checked := createChecker(analysis).check("/main.do")
+  Assert.equal(checked.diagnostics.length, 0)
+  source := emitModuleGraph(analysis, "/main.do", null, "ios-app").modules[0].source
+  Assert.stringContains(source, "extern \"C\" int doof_entry_main")
+  Assert.equal(source.contains("int main("), false)
+}
+
+export function testEmitsJsonValueNullCasePattern(): void {
+  result := emit("function isNull(value: JsonValue): bool => case value { _: null -> true, _ -> false }")
+  Assert.stringContains(result.source, "doof::json_is_null(")
+}
+
 export function testLambdaCaptureExcludesItsOwnTypedParameters(): void {
   result := emit("function make(): (path: string): string { prefix := \"root/\"\nreturn (path: string): string => prefix + path }")
   Assert.equal(result.source.contains("[prefix](std::string path)"), true)
@@ -445,12 +460,25 @@ export function testPreservesJsonCollectionSerialization(): void {
   Assert.equal(result.source.contains("doof::json_value(this->values)"), true)
 }
 
+export function testEmitsNullableJsonObjectSerialization(): void {
+  result := emit("class Config { values: JsonObject | null = null }\nfunction write(value: Config): JsonObject => value.toJsonObject()")
+  Assert.equal(result.source.contains("this->values ? doof::json_value(this->values) : doof::json_value(nullptr)"), true)
+  Assert.equal(result.header.contains("fromJsonValue"), false)
+}
+
 export function testEmitsRecursiveAutomaticJsonTypes(): void {
   result := emit("enum Kind { One, Two }\nclass Point { x: double\ny: double }\nclass Payload { kind: Kind\nids: int[]\npoints: Point[]\nselected: Point | null = null }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)")
   Assert.equal(result.header.contains("Kind_fromName"), true)
   Assert.equal(result.source.contains("this->kind"), true)
   Assert.equal(result.source.contains("for (const auto& _element : *this->ids)"), true)
   Assert.equal(result.source.contains("Point::fromJsonValue"), true)
+}
+
+export function testDoesNotEmitJsonMethodsThatDependOnUnsupportedNominalFields(): void {
+  result := emit("class Handler { callback: (value: int): void }\nclass Envelope { handler: Handler }")
+  Assert.equal(result.header.contains("doof::JsonObject toJsonObject() const;"), false)
+  Assert.equal(result.source.contains("Envelope::toJsonObject"), false)
+  Assert.equal(result.source.contains("Handler::fromJsonValue"), false)
 }
 
 export function testEmitsStructThisByValue(): void {

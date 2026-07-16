@@ -10,6 +10,7 @@ import { env } from "std/os"
 import { absolute, basename, dirname, join } from "std/path"
 import { NativeBuildPlan, PackageResource, parsePackageManifest } from "./package-manifest"
 import { MacOSAppConfig, MacOSPackageConfig } from "./macos-app"
+import { IOSAppConfig, IOSPackageConfig } from "./ios-app"
 
 export function projectManifestPath(path: string): string {
   let directory = if isDirectory(path) then path else dirname(path)
@@ -43,7 +44,9 @@ export class ProjectSpec {
   nativeBuild: NativeBuildPlan
   target: string = ""
   macosApp: MacOSAppConfig | null = null
+  iosApp: IOSAppConfig | null = null
   packageConfig: MacOSPackageConfig | null = null
+  iosPackageConfig: IOSPackageConfig | null = null
 }
 
 export function readProjectSpec(requestedPath: string, platform: string = ""): ProjectSpec {
@@ -92,6 +95,8 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
     nativeBuild: packageManifest.nativeBuild,
     target: packageManifest.target,
     macosApp: packageManifest.macosApp,
+    iosApp: packageManifest.iosApp,
     packageConfig: packageManifest.packageConfig,
+    iosPackageConfig: packageManifest.iosPackageConfig,
   }
 }

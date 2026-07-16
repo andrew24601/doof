@@ -16,6 +16,8 @@ import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from ".
 import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
 import { macOSPackageArchiveName } from "./macos-app"
 import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
+import { iosPackageArchiveName } from "./ios-app"
+import { assembleIOSApp, configureIOSNativeBuild, signAndArchiveIOSApp } from "./ios-app-driver"
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
@@ -162,6 +164,7 @@ class DriverSourceState {
   acquisitions: ModuleAcquisition[]
   reachedPackages: DriverReachedPackage[]
   namespaceMappings: ModuleNamespaceMapping[]
+  nativePlatform: string
 }
 
 let configuredDriverSourceState: DriverSourceState = DriverSourceState {
@@ -171,6 +174,7 @@ let configuredDriverSourceState: DriverSourceState = DriverSourceState {
   acquisitions: [],
   reachedPackages: [],
   namespaceMappings: [],
+  nativePlatform: "",
 }
 
 function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
@@ -259,7 +263,7 @@ function registerReachedPackage(acquisition: ModuleAcquisition): Result<void, Di
       "Could not read doof.json for acquired package ${acquisition.logicalPrefix} at ${manifestPath}",
     ))
   }
-  manifest := parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, hostPlatform()) else error {
+  manifest := parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, configuredDriverSourceState.nativePlatform) else error {
     return Failure(driverDiagnostic(manifestPath, error))
   }
   configuredDriverSourceState.reachedPackages.push(DriverReachedPackage { acquisition, manifest })
@@ -299,6 +303,7 @@ function sourceLoaderForRequest(
   moduleSources: ModuleSource[],
   stdlibRoot: string,
   namespaceMappings: ModuleNamespaceMapping[],
+  nativePlatform: string = "",
 ): SourceLoader {
   let localMappings: DriverSourceMapping[] = [driverSourceMapping(driverLogicalPath(entryPath), entryPath)]
   let localRoots: DriverSourceRoot[] = []
@@ -321,6 +326,7 @@ function sourceLoaderForRequest(
     acquisitions,
     reachedPackages: [],
     namespaceMappings,
+    nativePlatform: if nativePlatform == "" then hostPlatform() else nativePlatform,
   }
   return configuredDriverSource
 }
@@ -658,7 +664,10 @@ function testRequest(request: CliRequest): int {
 }
 
 function emitRequest(request: CliRequest): int {
-  project := readProjectSpec(request.entry, hostPlatform())
+  let project = readProjectSpec(request.entry, hostPlatform())
+  iosDestination := if request.command == "package" then "device" else request.iosDestination
+  nativePlatform := if project.iosApp == null then hostPlatform() else "ios-" + iosDestination
+  if project.iosApp != null { project = readProjectSpec(request.entry, nativePlatform) }
   entryPath := joinPath(project.rootDirectory, project.entry)
   entry := driverLogicalPath(entryPath)
   stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
@@ -667,8 +676,8 @@ function emitRequest(request: CliRequest): int {
     packageName: project.name,
     outputRoot: "",
   }]
-  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
-  result := compileWithLoader([], entry, loader, namespaceMappings)
+  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings, nativePlatform)
+  result := compileWithLoader([], entry, loader, namespaceMappings, if project.iosApp == null then "executable" else "ios-app")
   if result.diagnostics.length > 0 {
     printDiagnostics(result.diagnostics)
     return 1
@@ -694,12 +703,26 @@ function emitRequest(request: CliRequest): int {
   )
   materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
+  if project.iosApp != null {
+    _ := configureIOSNativeBuild(outputDirectory, project.iosApp!, iosDestination, emission.nativeBuild) else error {
+      println("error: " + error)
+      return 1
+    }
+  }
   if request.command == "build" {
-    executableName := if project.macosApp == null then buildOutputName(project.name) else project.macosApp!.executableName
+    executableName := if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
     outputPath := driverOutputPath(outputDirectory, executableName)
-    if project.macosApp == null { materializeExecutableResources(project.resources, outputDirectory) }
+    if project.macosApp == null && project.iosApp == null { materializeExecutableResources(project.resources, outputDirectory) }
     exitCode := buildProject(request, outputDirectory, outputPath, emission)
-    if exitCode != 0 || project.macosApp == null { return exitCode }
+    if exitCode != 0 { return exitCode }
+    if project.iosApp != null {
+      _ := assembleIOSApp(outputDirectory, outputPath, project.iosApp!, iosDestination) else error {
+        println("error: " + error)
+        return 1
+      }
+      return 0
+    }
+    if project.macosApp == null { return 0 }
     _ := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {
       println("error: " + error)
       return 1
@@ -710,14 +733,35 @@ function emitRequest(request: CliRequest): int {
     if project.packageConfig == null { panic("project package settings were not resolved") }
     distDirectory := if request.distDirectory != "" then try! absolute(request.distDirectory) else project.packageConfig!.distDirectory
     ensureOutputDirectory(distDirectory)
-    executableName := if project.macosApp == null then buildOutputName(project.name) else project.macosApp!.executableName
-    outputPath := if project.macosApp == null
+    executableName := if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
+    outputPath := if project.macosApp == null && project.iosApp == null
       then driverOutputPath(distDirectory, executableName)
       else driverOutputPath(outputDirectory, executableName)
     exitCode := buildProject(request, outputDirectory, outputPath, emission, true)
     if exitCode != 0 { return exitCode }
-    if project.macosApp == null {
+    if project.macosApp == null && project.iosApp == null {
       materializeExecutableResources(project.resources, distDirectory)
+      return 0
+    }
+    if project.iosApp != null {
+      appPath := assembleIOSApp(outputDirectory, outputPath, project.iosApp!, iosDestination) else error {
+        println("error: " + error)
+        return 1
+      }
+      if project.iosPackageConfig == null { panic("iOS package settings were not resolved") }
+      iosConfig := project.iosPackageConfig!
+      environmentIdentity := environmentValue("DOOF_IOS_SIGN_IDENTITY")
+      if environmentIdentity != "" { iosConfig.identity = environmentIdentity }
+      if request.iosSignIdentity != "" { iosConfig.identity = request.iosSignIdentity }
+      environmentProfile := environmentValue("DOOF_IOS_PROVISIONING_PROFILE")
+      if environmentProfile != "" { iosConfig.provisioningProfilePath = try! absolute(environmentProfile) }
+      if request.iosProvisioningProfile != "" { iosConfig.provisioningProfilePath = try! absolute(request.iosProvisioningProfile) }
+      archivePath := driverOutputPath(distDirectory, iosPackageArchiveName(project.iosApp!.executableName, project.iosApp!.version))
+      _ := signAndArchiveIOSApp(appPath, archivePath, project.iosApp!.bundleId, iosConfig, outputDirectory) else error {
+        println("error: " + error)
+        return 1
+      }
+      println("Package: " + archivePath)
       return 0
     }
     appPath := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {

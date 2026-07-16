@@ -14,9 +14,9 @@ import { canGenerateJsonDeserialization, canGenerateJsonSerialization, nullableJ
 
 /** Emits automatic JSON declarations owned by a concrete class or struct. */
 export function emitGeneratedJsonDeclarations(owner: ClassDeclaration, context: EmitContext): string {
-  if (!canGenerateJsonSerialization(owner)) { return "" }
+  if (!canGenerateJsonSerialization(owner, context.allPrograms)) { return "" }
   let result = "    doof::JsonObject toJsonObject() const;\n"
-  if canGenerateJsonDeserialization(owner) {
+  if canGenerateJsonDeserialization(owner, context.allPrograms) {
     valueType := jsonResultValueType(owner)
     result = result + "    static doof::Result<" + valueType + ", std::string> fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);\n"
   }
@@ -25,9 +25,9 @@ export function emitGeneratedJsonDeclarations(owner: ClassDeclaration, context: 
 
 /** Emits automatic JSON definitions after the owning class declaration. */
 export function emitGeneratedJsonMethods(owner: ClassDeclaration, context: EmitContext): string {
-  if !canGenerateJsonSerialization(owner) { return "" }
+  if !canGenerateJsonSerialization(owner, context.allPrograms) { return "" }
   let result = emitToJsonObject(owner, context)
-  if canGenerateJsonDeserialization(owner) { result = result + emitFromJsonValue(owner, context) }
+  if canGenerateJsonDeserialization(owner, context.allPrograms) { result = result + emitFromJsonValue(owner, context) }
   return result
 }
 
@@ -199,6 +199,7 @@ function emitJsonField(value: string, resolvedType: ResolvedType, context: EmitC
       case inner {
         _: ClassType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
         _: ArrayResolvedType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
+        _: MapResolvedType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
         _ -> { return "(" + value + ".has_value() ? " + emitJsonField(value + ".value()", inner, context) + " : doof::json_value(nullptr))" }
       }
     }

@@ -7,6 +7,7 @@
 import { parseJsonValue } from "std/json"
 import { join } from "std/path"
 import { MacOSAppConfig, MacOSAppResource, MacOSEmbeddedLibrary, MacOSPackageConfig } from "./macos-app"
+import { IOSAppConfig, IOSAppResource, IOSEmbeddedLibrary, IOSPackageConfig } from "./ios-app"
 
 function manifestJoinPath(directory: string, name: string): string => join([directory, name])
 function manifestJsonField(object: JsonObject, name: string): JsonValue => try! object.get(name)
@@ -42,7 +43,9 @@ export class PackageManifest {
   nativeBuild: NativeBuildPlan
   target: string = ""
   macosApp: MacOSAppConfig | null = null
+  iosApp: IOSAppConfig | null = null
   packageConfig: MacOSPackageConfig | null = null
+  iosPackageConfig: IOSPackageConfig | null = null
 }
 
 /** Parses package identity and host-platform native inputs from doof.json. */
@@ -68,12 +71,15 @@ export function parsePackageManifest(
   }
 
   try resources := parseManifestResources(root, manifestPath, rootDirectory)
-  try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform)
   try target := parseManifestTarget(root, manifestPath)
+  try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform)
   try macosApp := parseMacOSApp(root, manifestPath, rootDirectory, name, version, target)
+  try iosApp := parseIOSApp(root, manifestPath, rootDirectory, name, version, target)
   try packageConfig := parseMacOSPackage(root, manifestPath, rootDirectory)
+  try iosPackageConfig := parseIOSPackage(root, manifestPath, rootDirectory)
   return Success(PackageManifest {
-    name, version, manifestPath, rootDirectory, resources, nativeBuild, target, macosApp, packageConfig,
+    name, version, manifestPath, rootDirectory, resources, nativeBuild, target, macosApp, iosApp,
+    packageConfig, iosPackageConfig,
   })
 }
 
@@ -97,13 +103,14 @@ function parseManifestNativeBuild(
   try native := manifestObject(manifestJsonField(build, "native"), manifestPath, "build.native")
 
   try appendNativeFragment(result, native, manifestPath, rootDirectory, "build.native")
-  if platform != "" && manifestJsonHas(native, platform) {
+  platformKey := if platform == "ios-simulator" then "iosSimulator" else if platform == "ios-device" then "iosDevice" else platform
+  if platformKey != "" && manifestJsonHas(native, platformKey) {
     try platformValue := manifestObject(
-      manifestJsonField(native, platform),
+      manifestJsonField(native, platformKey),
       manifestPath,
-      "build.native." + platform,
+      "build.native." + platformKey,
     )
-    try appendNativeFragment(result, platformValue, manifestPath, rootDirectory, "build.native." + platform)
+    try appendNativeFragment(result, platformValue, manifestPath, rootDirectory, "build.native." + platformKey)
   }
   return Success(result)
 }
@@ -265,6 +272,126 @@ function parseMacOSApp(
   })
 }
 
+function parseIOSApp(
+  root: JsonObject,
+  manifestPath: string,
+  rootDirectory: string,
+  packageName: string,
+  packageVersion: string,
+  target: string,
+): Result<IOSAppConfig | null, string> {
+  if target != "ios-app" { return Success(null) }
+  let build: JsonObject = {}
+  if manifestJsonHas(root, "build") {
+    try parsedBuild := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+    build = parsedBuild
+  }
+  let nested: JsonObject = {}
+  if manifestJsonHas(build, "iosApp") {
+    try parsedNested := manifestObject(manifestJsonField(build, "iosApp"), manifestPath, "build.iosApp")
+    nested = parsedNested
+  }
+
+  try executableName := firstManifestString(
+    root, "executable", build, "executable", build, "targetExecutableName", packageName,
+    manifestPath, "executable",
+  )
+  if executableName == "" || executableName.contains("/") || executableName.contains("\\") {
+    return Failure("Invalid doof.json at " + manifestPath + ": executable must be a file name without path separators")
+  }
+  defaultBundleId := "dev.doof." + sanitizeBundleName(if packageName == "" then executableName else packageName)
+  try bundleId := firstManifestString(root, "id", nested, "bundleId", build, "id", defaultBundleId, manifestPath, "build.iosApp.bundleId")
+  try displayName := firstManifestString(root, "title", nested, "displayName", build, "title", if packageName == "" then executableName else packageName, manifestPath, "build.iosApp.displayName")
+  try version := optionalManifestString(nested, "version", packageVersion, manifestPath, "build.iosApp.version")
+  try minimumDeploymentTarget := optionalManifestString(nested, "minimumDeploymentTarget", "16.0", manifestPath, "build.iosApp.minimumDeploymentTarget")
+
+  let icon = ""
+  if manifestJsonHas(root, "icon") {
+    try parsed := manifestString(manifestJsonField(root, "icon"), manifestPath, "icon")
+    icon = parsed
+  } else if manifestJsonHas(nested, "icon") {
+    try parsed := manifestString(manifestJsonField(nested, "icon"), manifestPath, "build.iosApp.icon")
+    icon = parsed
+  } else if manifestJsonHas(build, "icon") {
+    try parsed := manifestString(manifestJsonField(build, "icon"), manifestPath, "build.icon")
+    icon = parsed
+  }
+  let iconPath = ""
+  if icon != "" {
+    if !icon.toLowerCase().endsWith(".png") {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.iosApp.icon must point to a PNG file")
+    }
+    iconPath = manifestJoinPath(rootDirectory, icon)
+    if !manifestPathWithinRoot(iconPath, rootDirectory) {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.iosApp.icon must stay within the package root")
+    }
+  }
+
+  let infoPlist: JsonObject | null = null
+  if manifestJsonHas(nested, "infoPlist") {
+    try parsedInfo := manifestObject(manifestJsonField(nested, "infoPlist"), manifestPath, "build.iosApp.infoPlist")
+    for key, ignored of parsedInfo {
+      if isManagedIOSPlistKey(key) {
+        return Failure("Invalid doof.json at " + manifestPath + ": build.iosApp.infoPlist." + key + " conflicts with a Doof-managed Info.plist key")
+      }
+    }
+    infoPlist = parsedInfo
+  }
+
+  let resourceValue: JsonValue | null = null
+  let resourceField = "build.iosApp.resources"
+  if manifestJsonHas(root, "resources") {
+    resourceValue = manifestJsonField(root, "resources")
+    resourceField = "resources"
+  } else if manifestJsonHas(nested, "resources") {
+    resourceValue = manifestJsonField(nested, "resources")
+  } else if manifestJsonHas(build, "resources") {
+    resourceValue = manifestJsonField(build, "resources")
+    resourceField = "build.resources"
+  }
+  let resources: IOSAppResource[] = []
+  if resourceValue != null {
+    try parsedResources := parseResourceArray(resourceValue!, manifestPath, rootDirectory, resourceField)
+    for resource of parsedResources {
+      resources.push(IOSAppResource { sourcePath: resource.sourcePath, destination: resource.destination })
+    }
+  }
+
+  let embeddedLibraries: IOSEmbeddedLibrary[] = []
+  if manifestJsonHas(nested, "embeddedLibraries") {
+    try entries := manifestArray(manifestJsonField(nested, "embeddedLibraries"), manifestPath, "build.iosApp.embeddedLibraries")
+    for index of 0..<entries.length {
+      field := "build.iosApp.embeddedLibraries[" + string(index) + "]"
+      try entry := manifestObject(entries[index], manifestPath, field)
+      hasLibrary := manifestJsonHas(entry, "library")
+      hasPath := manifestJsonHas(entry, "path")
+      if hasLibrary == hasPath { return Failure("Invalid doof.json at " + manifestPath + ": " + field + " requires exactly one of library or path") }
+      if hasLibrary {
+        try library := manifestString(manifestJsonField(entry, "library"), manifestPath, field + ".library")
+        if library == "" || library.contains("/") || library.contains("\\") {
+          return Failure("Invalid doof.json at " + manifestPath + ": embedded linked library names must not contain path separators")
+        }
+        embeddedLibraries.push(IOSEmbeddedLibrary { library })
+      } else {
+        try path := manifestString(manifestJsonField(entry, "path"), manifestPath, field + ".path")
+        resolvedPath := manifestJoinPath(rootDirectory, path)
+        if !manifestPathWithinRoot(resolvedPath, rootDirectory) {
+          return Failure("Invalid doof.json at " + manifestPath + ": " + field + ".path must stay within the package root")
+        }
+        if !resolvedPath.endsWith(".dylib") && !resolvedPath.endsWith(".so") && !resolvedPath.endsWith(".framework") {
+          return Failure("Invalid doof.json at " + manifestPath + ": embedded library paths must be .dylib, .so, or .framework")
+        }
+        embeddedLibraries.push(IOSEmbeddedLibrary { path: resolvedPath })
+      }
+    }
+  }
+
+  return Success(IOSAppConfig {
+    executableName, bundleId, displayName, version, iconPath, infoPlist, resources,
+    embeddedLibraries, minimumDeploymentTarget,
+  })
+}
+
 function parseMacOSPackage(root: JsonObject, manifestPath: string, rootDirectory: string): Result<MacOSPackageConfig, string> {
   let distDirectory = manifestJoinPath(rootDirectory, "dist")
   let signing = "developer-id"
@@ -316,6 +443,29 @@ function parseMacOSPackage(root: JsonObject, manifestPath: string, rootDirectory
   return Success(MacOSPackageConfig { distDirectory, signing, identity, sandbox, entitlementsPath })
 }
 
+function parseIOSPackage(root: JsonObject, manifestPath: string, rootDirectory: string): Result<IOSPackageConfig, string> {
+  let identity = ""
+  let provisioningProfilePath = ""
+  if !manifestJsonHas(root, "build") { return Success(IOSPackageConfig {}) }
+  try build := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+  if !manifestJsonHas(build, "package") { return Success(IOSPackageConfig {}) }
+  try package := manifestObject(manifestJsonField(build, "package"), manifestPath, "build.package")
+  if !manifestJsonHas(package, "ios") { return Success(IOSPackageConfig {}) }
+  try ios := manifestObject(manifestJsonField(package, "ios"), manifestPath, "build.package.ios")
+  if manifestJsonHas(ios, "identity") {
+    try value := manifestString(manifestJsonField(ios, "identity"), manifestPath, "build.package.ios.identity")
+    identity = value
+  }
+  if manifestJsonHas(ios, "provisioningProfile") {
+    try value := manifestString(manifestJsonField(ios, "provisioningProfile"), manifestPath, "build.package.ios.provisioningProfile")
+    provisioningProfilePath = manifestJoinPath(rootDirectory, value)
+    if !manifestPathWithinRoot(provisioningProfilePath, rootDirectory) {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.package.ios.provisioningProfile must stay within the package root")
+    }
+  }
+  return Success(IOSPackageConfig { identity, provisioningProfilePath })
+}
+
 function optionalManifestString(object: JsonObject, key: string, fallback: string, manifestPath: string, fieldPath: string): Result<string, string> {
   if !manifestJsonHas(object, key) { return Success(fallback) }
   return manifestString(manifestJsonField(object, key), manifestPath, fieldPath)
@@ -359,6 +509,16 @@ function isManagedMacOSPlistKey(key: string): bool {
     "CFBundleIdentifier", "CFBundleInfoDictionaryVersion", "CFBundleName", "CFBundlePackageType",
     "CFBundleShortVersionString", "CFBundleVersion", "LSApplicationCategoryType", "LSMinimumSystemVersion",
     "NSHighResolutionCapable", "NSPrincipalClass",
+  ]
+  return keys.contains(key)
+}
+
+function isManagedIOSPlistKey(key: string): bool {
+  readonly keys = [
+    "CFBundleDevelopmentRegion", "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier",
+    "CFBundleInfoDictionaryVersion", "CFBundleName", "CFBundlePackageType", "CFBundleShortVersionString",
+    "CFBundleVersion", "LSRequiresIPhoneOS", "MinimumOSVersion", "UIDeviceFamily",
+    "UILaunchStoryboardName", "UIApplicationSceneManifest",
   ]
   return keys.contains(key)
 }

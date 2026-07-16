@@ -21,6 +21,7 @@ export class SourceLocationSpanOverride {
 
 export class EmitContext {
   modulePath: string = ""
+  allPrograms: Program[] = []
   namespaceImports: NamespaceBinding[] = []
   imports: ImportBinding[] = []
   moduleSurfaces: EmitModuleSurface[] = []
@@ -61,7 +62,7 @@ export function createEmitContext(program: Program): EmitContext {
 }
 
 export function createEmitContextForPrograms(programs: Program[]): EmitContext {
-  return EmitContext {}
+  return EmitContext { allPrograms: programs }
 }
 
 export function createEmitContextForModule(program: Program, modulePath: string, allPrograms: Program[] = []): EmitContext {

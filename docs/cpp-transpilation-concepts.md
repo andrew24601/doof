@@ -460,6 +460,8 @@ Strategy:
   name is only an equivalent alias for native bridge signatures
 - arm tests and extraction use centralized free helpers, while `case` uses the
   normal `std::visit` lowering
+- `JsonValue` type patterns use representation predicates; in particular, a
+  `null` arm lowers to `doof::json_is_null(...)` rather than a variant type test
 - `try` and `catch` forms are emitted with explicit success/failure control flow
 - declaration-`else` evaluates its subject once, exposes either the full
   subject or captured failure payload in the handler, and extracts the narrowed
@@ -477,6 +479,7 @@ Primary modules:
 - `src/emitter-narrowing.ts`
 - `selfhost/checker.do`
 - `selfhost/emitter-expr-ops.do`
+- `selfhost/emitter-case-pattern.do`
 - `selfhost/emitter-stmt.do`
 
 Validation anchors:

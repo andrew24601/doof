@@ -60,6 +60,23 @@ export function testRejectsInvalidMacOSSigningOption(): void {
   Assert.equal(result.error, "invalid value for --macos-signing: mystery")
 }
 
+export function testParsesIOSBuildAndPackageOptions(): void {
+  result := parseCli([
+    "package", "demo", "--ios-destination", "device",
+    "--ios-sign-identity", "Apple Distribution: Example",
+    "--ios-provisioning-profile", "profiles/app.mobileprovision",
+  ])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request!.iosDestination, "device")
+  Assert.equal(result.request!.iosSignIdentity, "Apple Distribution: Example")
+  Assert.equal(result.request!.iosProvisioningProfile, "profiles/app.mobileprovision")
+}
+
+export function testRejectsInvalidIOSDestination(): void {
+  result := parseCli(["build", "demo", "--ios-destination", "television"])
+  Assert.equal(result.error, "invalid value for --ios-destination: television")
+}
+
 export function testParsesTestSelectionOptions(): void {
   result := parseCli(["test", "src", "--filter", "math", "--list", "--compiler", "clang++"])
   Assert.equal(result.error, "")

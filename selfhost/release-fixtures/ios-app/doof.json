@@ -1,0 +1,13 @@
+{
+  "name": "selfhost-release-ios-app",
+  "version": "1.0.0",
+  "target": "ios-app",
+  "executable": "SelfhostIOS",
+  "build": {
+    "iosApp": {
+      "bundleId": "dev.doof.selfhost-release-ios",
+      "displayName": "Selfhost iOS",
+      "minimumDeploymentTarget": "16.0"
+    }
+  }
+}

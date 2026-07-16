@@ -225,7 +225,15 @@ dynamic libraries whose Mach-O references are rewritten and validated. The self-
 and either links a plain executable into `dist/` or signs, verifies, and zips a
 macOS app using manifest/CLI release settings. With `package`, `-o` overrides
 the build-state root; `--distdir` or `build.package.distDir` selects the artifact
-directory. Declared
+directory. The same self-hosted path now accepts `ios-app`, emits a C app-entry
+wrapper plus UIKit Objective-C++ shell, selects `iosSimulator` or `iosDevice`
+native fragments, resolves the matching Xcode SDK/target triple, assembles a
+flat iOS app bundle, compiles PNG icon assets with `actool`, and packages signed
+device builds as `Payload/<App>.app` IPA archives. Signing inputs come from
+`build.package.ios`, environment overrides, or CLI flags; deterministic tests
+cover manifest normalization, plist/shell rendering, target planning, and the
+emitter entry boundary. Explicit iOS embedded-library bundling remains a
+follow-up. Declared
 package dependencies, pkg-config resolution, and remote stdlib fallback remain
 future CLI layers.
 

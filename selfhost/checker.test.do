@@ -321,6 +321,16 @@ export function testRejectsJsonDeserializationForUnsupportedFields(): void {
   Assert.equal(result.diagnostics[0].message, "Type \"Handler\" does not support automatic JSON deserialization")
 }
 
+export function testRejectsJsonMethodsForNestedUnsupportedFields(): void {
+  decode := checked("class Handler { callback: (value: int): void }\nclass Envelope { handler: Handler }\nfunction parse(value: JsonValue): Result<Envelope, string> => Envelope.fromJsonValue(value)")
+  Assert.equal(decode.diagnostics.length > 0, true)
+  Assert.equal(decode.diagnostics[0].message, "Type \"Envelope\" does not support automatic JSON deserialization")
+
+  encode := checked("class Handler { callback: (value: int): void }\nclass Envelope { handler: Handler }\nfunction write(value: Envelope): JsonObject => value.toJsonObject()")
+  Assert.equal(encode.diagnostics.length > 0, true)
+  Assert.equal(encode.diagnostics[0].message, "Type \"Envelope\" does not support automatic JSON serialization")
+}
+
 export function testChecksContextualNumericLiteralAssignments(): void {
   result := checked("function update(): double { let value: double = 1.0\nvalue = 2\nreturn value }")
   Assert.equal(result.diagnostics.length, 0)

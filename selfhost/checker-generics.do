@@ -237,7 +237,7 @@ export function staticMemberOwner(objectType: ResolvedType, property: string, re
       if declaration != null {
         case declaration! {
           classDeclaration: ClassDeclaration -> {
-            if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration) { return classDeclaration }
+            if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration, jsonPrograms(result)) { return classDeclaration }
             for method of classDeclaration.methods { if method.name == property && method.static_ { return classDeclaration } }
             for field of classDeclaration.fields {
               for name of field.names { if name == property && field.static_ { return classDeclaration } }
@@ -250,6 +250,12 @@ export function staticMemberOwner(objectType: ResolvedType, property: string, re
     _ -> { }
   }
   return null
+}
+
+function jsonPrograms(result: AnalysisResult): Program[] {
+  let programs: Program[] = []
+  for module of result.modules { programs.push(module.program) }
+  return programs
 }
 
 // Emission is intentionally a pure consumer of decorated AST data.  This

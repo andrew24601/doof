@@ -26,8 +26,9 @@ export function compileWithLoader(
   entry: string,
   loader: SourceLoader,
   namespaceMappings: ModuleNamespaceMapping[] = [],
+  entryMode: string = "executable",
 ): Compilation {
-  return compileInternal(sources, entry, loader, namespaceMappings)
+  return compileInternal(sources, entry, loader, namespaceMappings, entryMode)
 }
 
 function compileInternal(
@@ -35,6 +36,7 @@ function compileInternal(
   entry: string,
   loader: SourceLoader,
   namespaceMappings: ModuleNamespaceMapping[],
+  entryMode: string = "executable",
 ): Compilation {
   configureModuleNamespaces(namespaceMappings)
   analysis := createAnalyzerWithLoader(sources, loader).analyze(entry)
@@ -70,7 +72,7 @@ function compileInternal(
     })
     return Compilation { emission: null, diagnostics }
   }
-  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations), diagnostics }
+  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations, entryMode), diagnostics }
 }
 
 // Analyzer discovery order is driven by import syntax, not by a fixed source

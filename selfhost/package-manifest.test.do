@@ -145,6 +145,39 @@ export function testRejectsManagedMacOSInfoPlistOverrides(): void {
   panic("expected managed plist override failure")
 }
 
+export function testParsesIOSAppAndPackageSettings(): void {
+  manifest := try! parsePackageManifest(
+    "{\"name\":\"demo-ios\",\"version\":\"2.0\",\"target\":\"ios-app\",\"executable\":\"Demo\",\"build\":{\"iosApp\":{\"bundleId\":\"dev.example.ios\",\"displayName\":\"Demo iOS\",\"minimumDeploymentTarget\":\"17.0\",\"icon\":\"icon.png\",\"resources\":[{\"from\":\"assets\",\"to\":\"Data\"}]},\"package\":{\"ios\":{\"identity\":\"Apple Distribution: Example\",\"provisioningProfile\":\"profiles/app.mobileprovision\"}},\"native\":{\"frameworks\":[\"Base\"],\"iosDevice\":{\"frameworks\":[\"UIKit\"]}}}}",
+    "/app/doof.json",
+    "/app",
+    "ios-device",
+  )
+
+  Assert.equal(manifest.iosApp != null, true)
+  Assert.equal(manifest.iosApp!.executableName, "Demo")
+  Assert.equal(manifest.iosApp!.bundleId, "dev.example.ios")
+  Assert.equal(manifest.iosApp!.minimumDeploymentTarget, "17.0")
+  Assert.equal(manifest.iosApp!.iconPath, "/app/icon.png")
+  Assert.equal(manifest.iosApp!.resources[0].destination, "Data")
+  Assert.equal(manifest.nativeBuild.frameworks.contains("UIKit"), true)
+  Assert.equal(manifest.iosPackageConfig!.identity, "Apple Distribution: Example")
+  Assert.equal(manifest.iosPackageConfig!.provisioningProfilePath, "/app/profiles/app.mobileprovision")
+}
+
+export function testRejectsManagedIOSInfoPlistOverrides(): void {
+  result := parsePackageManifest(
+    "{\"name\":\"demo\",\"build\":{\"target\":\"ios-app\",\"iosApp\":{\"infoPlist\":{\"CFBundleIdentifier\":\"override\"}}}}",
+    "/app/doof.json",
+    "/app",
+    "ios-simulator",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "CFBundleIdentifier conflicts with a Doof-managed Info.plist key")
+    return
+  }
+  panic("expected managed plist override failure")
+}
+
 export function testRejectsInvalidMacOSSigningMode(): void {
   result := parsePackageManifest(
     "{\"name\":\"demo\",\"build\":{\"package\":{\"macos\":{\"signing\":\"mystery\"}}}}",

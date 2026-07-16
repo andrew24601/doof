@@ -2,7 +2,7 @@
 
 import { NamedType, TypePattern } from "./ast"
 import {
-  ArrayResolvedType, JsonValueResolvedType, MapResolvedType, PrimitiveType,
+  ArrayResolvedType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType,
   ResolvedType, ResultResolvedType,
 } from "./semantic"
 import { emitType, usesNullableSingleValueRepresentation, usesVariantRepresentation } from "./emitter-types"
@@ -85,6 +85,7 @@ function emitJsonValuePattern(patternType: ResolvedType, subject: string, bindin
     }
     _: ArrayResolvedType -> { condition = "doof::json_is_array(" + subject + ")"; value = "std::get<doof::JsonArray>(doof::json_storage(" + subject + "))" }
     _: MapResolvedType -> { condition = "doof::json_is_object(" + subject + ")"; value = "doof::json_object(" + subject + ")" }
+    _: NullType -> { condition = "doof::json_is_null(" + subject + ")"; value = "nullptr" }
     _: JsonValueResolvedType -> { }
     _ -> { panic("Unsupported JsonValue case pattern") }
   }

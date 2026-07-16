@@ -259,10 +259,10 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if declaration == null { return unknownType() }
       case declaration! {
         classDeclaration: ClassDeclaration -> {
-          if property == "toJsonObject" && canGenerateJsonSerialization(classDeclaration) {
+          if property == "toJsonObject" && canGenerateJsonSerialization(classDeclaration, jsonPrograms(state.result)) {
             return functionType([], jsonObjectType())
           }
-          if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration) {
+          if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration, jsonPrograms(state.result)) {
             return functionType([
               FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
               FunctionParamType { name: "lenient", type_: primitive("bool"), hasDefault: true },
@@ -319,6 +319,12 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
     _ -> { }
   }
   return unknownType()
+}
+
+function jsonPrograms(result: AnalysisResult): Program[] {
+  let programs: Program[] = []
+  for module of result.modules { programs.push(module.program) }
+  return programs
 }
 
 export function indexType(state: CheckerState, object: ResolvedType, index: ResolvedType, span: SourceSpan): ResolvedType {

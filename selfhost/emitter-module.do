@@ -80,7 +80,7 @@ export class CxxModuleEmitter {
   moduleSurfaces: EmitModuleSurface[] = []
   instantiations: InstantiationPlan | null = null
 
-  function emit(program: Program, moduleIncludes: string[] = [], includeMain: bool = true): ModuleEmission {
+  function emit(program: Program, moduleIncludes: string[] = [], entryMode: string = "executable"): ModuleEmission {
     context := if modulePath == "" then createEmitContext(program) else createEmitContextForModule(program, modulePath, allPrograms)
     context.namespaceImports = namespaceImports
     context.imports = imports
@@ -88,10 +88,10 @@ export class CxxModuleEmitter {
     if instantiations != null { configureInstantiationRegistry(context, instantiations!) }
     plan := planHeader(program, context)
     if instantiations != null { addConcreteHeaderDeclarations(plan, context, instantiations!) }
-    return emitPlanned([program], context, plan, includeMain, moduleIncludes)
+    return emitPlanned([program], context, plan, entryMode, moduleIncludes)
   }
 
-  private function emitPlanned(programs: Program[], context: EmitContext, plan: HeaderPlan, includeMain: bool, moduleIncludes: string[] = []): ModuleEmission {
+  private function emitPlanned(programs: Program[], context: EmitContext, plan: HeaderPlan, entryMode: string, moduleIncludes: string[] = []): ModuleEmission {
     headerName := if headerNameOverride == "" then moduleName + ".hpp" else headerNameOverride
     sourceName := if sourceNameOverride == "" then moduleName + ".cpp" else sourceNameOverride
     namespaceName := if namespaceNameOverride == "" then moduleName + "_" else namespaceNameOverride
@@ -114,7 +114,8 @@ export class CxxModuleEmitter {
     if nativeMethods != "" {
       source = source + "\nusing namespace ::" + namespaceName + ";\n\n" + nativeMethods
     }
-    if includeMain && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
+    if entryMode == "executable" && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
+    if entryMode == "ios-app" && plan.hasMain { source = source + emitAppEntryWrapper(namespaceName, plan) }
     return ModuleEmission { modulePath: context.modulePath, header, source, headerName, sourceName }
   }
 }
@@ -164,7 +165,12 @@ function addNamespace(namespaces: string[], namespace: string): void {
 }
 
 // Emit one header/source pair for every analyzed module.
-export function emitModuleGraph(result: AnalysisResult, entry: string = "", instantiations: InstantiationPlan | null = null): ModuleGraphEmission {
+export function emitModuleGraph(
+  result: AnalysisResult,
+  entry: string = "",
+  instantiations: InstantiationPlan | null = null,
+  entryMode: string = "executable",
+): ModuleGraphEmission {
   graph := ModuleGraphEmission {}
   concretePlan := instantiations ?? buildInstantiationPlan(result)
   plan := planModuleGraph(result)
@@ -183,7 +189,11 @@ export function emitModuleGraph(result: AnalysisResult, entry: string = "", inst
       moduleSurfaces: emitModuleSurfaces(result),
       instantiations: concretePlan,
     }
-    graph.modules.push(emitter.emit(info!.program, module.includes, module.path == entry))
+    graph.modules.push(emitter.emit(
+      info!.program,
+      module.includes,
+      if module.path == entry then entryMode else "none",
+    ))
   }
   return graph
 }
@@ -335,7 +345,7 @@ function findGraphModule(result: AnalysisResult, path: string): ModuleInfo | nul
 
 export function emitModule(program: Program, moduleName: string = "main"): ModuleEmission {
   let emptyIncludes: string[] = []
-  return CxxModuleEmitter { moduleName }.emit(program, emptyIncludes, true)
+  return CxxModuleEmitter { moduleName }.emit(program, emptyIncludes, "executable")
 }
 
 function emitSourceStatement(statement: Statement, context: EmitContext): string {
@@ -398,4 +408,14 @@ function emitMainWrapper(moduleName: string, plan: HeaderPlan): string {
   panicHandler := "catch (const doof::Panic& _panic) { std::cerr << \"panic: \" << _panic.what() << std::endl; std::abort(); }"
   actorSetup := "auto& __doof_application_domain = doof::detail::ApplicationDomain::shared(); doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain); "
   return "\n" + signature + " { try { " + actorSetup + argumentSetup + success + " } " + panicHandler + " }\n"
+}
+
+// App targets provide their own platform main and enter Doof through this C ABI.
+function emitAppEntryWrapper(moduleName: string, plan: HeaderPlan): string {
+  argumentSetup := if plan.mainAcceptsArgs then "std::vector<std::string> args; for (int i = 1; i < argc; ++i) args.emplace_back(argv[i]); " else "(void)argc; (void)argv; "
+  call := if plan.mainAcceptsArgs then moduleName + "::doof_main(std::make_shared<std::vector<std::string>>(std::move(args)))" else moduleName + "::doof_main()"
+  success := if plan.mainReturnsInt then "return " + call + ";" else call + "; return 0;"
+  panicHandler := "catch (const doof::Panic& _panic) { std::cerr << \"panic: \" << _panic.what() << std::endl; std::abort(); }"
+  actorSetup := "auto& __doof_application_domain = doof::detail::ApplicationDomain::shared(); doof::detail::ActiveActorScope __doof_application_scope(&__doof_application_domain); "
+  return "\nextern \"C\" int doof_entry_main(int argc, char** argv) { try { " + actorSetup + argumentSetup + success + " } " + panicHandler + " }\n"
 }
