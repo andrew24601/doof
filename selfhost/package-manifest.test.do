@@ -106,3 +106,69 @@ export function testRejectsInvalidNativeStringArrays(): void {
   }
   panic("expected invalid manifest failure")
 }
+
+export function testParsesCompactMacOSAppAndReleaseSettings(): void {
+  manifest := try! parsePackageManifest(
+    "{\"name\":\"demo-app\",\"version\":\"1.2\",\"target\":\"macos-app\",\"executable\":\"Demo\",\"id\":\"dev.example.demo\",\"title\":\"Demo App\",\"icon\":\"icon.png\",\"resources\":[\"assets\"],\"build\":{\"macosApp\":{\"category\":\"public.app-category.games\",\"embeddedLibraries\":[{\"library\":\"SDL3\"},{\"path\":\"vendor/Foo.framework\"}]},\"package\":{\"distDir\":\"artifacts\",\"macos\":{\"signing\":\"ad-hoc\",\"sandbox\":true,\"entitlements\":\"release.plist\"}}}}",
+    "/app/doof.json",
+    "/app",
+    "macos",
+  )
+
+  Assert.equal(manifest.target, "macos-app")
+  Assert.equal(manifest.macosApp != null, true)
+  Assert.equal(manifest.macosApp!.executableName, "Demo")
+  Assert.equal(manifest.macosApp!.bundleId, "dev.example.demo")
+  Assert.equal(manifest.macosApp!.displayName, "Demo App")
+  Assert.equal(manifest.macosApp!.version, "1.2")
+  Assert.equal(manifest.macosApp!.iconPath, "/app/icon.png")
+  Assert.equal(manifest.macosApp!.resources[0].sourcePath, "/app/assets")
+  Assert.equal(manifest.macosApp!.embeddedLibraries[0].library, "SDL3")
+  Assert.equal(manifest.macosApp!.embeddedLibraries[1].path, "/app/vendor/Foo.framework")
+  Assert.equal(manifest.packageConfig!.distDirectory, "/app/artifacts")
+  Assert.equal(manifest.packageConfig!.signing, "ad-hoc")
+  Assert.equal(manifest.packageConfig!.sandbox, true)
+  Assert.equal(manifest.packageConfig!.entitlementsPath, "/app/release.plist")
+}
+
+export function testRejectsManagedMacOSInfoPlistOverrides(): void {
+  result := parsePackageManifest(
+    "{\"name\":\"demo\",\"build\":{\"target\":\"macos-app\",\"macosApp\":{\"infoPlist\":{\"CFBundleIdentifier\":\"override\"}}}}",
+    "/app/doof.json",
+    "/app",
+    "macos",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "CFBundleIdentifier conflicts with a Doof-managed Info.plist key")
+    return
+  }
+  panic("expected managed plist override failure")
+}
+
+export function testRejectsInvalidMacOSSigningMode(): void {
+  result := parsePackageManifest(
+    "{\"name\":\"demo\",\"build\":{\"package\":{\"macos\":{\"signing\":\"mystery\"}}}}",
+    "/app/doof.json",
+    "/app",
+    "macos",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "build.package.macos.signing")
+    return
+  }
+  panic("expected invalid signing mode failure")
+}
+
+export function testRejectsMacOSPackagePathsOutsidePackageRoot(): void {
+  result := parsePackageManifest(
+    "{\"name\":\"demo\",\"build\":{\"package\":{\"distDir\":\"../artifacts\"}}}",
+    "/app/doof.json",
+    "/app",
+    "macos",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "build.package.distDir must stay within the package root")
+    return
+  }
+  panic("expected invalid dist directory failure")
+}

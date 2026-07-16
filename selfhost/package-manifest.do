@@ -6,6 +6,7 @@
 
 import { parseJsonValue } from "std/json"
 import { join } from "std/path"
+import { MacOSAppConfig, MacOSAppResource, MacOSEmbeddedLibrary, MacOSPackageConfig } from "./macos-app"
 
 function manifestJoinPath(directory: string, name: string): string => join([directory, name])
 function manifestJsonField(object: JsonObject, name: string): JsonValue => try! object.get(name)
@@ -34,10 +35,14 @@ export class PackageResource {
 /** Package identity and native inputs parsed from a single doof.json. */
 export class PackageManifest {
   name: string
+  version: string = "1.0"
   manifestPath: string
   rootDirectory: string
   resources: PackageResource[] = []
   nativeBuild: NativeBuildPlan
+  target: string = ""
+  macosApp: MacOSAppConfig | null = null
+  packageConfig: MacOSPackageConfig | null = null
 }
 
 /** Parses package identity and host-platform native inputs from doof.json. */
@@ -56,9 +61,20 @@ export function parsePackageManifest(
     name = parsedName
   }
 
+  let version = "1.0"
+  if manifestJsonHas(root, "version") {
+    try parsedVersion := manifestString(manifestJsonField(root, "version"), manifestPath, "version")
+    version = parsedVersion
+  }
+
   try resources := parseManifestResources(root, manifestPath, rootDirectory)
   try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform)
-  return Success(PackageManifest { name, manifestPath, rootDirectory, resources, nativeBuild })
+  try target := parseManifestTarget(root, manifestPath)
+  try macosApp := parseMacOSApp(root, manifestPath, rootDirectory, name, version, target)
+  try packageConfig := parseMacOSPackage(root, manifestPath, rootDirectory)
+  return Success(PackageManifest {
+    name, version, manifestPath, rootDirectory, resources, nativeBuild, target, macosApp, packageConfig,
+  })
 }
 
 /** Merges normalized package plans while preserving first-seen ordering. */
@@ -112,6 +128,239 @@ function parseManifestResources(
     }
   }
   return Success([])
+}
+
+function parseManifestTarget(root: JsonObject, manifestPath: string): Result<string, string> {
+  if manifestJsonHas(root, "target") {
+    return manifestString(manifestJsonField(root, "target"), manifestPath, "target")
+  }
+  if manifestJsonHas(root, "build") {
+    try build := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+    if manifestJsonHas(build, "target") {
+      return manifestString(manifestJsonField(build, "target"), manifestPath, "build.target")
+    }
+  }
+  return Success("")
+}
+
+function parseMacOSApp(
+  root: JsonObject,
+  manifestPath: string,
+  rootDirectory: string,
+  packageName: string,
+  packageVersion: string,
+  target: string,
+): Result<MacOSAppConfig | null, string> {
+  if target != "macos-app" { return Success(null) }
+  let build: JsonObject = {}
+  if manifestJsonHas(root, "build") {
+    try parsedBuild := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+    build = parsedBuild
+  }
+  let nested: JsonObject = {}
+  if manifestJsonHas(build, "macosApp") {
+    try parsedNested := manifestObject(manifestJsonField(build, "macosApp"), manifestPath, "build.macosApp")
+    nested = parsedNested
+  }
+
+  try executableName := firstManifestString(
+    root, "executable", build, "executable", build, "targetExecutableName", packageName,
+    manifestPath, "executable",
+  )
+  if executableName == "" || executableName.contains("/") || executableName.contains("\\") {
+    return Failure("Invalid doof.json at " + manifestPath + ": executable must be a file name without path separators")
+  }
+  defaultBundleId := "dev.doof." + sanitizeBundleName(if packageName == "" then executableName else packageName)
+  try bundleId := firstManifestString(root, "id", nested, "bundleId", build, "id", defaultBundleId, manifestPath, "build.macosApp.bundleId")
+  try displayName := firstManifestString(root, "title", nested, "displayName", build, "title", if packageName == "" then executableName else packageName, manifestPath, "build.macosApp.displayName")
+  try version := optionalManifestString(nested, "version", packageVersion, manifestPath, "build.macosApp.version")
+  try category := optionalManifestString(nested, "category", "public.app-category.developer-tools", manifestPath, "build.macosApp.category")
+  try minimumSystemVersion := optionalManifestString(nested, "minimumSystemVersion", "11.0", manifestPath, "build.macosApp.minimumSystemVersion")
+
+  let icon = ""
+  if manifestJsonHas(root, "icon") {
+    try parsed := manifestString(manifestJsonField(root, "icon"), manifestPath, "icon")
+    icon = parsed
+  } else if manifestJsonHas(nested, "icon") {
+    try parsed := manifestString(manifestJsonField(nested, "icon"), manifestPath, "build.macosApp.icon")
+    icon = parsed
+  } else if manifestJsonHas(build, "icon") {
+    try parsed := manifestString(manifestJsonField(build, "icon"), manifestPath, "build.icon")
+    icon = parsed
+  }
+  let iconPath = ""
+  if icon != "" {
+    if !icon.toLowerCase().endsWith(".png") {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.macosApp.icon must point to a PNG file")
+    }
+    iconPath = manifestJoinPath(rootDirectory, icon)
+    if !manifestPathWithinRoot(iconPath, rootDirectory) {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.macosApp.icon must stay within the package root")
+    }
+  }
+
+  let infoPlist: JsonObject | null = null
+  if manifestJsonHas(nested, "infoPlist") {
+    try parsedInfo := manifestObject(manifestJsonField(nested, "infoPlist"), manifestPath, "build.macosApp.infoPlist")
+    for key, ignored of parsedInfo {
+      if isManagedMacOSPlistKey(key) {
+        return Failure("Invalid doof.json at " + manifestPath + ": build.macosApp.infoPlist." + key + " conflicts with a Doof-managed Info.plist key")
+      }
+    }
+    infoPlist = parsedInfo
+  }
+
+  let resourceValue: JsonValue | null = null
+  let resourceField = "build.macosApp.resources"
+  if manifestJsonHas(root, "resources") {
+    resourceValue = manifestJsonField(root, "resources")
+    resourceField = "resources"
+  } else if manifestJsonHas(nested, "resources") {
+    resourceValue = manifestJsonField(nested, "resources")
+  } else if manifestJsonHas(build, "resources") {
+    resourceValue = manifestJsonField(build, "resources")
+    resourceField = "build.resources"
+  }
+  let resources: MacOSAppResource[] = []
+  if resourceValue != null {
+    try parsedResources := parseResourceArray(resourceValue!, manifestPath, rootDirectory, resourceField)
+    for resource of parsedResources {
+      resources.push(MacOSAppResource { sourcePath: resource.sourcePath, destination: resource.destination })
+    }
+  }
+
+  let embeddedLibraries: MacOSEmbeddedLibrary[] = []
+  if manifestJsonHas(nested, "embeddedLibraries") {
+    try entries := manifestArray(manifestJsonField(nested, "embeddedLibraries"), manifestPath, "build.macosApp.embeddedLibraries")
+    for index of 0..<entries.length {
+      try entry := manifestObject(entries[index], manifestPath, "build.macosApp.embeddedLibraries[" + string(index) + "]")
+      hasLibrary := manifestJsonHas(entry, "library")
+      hasPath := manifestJsonHas(entry, "path")
+      if hasLibrary == hasPath {
+        return Failure("Invalid doof.json at " + manifestPath + ": build.macosApp.embeddedLibraries[" + string(index) + "] requires exactly one of library or path")
+      }
+      if hasLibrary {
+        try library := manifestString(manifestJsonField(entry, "library"), manifestPath, "build.macosApp.embeddedLibraries[" + string(index) + "].library")
+        if library == "" || library.contains("/") || library.contains("\\") {
+          return Failure("Invalid doof.json at " + manifestPath + ": embedded linked library names must not contain path separators")
+        }
+        embeddedLibraries.push(MacOSEmbeddedLibrary { library })
+      } else {
+        try path := manifestString(manifestJsonField(entry, "path"), manifestPath, "build.macosApp.embeddedLibraries[" + string(index) + "].path")
+        resolvedPath := manifestJoinPath(rootDirectory, path)
+        if !manifestPathWithinRoot(resolvedPath, rootDirectory) {
+          return Failure("Invalid doof.json at " + manifestPath + ": build.macosApp.embeddedLibraries[" + string(index) + "].path must stay within the package root")
+        }
+        if !resolvedPath.endsWith(".dylib") && !resolvedPath.endsWith(".so") && !resolvedPath.endsWith(".framework") {
+          return Failure("Invalid doof.json at " + manifestPath + ": embedded library paths must be .dylib, .so, or .framework")
+        }
+        embeddedLibraries.push(MacOSEmbeddedLibrary { path: resolvedPath })
+      }
+    }
+  }
+
+  return Success(MacOSAppConfig {
+    executableName, bundleId, displayName, version, iconPath, infoPlist, resources, embeddedLibraries,
+    category, minimumSystemVersion,
+  })
+}
+
+function parseMacOSPackage(root: JsonObject, manifestPath: string, rootDirectory: string): Result<MacOSPackageConfig, string> {
+  let distDirectory = manifestJoinPath(rootDirectory, "dist")
+  let signing = "developer-id"
+  let identity = ""
+  let sandbox = false
+  let entitlementsPath = ""
+  if !manifestJsonHas(root, "build") {
+    return Success(MacOSPackageConfig { distDirectory, signing, identity, sandbox, entitlementsPath })
+  }
+  try build := manifestObject(manifestJsonField(root, "build"), manifestPath, "build")
+  if !manifestJsonHas(build, "package") {
+    return Success(MacOSPackageConfig { distDirectory, signing, identity, sandbox, entitlementsPath })
+  }
+  try package := manifestObject(manifestJsonField(build, "package"), manifestPath, "build.package")
+  if manifestJsonHas(package, "distDir") {
+    try value := manifestString(manifestJsonField(package, "distDir"), manifestPath, "build.package.distDir")
+    distDirectory = manifestJoinPath(rootDirectory, value)
+    if !manifestPathWithinRoot(distDirectory, rootDirectory) {
+      return Failure("Invalid doof.json at " + manifestPath + ": build.package.distDir must stay within the package root")
+    }
+  }
+  if manifestJsonHas(package, "macos") {
+    try macos := manifestObject(manifestJsonField(package, "macos"), manifestPath, "build.package.macos")
+    if manifestJsonHas(macos, "signing") {
+      try value := manifestString(manifestJsonField(macos, "signing"), manifestPath, "build.package.macos.signing")
+      if value != "developer-id" && value != "ad-hoc" {
+        return Failure("Invalid doof.json at " + manifestPath + ": build.package.macos.signing must be one of \"developer-id\", \"ad-hoc\"")
+      }
+      signing = value
+    }
+    if manifestJsonHas(macos, "identity") {
+      try value := manifestString(manifestJsonField(macos, "identity"), manifestPath, "build.package.macos.identity")
+      identity = value
+    }
+    if manifestJsonHas(macos, "sandbox") {
+      case manifestJsonField(macos, "sandbox") {
+        value: bool -> { sandbox = value },
+        _ -> { return Failure("Invalid doof.json at " + manifestPath + ": build.package.macos.sandbox must be a boolean") }
+      }
+    }
+    if manifestJsonHas(macos, "entitlements") {
+      try value := manifestString(manifestJsonField(macos, "entitlements"), manifestPath, "build.package.macos.entitlements")
+      entitlementsPath = manifestJoinPath(rootDirectory, value)
+      if !manifestPathWithinRoot(entitlementsPath, rootDirectory) {
+        return Failure("Invalid doof.json at " + manifestPath + ": build.package.macos.entitlements must stay within the package root")
+      }
+    }
+  }
+  return Success(MacOSPackageConfig { distDirectory, signing, identity, sandbox, entitlementsPath })
+}
+
+function optionalManifestString(object: JsonObject, key: string, fallback: string, manifestPath: string, fieldPath: string): Result<string, string> {
+  if !manifestJsonHas(object, key) { return Success(fallback) }
+  return manifestString(manifestJsonField(object, key), manifestPath, fieldPath)
+}
+
+function firstManifestString(
+  first: JsonObject, firstKey: string,
+  second: JsonObject, secondKey: string,
+  third: JsonObject, thirdKey: string,
+  fallback: string,
+  manifestPath: string,
+  fieldPath: string,
+): Result<string, string> {
+  if manifestJsonHas(first, firstKey) { return manifestString(manifestJsonField(first, firstKey), manifestPath, firstKey) }
+  if manifestJsonHas(second, secondKey) { return manifestString(manifestJsonField(second, secondKey), manifestPath, fieldPath) }
+  if manifestJsonHas(third, thirdKey) { return manifestString(manifestJsonField(third, thirdKey), manifestPath, thirdKey) }
+  return Success(fallback)
+}
+
+function sanitizeBundleName(value: string): string {
+  readonly allowed = "abcdefghijklmnopqrstuvwxyz0123456789-"
+  let result = ""
+  lower := value.toLowerCase()
+  for index of 0..<lower.length {
+    text := lower.substring(index, index + 1)
+    result = result + if allowed.contains(text) then text else "-"
+  }
+  while result.startsWith("-") { result = result.substring(1, result.length) }
+  while result.endsWith("-") { result = result.substring(0, result.length - 1) }
+  return if result == "" then "app" else result
+}
+
+function manifestPathWithinRoot(path: string, rootDirectory: string): bool {
+  boundary := if rootDirectory.endsWith("/") then rootDirectory else rootDirectory + "/"
+  return path == rootDirectory || path.startsWith(boundary)
+}
+
+function isManagedMacOSPlistKey(key: string): bool {
+  readonly keys = [
+    "CFBundleDevelopmentRegion", "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIconFile",
+    "CFBundleIdentifier", "CFBundleInfoDictionaryVersion", "CFBundleName", "CFBundlePackageType",
+    "CFBundleShortVersionString", "CFBundleVersion", "LSApplicationCategoryType", "LSMinimumSystemVersion",
+    "NSHighResolutionCapable", "NSPrincipalClass",
+  ]
+  return keys.contains(key)
 }
 
 function parseResourceArray(

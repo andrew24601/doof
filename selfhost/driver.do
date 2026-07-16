@@ -14,6 +14,8 @@ import { ModuleNamespaceMapping } from "./emitter-names"
 import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
 import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from "./native-build"
 import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
+import { macOSPackageArchiveName } from "./macos-app"
+import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
@@ -693,17 +695,49 @@ function emitRequest(request: CliRequest): int {
   materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
   if request.command == "build" {
-    outputPath := driverOutputPath(outputDirectory, buildOutputName(project.name))
-    materializeExecutableResources(project.resources, outputDirectory)
-    return buildProject(request, outputDirectory, outputPath, emission)
+    executableName := if project.macosApp == null then buildOutputName(project.name) else project.macosApp!.executableName
+    outputPath := driverOutputPath(outputDirectory, executableName)
+    if project.macosApp == null { materializeExecutableResources(project.resources, outputDirectory) }
+    exitCode := buildProject(request, outputDirectory, outputPath, emission)
+    if exitCode != 0 || project.macosApp == null { return exitCode }
+    _ := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {
+      println("error: " + error)
+      return 1
+    }
+    return 0
   }
   if request.command == "package" {
-    distDirectory := joinPath(project.rootDirectory, "dist")
+    if project.packageConfig == null { panic("project package settings were not resolved") }
+    distDirectory := if request.distDirectory != "" then try! absolute(request.distDirectory) else project.packageConfig!.distDirectory
     ensureOutputDirectory(distDirectory)
-    outputPath := driverOutputPath(distDirectory, buildOutputName(project.name))
+    executableName := if project.macosApp == null then buildOutputName(project.name) else project.macosApp!.executableName
+    outputPath := if project.macosApp == null
+      then driverOutputPath(distDirectory, executableName)
+      else driverOutputPath(outputDirectory, executableName)
     exitCode := buildProject(request, outputDirectory, outputPath, emission, true)
-    if exitCode == 0 { materializeExecutableResources(project.resources, distDirectory) }
-    return exitCode
+    if exitCode != 0 { return exitCode }
+    if project.macosApp == null {
+      materializeExecutableResources(project.resources, distDirectory)
+      return 0
+    }
+    appPath := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {
+      println("error: " + error)
+      return 1
+    }
+    packageConfig := project.packageConfig!
+    if request.macosSigning != "" { packageConfig.signing = request.macosSigning }
+    environmentIdentity := environmentValue("DOOF_MACOS_SIGN_IDENTITY")
+    if environmentIdentity != "" { packageConfig.identity = environmentIdentity }
+    if request.macosSignIdentity != "" { packageConfig.identity = request.macosSignIdentity }
+    if request.macosSandbox { packageConfig.sandbox = true }
+    if request.macosEntitlements != "" { packageConfig.entitlementsPath = try! absolute(request.macosEntitlements) }
+    archivePath := driverOutputPath(distDirectory, macOSPackageArchiveName(project.macosApp!.executableName, project.macosApp!.version))
+    _ := signAndArchiveMacOSApp(appPath, archivePath, packageConfig, outputDirectory) else error {
+      println("error: " + error)
+      return 1
+    }
+    println("Package: " + archivePath)
+    return 0
   }
   return 0
 }

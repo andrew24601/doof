@@ -9,6 +9,7 @@ import { parseJsonValue } from "std/json"
 import { env } from "std/os"
 import { absolute, basename, dirname, join } from "std/path"
 import { NativeBuildPlan, PackageResource, parsePackageManifest } from "./package-manifest"
+import { MacOSAppConfig, MacOSPackageConfig } from "./macos-app"
 
 export function projectManifestPath(path: string): string {
   let directory = if isDirectory(path) then path else dirname(path)
@@ -40,6 +41,9 @@ export class ProjectSpec {
   hasManifest: bool
   resources: PackageResource[] = []
   nativeBuild: NativeBuildPlan
+  target: string = ""
+  macosApp: MacOSAppConfig | null = null
+  packageConfig: MacOSPackageConfig | null = null
 }
 
 export function readProjectSpec(requestedPath: string, platform: string = ""): ProjectSpec {
@@ -57,6 +61,7 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
       hasManifest: false,
       resources: [],
       nativeBuild: NativeBuildPlan {},
+      packageConfig: MacOSPackageConfig { distDirectory: joinPath(directory, "dist") },
     }
   }
 
@@ -85,5 +90,8 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
     hasManifest: true,
     resources: packageManifest.resources,
     nativeBuild: packageManifest.nativeBuild,
+    target: packageManifest.target,
+    macosApp: packageManifest.macosApp,
+    packageConfig: packageManifest.packageConfig,
   }
 }

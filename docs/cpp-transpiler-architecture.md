@@ -161,9 +161,17 @@ particular, a `c++-header` PCH must not be loaded by a `.mm` translation unit.
 Single-module builds skip the extra PCH step because its setup cost is unlikely
 to amortize.
 The bootstrap `package` command uses the same explicit plan beneath
-`<buildDir>/release`, prepends the GCC-compatible `-O2` and `NDEBUG` release
-defaults before manifest flags, and links the final executable directly into
-the root package's `dist/` directory.
+`<buildDir>/release` and prepends the GCC-compatible `-O2` and `NDEBUG` release
+defaults before manifest flags. Plain executables link directly into the root
+package's configured `dist/` directory. A self-hosted `macos-app` build instead
+assembles `Contents/MacOS`, generated `Info.plist` and `PkgInfo`, icons,
+glob-expanded resources, and explicitly allowlisted dynamic libraries under
+`Contents/Frameworks`. It rewrites embedded install names and dependencies to
+bundle-relative `@rpath` references, rejects undeclared non-system dependencies,
+then ad-hoc signs the runnable development bundle.
+Release packaging signs nested code before the outer bundle using manifest or
+CLI Developer ID/ad-hoc settings, verifies the result, and archives the `.app`
+with `ditto` as `<executable>-<version>-macos.zip`.
 
 `scripts/release-gate.mjs` owns native bootstrap and acceptance orchestration
 outside the unit-test protocol. It builds the seed compiler with the TypeScript

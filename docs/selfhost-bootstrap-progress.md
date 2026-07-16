@@ -216,12 +216,16 @@ materialization also preserve root-package executable resources. Reached
 acquired-package manifests now register normalized native
 build inputs. The project emitter materializes those inputs and the self-hosted
 `build` command compiles generated plus native sources with package-stable
-namespaces, including host frameworks and root-project settings. The
-self-hosted `package` command materializes its independent release graph under
+namespaces, including host frameworks and root-project settings. It now parses
+compact and nested `macos-app` metadata and assembles an ad-hoc-signed `.app`
+with generated plist metadata, icons, app resources, and explicit embedded
+dynamic libraries whose Mach-O references are rewritten and validated. The self-hosted
+`package` command materializes its independent release graph under
 `<buildDir>/release`, prepends `-O2` and `NDEBUG` before package compiler flags,
-and links the final executable into package-root `dist/`. With `package`, `-o`
-overrides the build-state root while the artifact remains in the package's
-`dist/` directory. Declared
+and either links a plain executable into `dist/` or signs, verifies, and zips a
+macOS app using manifest/CLI release settings. With `package`, `-o` overrides
+the build-state root; `--distdir` or `build.package.distDir` selects the artifact
+directory. Declared
 package dependencies, pkg-config resolution, and remote stdlib fallback remain
 future CLI layers.
 

@@ -13,6 +13,11 @@ export class CliRequest {
   moduleSources: ModuleSource[] = []
   filter: string = ""
   listOnly: bool = false
+  distDirectory: string = ""
+  macosSigning: string = ""
+  macosSignIdentity: string = ""
+  macosSandbox: bool = false
+  macosEntitlements: string = ""
 }
 
 export class ModuleSource {
@@ -39,6 +44,11 @@ export function cliUsage(): string {
     "options:\n" +
     "  -o, --output-directory <path>  output root (package uses <path>/release)\n" +
     "  --compiler <path>           C++ compiler command (default: CXX or c++)\n" +
+    "  --distdir <path>            packaged artifact directory\n" +
+    "  --macos-signing <kind>      developer-id or ad-hoc\n" +
+    "  --macos-sign-identity <id>  Developer ID Application identity\n" +
+    "  --macos-sandbox             enable App Sandbox entitlement\n" +
+    "  --macos-entitlements <path> merge additional entitlements plist\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
     "  --module <specifier> <path> map an external import to a source file\n" +
     "  --filter <text>             run tests whose id contains text\n" +
@@ -72,6 +82,39 @@ export function parseCli(args: string[]): CliParseResult {
     if argument == "--compiler" {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --compiler" } }
       request.compiler = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--distdir" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --distdir" } }
+      request.distDirectory = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--macos-signing" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --macos-signing" } }
+      value := args[index + 1]
+      if value != "developer-id" && value != "ad-hoc" {
+        return CliParseResult { request: null, error: "invalid value for --macos-signing: " + value }
+      }
+      request.macosSigning = value
+      index = index + 2
+      continue
+    }
+    if argument == "--macos-sign-identity" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --macos-sign-identity" } }
+      request.macosSignIdentity = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--macos-sandbox" {
+      request.macosSandbox = true
+      index = index + 1
+      continue
+    }
+    if argument == "--macos-entitlements" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --macos-entitlements" } }
+      request.macosEntitlements = args[index + 1]
       index = index + 2
       continue
     }

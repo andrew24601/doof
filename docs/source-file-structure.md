@@ -65,13 +65,16 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, and harness imports
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
-- `selfhost/package-manifest.do` — normalized package identity, root executable resources, and host-platform `build.native` manifest parsing
+- `selfhost/package-manifest.do` — normalized package identity, root/app resources, macOS target and release settings, and host-platform `build.native` manifest parsing
+- `selfhost/macos-app.do` — deterministic macOS app metadata, Info.plist rendering, archive naming, and codesign argument planning
+- `selfhost/macos-app-driver.do` — macOS filesystem/tool boundary for bundle assembly, embedded Mach-O rewriting, signing, and zip archives
 - `selfhost/emitter-project.do` — package-relative generated support files, native-copy paths, and output native-build planning
 - `selfhost/native-build.do` — output-relative native path resolution and GCC-compatible compile/link argument planning
-- `selfhost/driver.do` — native filesystem/process boundary, executable-resource uptake, project materialization, and isolated test execution for the self-hosted CLI
+- `selfhost/driver.do` — generic native filesystem/process boundary, executable-resource uptake, project materialization, macOS app orchestration, and isolated test execution for the self-hosted CLI
 - `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
 - `selfhost/package-manifest.test.do` — focused native manifest parsing, platform merge, and validation tests
+- `selfhost/macos-app.test.do` — focused macOS plist, archive-name, and signing-plan tests
 - `selfhost/emitter-project.test.do` — package-relative native planning, generated-header mirrors, and collision isolation tests
 - `selfhost/project.test.do` — root project manifest and native-plan tests
 - `selfhost/release-fixtures/` — maintained native/runtime, stdlib, test-runner, resource, and platform packages used only by the release gate

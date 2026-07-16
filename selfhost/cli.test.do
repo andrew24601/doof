@@ -41,6 +41,25 @@ export function testParsesPackageCompiler(): void {
   Assert.equal(result.request!.compiler, "clang++")
 }
 
+export function testParsesMacOSPackageOptions(): void {
+  result := parseCli([
+    "package", "demo", "--distdir", "artifacts", "--macos-signing", "ad-hoc",
+    "--macos-sign-identity", "Developer ID Application: Example", "--macos-sandbox",
+    "--macos-entitlements", "release.plist",
+  ])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request!.distDirectory, "artifacts")
+  Assert.equal(result.request!.macosSigning, "ad-hoc")
+  Assert.equal(result.request!.macosSignIdentity, "Developer ID Application: Example")
+  Assert.equal(result.request!.macosSandbox, true)
+  Assert.equal(result.request!.macosEntitlements, "release.plist")
+}
+
+export function testRejectsInvalidMacOSSigningOption(): void {
+  result := parseCli(["package", "demo", "--macos-signing", "mystery"])
+  Assert.equal(result.error, "invalid value for --macos-signing: mystery")
+}
+
 export function testParsesTestSelectionOptions(): void {
   result := parseCli(["test", "src", "--filter", "math", "--list", "--compiler", "clang++"])
   Assert.equal(result.error, "")
