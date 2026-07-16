@@ -245,8 +245,11 @@ execution per test. Each harness uses the existing native compile planner, so
 multi-module test graphs build the runtime PCH once and compile translation
 units across the bounded worker batches. Root-scoped `mock import` rewriting
 matches the TypeScript analyzer using exact source-module and dependency specifiers.
-Recorded mock functions/classes, coverage collection, captured child output,
-and configurable test timeouts remain follow-up work.
+Coverage mode assigns stable IDs within each harness graph, instruments
+non-test/non-stdlib Doof modules, aggregates child-process markers by source
+path, and writes text, JSON, summary HTML, and annotated per-file HTML reports.
+Recorded mock functions/classes and configurable test timeouts remain follow-up
+work; child output is captured when coverage markers must be separated.
 
 ## Verification
 

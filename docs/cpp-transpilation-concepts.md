@@ -536,6 +536,9 @@ Strategy:
   implementation; `DOOF_RUNTIME_HEADER` remains a development override
 - bootstrap filesystem, path, environment, platform, and process operations use
   `std/fs`, `std/path`, and `std/os`; they are not part of `doof_runtime.hpp`
+- coverage-enabled test emission inserts runtime line markers only inside
+  executable bodies of non-test, non-stdlib modules; each harness returns its
+  module-ID/line inventory so isolated process hits can be merged by source path
 - trivial string and collection operations lower directly or to the canonical
   `string_*`/checked-collection helper, without self-host-only forwarding aliases
 - self-hosted native package inputs are planned explicitly from reached

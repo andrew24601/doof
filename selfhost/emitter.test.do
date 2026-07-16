@@ -112,6 +112,13 @@ export function testEscapesShortCppKeywordEverywhere(): void {
   Assert.equal(result.source.contains("->short_"), true)
 }
 
+export function testEscapesCharCppKeywordEverywhere(): void {
+  result := emit("function first(value: string): char { char := value[0]\nreturn char }")
+  Assert.equal(result.source.contains("const auto char_ = value[0]"), true)
+  Assert.equal(result.source.contains("return char_"), true)
+  Assert.equal(result.source.contains("auto char ="), false)
+}
+
 export function testEscapesDeleteCppKeywordForMethods(): void {
   result := emit("class Router { delete(pattern: string): Router => this }\nfunction remove(router: Router): Router => router.delete(\"/old\")")
   Assert.equal(result.header.contains(" delete_(std::string pattern)"), true)

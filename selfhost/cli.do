@@ -13,6 +13,8 @@ export class CliRequest {
   moduleSources: ModuleSource[] = []
   filter: string = ""
   listOnly: bool = false
+  coverage: bool = false
+  coverageOutput: string = ""
   distDirectory: string = ""
   macosSigning: string = ""
   macosSignIdentity: string = ""
@@ -59,6 +61,8 @@ export function cliUsage(): string {
     "  --module <specifier> <path> map an external import to a source file\n" +
     "  --filter <text>             run tests whose id contains text\n" +
     "  --list                      list tests without building or running\n" +
+    "  --coverage                  collect line coverage while running tests\n" +
+    "  --coverage-output <path>    write coverage JSON to this path\n" +
     "  -h, --help                  show this help"
 }
 
@@ -161,6 +165,17 @@ export function parseCli(args: string[]): CliParseResult {
     if argument == "--list" {
       request.listOnly = true
       index = index + 1
+      continue
+    }
+    if argument == "--coverage" {
+      request.coverage = true
+      index = index + 1
+      continue
+    }
+    if argument == "--coverage-output" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --coverage-output" } }
+      request.coverageOutput = args[index + 1]
+      index = index + 2
       continue
     }
     if argument == "--module" {

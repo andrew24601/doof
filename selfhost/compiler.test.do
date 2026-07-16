@@ -24,6 +24,31 @@ export function testCompilesAnImportedProject(): void {
   Assert.equal(result.emission!.modules[0].header.contains("#include \"math.hpp\""), true)
 }
 
+export function testEmitsCoverageMetadataAndStatementMarks(): void {
+  result := compile([
+    SourceFile { path: "/main.test.do", source: "import { add } from \"./math\"\nfunction main(): int { value := add(2, 3)\nreturn value }" },
+    SourceFile { path: "/math.do", source: "export function add(a: int, b: int): int { result := a + b\nreturn result }" },
+  ], "/main.test.do", true)
+
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  Assert.equal(result.emission!.coverageModules.length, 1)
+  Assert.equal(result.emission!.coverageModules[0].modulePath, "/math.do")
+  Assert.equal(result.emission!.coverageModules[0].instrumentedLines.length, 2)
+  Assert.equal(result.emission!.coverageModules[0].instrumentedLines[0], 1)
+  Assert.equal(result.emission!.coverageModules[0].instrumentedLines[1], 2)
+  let mathSource = ""
+  let testSource = ""
+  for module of result.emission!.modules {
+    if module.modulePath == "/math.do" { mathSource = module.source }
+    if module.modulePath == "/main.test.do" { testSource = module.source }
+  }
+  Assert.equal(mathSource.contains("doof::coverage::cov_mark(0, 1);"), true)
+  Assert.equal(mathSource.contains("doof::coverage::cov_mark(0, 2);"), true)
+  Assert.equal(testSource.contains("doof::coverage::cov_mark"), false)
+}
+
 export function testCompilesMockImportReplacementInsteadOfOriginalDependency(): void {
   result := compile([
     SourceFile { path: "/main.test.do", source: "mock import for \"./service\" { \"./dep\" => \"./dep.mock\" }\nimport { run } from \"./service\"\nfunction main(): int => run()" },

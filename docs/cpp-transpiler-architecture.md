@@ -42,7 +42,7 @@ clues, but its C++ representation policy is intentionally independent.
 
 The initial slice is split into small modules:
 
-- `selfhost/emitter-context.do` owns nominal declarations and current method-owner context
+- `selfhost/emitter-context.do` owns nominal declarations, current method-owner context, and per-module coverage instrumentation state
 - `selfhost/emitter-monomorphize.do` owns whole-program fixed-point discovery of concrete Doof generic instantiations and native adapters
 - `selfhost/emitter-types.do` owns resolved-type representation choices
 - `selfhost/emitter-expr.do` owns decorated-AST dispatch and accepts expected-type context
@@ -60,7 +60,7 @@ The initial slice is split into small modules:
 - `selfhost/emitter-json.do` owns automatic JSON method declarations and definitions
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
-- `selfhost/emitter-module.do` owns module-graph planning and `.hpp` / `.cpp` orchestration
+- `selfhost/emitter-module.do` owns module-graph planning, stable coverage module IDs, and `.hpp` / `.cpp` orchestration
 - executable wrappers establish the shared application domain and active actor scope before invoking `doof_main`
 - `selfhost/emitter-project.do` owns package-relative native copies, generated-header mirrors, and output native-build paths
 - `selfhost/native-build.do` resolves materialized native paths and owns GCC-compatible compile/link argument planning
@@ -85,7 +85,13 @@ the self-host AST's concrete expression inventory into generated headers. The
 type emitter qualifies nominal names from their resolved symbol's defining
 module; it does not infer ownership from hard-coded type-name inventories. The
 release gate compiles the complete self-hosted graph through the production
-parallel native build path.
+parallel native build path. When test coverage is enabled, the graph emitter
+assigns IDs only to non-test, non-stdlib modules. Statement and expression-body
+lowering records executable source lines while inserting
+`doof::coverage::cov_mark(...)` calls. Graph emission returns those line
+inventories alongside the split modules; the self-hosted test driver compiles
+with `DOOF_COVERAGE`, aggregates isolated processes by source path, and renders
+text, JSON, and HTML artifacts.
 The current foundation covers a checked core of primitives, arrays, tuples,
 operators, calls, bindings, returns, conditionals, functions, classes, named
 construction, enum/type-alias declarations, assignments, range-based loops,

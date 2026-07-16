@@ -59,10 +59,10 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-isolation.do` — transitive mutable-global effect inference for explicit isolation, actor calls, and actor construction
 - `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
-- `selfhost/compiler.do` — self-hosted graph checking and split module emission orchestration
-- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `package`, `emit`, `check`, `test`, project-directory entrypoints, and explicit `--module` mappings)
-- `selfhost/test-runner.do` — static test discovery, signature validation, id filtering, portable display paths, and per-module harness generation
-- `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, and harness imports
+- `selfhost/compiler.do` — self-hosted graph checking, coverage-enabled compilation options, and split module emission orchestration
+- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `package`, `emit`, `check`, `test`, coverage output, project-directory entrypoints, and explicit `--module` mappings)
+- `selfhost/test-runner.do` — static test discovery, signature validation, id filtering, portable display paths, per-module harness generation, and coverage aggregation/report rendering
+- `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, harness imports, and coverage reports
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
 - `selfhost/package-manifest.do` — normalized package identity, root/app resources, macOS/iOS target and release settings, and host-platform `build.native` manifest parsing
@@ -72,7 +72,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/ios-app-driver.do` — iOS SDK/native-build selection, bundle and icon assembly, provisioning-profile signing, and IPA creation
 - `selfhost/emitter-project.do` — package-relative generated support files, native-copy paths, and output native-build planning
 - `selfhost/native-build.do` — output-relative native path resolution and GCC-compatible compile/link argument planning
-- `selfhost/driver.do` — generic native filesystem/process boundary, executable-resource uptake, project materialization, Apple app orchestration, and isolated test execution for the self-hosted CLI
+- `selfhost/driver.do` — generic native filesystem/process boundary, executable-resource uptake, project materialization, Apple app orchestration, isolated test execution, and coverage artifact writing for the self-hosted CLI
 - `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
 - `selfhost/package-manifest.test.do` — focused native manifest parsing, platform merge, and validation tests

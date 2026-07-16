@@ -78,7 +78,10 @@ export function testRejectsInvalidIOSDestination(): void {
 }
 
 export function testParsesTestSelectionOptions(): void {
-  result := parseCli(["test", "src", "--filter", "math", "--list", "--compiler", "clang++"])
+  result := parseCli([
+    "test", "src", "--filter", "math", "--list", "--compiler", "clang++",
+    "--coverage", "--coverage-output", "reports/coverage.json",
+  ])
   Assert.equal(result.error, "")
   Assert.equal(result.request != null, true)
   Assert.equal(result.request!.command, "test")
@@ -86,6 +89,20 @@ export function testParsesTestSelectionOptions(): void {
   Assert.equal(result.request!.filter, "math")
   Assert.equal(result.request!.listOnly, true)
   Assert.equal(result.request!.compiler, "clang++")
+  Assert.equal(result.request!.coverage, true)
+  Assert.equal(result.request!.coverageOutput, "reports/coverage.json")
+}
+
+export function testDefaultsTestCoverageToDisabled(): void {
+  result := parseCli(["test", "src"])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request!.coverage, false)
+  Assert.equal(result.request!.coverageOutput, "")
+}
+
+export function testRejectsMissingCoverageOutput(): void {
+  result := parseCli(["test", "src", "--coverage-output"])
+  Assert.equal(result.error, "missing value for --coverage-output")
 }
 
 export function testRejectsMissingTestFilter(): void {

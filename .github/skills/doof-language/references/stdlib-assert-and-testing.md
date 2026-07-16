@@ -63,6 +63,8 @@ doof test math.test.do
 doof test src
 doof test --list src
 doof test --filter math src
+doof test src --coverage
+doof test src --coverage --coverage-output build/coverage/report.json
 ```
 
 Runner behavior:
@@ -74,6 +76,7 @@ Runner behavior:
 - One failing test does not stop later tests from running.
 - `--filter` matches ids of the form `<relative-path>::<functionName>`.
 - Recursive directory discovery skips subdirectories that contain their own `doof.json`; run `doof test` against that package directly to test it.
+- `--coverage` instruments non-test, non-stdlib Doof modules and writes JSON plus HTML reports; `--coverage-output` selects the JSON path.
 
 ## Mocking
 

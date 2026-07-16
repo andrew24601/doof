@@ -157,7 +157,10 @@ try {
     run(builtProgramPath(stdlibOutput, "selfhost-release-stdlib"), [], { cwd: runRoot });
 
     run(b6Compiler, ["test", testFixture, "--list"]);
-    run(b6Compiler, ["test", testFixture]);
+    const selfhostCoverageReport = path.join(runRoot, "coverage", "selfhost-native.json");
+    run(b6Compiler, ["test", testFixture, "--coverage", "--coverage-output", selfhostCoverageReport]);
+    requirePath(selfhostCoverageReport, "self-hosted compiler coverage report");
+    requirePath(selfhostCoverageReport.replace(/\.json$/, ".html"), "self-hosted compiler coverage HTML report");
     requirePath(path.join(testFixture, "runtime-cwd.txt"), "package-root test artifact");
 
     const packageState = path.join(runRoot, "verify", "runtime-package");

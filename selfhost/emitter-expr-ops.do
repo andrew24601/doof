@@ -195,6 +195,7 @@ export function cppIdentifier(name: string): string {
   if name == "template" { return "template_" }
   if name == "typename" { return "typename_" }
   if name == "union" { return "union_" }
+  if name == "char" { return "char_" }
   if name == "short" { return "short_" }
   if name == "delete" { return "delete_" }
   return name

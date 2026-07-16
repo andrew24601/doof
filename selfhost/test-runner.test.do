@@ -3,7 +3,9 @@ import { Parser } from "./parser"
 import { compile } from "./compiler"
 import { SourceFile } from "./semantic"
 import {
-  discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath,
+  CoverageModuleMetadata, buildCoverageReport, discoverModuleTests, filterDiscoveredTests,
+  coverageFileRelativePath, formatParseFailure, generateTestHarness, mergeCoverageOutput,
+  renderCoverageFileHtml, renderCoverageHtml, renderCoverageJson, stripCoverageLines, testDisplayPath,
 } from "./test-runner"
 
 export function testDiscoversAndValidatesExportedTestFunctions(): void {
@@ -111,4 +113,35 @@ export function testFormatsParseFailuresWithSourceAndCaret(): void {
   Assert.equal(rendered.contains("/work/math.test.do:2:19: error: Expected ')' before ':'"), true)
   Assert.equal(rendered.contains("loader := (path: string): int => path"), true)
   Assert.equal(rendered.endsWith("                  ^"), true)
+}
+
+export function testBuildsCoverageReportFromRuntimeOutput(): void {
+  modules := [CoverageModuleMetadata {
+    moduleId: 3,
+    modulePath: "/work/src/math.do",
+    instrumentedLines: [1, 2, 4],
+  }]
+  let hitsByModule: int[][] = [[]]
+  mergeCoverageOutput("hello\n__COV__ 3 4\n__COV__ 3 1\n__COV__ 3 4\n", modules, hitsByModule)
+  report := buildCoverageReport(modules, hitsByModule, "/work")
+
+  Assert.equal(report.files.length, 1)
+  Assert.equal(report.files[0].path, "src/math.do")
+  Assert.equal(report.files[0].covered, 2)
+  Assert.equal(report.files[0].total, 3)
+  Assert.equal(report.files[0].hitLines.length, 2)
+  Assert.equal(report.files[0].missedLines.length, 1)
+  Assert.equal(report.files[0].missedLines[0], 2)
+  Assert.equal(report.totalCovered, 2)
+  Assert.equal(report.totalLines, 3)
+  json := renderCoverageJson(report)
+  Assert.equal(json.contains("\"path\": \"src/math.do\""), true)
+  Assert.equal(json.contains("\"hitLines\": [1, 4]"), true)
+  html := renderCoverageHtml(report, "coverage_files")
+  Assert.equal(html.contains("coverage_files/src/math.do.html"), true)
+  fileHtml := renderCoverageFileHtml(report.files[0], "first\nsecond\nthird\nfourth", "../../coverage.html")
+  Assert.equal(fileHtml.contains("line covered"), true)
+  Assert.equal(fileHtml.contains("line missed"), true)
+  Assert.equal(coverageFileRelativePath("../shared/math.do"), "_external/shared/math.do.html")
+  Assert.equal(stripCoverageLines("before\n__COV__ 3 1\nafter\n"), "before\nafter")
 }

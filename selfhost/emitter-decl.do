@@ -11,7 +11,7 @@ import {
   ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, VoidType,
 } from "./semantic"
-import { EmitContext } from "./emitter-context"
+import { EmitContext, recordCoverageLine } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { emitBlock } from "./emitter-stmt"
 import { emitContextType, emitType, specializeEmitType } from "./emitter-types"
@@ -71,7 +71,10 @@ export function emitFunctionDefinition(fn: FunctionDeclaration, context: EmitCon
   }
   let result = (if context.substitution == null then templatePrefix(fn.typeParams) else "") + emitFunctionSignature(fn, name, context.modulePath, false, context) + " {\n"
   case fn.body {
-    expression: Expression -> { result = result + "    return " + emitExpression(expression, context, functionReturnType(fn)) + ";\n" }
+    expression: Expression -> {
+      result = result + emitExpressionCoverageMark(expression, context)
+      result = result + "    return " + emitExpression(expression, context, functionReturnType(fn)) + ";\n"
+    }
     block: Block -> { result = result + emitBlock(block, 1, context) }
   }
   context.currentReturnErrorType = previousReturnErrorType
@@ -417,7 +420,10 @@ export function emitClassMethodDefinition(owner: ClassDeclaration, method: Funct
   ownerName := if owner.native_ then (if owner.nativeCppName == "" then owner.name else owner.nativeCppName) else owner.name
   let result = emitFunctionSignature(method, ownerName + "::" + cppIdentifier(method.name), context.modulePath, false, context) + " {\n"
   case method.body {
-    expression: Expression -> { result = result + "    return " + emitExpression(expression, context, functionReturnType(method)) + ";\n" }
+    expression: Expression -> {
+      result = result + emitExpressionCoverageMark(expression, context)
+      result = result + "    return " + emitExpression(expression, context, functionReturnType(method)) + ";\n"
+    }
     block: Block -> { result = result + emitBlock(block, 1, context) }
   }
   context.currentClass = previous
@@ -427,4 +433,11 @@ export function emitClassMethodDefinition(owner: ClassDeclaration, method: Funct
   context.currentFunctionStatic = previousFunctionStatic
   context.capturedMutables = previousCapturedMutables
   return result + "}\n"
+}
+
+function emitExpressionCoverageMark(expression: Expression, context: EmitContext): string {
+  if !context.coverageEnabled || context.coverageModuleId < 0 { return "" }
+  line := expression.span.start.line
+  recordCoverageLine(context, line)
+  return "    doof::coverage::cov_mark(" + string(context.coverageModuleId) + ", " + string(line) + ");\n"
 }

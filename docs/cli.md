@@ -61,6 +61,8 @@ doof run [options] [entry.do | package-dir] -- [program args...]
 ### Line Coverage
 
 Pass `--coverage` to `doof test` to enable line coverage collection for non-test Doof source files (`.do` files that are not `.test.do` and are not stdlib modules).
+This behavior is shared by both the TypeScript CLI and the bootstrapped
+self-hosted compiler.
 
 ```sh
 doof test ./my-package --coverage

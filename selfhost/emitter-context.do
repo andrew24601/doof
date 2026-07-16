@@ -50,6 +50,15 @@ export class EmitContext {
   // declarations are heap-boxed and every identifier use dereferences the box.
   capturedMutables: string[] = []
   tryCounter: int = 0
+  // Coverage is configured per source module by the graph emitter.
+  coverageEnabled: bool = false
+  coverageModuleId: int = -1
+  coverageInstrumentedLines: int[] = []
+}
+
+export function recordCoverageLine(context: EmitContext, line: int): void {
+  for existing of context.coverageInstrumentedLines { if existing == line { return } }
+  context.coverageInstrumentedLines.push(line)
 }
 
 export function isCapturedMutable(context: EmitContext, name: string): bool {

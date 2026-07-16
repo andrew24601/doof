@@ -62,10 +62,19 @@ export class ModuleEmission {
   source: string
   headerName: string
   sourceName: string
+  coverageModuleId: int = -1
+  instrumentedLines: int[] = []
+}
+
+export class CoverageModuleMetadata {
+  moduleId: int
+  modulePath: string
+  instrumentedLines: int[] = []
 }
 
 export class ModuleGraphEmission {
   modules: ModuleEmission[] = []
+  coverageModules: CoverageModuleMetadata[] = []
 }
 
 export class CxxModuleEmitter {
@@ -79,12 +88,17 @@ export class CxxModuleEmitter {
   imports: ImportBinding[] = []
   moduleSurfaces: EmitModuleSurface[] = []
   instantiations: InstantiationPlan | null = null
+  coverageModuleId: int = -1
 
   function emit(program: Program, moduleIncludes: string[] = [], entryMode: string = "executable"): ModuleEmission {
     context := if modulePath == "" then createEmitContext(program) else createEmitContextForModule(program, modulePath, allPrograms)
     context.namespaceImports = namespaceImports
     context.imports = imports
     context.moduleSurfaces = moduleSurfaces
+    if coverageModuleId >= 0 {
+      context.coverageEnabled = true
+      context.coverageModuleId = coverageModuleId
+    }
     if instantiations != null { configureInstantiationRegistry(context, instantiations!) }
     plan := planHeader(program, context)
     if instantiations != null { addConcreteHeaderDeclarations(plan, context, instantiations!) }
@@ -116,7 +130,11 @@ export class CxxModuleEmitter {
     }
     if entryMode == "executable" && plan.hasMain { source = source + emitMainWrapper(namespaceName, plan) }
     if entryMode == "ios-app" && plan.hasMain { source = source + emitAppEntryWrapper(namespaceName, plan) }
-    return ModuleEmission { modulePath: context.modulePath, header, source, headerName, sourceName }
+    return ModuleEmission {
+      modulePath: context.modulePath, header, source, headerName, sourceName,
+      coverageModuleId: context.coverageModuleId,
+      instrumentedLines: sortedCoverageLines(context.coverageInstrumentedLines),
+    }
   }
 }
 
@@ -170,13 +188,20 @@ export function emitModuleGraph(
   entry: string = "",
   instantiations: InstantiationPlan | null = null,
   entryMode: string = "executable",
+  coverage: bool = false,
 ): ModuleGraphEmission {
   graph := ModuleGraphEmission {}
   concretePlan := instantiations ?? buildInstantiationPlan(result)
   plan := planModuleGraph(result)
+  let nextCoverageModuleId = 0
   for module of plan.modules {
     info := findGraphModule(result, module.path)
     if info == null { continue }
+    let coverageModuleId = -1
+    if coverage && isCoverageEligible(module.path) {
+      coverageModuleId = nextCoverageModuleId
+      nextCoverageModuleId += 1
+    }
     emitter := CxxModuleEmitter {
       moduleName: module.namespaceName,
       headerNameOverride: module.headerName,
@@ -188,14 +213,42 @@ export function emitModuleGraph(
       imports: infoImports(result, module.path),
       moduleSurfaces: emitModuleSurfaces(result),
       instantiations: concretePlan,
+      coverageModuleId,
     }
-    graph.modules.push(emitter.emit(
+    emitted := emitter.emit(
       info!.program,
       module.includes,
       if module.path == entry then entryMode else "none",
-    ))
+    )
+    graph.modules.push(emitted)
+    if coverageModuleId >= 0 {
+      graph.coverageModules.push(CoverageModuleMetadata {
+        moduleId: coverageModuleId,
+        modulePath: module.path,
+        instrumentedLines: emitted.instrumentedLines,
+      })
+    }
   }
   return graph
+}
+
+function isCoverageEligible(modulePath: string): bool {
+  return !modulePath.endsWith(".test.do")
+    && !modulePath.contains("/.doof-tests/")
+    && !modulePath.startsWith("/std/")
+}
+
+function sortedCoverageLines(lines: int[]): int[] {
+  let result: int[] = []
+  let last = -1
+  for count of 0..<lines.length {
+    let candidate: int | null = null
+    for line of lines {
+      if line > last && (candidate == null || line < candidate!) { candidate = line }
+    }
+    if candidate != null { result.push(candidate!); last = candidate! }
+  }
+  return result
 }
 
 function configureInstantiationRegistry(context: EmitContext, plan: InstantiationPlan): void {

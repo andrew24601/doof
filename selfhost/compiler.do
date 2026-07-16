@@ -17,8 +17,8 @@ export class Compilation {
   diagnostics: Diagnostic[]
 }
 
-export function compile(sources: SourceFile[], entry: string): Compilation {
-  return compileInternal(sources, entry, noSourceLoader, [])
+export function compile(sources: SourceFile[], entry: string, coverage: bool = false): Compilation {
+  return compileInternal(sources, entry, noSourceLoader, [], "executable", coverage)
 }
 
 export function compileWithLoader(
@@ -27,8 +27,9 @@ export function compileWithLoader(
   loader: SourceLoader,
   namespaceMappings: ModuleNamespaceMapping[] = [],
   entryMode: string = "executable",
+  coverage: bool = false,
 ): Compilation {
-  return compileInternal(sources, entry, loader, namespaceMappings, entryMode)
+  return compileInternal(sources, entry, loader, namespaceMappings, entryMode, coverage)
 }
 
 function compileInternal(
@@ -37,6 +38,7 @@ function compileInternal(
   loader: SourceLoader,
   namespaceMappings: ModuleNamespaceMapping[],
   entryMode: string = "executable",
+  coverage: bool = false,
 ): Compilation {
   configureModuleNamespaces(namespaceMappings)
   analysis := createAnalyzerWithLoader(sources, loader).analyze(entry)
@@ -72,7 +74,7 @@ function compileInternal(
     })
     return Compilation { emission: null, diagnostics }
   }
-  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations, entryMode), diagnostics }
+  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations, entryMode, coverage), diagnostics }
 }
 
 // Analyzer discovery order is driven by import syntax, not by a fixed source

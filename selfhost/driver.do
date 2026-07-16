@@ -22,7 +22,12 @@ import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
 import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
-import { DiscoveredTest, discoverModuleTests, filterDiscoveredTests, formatParseFailure, generateTestHarness, testDisplayPath } from "./test-runner"
+import {
+  CoverageModuleMetadata, CoverageReport, DiscoveredTest, buildCoverageReport, discoverModuleTests,
+  coverageFileRelativePath, filterDiscoveredTests, formatParseFailure, generateTestHarness,
+  mergeCoverageOutput, renderCoverageFileHtml, renderCoverageHtml, renderCoverageJson,
+  stripCoverageLines, testDisplayPath,
+} from "./test-runner"
 import { BlobReader } from "std/blob"
 import { EntryKind, exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
 import { ExecOptions, run, platform } from "std/os"
@@ -31,6 +36,7 @@ import { absolute } from "std/path"
 readonly MAX_PRINTED_DIAGNOSTICS = 8
 readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 10
 readonly MAX_NATIVE_COMPILER_OUTPUT_BYTES = 262144L
+readonly MAX_COVERAGE_OUTPUT_BYTES = 16777216L
 
 function hostPlatform(): string {
   value := platform()
@@ -54,13 +60,15 @@ isolated function runNativeCommand(
   arguments: string[],
   directory: string | null = null,
   inheritOutput: bool = false,
+  // Defaults are emitted in the generated prototype before module values.
+  maxOutputBytes: long = 262144L,
 ): NativeCommandResult {
   executed := run(command, arguments, ExecOptions {
     cwd: directory,
     withStdin: false,
     mergeStderrIntoStdout: true,
     inheritOutput,
-    maxOutputBytes: MAX_NATIVE_COMPILER_OUTPUT_BYTES,
+    maxOutputBytes,
   }) else error {
     return NativeCommandResult { exitCode: -1, error, truncated: false }
   }
@@ -564,6 +572,81 @@ function safeTestOutputName(displayPath: string): string {
   return displayPath.replaceAll("/", "_").replaceAll("\\", "_").replaceAll(".", "_").replaceAll("-", "_")
 }
 
+function mergeCoverageGroup(
+  groupModules: CoverageModuleMetadata[],
+  groupHits: int[][],
+  allModules: CoverageModuleMetadata[],
+  allHits: int[][],
+): void {
+  for groupIndex of 0..<groupModules.length {
+    groupModule := groupModules[groupIndex]
+    diskPath := driverSourceDiskPath(
+      groupModule.modulePath,
+      configuredDriverSourceState.localMappings,
+      configuredDriverSourceState.localRoots,
+      configuredDriverSourceState.moduleSources,
+      configuredDriverSourceState.acquisitions,
+    )
+    let targetIndex = -1
+    for index of 0..<allModules.length {
+      if allModules[index].modulePath == diskPath { targetIndex = index }
+    }
+    if targetIndex < 0 {
+      let lines: int[] = []
+      for line of groupModule.instrumentedLines { lines.push(line) }
+      allModules.push(CoverageModuleMetadata {
+        moduleId: allModules.length,
+        modulePath: diskPath,
+        instrumentedLines: lines,
+      })
+      allHits.push([])
+      targetIndex = allModules.length - 1
+    }
+    if groupIndex < groupHits.length {
+      for line of groupHits[groupIndex] {
+        let found = false
+        for existing of allHits[targetIndex] { if existing == line { found = true } }
+        if !found { allHits[targetIndex].push(line) }
+      }
+    }
+  }
+}
+
+function printCoverageSummary(report: CoverageReport): void {
+  println("Coverage summary:")
+  for file of report.files {
+    percent := string(file.percentTenths \ 10) + "." + string(file.percentTenths % 10)
+    println("  " + file.path + ": " + string(file.covered) + "/" + string(file.total) + " lines (" + percent + "%)")
+  }
+  overall := string(report.totalPercentTenths \ 10) + "." + string(report.totalPercentTenths % 10)
+  println("Overall: " + string(report.totalCovered) + "/" + string(report.totalLines) + " lines (" + overall + "%)")
+}
+
+function coverageHtmlPath(jsonPath: string): string {
+  if jsonPath.endsWith(".json") { return jsonPath.substring(0, jsonPath.length - 5) + ".html" }
+  return jsonPath + ".html"
+}
+
+function writeCoverageHtml(report: CoverageReport, jsonPath: string, rootDirectory: string): string {
+  indexPath := coverageHtmlPath(jsonPath)
+  filesDirectory := indexPath.substring(0, indexPath.length - 5) + "_files"
+  filesDirectoryName := fileName(filesDirectory)
+  for file of report.files {
+    relativePage := coverageFileRelativePath(file.path)
+    pagePath := joinPath(filesDirectory, relativePage)
+    ensureOutputDirectory(parentPath(pagePath))
+    let depth = 1
+    for index of 0..<relativePage.length { if relativePage[index] == '/' { depth += 1 } }
+    indexHref := "../".repeat(depth) + fileName(indexPath)
+    sourcePath := joinPath(rootDirectory, file.path)
+    let source = ""
+    if exists(sourcePath) { source = try! readText(sourcePath) }
+    try! writeText(pagePath, renderCoverageFileHtml(file, source, indexHref))
+  }
+  try! writeText(indexPath, renderCoverageHtml(report, filesDirectoryName))
+  return indexPath
+}
+
 /** Runs the TypeScript-compatible one-harness-per-module test convention. */
 function testRequest(request: CliRequest): int {
   target := try! absolute(request.entry)
@@ -603,6 +686,8 @@ function testRequest(request: CliRequest): int {
 
   let passed = 0
   let failed = 0
+  let coverageModules: CoverageModuleMetadata[] = []
+  let coverageHits: int[][] = []
   for testFile of testFiles {
     moduleTests := selectedModuleTests(selected, testFile)
     if moduleTests.length == 0 { continue }
@@ -622,7 +707,7 @@ function testRequest(request: CliRequest): int {
       outputRoot: "",
     }]
     loader := sourceLoaderForRequest(harnessPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
-    result := compileWithLoader([], driverLogicalPath(harnessPath), loader, namespaceMappings)
+    result := compileWithLoader([], driverLogicalPath(harnessPath), loader, namespaceMappings, "executable", request.coverage)
     if result.diagnostics.length > 0 {
       printDiagnostics(result.diagnostics)
       return 1
@@ -639,6 +724,7 @@ function testRequest(request: CliRequest): int {
       nativeBuild: project.nativeBuild,
     }
     emission := planProjectEmission(result.emission!, projectNativePackages(project.rootDirectory, rootManifest))
+    if request.coverage { emission.nativeBuild.defines.push("DOOF_COVERAGE") }
     materializeProject(outputDirectory, emission)
     materializeRuntimeHeader(outputDirectory)
     binary := joinPath(outputDirectory, "doof-tests")
@@ -647,7 +733,28 @@ function testRequest(request: CliRequest): int {
     if buildExitCode != 0 { return buildExitCode }
 
     for test of moduleTests {
-      testResult := runNativeCommand(binary, [test.id], project.rootDirectory, true)
+      testResult := runNativeCommand(
+        binary,
+        [test.id],
+        project.rootDirectory,
+        !request.coverage,
+        if request.coverage then MAX_COVERAGE_OUTPUT_BYTES else MAX_NATIVE_COMPILER_OUTPUT_BYTES,
+      )
+      if request.coverage {
+        if testResult.truncated {
+          println("error: coverage output exceeded " + string(MAX_COVERAGE_OUTPUT_BYTES) + " bytes for " + test.id)
+          return 1
+        }
+        output := BlobReader(testResult.output).readString(long(testResult.output.length))
+        let groupHits: int[][] = []
+        for ignored of result.emission!.coverageModules { groupHits.push([]) }
+        mergeCoverageOutput(output, result.emission!.coverageModules, groupHits)
+        mergeCoverageGroup(result.emission!.coverageModules, groupHits, coverageModules, coverageHits)
+        if testResult.exitCode != 0 {
+          visibleOutput := stripCoverageLines(output)
+          if visibleOutput != "" { println(visibleOutput) }
+        }
+      }
       exitCode := testResult.exitCode
       if exitCode == 0 {
         passed = passed + 1
@@ -660,6 +767,18 @@ function testRequest(request: CliRequest): int {
   }
   if request.listOnly { return 0 }
   println("Tests finished: " + string(passed) + " passed, " + string(failed) + " failed")
+  if request.coverage && coverageModules.length > 0 {
+    report := buildCoverageReport(coverageModules, coverageHits, rootDirectory)
+    printCoverageSummary(report)
+    outputPath := if request.coverageOutput == ""
+      then joinPath(joinPath(rootDirectory, "build"), "coverage/doof-test-coverage.json")
+      else try! absolute(request.coverageOutput)
+    ensureOutputDirectory(parentPath(outputPath))
+    try! writeText(outputPath, renderCoverageJson(report))
+    println("Coverage report written to " + outputPath)
+    htmlPath := writeCoverageHtml(report, outputPath, rootDirectory)
+    println("Coverage HTML report written to " + htmlPath)
+  }
   return if failed == 0 then 0 else 1
 }
 
