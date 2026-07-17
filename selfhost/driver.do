@@ -9,6 +9,7 @@
 
 import { compileWithLoader } from "./compiler"
 import { CliRequest, ModuleSource, cliUsage, parseCli } from "./cli"
+import { ExternalDependencyTarget, acquirePackageExternalDependencies } from "./external-dependency"
 import { NativePackageInput, ProjectEmission, planProjectEmission } from "./emitter-project"
 import { ModuleNamespaceMapping } from "./emitter-names"
 import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
@@ -16,7 +17,7 @@ import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from ".
 import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
 import { macOSPackageArchiveName } from "./macos-app"
 import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
-import { iosPackageArchiveName } from "./ios-app"
+import { iosPackageArchiveName, iosTargetTriple } from "./ios-app"
 import { assembleIOSApp, configureIOSNativeBuild, signAndArchiveIOSApp } from "./ios-app-driver"
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
@@ -30,7 +31,7 @@ import {
 } from "./test-runner"
 import { BlobReader } from "std/blob"
 import { EntryKind, exists, isDirectory, mkdir, readBlob, readDir, readText, readTextResource, writeBlob, writeText } from "std/fs"
-import { ExecOptions, run, platform } from "std/os"
+import { ExecOptions, architecture, run, platform } from "std/os"
 import { absolute } from "std/path"
 
 readonly MAX_PRINTED_DIAGNOSTICS = 8
@@ -173,6 +174,7 @@ class DriverSourceState {
   reachedPackages: DriverReachedPackage[]
   namespaceMappings: ModuleNamespaceMapping[]
   nativePlatform: string
+  externalTarget: ExternalDependencyTarget
 }
 
 let configuredDriverSourceState: DriverSourceState = DriverSourceState {
@@ -183,6 +185,7 @@ let configuredDriverSourceState: DriverSourceState = DriverSourceState {
   reachedPackages: [],
   namespaceMappings: [],
   nativePlatform: "",
+  externalTarget: ExternalDependencyTarget { nativeTarget: "" },
 }
 
 function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
@@ -274,6 +277,9 @@ function registerReachedPackage(acquisition: ModuleAcquisition): Result<void, Di
   manifest := parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, configuredDriverSourceState.nativePlatform) else error {
     return Failure(driverDiagnostic(manifestPath, error))
   }
+  _ := acquirePackageExternalDependencies(manifest, configuredDriverSourceState.externalTarget) else error {
+    return Failure(driverDiagnostic(manifestPath, error))
+  }
   configuredDriverSourceState.reachedPackages.push(DriverReachedPackage { acquisition, manifest })
   configuredDriverSourceState.namespaceMappings.push(ModuleNamespaceMapping {
     logicalPrefix: acquisition.logicalPrefix,
@@ -312,6 +318,7 @@ function sourceLoaderForRequest(
   stdlibRoot: string,
   namespaceMappings: ModuleNamespaceMapping[],
   nativePlatform: string = "",
+  externalTarget: ExternalDependencyTarget | null = null,
 ): SourceLoader {
   let localMappings: DriverSourceMapping[] = [driverSourceMapping(driverLogicalPath(entryPath), entryPath)]
   let localRoots: DriverSourceRoot[] = []
@@ -335,8 +342,44 @@ function sourceLoaderForRequest(
     reachedPackages: [],
     namespaceMappings,
     nativePlatform: if nativePlatform == "" then hostPlatform() else nativePlatform,
+    externalTarget: if externalTarget == null
+      then ExternalDependencyTarget { nativeTarget: if nativePlatform == "" then hostPlatform() else nativePlatform }
+      else externalTarget!,
   }
   return configuredDriverSource
+}
+
+function externalTargetForRequest(
+  target: string,
+  nativePlatform: string,
+  iosDestination: string,
+  iosMinimumVersion: string,
+): Result<ExternalDependencyTarget, string> {
+  if target == "wasm" {
+    return Success(ExternalDependencyTarget {
+      nativeTarget: "wasm",
+      targetTriple: "wasm32-unknown-emscripten",
+      configureHost: "wasm32-unknown-emscripten",
+    })
+  }
+  if !nativePlatform.startsWith("ios-") {
+    return Success(ExternalDependencyTarget { nativeTarget: nativePlatform })
+  }
+  sdkName := if iosDestination == "device" then "iphoneos" else "iphonesimulator"
+  sdkResult := runNativeCommand("xcrun", ["--sdk", sdkName, "--show-sdk-path"])
+  if sdkResult.exitCode != 0 { return Failure("Could not resolve the " + sdkName + " SDK for external dependencies") }
+  sdkPath := BlobReader(sdkResult.output).readString(long(sdkResult.output.length)).trim()
+  hostArchitecture := architecture()
+  try targetTriple := iosTargetTriple(iosMinimumVersion, iosDestination, hostArchitecture)
+  configureHost := if iosDestination == "device"
+    then "aarch64-apple-darwin"
+    else if hostArchitecture == "x86_64" || hostArchitecture == "x64" then "x86_64-apple-darwin" else "aarch64-apple-darwin"
+  return Success(ExternalDependencyTarget {
+    nativeTarget: nativePlatform,
+    sdkPath,
+    targetTriple,
+    configureHost,
+  })
 }
 
 function driverLogicalPrefix(path: string): string {
@@ -734,6 +777,12 @@ function testRequest(request: CliRequest): int {
       manifestPath: project.manifestPath,
       rootDirectory: project.rootDirectory,
       nativeBuild: project.nativeBuild,
+      externalDependencies: project.externalDependencies,
+    }
+    testExternalTarget := ExternalDependencyTarget { nativeTarget: hostPlatform() }
+    _ := acquirePackageExternalDependencies(rootManifest, testExternalTarget) else error {
+      println("error: " + error)
+      return 1
     }
     emission := planProjectEmission(result.emission!, projectNativePackages(project.rootDirectory, rootManifest))
     if request.coverage { emission.nativeBuild.defines.push("DOOF_COVERAGE") }
@@ -799,6 +848,23 @@ function emitRequest(request: CliRequest): int {
   iosDestination := if request.command == "package" then "device" else request.iosDestination
   nativePlatform := if project.iosApp == null then hostPlatform() else "ios-" + iosDestination
   if project.iosApp != null { project = readProjectSpec(request.entry, nativePlatform, request.targetOverride) }
+  iosMinimumVersion := if project.iosApp == null then "" else project.iosApp!.minimumDeploymentTarget
+  externalTarget := externalTargetForRequest(project.target, nativePlatform, iosDestination, iosMinimumVersion) else error {
+    println("error: " + error)
+    return 1
+  }
+  rootManifest := PackageManifest {
+    name: project.name,
+    manifestPath: project.manifestPath,
+    rootDirectory: project.rootDirectory,
+    nativeBuild: project.nativeBuild,
+    externalDependencies: project.externalDependencies,
+    target: project.target,
+  }
+  _ := acquirePackageExternalDependencies(rootManifest, externalTarget) else error {
+    println("error: " + error)
+    return 1
+  }
   entryPath := joinPath(project.rootDirectory, project.entry)
   entry := driverLogicalPath(entryPath)
   stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
@@ -807,7 +873,9 @@ function emitRequest(request: CliRequest): int {
     packageName: project.name,
     outputRoot: "",
   }]
-  loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings, nativePlatform)
+  loader := sourceLoaderForRequest(
+    entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings, nativePlatform, externalTarget,
+  )
   entryMode := if project.target == "wasm" then "wasm" else if project.iosApp == null then "executable" else "ios-app"
   result := compileWithLoader([], entry, loader, namespaceMappings, entryMode)
   if result.diagnostics.length > 0 {
@@ -823,13 +891,6 @@ function emitRequest(request: CliRequest): int {
   outputDirectory := if request.command == "package"
     then joinPath(buildDirectory, "release")
     else buildDirectory
-  rootManifest := PackageManifest {
-    name: project.name,
-    manifestPath: project.manifestPath,
-    rootDirectory: project.rootDirectory,
-    nativeBuild: project.nativeBuild,
-    target: project.target,
-  }
   emission := planProjectEmission(
     result.emission!,
     projectNativePackages(project.rootDirectory, rootManifest, stdlibRoot),

@@ -8,7 +8,7 @@ export function testReadsRootProjectNativeBuildThroughPackageManifestModel(): vo
   if !exists(root + "/src") { try! mkdir(root + "/src") }
   try! writeText(
     root + "/doof.json",
-    "{\"name\":\"native-root\",\"build\":{\"entry\":\"src/main.do\",\"native\":{\"sourceFiles\":[\"native.cpp\"],\"macos\":{\"frameworks\":[\"Foundation\"]}}}}",
+    "{\"name\":\"native-root\",\"externalDependencies\":{\"vendor\":{\"kind\":\"archive\",\"url\":\"https://example.com/vendor.tar.gz\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"destination\":\"vendor/lib\"}},\"build\":{\"entry\":\"src/main.do\",\"native\":{\"sourceFiles\":[\"native.cpp\"],\"macos\":{\"frameworks\":[\"Foundation\"]}}}}",
   )
   try! writeText(root + "/src/main.do", "function main(): int => 0")
 
@@ -19,6 +19,8 @@ export function testReadsRootProjectNativeBuildThroughPackageManifestModel(): vo
   Assert.equal(project.nativeBuild.sourceFiles[0], root + "/native.cpp")
   Assert.equal(project.nativeBuild.frameworks.length, 1)
   Assert.equal(project.nativeBuild.frameworks[0], "Foundation")
+  Assert.equal(project.externalDependencies.length, 1)
+  Assert.equal(project.externalDependencies[0].destination, "vendor/lib")
 }
 
 export function testReadsRootProjectExecutableResources(): void {

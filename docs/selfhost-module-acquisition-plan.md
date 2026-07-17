@@ -179,6 +179,16 @@ checks in this file as implementation progresses.
 
 ## Progress log
 
+### 2026-07-17 — external vendor acquisition completed
+
+- Added self-host manifest validation for archive and Git `externalDependencies`.
+- Added `std/http` archive download, checksum/ref pinning, safe destination and copy-file handling, source
+  and per-native-target sentinels, command environment/argument interpolation,
+  and root/reached-package driver wiring.
+- Added local archive and Git acquisition coverage, including cache reuse and
+  commit mismatch diagnostics. Declared Doof package dependency acquisition
+  remains the separate pending M5.
+
 ### 2026-07-14 — M1 completed
 
 - Added the generic acquisition mapping and routed `DOOF_STDLIB_ROOT` through

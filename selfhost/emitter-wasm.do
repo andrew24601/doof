@@ -79,9 +79,10 @@ function moduleExportsFunction(info: ModuleInfo, name: string): bool {
 
 function validateWasmFunction(fn: FunctionDeclaration, analysis: AnalysisResult): Result<void, string> {
   if fn.typeParams.length > 0 { return Failure("WebAssembly export \"" + fn.name + "\" cannot be generic") }
-  resolved := fn.resolvedType else {
+  if fn.resolvedType == null {
     return Failure("WebAssembly export \"" + fn.name + "\" is missing a resolved function type")
   }
+  resolved := fn.resolvedType!
   case resolved {
     type_: FunctionType -> {
       for parameter of fn.params {
@@ -143,7 +144,8 @@ function wasmPreamble(info: ModuleInfo): string {
 }
 
 function emitWasmWrapper(fn: FunctionDeclaration, exportName: string, context: EmitContext): string {
-  resolved := fn.resolvedType else { panic("checked wasm function lost its resolved type") }
+  if fn.resolvedType == null { panic("checked wasm function lost its resolved type") }
+  resolved := fn.resolvedType!
   type_ := resolved as FunctionType else { panic("checked wasm function lost its function type") }
   let source = "extern \"C\" char* " + exportName + "(const char* params_json) {\n    try {\n"
   source = source + "        const bool _lenient = false;\n"

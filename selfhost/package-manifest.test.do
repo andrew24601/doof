@@ -1,6 +1,45 @@
 import { Assert } from "std/assert"
 import { NativeBuildPlan, mergeNativeBuildPlans, parsePackageManifest } from "./package-manifest"
 
+export function testParsesExternalArchiveAndGitDependencies(): void {
+  manifest := try! parsePackageManifest(
+    "{\"externalDependencies\":{\"curl\":{\"kind\":\"archive\",\"url\":\"https://example.com/curl.tar.xz\",\"sha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"destination\":\"vendor/curl\",\"stripComponents\":0,\"copyFiles\":[{\"from\":\"COPYING\",\"to\":\"LICENSE\"}],\"commands\":[{\"program\":\"sh\",\"args\":[\"\${packageRoot}/build.sh\",\"\${nativeTarget}\"],\"env\":{\"SDKROOT\":\"\${sdkPath}\"},\"workingDirectory\":\"build\"}]},\"quickjs\":{\"kind\":\"git\",\"url\":\"https://example.com/quickjs.git\",\"ref\":\"v1\",\"commit\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"destination\":\"vendor/quickjs\"}}}",
+    "/app/doof.json",
+    "/app",
+    "macos",
+  )
+
+  Assert.equal(manifest.externalDependencies.length, 2)
+  Assert.equal(manifest.externalDependencies[0].name, "curl")
+  Assert.equal(manifest.externalDependencies[0].sha256, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  Assert.equal(manifest.externalDependencies[0].stripComponents, 0)
+  Assert.equal(manifest.externalDependencies[0].copyFiles[0].destination, "LICENSE")
+  Assert.equal(manifest.externalDependencies[0].commands[0].args[1], "\${nativeTarget}")
+  Assert.equal(try! manifest.externalDependencies[0].commands[0].env.get("SDKROOT"), "\${sdkPath}")
+  Assert.equal(manifest.externalDependencies[1].kind, "git")
+  Assert.equal(manifest.externalDependencies[1].commit, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+}
+
+export function testRejectsInvalidExternalDependencyConfiguration(): void {
+  missingChecksum := parsePackageManifest(
+    "{\"externalDependencies\":{\"bad\":{\"kind\":\"archive\",\"url\":\"https://example.com/a.tar.gz\",\"destination\":\"vendor/a\"}}}",
+    "/app/doof.json", "/app", "linux",
+  )
+  _ := missingChecksum else error {
+    Assert.stringContains(error, "externalDependencies.bad.sha256 is required")
+  }
+
+  escapingDestination := parsePackageManifest(
+    "{\"externalDependencies\":{\"bad\":{\"kind\":\"git\",\"url\":\"https://example.com/a.git\",\"ref\":\"main\",\"commit\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"destination\":\"../a\"}}}",
+    "/app/doof.json", "/app", "linux",
+  )
+  _ := escapingDestination else error {
+    Assert.stringContains(error, "externalDependencies.bad.destination must stay within the package root")
+    return
+  }
+  panic("expected invalid external dependency failure")
+}
+
 export function testParsesAndNormalizesExecutableResources(): void {
   manifest := try! parsePackageManifest(
     "{\"name\":\"doof\",\"resources\":[{\"from\":\"doof_runtime.h\",\"to\":\".\"},\"assets\"]}",

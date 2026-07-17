@@ -143,8 +143,10 @@ Remaining architectural risks are:
   sources through a loader callback. The CLI maps local and explicit external
   sources plus acquired logical-prefix roots on demand; `DOOF_STDLIB_ROOT`
   currently supplies the `/std` acquisition. Reached package identity and
-  native manifest semantics are tracked, while declared package dependencies
-  and remote acquisition are not yet aligned with the TypeScript compiler;
+  native manifest semantics are tracked. Root and reached manifests now acquire
+  checksum/ref-pinned external archive and Git vendor trees before native plan
+  consumption. Declared Doof package dependencies and remote package-cache
+  acquisition are not yet aligned with the TypeScript compiler;
   progress is tracked in
   [selfhost-module-acquisition-plan.md](selfhost-module-acquisition-plan.md).
 - Actor boundary and lifecycle validation now live in focused checker modules;

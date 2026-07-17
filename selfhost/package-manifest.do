@@ -33,6 +33,34 @@ export class PackageResource {
   destination: string
 }
 
+/** One file copied within an acquired archive payload. */
+export class ExternalDependencyCopyFile {
+  source: string
+  destination: string
+}
+
+/** One target-specific command run after a vendor source tree is acquired. */
+export class ExternalDependencyCommand {
+  program: string
+  args: string[] = []
+  env: Map<string, string> = {}
+  workingDirectory: string = ""
+}
+
+/** Validated archive or Git vendor acquisition declared by a package. */
+export class ExternalDependency {
+  name: string
+  kind: string
+  url: string
+  destination: string
+  sha256: string = ""
+  stripComponents: int = 1
+  copyFiles: ExternalDependencyCopyFile[] = []
+  ref: string = ""
+  commit: string = ""
+  commands: ExternalDependencyCommand[] = []
+}
+
 /** Package identity and native inputs parsed from a single doof.json. */
 export class PackageManifest {
   name: string
@@ -40,6 +68,7 @@ export class PackageManifest {
   manifestPath: string
   rootDirectory: string
   resources: PackageResource[] = []
+  externalDependencies: ExternalDependency[] = []
   nativeBuild: NativeBuildPlan
   target: string = ""
   macosApp: MacOSAppConfig | null = null
@@ -72,6 +101,7 @@ export function parsePackageManifest(
   }
 
   try resources := parseManifestResources(root, manifestPath, rootDirectory)
+  try externalDependencies := parseExternalDependencies(root, manifestPath, rootDirectory)
   try manifestTarget := parseManifestTarget(root, manifestPath)
   target := if targetOverride == "" then manifestTarget else targetOverride
   try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform, target)
@@ -80,9 +110,170 @@ export function parsePackageManifest(
   try packageConfig := parseMacOSPackage(root, manifestPath, rootDirectory)
   try iosPackageConfig := parseIOSPackage(root, manifestPath, rootDirectory)
   return Success(PackageManifest {
-    name, version, manifestPath, rootDirectory, resources, nativeBuild, target, macosApp, iosApp,
+    name, version, manifestPath, rootDirectory, resources, externalDependencies, nativeBuild, target, macosApp, iosApp,
     packageConfig, iosPackageConfig,
   })
+}
+
+function parseExternalDependencies(
+  root: JsonObject,
+  manifestPath: string,
+  rootDirectory: string,
+): Result<ExternalDependency[], string> {
+  if !manifestJsonHas(root, "externalDependencies") { return Success([]) }
+  try values := manifestObject(manifestJsonField(root, "externalDependencies"), manifestPath, "externalDependencies")
+  let result: ExternalDependency[] = []
+  for name, value of values {
+    fieldPath := "externalDependencies." + name
+    if name == "" || name.contains("/") || name.contains("\\") {
+      return Failure("Invalid doof.json at " + manifestPath + ": invalid external dependency name \"" + name + "\"")
+    }
+    try object := manifestObject(value, manifestPath, fieldPath)
+    try kind := requiredManifestString(object, "kind", manifestPath, fieldPath)
+    try url := requiredManifestString(object, "url", manifestPath, fieldPath)
+    try destination := requiredManifestString(object, "destination", manifestPath, fieldPath)
+    destinationPath := manifestJoinPath(rootDirectory, destination)
+    if !manifestPathWithinRoot(destinationPath, rootDirectory) {
+      return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".destination must stay within the package root")
+    }
+    try commands := parseExternalDependencyCommands(object, manifestPath, fieldPath)
+
+    if kind == "archive" {
+      try sha256 := requiredManifestString(object, "sha256", manifestPath, fieldPath)
+      if !isSupportedExternalArchiveUrl(url) {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".url must end with .zip, .tar.gz, .tgz, .tar.bz2, .tbz2, or .tar.xz")
+      }
+      if !isHexString(sha256, 64) {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".sha256 must be a 64-character hex string")
+      }
+      let stripComponents = 1
+      if manifestJsonHas(object, "stripComponents") {
+        case manifestJsonField(object, "stripComponents") {
+          number: int -> {
+            if number < 0 {
+              return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".stripComponents must be a non-negative integer")
+            }
+            stripComponents = number
+          }
+          number: double -> {
+            stripComponents = int(number)
+            if number < 0.0 || double(stripComponents) != number {
+              return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".stripComponents must be a non-negative integer")
+            }
+          }
+          _ -> return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".stripComponents must be a non-negative integer")
+        }
+      }
+      try copyFiles := parseExternalDependencyCopyFiles(object, manifestPath, fieldPath)
+      result.push(ExternalDependency {
+        name, kind, url, destination, sha256: sha256.toLowerCase(), stripComponents, copyFiles, commands,
+      })
+      continue
+    }
+
+    if kind == "git" {
+      try ref := requiredManifestString(object, "ref", manifestPath, fieldPath)
+      try commit := requiredManifestString(object, "commit", manifestPath, fieldPath)
+      if !isHexString(commit, 40) {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".commit must be a 40-character hex string")
+      }
+      result.push(ExternalDependency {
+        name, kind, url, destination, ref, commit: commit.toLowerCase(), commands,
+      })
+      continue
+    }
+    return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".kind must be either \"archive\" or \"git\"")
+  }
+  return Success(result)
+}
+
+function requiredManifestString(
+  object: JsonObject,
+  name: string,
+  manifestPath: string,
+  fieldPath: string,
+): Result<string, string> {
+  if !manifestJsonHas(object, name) {
+    return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "." + name + " is required")
+  }
+  try value := manifestString(manifestJsonField(object, name), manifestPath, fieldPath + "." + name)
+  if value == "" {
+    return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "." + name + " must not be empty")
+  }
+  return Success(value)
+}
+
+function parseExternalDependencyCopyFiles(
+  object: JsonObject,
+  manifestPath: string,
+  fieldPath: string,
+): Result<ExternalDependencyCopyFile[], string> {
+  if !manifestJsonHas(object, "copyFiles") { return Success([]) }
+  try values := manifestArray(manifestJsonField(object, "copyFiles"), manifestPath, fieldPath + ".copyFiles")
+  let result: ExternalDependencyCopyFile[] = []
+  for index of 0..<values.length {
+    entryPath := fieldPath + ".copyFiles[" + string(index) + "]"
+    try entry := manifestObject(values[index], manifestPath, entryPath)
+    try source := requiredManifestString(entry, "from", manifestPath, entryPath)
+    try destination := requiredManifestString(entry, "to", manifestPath, entryPath)
+    result.push(ExternalDependencyCopyFile { source, destination })
+  }
+  return Success(result)
+}
+
+function parseExternalDependencyCommands(
+  object: JsonObject,
+  manifestPath: string,
+  fieldPath: string,
+): Result<ExternalDependencyCommand[], string> {
+  if !manifestJsonHas(object, "commands") { return Success([]) }
+  try values := manifestArray(manifestJsonField(object, "commands"), manifestPath, fieldPath + ".commands")
+  let result: ExternalDependencyCommand[] = []
+  for index of 0..<values.length {
+    entryPath := fieldPath + ".commands[" + string(index) + "]"
+    try entry := manifestObject(values[index], manifestPath, entryPath)
+    try program := requiredManifestString(entry, "program", manifestPath, entryPath)
+    let args: string[] = []
+    if manifestJsonHas(entry, "args") {
+      try entries := manifestArray(manifestJsonField(entry, "args"), manifestPath, entryPath + ".args")
+      for argumentIndex of 0..<entries.length {
+        try argument := manifestString(entries[argumentIndex], manifestPath, entryPath + ".args[" + string(argumentIndex) + "]")
+        args.push(argument)
+      }
+    }
+    let env: Map<string, string> = {}
+    if manifestJsonHas(entry, "env") {
+      try entries := manifestObject(manifestJsonField(entry, "env"), manifestPath, entryPath + ".env")
+      for key, value of entries {
+        if key == "" { return Failure("Invalid doof.json at " + manifestPath + ": " + entryPath + ".env keys must not be empty") }
+        try text := manifestString(value, manifestPath, entryPath + ".env." + key)
+        env.set(key, text)
+      }
+    }
+    let workingDirectory = ""
+    if manifestJsonHas(entry, "workingDirectory") {
+      try parsed := manifestString(manifestJsonField(entry, "workingDirectory"), manifestPath, entryPath + ".workingDirectory")
+      if parsed == "" { return Failure("Invalid doof.json at " + manifestPath + ": " + entryPath + ".workingDirectory must not be empty") }
+      workingDirectory = parsed
+    }
+    result.push(ExternalDependencyCommand { program, args, env, workingDirectory })
+  }
+  return Success(result)
+}
+
+function isSupportedExternalArchiveUrl(url: string): bool {
+  lower := url.toLowerCase()
+  return lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz") ||
+    lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2") || lower.endsWith(".tar.xz")
+}
+
+function isHexString(value: string, length: int): bool {
+  if value.length != length { return false }
+  readonly digits = "0123456789abcdefABCDEF"
+  for index of 0..<value.length {
+    if !digits.contains(value.substring(index, index + 1)) { return false }
+  }
+  return true
 }
 
 /** Merges normalized package plans while preserving first-seen ordering. */

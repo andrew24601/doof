@@ -129,7 +129,9 @@ override, so cleaning or relocating the compiler's build tree does not break
 runtime emission. `DOOF_STDLIB_ROOT`
 supplies a generic `/std` acquisition root; successful acquired-source loads
 register their package once and parse normalized base plus host-platform
-`build.native` metadata. `selfhost/emitter-project.do` combines those reached
+`build.native` metadata. Before those native inputs are consumed, root and
+reached packages materialize declared archive/Git `externalDependencies` with
+pin validation and per-target command sentinels. `selfhost/emitter-project.do` combines those reached
 package manifests with module emission, writes each generated module header at
 one canonical flat path, emits package-relative forwarding headers for sibling
 native includes, and rewrites copied include, source, and library paths for the

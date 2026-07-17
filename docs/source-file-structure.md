@@ -65,7 +65,8 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, harness imports, and coverage reports
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
-- `selfhost/package-manifest.do` — normalized package identity, root/app resources, macOS/iOS/WASM target and release settings, and target/platform `build.native` manifest parsing
+- `selfhost/package-manifest.do` — normalized package identity, root/app resources, external vendor declarations, macOS/iOS/WASM target and release settings, and target/platform `build.native` manifest parsing
+- `selfhost/external-dependency.do` — `std/http` archive download, checksum/ref-pinned archive and Git vendor acquisition, sentinels, and target-specific setup command execution
 - `selfhost/macos-app.do` — deterministic macOS app metadata, Info.plist rendering, archive naming, and codesign argument planning
 - `selfhost/macos-app-driver.do` — macOS filesystem/tool boundary for bundle assembly, embedded Mach-O rewriting, signing, and zip archives
 - `selfhost/ios-app.do` — deterministic iOS app metadata, UIKit shell, Info.plist rendering, target triples, archive naming, and codesign argument planning
@@ -76,6 +77,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
 - `selfhost/package-manifest.test.do` — focused native manifest parsing, platform merge, and validation tests
+- `selfhost/external-dependency.test.do` — archive/Git acquisition, pin validation, command interpolation, and sentinel reuse tests
 - `selfhost/macos-app.test.do` — focused macOS plist, archive-name, and signing-plan tests
 - `selfhost/ios-app.test.do` — focused iOS plist/UIKit-shell, target-triple, archive-name, and signing-plan tests
 - `selfhost/emitter-project.test.do` — package-relative native planning, generated-header mirrors, and collision isolation tests
