@@ -358,7 +358,7 @@ case isValid {
 
 ## Else-Narrow Statement
 
-The `else` narrow form provides a compact "unwrap or bail" pattern for Result and nullable types. It evaluates an expression, runs the `else` block (which must exit scope) when the value is null or a `Failure`, and binds the narrowed happy-path result to a new variable after the block.
+The `else` narrow form provides a compact "unwrap or bail" pattern for Result and nullable types. It evaluates an expression, removes one outer fallible layer, runs the `else` block (which must exit scope) for that layer's unhappy case, and binds the narrowed happy-path result to a new variable after the block.
 
 ### Syntax
 
@@ -378,7 +378,7 @@ Else-narrow works only on **Result** and/or **nullable** types. Plain unions (e.
 |---|---|
 | `string \| null` | `string` |
 | `Result<Config, Error>` | `Config` |
-| `Result<Config, Error> \| null` | `Config` |
+| `Result<Config, Error> \| null` | `Result<Config, Error>` |
 | `Result<Config \| null, Error>` | `Config \| null` |
 | `int` | ❌ compile error |
 | `Circle \| Rect` | ❌ compile error |
@@ -410,15 +410,18 @@ function test(): string {
 
 ### Result | null Narrowing
 
-When the expression is both nullable and a Result, both are stripped:
+When the expression is both nullable and a Result, one declaration removes the
+outer null layer. A second declaration unwraps the remaining Result:
 
 ```javascript
 function loadConfig(): Result<Config, AppError> | null => null
 
 function test(): string {
-    x := loadConfig() else { return "" }
-    // x is Config here (null removed, Result unwrapped)
-    return x.name
+    result := loadConfig() else { return "missing" }
+    // result is Result<Config, AppError> here
+    config := result else { return "failed" }
+    // config is Config here
+    return config.name
 }
 ```
 

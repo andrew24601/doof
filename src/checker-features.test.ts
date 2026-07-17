@@ -6580,17 +6580,34 @@ describe("checker — else-narrow statement", () => {
     expect(cr.diagnostics).toHaveLength(0);
   });
 
-  it("narrows Result | null to success type", () => {
+  it("narrows Result | null one layer at a time", () => {
     const cr = check({ "/main.do": `
       class Config { name: string }
       class AppError { message: string }
       function loadConfig(): Result<Config, AppError> | null => null
       function test(): string {
-        x := loadConfig() else { return "" }
-        return x.name
+        result := loadConfig() else { return "missing" }
+        config := result else { return "failed" }
+        return config.name
       }
     ` }, "/main.do");
     expect(cr.diagnostics).toHaveLength(0);
+  });
+
+  it("does not unwrap Result and outer null in one declaration else", () => {
+    const cr = check({ "/main.do": `
+      class Config { name: string }
+      class AppError { message: string }
+      function loadConfig(): Result<Config, AppError> | null => null
+      function useConfig(config: Config): string => config.name
+      function test(): string {
+        result := loadConfig() else { return "missing" }
+        return useConfig(result)
+      }
+    ` }, "/main.do");
+    expect(cr.diagnostics.some((diagnostic) =>
+      diagnostic.message.includes('Argument of type "Result<Config, AppError>" is not assignable')
+    )).toBe(true);
   });
 
   it("preserves null inside a Result success payload", () => {

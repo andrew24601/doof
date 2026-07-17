@@ -2502,6 +2502,51 @@ describe("e2e — else-narrow statement", () => {
     expect(result.exitCode).toBe(77);
   });
 
+  it("narrows nullable Result one layer at a time", () => {
+    const result = ctx.compileAndRun(`
+      function loadValue(): Result<int, string> | null => Success(63)
+      function main(): int {
+        loaded := loadValue() else { return 1 }
+        value := loaded else { return 2 }
+        return value
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(63);
+  });
+
+  it("handles outer null before a nullable Result can be unwrapped", () => {
+    const result = ctx.compileAndRun(`
+      function loadValue(): Result<int, string> | null => null
+      function main(): int {
+        loaded := loadValue() else { return 71 }
+        value := loaded else { return 2 }
+        return value
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(71);
+  });
+
+  it("handles Result failure only after outer null is removed", () => {
+    const result = ctx.compileAndRun(`
+      function loadValue(): Result<int, string> | null => Failure("failed")
+      function main(): int {
+        loaded := loadValue() else { return 1 }
+        value := loaded else { return 72 }
+        return value
+      }
+    `);
+    if (result.exitCode === -1) {
+      expect.unreachable(`Compile error: ${result.stderr}`);
+    }
+    expect(result.exitCode).toBe(72);
+  });
+
   it("skips expression result-else block on success", () => {
     const result = ctx.compileAndRun(`
       function save(): Result<void, string> => Success()

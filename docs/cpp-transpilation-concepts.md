@@ -471,7 +471,9 @@ Strategy:
 - `try` and `catch` forms are emitted with explicit success/failure control flow
 - declaration-`else` evaluates its subject once, exposes either the full
   subject or captured failure payload in the handler, and extracts the narrowed
-  success/non-null value only after the handler
+  success/non-null value only after the handler; it removes one runtime layer,
+  so nullable Result carriers first test and extract the outer optional value,
+  leaving Result failure testing and success extraction to a later declaration
 - `as`-narrowing becomes explicit runtime checks that either extract a narrowed
   value or return a failure result; nullable class and array unions test their
   pointer carrier, nullable primitives inspect `std::optional`, and only

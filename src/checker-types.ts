@@ -1104,32 +1104,30 @@ export function typesEqual(a: ResolvedType, b: ResolvedType): boolean {
  *
  * Applicable to Result and/or nullable types only.
  * Algorithm:
- * 1. Strip null from the type
- * 2. If the remaining type is Result<S, E>: happy path = S
- * 3. Else if null was stripped: happy path = remaining type
- * 4. Otherwise: not applicable
+ * 1. If the outer type is nullable: strip null
+ * 2. Else if the type is Result<S, E>: happy path = S
+ * 3. Otherwise: not applicable
  *
- * Null inside a Result success payload is data, not an unhappy state handled
- * by the declaration-else. Only null at the subject's outer level is stripped.
+ * A declaration removes exactly one fallible layer. For `Result<S, E> | null`,
+ * the outer null is removed and the Result remains for a subsequent declaration.
+ * Conversely, unwrapping `Result<S | null, E>` preserves null in its payload.
  */
 export function computeElseNarrowType(
   type: ResolvedType,
 ): { narrowedType: ResolvedType; applicable: boolean } {
-  // Step 1: strip null
+  // Step 1: strip only an outer null layer.
   const { stripped, hadNull } = stripNull(type);
-
-  // Step 2: if Result, extract its success type without narrowing the payload
-  const result = getResultShape(stripped);
-  if (result) {
-    return { narrowedType: result.successType, applicable: true };
-  }
-
-  // Step 3: if null was stripped, return non-null type
   if (hadNull) {
     return { narrowedType: stripped, applicable: true };
   }
 
-  // Step 4: not applicable
+  // Step 2: otherwise extract a Result success without narrowing its payload.
+  const result = getResultShape(type);
+  if (result) {
+    return { narrowedType: result.successType, applicable: true };
+  }
+
+  // Step 3: not applicable
   return { narrowedType: type, applicable: false };
 }
 

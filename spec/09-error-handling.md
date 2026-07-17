@@ -268,12 +268,14 @@ The binding after the `else` block is the happy-path type:
 | --- | --- |
 | `T | null` | `T` |
 | `Result<T, E>` | `T` |
-| `Result<T, E> | null` | `T` |
-| `Result<T | null, E>` | `T` |
+| `Result<T, E> | null` | `Result<T, E>` |
+| `Result<T | null, E>` | `T | null` |
 
 Rules:
 
 - The subject must be nullable, a `Result`, or both.
+- A declaration removes exactly one layer. A nullable Result first loses its
+  outer null; a second declaration is required to unwrap the Result.
 - If a binding is introduced and used after the `else`, the `else` block must
   exit the current scope with `return`, `break`, `continue`, or `panic(...)`.
 - Without failure capture, the binding name has the original full type inside

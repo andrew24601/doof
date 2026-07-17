@@ -596,6 +596,11 @@ export function testChecksDeclarationElseNarrowingAndCapture(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksDeclarationElseNarrowsOneLayerAtATime(): void {
+  result := checked("function load(): Result<int, string> | null => null\nfunction main(): int { result := load() else { return 1 }\nvalue := result else { return 2 }\nreturn value }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testRequiresDeclarationElseHandlerToExit(): void {
   result := checked("function load(): Result<int, string> => Success { value: 4 }\nfunction main(): int { value := load() else { println(\"failed\") }\nreturn value }")
   Assert.equal(result.diagnostics.length > 0, true)

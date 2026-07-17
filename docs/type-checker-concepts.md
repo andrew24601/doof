@@ -316,6 +316,9 @@ statement checking, and scope mutation:
   the full canonical `Result<T, E>` union before emission rather than retaining
   only the first arm's type
 - declaration-`else` handlers must exit only when a narrowed binding is introduced after the handler
+- declaration-`else` removes exactly one layer: an outer nullable layer takes
+  precedence over Result unwrapping, so `Result<T, E> | null` narrows to
+  `Result<T, E>` and requires a second declaration to reach `T`
 - declaration-`else` unwraps `Result<T, E>` to exactly `T`; when `T` is
   nullable, that inner null remains because a successful null is payload data,
   not an outer unhappy state handled by the `else` block

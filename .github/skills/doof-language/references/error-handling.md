@@ -134,6 +134,8 @@ Rules:
 - `else error { ... }` captures the error payload for non-null `Result<T, E>` subjects.
 - Without capture, inside the `else` block, the binding has the original full type.
 - After the block, the binding has the narrowed happy-path type.
+- Each declaration removes exactly one fallible layer. `Result<T, E> | null`
+  becomes `Result<T, E>` and needs a second declaration to unwrap the Result.
 - For `Result<T | null, E>`, the happy-path type remains `T | null`; a null
   inside `Success` is payload data and is not handled by the `else` block.
 - It applies only to nullable and/or `Result` types.

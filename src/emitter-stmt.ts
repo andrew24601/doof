@@ -1350,34 +1350,24 @@ function emitElseNarrowCondition(
 ): string {
   if (!subjectType) return `false`;
 
-  // Determine structure: is there null? is there Result?
+  // A declaration removes only the outermost fallible layer. Prefer an outer
+  // null check even when the remaining value is itself a Result.
   const hasNull = typeHasNull(subjectType);
   const resultType = findResultType(subjectType);
 
-  if (resultType && hasNull) {
-    // Result | null — check null OR failure
-    if (isOptionalNullable(subjectType) || isPointerType(subjectType)) {
-      // Not possible for Result|null (would be variant), but handle gracefully
-      return `!${tmp}.has_value() || doof::is_failure(${tmp}.value())`;
+  if (hasNull) {
+    if (isMonostateNullable(subjectType)) {
+      return `std::holds_alternative<std::monostate>(${tmp})`;
     }
-    // variant with monostate: Result | null → std::variant<std::monostate, Result<S,E>>
-    return `std::holds_alternative<std::monostate>(${tmp}) || doof::is_failure(std::get<${emitType(resultType.type, _ctx.module.path)}>(${tmp}))`;
-  }
-
-  if (resultType) {
-    // Pure Result. A nullable success payload is preserved by extraction.
+    if (isOptionalNullable(subjectType)) {
+      return `!${tmp}.has_value()`;
+    }
+    if (isPointerType(subjectType)) {
+      return `${tmp} == nullptr`;
+    }
+  } else if (resultType) {
+    // A nullable success payload is preserved by Result extraction.
     return `doof::is_failure(${tmp})`;
-  }
-
-  // Nullable (no Result)
-  if (isMonostateNullable(subjectType)) {
-    return `std::holds_alternative<std::monostate>(${tmp})`;
-  }
-  if (isOptionalNullable(subjectType)) {
-    return `!${tmp}.has_value()`;
-  }
-  if (isPointerType(subjectType)) {
-    return `${tmp} == nullptr`;
   }
 
   return `false`;
@@ -1395,16 +1385,7 @@ function emitElseNarrowExtraction(
   const hasNull = typeHasNull(subjectType);
   const resultType = findResultType(subjectType);
 
-  if (resultType && hasNull) {
-    // Result | null → extract from variant then unwrap Result value
-    if (resultType.successType.kind === "class") {
-      // Success type is a class (shared_ptr) — move it out
-      return `auto ${name} = std::move(doof::success_value(std::get<${emitType(resultType.type, currentModulePath)}>(${tmp})));`;
-    }
-    return `auto ${name} = doof::success_value(std::get<${emitType(resultType.type, currentModulePath)}>(${tmp}));`;
-  }
-
-  if (resultType) {
+  if (!hasNull && resultType) {
     // Pure Result — unwrap value
     if (resultType.successType.kind === "class") {
       return `auto ${name} = std::move(doof::success_value(${tmp}));`;

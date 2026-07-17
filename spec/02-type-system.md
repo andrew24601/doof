@@ -1471,6 +1471,11 @@ function test(): int {
 
 This form works only for nullable and/or `Result` types. Inside the `else` block, the binding still has the full original type. After the block, the binding has the narrowed happy-path type.
 
+Each declaration removes exactly one fallible layer. For
+`Result<T, E> | null`, the binding becomes `Result<T, E>`; use a second
+declaration-`else` to unwrap that Result. For `Result<T | null, E>`, the first
+declaration unwraps the Result and produces `T | null`.
+
 For `Result<T | null, E>`, the happy-path type is `T | null`: the declaration
 unwraps the Result, but a null carried by `Success` remains part of its payload.
 
