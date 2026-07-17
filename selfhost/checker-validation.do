@@ -20,7 +20,7 @@ import {
   ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
   ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
-  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
+  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
@@ -156,6 +156,10 @@ export function validatePattern(pattern: CasePattern, module: string, diagnostic
   case pattern {
     type_: TypePattern -> { validateTypeAnnotation(type_.type_, module, diagnostics); validateResolved(type_.resolvedType, type_.span, module, "case pattern", diagnostics) }
     value: ValuePattern -> { validateExpression(value.value, module, diagnostics) }
+    range: RangePattern -> {
+      if range.start != null { validateExpression(range.start!, module, diagnostics) }
+      if range.end != null { validateExpression(range.end!, module, diagnostics) }
+    }
     _: WildcardPattern -> { }
   }
 }

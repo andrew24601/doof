@@ -7,7 +7,7 @@
 import {
   Block, Expression, ExpressionStatement, IfStatement, LetDeclaration, ImmutableBinding,
   ReadonlyDeclaration, ConstDeclaration, ReturnStatement, Statement,
-  WhileStatement, CaseStatement, NamedType, TypePattern, ValuePattern, WildcardPattern,
+  WhileStatement, CaseStatement, NamedType, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   Identifier, BreakStatement, ContinueStatement, DestructuringStatement, ForOfStatement, ForStatement, BinaryExpression,
   TryStatement, WithStatement, YieldStatement,
   MockImportDirective,
@@ -237,6 +237,7 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
           binding = emitted.binding
         }
         value: ValuePattern -> { condition = subject + " == " + emitExpression(value.value, context) }
+        range: RangePattern -> { condition = emitRangePatternCondition(range, subject, context) }
         _: WildcardPattern -> { isWildcard = true }
       }
 
@@ -255,6 +256,17 @@ function emitCase(statement: CaseStatement, level: int, context: EmitContext): s
     }
   }
   return result + ind + "}\n"
+}
+
+function emitRangePatternCondition(pattern: RangePattern, subject: string, context: EmitContext): string {
+  let condition = ""
+  if pattern.start != null { condition = subject + " >= " + emitExpression(pattern.start!, context) }
+  if pattern.end != null {
+    operator := if pattern.inclusive then " <= " else " < "
+    if condition != "" { condition = condition + " && " }
+    condition = condition + subject + operator + emitExpression(pattern.end!, context)
+  }
+  return condition
 }
 
 function caseSubjectType(expression: Expression): ResolvedType | null {

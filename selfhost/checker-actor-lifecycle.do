@@ -13,7 +13,7 @@ import {
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration,
   RetireExpression, ReturnStatement, SourceSpan, Statement, StringLiteral, TryStatement,
   TupleLiteral, UnaryExpression, WhileStatement, WithStatement, YieldStatement,
-  AsExpression, ValuePattern,
+  AsExpression, RangePattern, ValuePattern,
 } from "./ast"
 import { ActorType, Binding, Diagnostic, SemanticLocation, SemanticSpan } from "./semantic"
 
@@ -114,6 +114,10 @@ export function collectStatementExpressions(statement: Statement, result: Expres
         for pattern of arm.patterns {
           case pattern {
             value: ValuePattern -> { result.push(value.value) }
+            range: RangePattern -> {
+              if range.start != null { result.push(range.start!) }
+              if range.end != null { result.push(range.end!) }
+            }
             _ -> { }
           }
         }
@@ -171,6 +175,10 @@ export function collectNestedExpressions(expression: Expression, result: Express
         for pattern of arm.patterns {
           case pattern {
             value: ValuePattern -> { result.push(value.value) }
+            range: RangePattern -> {
+              if range.start != null { result.push(range.start!) }
+              if range.end != null { result.push(range.end!) }
+            }
             _ -> { }
           }
         }

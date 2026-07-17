@@ -82,6 +82,21 @@ export function testEmitsRangeValuesSignaturesAndMembers(): void {
   Assert.equal(result.source.contains("first(doof::range_exclusive(1, 4))"), true)
 }
 
+export function testEmitsFiniteAndOpenEndedCaseRangePatterns(): void {
+  result := emit("function category(value: int): int => case value { ..<0 -> 1, 0..<10 -> 2, 10..20 -> 3, 21.. -> 4 }")
+  Assert.stringContains(result.source, "_case_subject < 0")
+  Assert.stringContains(result.source, "_case_subject >= 0 && _case_subject < 10")
+  Assert.stringContains(result.source, "_case_subject >= 10 && _case_subject <= 20")
+  Assert.stringContains(result.source, "_case_subject >= 21")
+}
+
+export function testEmitsCaseStatementRangePatterns(): void {
+  result := emit("function category(value: int): void { case value { ..<0 -> println(\"negative\"), 0..10 -> println(\"small\"), 11.. -> println(\"large\") } }")
+  Assert.stringContains(result.source, "if (_case_subject < 0)")
+  Assert.stringContains(result.source, "else if (_case_subject >= 0 && _case_subject <= 10)")
+  Assert.stringContains(result.source, "else if (_case_subject >= 11)")
+}
+
 export function testEmitsSetAndReadonlySetOperations(): void {
   result := emit("enum Flag { One, Two }\nfunction count(values: ReadonlySet<Flag>): int { let total = 0\nfor value of values { total = total + 1 }\nreturn total }\nfunction main(): int { let values: Set<Flag> = [Flag.One, Flag.Two, Flag.One]\nvalues.add(Flag.Two)\nvalues.delete(Flag.One)\nfrozen := values.buildReadonly()\ncopy := frozen.cloneMutable()\nreturn count(frozen) + copy.values().length + copy.size }")
   Assert.equal(result.header.contains("std::shared_ptr<doof::ordered_set<Flag>>"), true)

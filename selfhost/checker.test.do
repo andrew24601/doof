@@ -91,6 +91,11 @@ export function testRejectsUnsupportedRangeBounds(): void {
   Assert.equal(result.diagnostics[2].message.contains("currently requires int-compatible bounds"), true)
 }
 
+export function testChecksFiniteAndOpenEndedCaseRangePatterns(): void {
+  result := checked("function category(value: int): string => case value { ..<0 -> \"negative\", 0..<10 -> \"small\", 10..20 -> \"medium\", 21.. -> \"large\" }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testArrayPopReturnsResult(): void {
   valid := checked("function take(values: int[]): Result<int, string> => values.pop()")
   Assert.equal(valid.diagnostics.length, 0)

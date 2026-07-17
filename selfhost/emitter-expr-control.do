@@ -1,6 +1,6 @@
 // Conditional and pattern-based expression lowering.
 
-import { Block, CaseExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, TypePattern, ValuePattern, WildcardPattern } from "./ast"
+import { Block, CaseExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, RangePattern, TypePattern, ValuePattern, WildcardPattern } from "./ast"
 import { ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitCaseTypePattern } from "./emitter-case-pattern"
@@ -51,6 +51,7 @@ export function emitCaseExpression(expression: CaseExpression, context: EmitCont
           binding = emitted.binding
         }
         value: ValuePattern -> { condition = "_case_subject == " + emitExpression(value.value, context) }
+        range: RangePattern -> { condition = emitRangePatternCondition(range, "_case_subject", context) }
         _: WildcardPattern -> { condition = "true" }
       }
       output = output + "    if (" + condition + ") {\n"
@@ -68,6 +69,17 @@ export function emitCaseExpression(expression: CaseExpression, context: EmitCont
     }
   }
   return output + "    throw std::runtime_error(\"non-exhaustive case expression\");\n}()"
+}
+
+function emitRangePatternCondition(pattern: RangePattern, subject: string, context: EmitContext): string {
+  let condition = ""
+  if pattern.start != null { condition = subject + " >= " + emitExpression(pattern.start!, context) }
+  if pattern.end != null {
+    operator := if pattern.inclusive then " <= " else " < "
+    if condition != "" { condition = condition + " && " }
+    condition = condition + subject + operator + emitExpression(pattern.end!, context)
+  }
+  return condition
 }
 
 function caseSubjectResultType(subject: Expression): ResolvedType {

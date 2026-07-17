@@ -4,7 +4,7 @@ import type { Parser } from "./parser"
 import { TokenType } from "./lexer"
 import {
   Block, IfBranch, WithBinding, CaseArm, CaseExpression, CaseExpressionArm, CaseStatement,
-  CasePattern, TypePattern, ValuePattern, WildcardPattern,
+  CasePattern, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   IfStatement, WhileStatement, ForOfStatement, ForStatement, WithStatement,
   BreakStatement, ContinueStatement, ReturnStatement, YieldStatement,
   ExpressionStatement, DestructuringStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, TryStatement,
@@ -170,6 +170,12 @@ function parseCasePattern(parser: Parser): CasePattern {
     }
     return WildcardPattern { kind: "wildcard-pattern", span: parser.span(start) }
   }
+  if parser.match(TokenType.DotDotLess) {
+    end := parser.parseAdditive()
+    return RangePattern {
+      kind: "range-pattern", start: null, end, inclusive: false, span: parser.span(start),
+    }
+  }
   if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.Colon {
     name := parser.text(parser.advance())
     parser.advance()
@@ -179,6 +185,23 @@ function parseCasePattern(parser: Parser): CasePattern {
   // Pattern alternatives use `|` as a separator, so a value pattern must
   // stop before bitwise-or rather than consume the rest of the arm.
   value := parser.parseAdditive()
+  if parser.match(TokenType.DotDot) {
+    if parser.check(TokenType.RightArrow) || parser.check(TokenType.Pipe) || parser.check(TokenType.Comma) || parser.check(TokenType.RightBrace) || parser.atEnd() {
+      return RangePattern {
+        kind: "range-pattern", start: value, end: null, inclusive: true, span: parser.span(start),
+      }
+    }
+    end := parser.parseAdditive()
+    return RangePattern {
+      kind: "range-pattern", start: value, end, inclusive: true, span: parser.span(start),
+    }
+  }
+  if parser.match(TokenType.DotDotLess) {
+    end := parser.parseAdditive()
+    return RangePattern {
+      kind: "range-pattern", start: value, end, inclusive: false, span: parser.span(start),
+    }
+  }
   return ValuePattern { kind: "value-pattern", value, span: parser.span(start) }
 }
 

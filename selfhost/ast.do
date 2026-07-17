@@ -471,7 +471,15 @@ export class ValuePattern {
   span: SourceSpan
 }
 
-export type CasePattern = TypePattern | WildcardPattern | ValuePattern
+export class RangePattern {
+  kind: string
+  start: Expression | null
+  end: Expression | null
+  inclusive: bool
+  span: SourceSpan
+}
+
+export type CasePattern = TypePattern | WildcardPattern | ValuePattern | RangePattern
 
 export class IfBranch {
   condition: Expression

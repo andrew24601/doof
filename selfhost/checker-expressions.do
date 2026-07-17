@@ -20,7 +20,7 @@ import {
   ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
   ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
-  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
+  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
 } from "./ast"
@@ -115,6 +115,10 @@ export function checkCasePatterns(state: CheckerState, patterns: CasePattern[], 
         }
       }
       value: ValuePattern -> { checkExpression(state, value.value, scope, optionalResolvedType(subjectType)) }
+      range: RangePattern -> {
+        if range.start != null { checkExpression(state, range.start!, scope, optionalResolvedType(subjectType)) }
+        if range.end != null { checkExpression(state, range.end!, scope, optionalResolvedType(subjectType)) }
+      }
       _: WildcardPattern -> { }
     }
   }

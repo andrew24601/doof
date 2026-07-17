@@ -5,7 +5,7 @@ import {
   MemberExpression, FunctionDeclaration, ClassDeclaration, ArrayLiteral, Block,
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
-  ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, UnionType, YieldStatement,
+  ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, UnionType, YieldStatement,
   MockImportDirective, WeakType,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
@@ -397,6 +397,37 @@ export function testParsesMultipleValuePatternsAsAlternatives(): void {
         Assert.equal(expression.arms[0].patterns.length, 2)
         Assert.equal(expression.arms[0].patterns[0].kind, "value-pattern")
         Assert.equal(expression.arms[0].patterns[1].kind, "value-pattern")
+      }
+      _ -> { panic("expected case expression") }
+    } }
+    _ -> { panic("expected immutable binding") }
+  }
+}
+
+export function testParsesFiniteAndOpenEndedCaseRangePatterns(): void {
+  program := parse("result := case value { 1..5 -> 1, 6..<10 -> 2, 10.. -> 3, ..<0 -> 4, _ -> 5 }")
+  case program.statements[0] {
+    statement: ImmutableBinding -> { case statement.value {
+      expression: CaseExpression -> {
+        Assert.equal(expression.arms.length, 5)
+        case expression.arms[0].patterns[0] {
+          range: RangePattern -> {
+            Assert.equal(range.inclusive, true)
+          }
+          _ -> { panic("expected inclusive range pattern") }
+        }
+        case expression.arms[1].patterns[0] {
+          range: RangePattern -> { Assert.equal(range.inclusive, false) }
+          _ -> { panic("expected exclusive range pattern") }
+        }
+        case expression.arms[2].patterns[0] {
+          range: RangePattern -> { Assert.equal(range.inclusive, true) }
+          _ -> { panic("expected lower-bounded range pattern") }
+        }
+        case expression.arms[3].patterns[0] {
+          range: RangePattern -> { Assert.equal(range.inclusive, false) }
+          _ -> { panic("expected upper-bounded range pattern") }
+        }
       }
       _ -> { panic("expected case expression") }
     } }
