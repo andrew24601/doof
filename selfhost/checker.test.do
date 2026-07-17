@@ -878,3 +878,36 @@ export function testKeepsSetMutabilityInvariant(): void {
   Assert.equal(result.diagnostics.length > 0, true)
   Assert.equal(result.diagnostics[0].message.contains("Cannot return Set<int> from function returning ReadonlySet<int>"), true)
 }
+
+export function testChecksYieldBlockDeclarationsAndReassignment(): void {
+  valid := checked("function main(): int { let score: int <- { if true { yield 10 } else { yield 5 } }\nscore <- { yield score + 1 }\nreturn score }")
+  for diagnostic of valid.diagnostics { println(diagnostic.message) }
+  Assert.equal(valid.diagnostics.length, 0)
+
+  missingYield := checked("function main(): int { let score <- { if true { yield 10 } }\nreturn score }")
+  Assert.equal(missingYield.diagnostics.length > 0, true)
+  Assert.equal(missingYield.diagnostics[0].message.contains("must yield a value on every path"), true)
+
+  immutable := checked("function main(): int { value := 1\nvalue <- { yield 2 }\nreturn value }")
+  Assert.equal(immutable.diagnostics.length > 0, true)
+  Assert.equal(immutable.diagnostics[0].message.contains("immutable"), true)
+
+  global := checked("readonly value <- { yield 1 }")
+  Assert.equal(global.diagnostics.length > 0, true)
+  Assert.equal(global.diagnostics[0].message.contains("local declarations"), true)
+
+  prohibited := checked("function load(): Result<int, string> => Success { value: 1 }\nfunction main(): int { let value <- { try load()\nyield 1 }\nreturn value }")
+  Assert.equal(prohibited.diagnostics.length > 0, true)
+  Assert.equal(prohibited.diagnostics[0].message.contains("'try' cannot be used inside a value-producing block"), true)
+}
+
+export function testChecksCatchExpressionErrorUnionsAndNesting(): void {
+  valid := checked("enum ReadError { Missing }\nenum ParseError { Invalid }\nfunction read(): Result<int, ReadError> => Failure { error: .Missing }\nfunction parse(): Result<int, ParseError> => Failure { error: .Invalid }\nfunction main(): void { error := catch { try read()\ninner := catch { try parse() } }\ncase error { _: ReadError -> println(\"read\"), _ -> println(\"ok\") } }")
+  for diagnostic of valid.diagnostics { println(diagnostic.message) }
+  Assert.equal(valid.diagnostics.length, 0)
+
+  warning := checked("function main(): void { error := catch { println(\"ok\") } }")
+  Assert.equal(warning.diagnostics.length, 1)
+  Assert.equal(warning.diagnostics[0].severity, "warning")
+  Assert.equal(warning.diagnostics[0].message.contains("contains no 'try'"), true)
+}

@@ -17,7 +17,7 @@ import {
   NamedImport, NamedType, NamespaceImport, ReadonlyDeclaration, ReturnStatement,
   YieldStatement, WhileStatement, WithStatement, BreakStatement, ContinueStatement,
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
-  CaseStatement, MockImportDirective, WeakType,
+  CaseStatement, MockImportDirective, WeakType, YieldBlockAssignmentStatement,
 } from "./ast"
 import type { ImportDeclaration, Program, SourceSpan, Statement, TryStatement, TypeAnnotation } from "./ast"
 

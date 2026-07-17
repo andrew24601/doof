@@ -8,7 +8,7 @@ import {
   Identifier, ConstDeclaration, ReadonlyDeclaration, LetDeclaration,
   FunctionDeclaration, ImportDeclaration, NamespaceImport, NamedImport,
   TypeAliasDeclaration, ClassDeclaration, InterfaceDeclaration, EnumDeclaration,
-  ExportList, MockImportDirective, MockImportMapping,
+  ExportList, MockImportDirective, MockImportMapping, YieldBlockExpression,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation, ImportSpecifier } from "./ast"
 
@@ -92,7 +92,13 @@ export function parseLet(parser: Parser): Statement {
 
 function parseInitializer(parser: Parser): Expression {
   if parser.match(TokenType.Equal) { return parser.parseExpression() }
-  parser.fail("Expected '=' in declaration")
+  if parser.match(TokenType.LeftArrow) {
+    start := parser.location()
+    if !parser.check(TokenType.LeftBrace) { parser.fail("Expected block after '<-'") }
+    body := parser.parseBlock()
+    return YieldBlockExpression { body, span: parser.span(start) }
+  }
+  parser.fail("Expected '=' or '<-' in declaration")
   return Identifier { kind: "identifier", name: "<error>", span: parser.locationSpan() }
 }
 

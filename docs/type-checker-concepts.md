@@ -311,6 +311,9 @@ statement checking, and scope mutation:
 - `try` validates the RHS and propagates error types
 - successful bindings are retyped from `Result<T, E>` to `T`
 - `catch` collects error types into nullable unions
+- the self-hosted checker stores the active catch collector on the lexical
+  scope chain, so nested catches consume only their own `try` failures while
+  successful `try` bindings are still retyped in the ordinary block scope
 - case arms use ordinary union narrowing to `Success<T>` or `Failure<E>`; when
   an expression-form case yields both intrinsic arms, inference reconstructs
   the full canonical `Result<T, E>` union before emission rather than retaining
@@ -344,10 +347,17 @@ Keep aligned:
 - failure-capture syntax (`else error`) should bind the `Failure<E>.error` payload only for non-null Results with non-void `E`
 - unresolved generic channels must not contextually erase a standalone arm's inferred payload type
 
+Yield-block declarations and `<-` reassignment reuse the same value-yield scope
+state as block-bodied case-expression arms. Their checker paths must remain
+aligned on contextual typing, every-path production, prohibited `return`/`try`,
+and resolved-type decoration; reassignment additionally requires an existing
+mutable local binding.
+
 Validation anchors:
 
 - `src/checker-features.test.ts`
 - `src/checker-inference.test.ts`
+- `selfhost/parser.test.do`
 - `selfhost/checker.test.do`
 - `spec/08-errors-and-results.md`
 

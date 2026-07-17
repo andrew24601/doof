@@ -4,13 +4,13 @@
 // single decorated-AST dispatch point and the public identifier helper used
 // by statement and declaration emission.
 
-import { ActorCreationExpression, ArrayLiteral, AsExpression, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CallerExpression, CaseExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression } from "./ast"
+import { ActorCreationExpression, ArrayLiteral, AsExpression, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CallerExpression, CaseExpression, CatchExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression, YieldBlockExpression } from "./ast"
 import { ClassType, ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitAs, emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
 import { emitCall, emitConstruct } from "./emitter-expr-calls"
 import { emitArray, emitChar, emitNullLiteral, emitObject, emitString, emitTuple } from "./emitter-expr-literals"
-import { emitCaseExpression, emitDotShorthand, emitIfExpression } from "./emitter-expr-control"
+import { emitCaseExpression, emitCatchExpression, emitDotShorthand, emitIfExpression, emitYieldBlockExpression } from "./emitter-expr-control"
 import { emitLambdaExpression } from "./emitter-expr-lambda"
 import { decoratedExpressionType, emitNullableVariantPromotion, needsNullableVariantPromotion, needsVariantPromotion } from "./emitter-expr-utils"
 import { emitClassInnerType, emitType } from "./emitter-types"
@@ -48,6 +48,8 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     lambda: LambdaExpression -> { value = emitLambdaExpression(lambda, context, expected) }
     if_: IfExpression -> { value = emitIfExpression(if_, context) }
     case_: CaseExpression -> { value = emitCaseExpression(case_, context, expected) }
+    yieldBlock: YieldBlockExpression -> { value = emitYieldBlockExpression(yieldBlock, context, expected) }
+    catch_: CatchExpression -> { value = emitCatchExpression(catch_, context) }
     construct: ConstructExpression -> { value = emitConstruct(construct, context) }
     async_: AsyncExpression -> { value = emitAsyncActorCall(async_, context) }
     retire_: RetireExpression -> { value = emitRetireActor(retire_, context) }

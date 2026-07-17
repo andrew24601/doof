@@ -23,6 +23,7 @@ import {
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
+  CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,

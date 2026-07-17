@@ -5,7 +5,13 @@
 // module dependency state belongs to the module/header planner.
 
 import { Program, SourceSpan } from "./ast"
-import { ImportBinding, NamespaceBinding, Symbol, TypeSubstitution } from "./semantic"
+import {
+  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionType, ImportBinding,
+  InterfaceType, JsonValueResolvedType, MapResolvedType, NamespaceBinding, NullType,
+  PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType,
+  SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType, TypeParameterType,
+  TypeSubstitution, UnionResolvedType, UnknownType, VoidType, WeakResolvedType,
+} from "./semantic"
 
 export class EmitModuleSurface {
   path: string
@@ -31,6 +37,8 @@ export class EmitContext {
   currentReturnErrorType: string = ""
   currentFunctionName: string = ""
   inValueYieldBlock: bool = false
+  catchVarName: string = ""
+  catchResultType: ResolvedType | null = null
   // Call-site override used while materializing defaults such as @caller.
   sourceLocationSpanOverride: SourceLocationSpanOverride | null = null
   genericTypeParams: string[] = []

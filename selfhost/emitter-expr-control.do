@@ -1,6 +1,6 @@
 // Conditional and pattern-based expression lowering.
 
-import { Block, CaseExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, RangePattern, TypePattern, ValuePattern, WildcardPattern } from "./ast"
+import { Block, CaseExpression, CatchExpression, DotShorthand, Expression, IfExpression, MemberExpression, NamedType, RangePattern, TypePattern, ValuePattern, WildcardPattern, YieldBlockExpression } from "./ast"
 import { ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitCaseTypePattern } from "./emitter-case-pattern"
@@ -29,6 +29,41 @@ export function emitIfExpression(expression: IfExpression, context: EmitContext)
     _ -> { }
   }
   return "(" + emitExpression(expression.condition, context) + " ? " + emitExpression(expression.then_, context) + " : " + elseValue + ")"
+}
+
+export function emitYieldBlockExpression(expression: YieldBlockExpression, context: EmitContext, expected: ResolvedType | null): string {
+  resultType := if expected == null then expression.resolvedType else expected
+  if resultType == null { panic("Yield block has no resolved result type") }
+  previousYieldState := context.inValueYieldBlock
+  context.inValueYieldBlock = true
+  body := emitBlock(expression.body, 1, context)
+  context.inValueYieldBlock = previousYieldState
+  return "[&]() -> " + emitType(resultType!, context.modulePath) + " {\n" + body + "}()"
+}
+
+export function emitCatchExpression(expression: CatchExpression, context: EmitContext): string {
+  if expression.resolvedType == null { panic("Catch expression has no resolved result type") }
+  resultType := expression.resolvedType!
+  resultCppType := emitType(resultType, context.modulePath)
+  context.tryCounter = context.tryCounter + 1
+  catchVar := "_catch_" + string(context.tryCounter)
+  previousCatchVar := context.catchVarName
+  previousCatchType := context.catchResultType
+  context.catchVarName = catchVar
+  context.catchResultType = resultType
+  body := emitBlock(expression.body, 2, context)
+  context.catchVarName = previousCatchVar
+  context.catchResultType = previousCatchType
+  return "[&]() -> " + resultCppType + " {\n" +
+    "    " + resultCppType + " " + catchVar + " = " + catchNullValue(resultCppType) + ";\n" +
+    "    do {\n" + body + "    } while (false);\n" +
+    "    return " + catchVar + ";\n}()"
+}
+
+function catchNullValue(resultCppType: string): string {
+  if resultCppType.startsWith("std::optional<") { return "std::nullopt" }
+  if resultCppType.startsWith("std::shared_ptr<") || resultCppType.startsWith("std::weak_ptr<") { return "nullptr" }
+  return "std::monostate{}"
 }
 
 export function emitCaseExpression(expression: CaseExpression, context: EmitContext, expected: ResolvedType | null): string {

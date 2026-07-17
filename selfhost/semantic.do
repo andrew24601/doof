@@ -207,6 +207,8 @@ export class Scope {
   functionName: string = ""
   inValueYieldBlock: bool = false
   yieldType: ResolvedType | null = null
+  capturesTryErrors: bool = false
+  catchErrorTypes: ResolvedType[] = []
 }
 
 export class CheckResult {

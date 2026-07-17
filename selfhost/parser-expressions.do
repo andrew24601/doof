@@ -11,7 +11,7 @@ import {
   ThisExpression, CallerExpression, IfExpression, LambdaExpression,
   TupleLiteral, ObjectLiteral, ConstructExpression, DotShorthand,
   AsyncExpression, RetireExpression, ActorCreationExpression,
-  AsExpression,
+  AsExpression, CatchExpression,
 } from "./ast"
 import type { Expression, TypeAnnotation } from "./ast"
 
@@ -273,6 +273,7 @@ function parsePrimary(parser: Parser): Expression {
   if parser.match(TokenType.CallerIntrinsic) { return CallerExpression { kind: "caller-expression", span: parser.span(start) } }
   if parser.check(TokenType.If) { return parseIfExpression(parser) }
   if parser.check(TokenType.Case) { return parser.parseCaseExpression() }
+  if parser.check(TokenType.Catch) { return parseCatchExpression(parser) }
   if parser.check(TokenType.Arrow) { return parseParameterlessLambda(parser) }
   if parser.check(TokenType.Readonly) && parser.peek(1).kind == TokenType.LeftBracket {
     parser.advance()
@@ -323,6 +324,13 @@ function parsePrimary(parser: Parser): Expression {
   }
   parser.fail("Expected an expression")
   return NullLiteral { kind: "null-literal", span: parser.span(start) }
+}
+
+function parseCatchExpression(parser: Parser): Expression {
+  start := parser.location()
+  parser.expect(TokenType.Catch)
+  body := parser.parseBlock()
+  return CatchExpression { body, span: parser.span(start) }
 }
 
 function parseGenericCallTypeArguments(parser: Parser): TypeAnnotation[] {

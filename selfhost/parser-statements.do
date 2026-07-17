@@ -9,7 +9,7 @@ import {
   BreakStatement, ContinueStatement, ReturnStatement, YieldStatement,
   ExpressionStatement, DestructuringStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, TryStatement,
   UnaryExpression, Identifier, LetDeclaration, LambdaExpression, CallExpression,
-  CallArgument, SourceSpan,
+  CallArgument, SourceSpan, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation } from "./ast"
 
@@ -346,6 +346,16 @@ export function parseDestructuring(parser: Parser, shape: string, bindingKind: s
 
 function parseExpressionStatement(parser: Parser): Statement {
   start := parser.location()
+  if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.LeftArrow {
+    name := parser.text(parser.advance())
+    parser.advance()
+    blockStart := parser.location()
+    if !parser.check(TokenType.LeftBrace) { parser.fail("Expected block after '<-'") }
+    body := parseBlock(parser)
+    value := YieldBlockExpression { body, span: parser.span(blockStart) }
+    parser.consumeSemicolon()
+    return YieldBlockAssignmentStatement { name, value, span: parser.span(start) }
+  }
   if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.ColonEqual {
     name := parser.text(parser.advance())
     parser.advance()

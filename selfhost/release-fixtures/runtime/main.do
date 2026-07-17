@@ -79,6 +79,33 @@ function setResult(): int {
   return total
 }
 
+enum LoadError { Missing }
+
+function loadValue(ok: bool): Result<int, LoadError> {
+  if ok { return Success { value: 4 } }
+  return Failure { error: .Missing }
+}
+
+function yieldCatchResult(): int {
+  let value <- {
+    if true { yield 3 }
+    yield 0
+  }
+  value <- { yield value + 1 }
+  success := catch {
+    try loaded := loadValue(true)
+    value = value + loaded
+  }
+  failure := catch {
+    try loadValue(false)
+    value = 99
+  }
+  return case success {
+    _: LoadError -> 90,
+    _ -> case failure { _: LoadError -> value, _ -> 91 }
+  }
+}
+
 function main(): int {
   if actorResult() != 17 { return 1 }
   if iterableResult() != 6 { return 2 }
@@ -86,5 +113,6 @@ function main(): int {
   if jsonResult() != 10 { return 4 }
   if interfaceResult() != 18 { return 5 }
   if setResult() != 9 { return 6 }
+  if yieldCatchResult() != 8 { return 7 }
   return 0
 }

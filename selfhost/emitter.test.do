@@ -907,3 +907,24 @@ export function testDoesNotTreatImplicitMethodsReturningNominalTypesAsConstructo
   Assert.equal(result.source.contains("Token{}.kind"), false)
   Assert.equal(result.source.contains("Location{}.line"), false)
 }
+
+export function testEmitsYieldBlockDeclarationsAndReassignment(): void {
+  result := emit("function main(): int { let value <- { if true { yield 1 } else { yield 2 } }\nvalue <- { yield value + 1 }\nreturn value }")
+  Assert.stringContains(result.source, "auto value = [&]() -> int32_t")
+  Assert.stringContains(result.source, "value = [&]() -> int32_t")
+  Assert.stringContains(result.source, "return (value + 1)")
+}
+
+export function testEmitsYieldBlockReassignmentToCapturedMutable(): void {
+  result := emit("function make(): (): int { let value = 0\nread := (): int => value\nvalue <- { yield value + 1 }\nreturn read }")
+  Assert.stringContains(result.source, "auto value = std::make_shared<int32_t>(0)")
+  Assert.stringContains(result.source, "(*value) = [&]() -> int32_t")
+}
+
+export function testEmitsCatchExpressionsWithRedirectedTryFailures(): void {
+  result := emit("enum LoadError { Missing }\nfunction load(ok: bool): Result<int, LoadError> { if ok { return Success { value: 1 } }\nreturn Failure { error: .Missing } }\nfunction main(): int { error := catch { try value := load(false)\nprintln(string(value)) }\nreturn case error { _: LoadError -> 1, _ -> 0 } }")
+  Assert.stringContains(result.source, "do {")
+  Assert.stringContains(result.source, "doof::variant_promote<")
+  Assert.stringContains(result.source, "doof::failure_error(_try_value_")
+  Assert.stringContains(result.source, "break;")
+}

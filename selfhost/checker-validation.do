@@ -20,7 +20,7 @@ import {
   ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
   ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
-  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
+  YieldStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CatchExpression, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
@@ -112,6 +112,7 @@ export function validateStatement(statement: Statement, module: string, diagnost
     }
     return_: ReturnStatement -> { if return_.value != null { validateExpression(return_.value!, module, diagnostics) } }
     yield_: YieldStatement -> { validateExpression(yield_.value, module, diagnostics) }
+    assignment: YieldBlockAssignmentStatement -> { validateExpression(assignment.value, module, diagnostics); validateResolved(assignment.resolvedType, assignment.span, module, "yield-block assignment", diagnostics) }
     expression: ExpressionStatement -> { validateExpression(expression.expression, module, diagnostics) }
     destructuring: DestructuringStatement -> { validateExpression(destructuring.value, module, diagnostics) }
     try_: TryStatement -> {
@@ -216,6 +217,8 @@ export function validateExpression(expression: Expression, module: string, diagn
         }
       }
     }
+    yieldBlock: YieldBlockExpression -> { validateBlock(yieldBlock.body, module, diagnostics) }
+    catch_: CatchExpression -> { validateBlock(catch_.body, module, diagnostics) }
     construct: ConstructExpression -> {
       if construct.type_ != "Success" && construct.type_ != "Failure" {
         validateResolved(construct.resolvedConstructedType, construct.span, module, "constructed type", diagnostics)

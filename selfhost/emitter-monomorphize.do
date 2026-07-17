@@ -10,7 +10,7 @@ import {
   ExpressionStatement, ForOfStatement, ForStatement, FunctionDeclaration, Identifier, IfExpression, IfStatement,
   ImmutableBinding, IndexExpression, InterfaceDeclaration, LambdaExpression, LetDeclaration, MemberExpression, ObjectLiteral, Program,
   ReadonlyDeclaration, RetireExpression, ReturnStatement, Statement, StringLiteral, TryStatement, TupleLiteral, UnaryExpression,
-  WhileStatement, WithStatement, YieldStatement,
+  WhileStatement, WithStatement, YieldStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CatchExpression,
 } from "./ast"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import { isAssignable, sameType, substituteTypeParams, typeName } from "./checker-types"
@@ -224,6 +224,7 @@ function collectStatement(statement: Statement, modulePath: string, analysis: An
         expression: ExpressionStatement -> { collectStatement(expression, modulePath, analysis, plan, names, arguments) }
       }
     }
+    assignment: YieldBlockAssignmentStatement -> { collectExpression(assignment.value, modulePath, analysis, plan, names, arguments) }
     export_: ExportDeclaration -> { collectStatement(export_.declaration, modulePath, analysis, plan, names, arguments) }
     block: Block -> { collectBlock(block, modulePath, analysis, plan, names, arguments) }
     _ -> { }
@@ -307,6 +308,8 @@ function collectExpression(expression: Expression, modulePath: string, analysis:
     }
     retire_: RetireExpression -> { collectExpression(retire_.actor, modulePath, analysis, plan, names, arguments) }
     actor: ActorCreationExpression -> { for argument of actor.args { collectExpression(argument, modulePath, analysis, plan, names, arguments) } }
+    yieldBlock: YieldBlockExpression -> { collectBlock(yieldBlock.body, modulePath, analysis, plan, names, arguments) }
+    catch_: CatchExpression -> { collectBlock(catch_.body, modulePath, analysis, plan, names, arguments) }
     _ -> { }
   }
 }

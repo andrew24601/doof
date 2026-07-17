@@ -468,7 +468,13 @@ Strategy:
   normal `std::visit` lowering
 - `JsonValue` type patterns use representation predicates; in particular, a
   `null` arm lowers to `doof::json_is_null(...)` rather than a variant type test
-- `try` and `catch` forms are emitted with explicit success/failure control flow
+- `try` and `catch` forms are emitted with explicit success/failure control
+  flow; the self-hosted emitter lowers `catch` to a typed IIFE containing a
+  single-iteration loop, and an active catch context changes `try` failure from
+  an enclosing-function return into error assignment plus `break`
+- declaration and reassignment `<-` blocks lower to typed immediately-invoked
+  lambdas; each checked `yield` becomes a return from that lambda, and mutable
+  captured targets keep the ordinary boxed-local assignment representation
 - declaration-`else` evaluates its subject once, exposes either the full
   subject or captured failure payload in the handler, and extracts the narrowed
   success/non-null value only after the handler; it removes one runtime layer,
@@ -488,6 +494,7 @@ Primary modules:
 - `selfhost/checker.do`
 - `selfhost/emitter-expr-ops.do`
 - `selfhost/emitter-case-pattern.do`
+- `selfhost/emitter-expr-control.do`
 - `selfhost/emitter-stmt.do`
 
 Validation anchors:

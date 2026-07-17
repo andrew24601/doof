@@ -26,10 +26,9 @@ The largest remaining gaps are:
 1. **Package graph and build handoff:** declared local/remote dependencies,
    external dependency acquisition, Git/cache acquisition, pkg-config
    resolution, provenance, and `doof-build.json` are reference-only.
-2. **Language surface:** `weak` references, generic constraints, catch
-   expressions, yield-block bindings/reassignment, range
-   patterns, and recorded mock functions/classes are not implemented as full
-   self-hosted vertical slices.
+2. **Language surface:** `weak` references, generic constraints, range patterns,
+   and recorded mock functions/classes are not implemented as full self-hosted
+   vertical slices.
 3. **Reflection and JSON:** the self-host supports a useful automatic JSON
    subset, but not interface/alias dispatch, tuples and the complete reference
    serializability surface. Declaration descriptions, `.metadata`, schema
@@ -111,8 +110,6 @@ Priority meanings:
 | pkg-config | Package metadata is preserved, but self-host build exits with an unsupported error when `pkgConfigPackages` is non-empty. | `selfhost/driver.do`; deferred item in `docs/selfhost-module-acquisition-plan.md`. | P1 | Build a native fixture whose include/link flags come only from pkg-config; cover missing executable and missing package diagnostics. |
 | Generic constraints | The self-host parser consumes a type-parameter constraint after `:` but stores only parameter names, so constraint semantics are discarded. `JsonSerializable` and `Reflectable` do not exist in the self-host semantic type model. | `parseTypeParameterNames()` in `selfhost/parser-declarations.do`; reference constraint handling in `src/checker-decl.ts`, `src/checker-expr.ts`, and `src/checker-member.ts`. | P0 | Preserve constraints in the AST and semantic model; accept valid constrained calls, reject invalid type arguments, and validate decorated concrete instantiations before emission. |
 | Weak references | `weak T` is tokenized but not parsed, checked, or emitted by the self-host. | `TokenType.Weak` exists in `selfhost/lexer.do`, but `selfhost/parser-types.do` has no weak branch and `selfhost/semantic.do` has no weak resolved type. | P0 | Port weak-reference checker and native lifecycle tests, including nullable weak fields, `?.`, `!.`, destruction, and invalid weak targets. |
-| Catch expressions | The `catch` token exists, but the reference `CatchExpression` AST/checker/emitter flow has no self-host equivalent. `catchPanic` is a separate builtin and does not close this gap. | `CatchExpression` in `src/ast.ts` and reference checker/emitter modules; no self-host AST node or parser path. | P1 | Port nested catch-expression, error-union aggregation, scoping, prohibited-return, and native behaviour tests. |
-| Yield-block bindings | Reference `<-` value-producing block initialization/reassignment is not parsed as a self-host AST form. Self-host `yield` currently serves block case-expression arms. | Reference `YieldBlockExpression` and `YieldBlockAssignmentStatement`; self-host lexer has `LeftArrow` but its AST has neither node. | P1 | Port local initialization, reassignment, inferred/declared type, every-path-yield, global rejection, and native execution tests. |
 | Range patterns | Finite range values work in the self-host, but open-ended and range `case` patterns have no dedicated representation/lowering. | Reference `RangePattern`; self-host `CasePattern` contains only type, wildcard, and value patterns. | P1 | Differential tests for `a..b`, `a..<b`, `a..`, `..<b`, exhaustiveness interaction, and invalid non-numeric bounds. |
 | Recorded mocks | `mock import` works, but `mock function`, `mock class`, and typed `.calls` storage/checking/emission are absent. | Explicit limitation in `docs/testing.md`; no mock callable/class fields in the self-host AST. | P1 | Run the reference mock-function/class examples unchanged under the self-host runner, including bodyless panic and per-instance call logs. |
 | Test timeouts | `DOOF_TEST_TIMEOUT_MS` is reference-runner-only. | Explicit limitation in `docs/testing.md`; self-host process wrapper has no timed execution option. | P2 | A hanging test is terminated, reported as a timeout, and does not prevent remaining isolated tests from running. |
@@ -128,6 +125,15 @@ Priority meanings:
 | Differential coverage | Self-host unit/component and release fixtures cover the supported slice, while the much broader reference test corpus is not replayed against both compilers. | Separate `src/*.test.ts` and `selfhost/*.test.do` families; B5/B6 compares self-host output only. | P0 | Add a manifest-driven parity corpus executed by both pipelines, with explicit expected-equal, expected-different, and intentionally-unsupported classifications. |
 
 ## Recently closed gaps
+
+Catch expressions and `<-` yield blocks are now complete self-hosted vertical
+slices. The self-host parser preserves dedicated expression and reassignment
+nodes; the checker infers yield values, enforces every-path production and
+mutable local reassignment, and collects nested catch error channels into
+nullable unions. The emitter lowers both forms to typed IIFEs and redirects
+statement-level `try` failures to the innermost catch block. Parser, checker,
+emitter, decoration, capture, lifecycle, and monomorphization tests cover the
+new paths.
 
 Explicitly typed `Set<T>` and `ReadonlySet<T>` are now implemented as a
 self-hosted vertical slice: dedicated semantic representation, primitive/enum element

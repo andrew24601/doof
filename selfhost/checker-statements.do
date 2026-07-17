@@ -20,7 +20,7 @@ import {
   ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
   ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
-  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
+  YieldStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
 } from "./ast"
@@ -157,6 +157,27 @@ export function checkStatement(state: CheckerState, statement: Statement, scope:
       }
       return false
     }
+    assignment: YieldBlockAssignmentStatement -> {
+      if scope.parent == null {
+        typeError(state, "'<-' yield-block reassignment is only allowed for local variables", assignment.span)
+      }
+      binding := lookupYieldBinding(scope, assignment.name)
+      let expectedType: ResolvedType | null = null
+      if binding != null { expectedType = optionalResolvedType(binding!.type_) }
+      valueType := checkExpression(state, assignment.value, scope, expectedType)
+      if binding == null {
+        typeError(state, "Undefined identifier \"" + assignment.name + "\"", assignment.span)
+        return true
+      }
+      if !binding!.mutable {
+        typeError(state, "Cannot assign to \"" + assignment.name + "\" because it is immutable", assignment.span)
+      }
+      if !isAssignable(valueType, binding!.type_) {
+        typeError(state, "Cannot assign " + typeName(valueType) + " to " + typeName(binding!.type_), assignment.span)
+      }
+      assignment.resolvedType = optionalResolvedType(binding!.type_)
+      return true
+    }
     expression: ExpressionStatement -> {
       expressionType := checkExpression(state, expression.expression, scope, null)
       case expressionType {
@@ -213,6 +234,14 @@ export function checkValueDeclaration(state: CheckerState, declaration: Statemen
     binding: ImmutableBinding -> { name = binding.name; annotation = binding.type_; value = binding.value; elseBlock = binding.else_; failureName = binding.failureName }
     let_: LetDeclaration -> { name = let_.name; annotation = let_.type_; value = let_.value }
     _ -> { return true }
+  }
+  case value {
+    _: YieldBlockExpression -> {
+      if scope.parent == null {
+        typeError(state, "'<-' yield blocks are only allowed in local declarations", declaration.span)
+      }
+    }
+    _ -> { }
   }
   let expectedValueType: ResolvedType | null = null
   if annotation != null && elseBlock == null { expectedValueType = optionalResolvedType(resolveType(state, annotation!, state.info!, scope)) }
@@ -483,6 +512,9 @@ export function checkBlock(state: CheckerState, block: Block, parent: Scope): bo
 }
 
 export function checkTry(state: CheckerState, statement: TryStatement, scope: Scope): bool {
+  if valueYieldScope(scope) != null && catchErrorScope(scope) == null {
+    typeError(state, "'try' cannot be used inside a value-producing block; handle the Result outside the block", statement.span)
+  }
   let value: Expression = Identifier { kind: "identifier", name: "<try>", span: statement.span }
   case statement.binding {
     declaration: ConstDeclaration -> { value = declaration.value }
@@ -495,6 +527,8 @@ export function checkTry(state: CheckerState, statement: TryStatement, scope: Sc
   value.resolvedType = optionalResolvedType(resultValue)
   case resultValue {
     result: ResultResolvedType -> {
+      collector := catchErrorScope(scope)
+      if collector != null { collector!.catchErrorTypes.push(result.errorType) }
       case statement.binding {
         declaration: ConstDeclaration -> {
           declaration.value.resolvedType = optionalResolvedType(resultValue)
@@ -525,6 +559,24 @@ export function checkTry(state: CheckerState, statement: TryStatement, scope: Sc
     _ -> { typeError(state, "try requires a Result expression", value.span) }
   }
   return true
+}
+
+function catchErrorScope(scope: Scope): Scope | null {
+  let current: Scope | null = scope
+  while current != null {
+    if current!.capturesTryErrors { return current }
+    current = current!.parent
+  }
+  return null
+}
+
+function lookupYieldBinding(scope: Scope, name: string): Binding | null {
+  let current: Scope | null = scope
+  while current != null {
+    for binding of current!.bindings { if binding.name == name { return binding } }
+    current = current!.parent
+  }
+  return null
 }
 
 export function checkCase(state: CheckerState, statement: CaseStatement, scope: Scope): bool {

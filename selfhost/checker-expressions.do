@@ -20,7 +20,7 @@ import {
   ReadonlyDeclaration, ReturnStatement, SourceSpan, Statement, StringLiteral,
   ThisExpression, TupleLiteral, TypeAliasDeclaration, TypeAnnotation,
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
-  YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
+  YieldStatement, YieldBlockExpression, CatchExpression, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
 } from "./ast"
@@ -126,6 +126,36 @@ export function checkCasePatterns(state: CheckerState, patterns: CasePattern[], 
 
 export function checkExpression(state: CheckerState, expression: Expression, scope: Scope, expected: ResolvedType | null): ResolvedType {
   case expression {
+    yieldBlock: YieldBlockExpression -> {
+      yieldScope := Scope {
+        parent: scope,
+        inValueYieldBlock: true,
+        yieldType: if expected == null then optionalResolvedType(unknownType()) else expected,
+      }
+      if checkBlock(state, yieldBlock.body, yieldScope) {
+        typeError(state, "Yield blocks must yield a value on every path", yieldBlock.body.span)
+      }
+      resolved := yieldScope.yieldType ?? unknownType()
+      return finish(state, yieldBlock, resolved)
+    }
+    catch_: CatchExpression -> {
+      let errorTypes: ResolvedType[] = []
+      catchScope := Scope { parent: scope, capturesTryErrors: true, catchErrorTypes: errorTypes }
+      checkBlock(state, catch_.body, catchScope)
+      if errorTypes.length == 0 {
+        state.diagnostics.push(Diagnostic {
+          severity: "warning",
+          message: "catch block contains no 'try' statements",
+          span: checkerSemanticSpan(catch_.span),
+          module: state.info!.path,
+        })
+        return finish(state, catch_, nullType())
+      }
+      let members: ResolvedType[] = []
+      for errorType of errorTypes { members.push(errorType) }
+      members.push(nullType())
+      return finish(state, catch_, unionType(members))
+    }
     _: IntLiteral -> {
       if expected != null { case expected! {
         primitiveExpected: PrimitiveType -> {

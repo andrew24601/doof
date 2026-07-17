@@ -12,7 +12,7 @@ import {
   IfStatement, ImmutableBinding, IndexExpression, LambdaExpression,
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration, RetireExpression, ReturnStatement,
   Statement, StringLiteral, ThisExpression, TryStatement, TupleLiteral, UnaryExpression,
-  WhileStatement, WithStatement,
+  WhileStatement, WithStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CatchExpression,
 } from "./ast"
 import { FunctionType, ResolvedType, ResultResolvedType, VoidType } from "./semantic"
 import { EmitContext } from "./emitter-context"
@@ -181,6 +181,7 @@ function scanStatementForLambdas(statement: Statement, result: string[]): void {
         expression: ExpressionStatement -> { scanExpressionForLambdas(expression.expression, result) }
       }
     }
+    assignment: YieldBlockAssignmentStatement -> { scanExpressionForLambdas(assignment.value, result) }
     block: Block -> { scanBlockForLambdas(block, result) }
     _ -> { }
   }
@@ -236,6 +237,8 @@ function scanExpressionForLambdas(expression: Expression, result: string[]): voi
     }
     retire_: RetireExpression -> { scanExpressionForLambdas(retire_.actor, result) }
     actor: ActorCreationExpression -> { for argument of actor.args { scanExpressionForLambdas(argument, result) } }
+    yieldBlock: YieldBlockExpression -> { scanBlockForLambdas(yieldBlock.body, result) }
+    catch_: CatchExpression -> { scanBlockForLambdas(catch_.body, result) }
     _ -> { }
   }
 }
@@ -297,6 +300,7 @@ function collectStatementCaptures(statement: Statement, bodyStart: int, bodyEnd:
         expression: ExpressionStatement -> { collectExpressionCaptures(expression.expression, bodyStart, bodyEnd, result, mutableOnly) }
       }
     }
+    assignment: YieldBlockAssignmentStatement -> { collectExpressionCaptures(assignment.value, bodyStart, bodyEnd, result, mutableOnly) }
     block: Block -> { collectBlockCaptures(block, bodyStart, bodyEnd, result, mutableOnly) }
     _ -> { }
   }
@@ -348,6 +352,8 @@ function collectExpressionCaptures(expression: Expression, bodyStart: int, bodyE
     }
     retire_: RetireExpression -> { collectExpressionCaptures(retire_.actor, bodyStart, bodyEnd, result, mutableOnly) }
     actor: ActorCreationExpression -> { for argument of actor.args { collectExpressionCaptures(argument, bodyStart, bodyEnd, result, mutableOnly) } }
+    yieldBlock: YieldBlockExpression -> { collectBlockCaptures(yieldBlock.body, bodyStart, bodyEnd, result, mutableOnly) }
+    catch_: CatchExpression -> { collectBlockCaptures(catch_.body, bodyStart, bodyEnd, result, mutableOnly) }
     _ -> { }
   }
 }

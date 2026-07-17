@@ -13,7 +13,7 @@ import {
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration,
   RetireExpression, ReturnStatement, SourceSpan, Statement, StringLiteral, TryStatement,
   TupleLiteral, UnaryExpression, WhileStatement, WithStatement, YieldStatement,
-  AsExpression, RangePattern, ValuePattern,
+  AsExpression, RangePattern, ValuePattern, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import { ActorType, Binding, Diagnostic, SemanticLocation, SemanticSpan } from "./semantic"
 
@@ -137,6 +137,7 @@ export function collectStatementExpressions(statement: Statement, result: Expres
         expression: ExpressionStatement -> { collectStatementExpressions(expression, result) }
       }
     }
+    assignment: YieldBlockAssignmentStatement -> { result.push(assignment.value) }
     export_: ExportDeclaration -> { collectStatementExpressions(export_.declaration, result) }
     block: Block -> { collectBlockExpressions(block, result) }
     _ -> { }
@@ -188,6 +189,8 @@ export function collectNestedExpressions(expression: Expression, result: Express
         }
       }
     }
+    yieldBlock: YieldBlockExpression -> { collectBlockExpressions(yieldBlock.body, result) }
+    catch_: CatchExpression -> { collectBlockExpressions(catch_.body, result) }
     async_: AsyncExpression -> {
       case async_.expression {
         block: Block -> { collectBlockExpressions(block, result) }

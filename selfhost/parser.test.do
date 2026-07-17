@@ -6,12 +6,45 @@ import {
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
   ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, UnionType, YieldStatement,
-  MockImportDirective, WeakType,
+  MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
 function first(source: string): Statement {
   return parse(source).statements[0]
+}
+
+export function testParsesYieldBlockDeclarationsAndReassignment(): void {
+  program := parse("function main(): int { let value <- { yield 1 }\nvalue <- { yield value + 1 }\nreturn value }")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> { case fn.body {
+      block: Block -> {
+        case block.statements[0] {
+          declaration: LetDeclaration -> { case declaration.value {
+            _: YieldBlockExpression -> { }
+            _ -> { panic("expected yield-block initializer") }
+          } }
+          _ -> { panic("expected let declaration") }
+        }
+        case block.statements[1] {
+          assignment: YieldBlockAssignmentStatement -> { Assert.equal(assignment.name, "value") }
+          _ -> { panic("expected yield-block reassignment") }
+        }
+      }
+      _ -> { panic("expected function block") }
+    } }
+    _ -> { panic("expected function") }
+  }
+}
+
+export function testParsesCatchExpression(): void {
+  case first("error := catch { try load() }") {
+    binding: ImmutableBinding -> { case binding.value {
+      catch_: CatchExpression -> { Assert.equal(catch_.body.statements.length, 1) }
+      _ -> { panic("expected catch expression") }
+    } }
+    _ -> { panic("expected immutable binding") }
+  }
 }
 
 export function testParsesWeakFieldAndTypeQualifiers(): void {

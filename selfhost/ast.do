@@ -318,13 +318,28 @@ export class ActorCreationExpression {
   span: SourceSpan
 }
 
+export class YieldBlockExpression {
+  kind: string = "yield-block-expression"
+  body: Block
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
+export class CatchExpression {
+  kind: string = "catch-expression"
+  body: Block
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
 export type Expression =
   IntLiteral | LongLiteral | FloatLiteral | DoubleLiteral | StringLiteral |
   CharLiteral | BoolLiteral | NullLiteral | Identifier | BinaryExpression |
   UnaryExpression | AssignmentExpression | MemberExpression | IndexExpression |
   CallExpression | ArrayLiteral | ObjectLiteral | TupleLiteral |
   LambdaExpression | IfExpression | CaseExpression | ConstructExpression | DotShorthand |
-  ThisExpression | CallerExpression | AsyncExpression | RetireExpression | AsExpression | ActorCreationExpression
+  ThisExpression | CallerExpression | AsyncExpression | RetireExpression | AsExpression | ActorCreationExpression |
+  YieldBlockExpression | CatchExpression
 
 export class Parameter {
   name: string
@@ -411,6 +426,14 @@ export class ReturnStatement {
 export class YieldStatement {
   kind: string
   value: Expression
+  span: SourceSpan
+}
+
+export class YieldBlockAssignmentStatement {
+  kind: string = "yield-block-assignment-statement"
+  name: string
+  value: YieldBlockExpression
+  resolvedType: ResolvedType | null = null
   span: SourceSpan
 }
 
@@ -703,7 +726,7 @@ export type Statement =
   ExportDeclaration | ExportList | IfStatement | CaseStatement | WhileStatement |
   ForStatement | ForOfStatement | WithStatement | ReturnStatement |
   YieldStatement | BreakStatement | ContinueStatement | ExpressionStatement |
-  DestructuringStatement | TryStatement | Block
+  DestructuringStatement | TryStatement | YieldBlockAssignmentStatement | Block
 
 export class Program {
   kind: string
