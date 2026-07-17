@@ -100,6 +100,14 @@ checks and builds the complete `std/http` barrel used by
 dependencies. Native type aliases are derived from resolved extern signatures,
 including re-exported types, and package-relative generated headers are
 forwarding wrappers to one canonical header rather than duplicate definitions.
+
+The self-hosted destructuring surface now matches the reference implementation
+for positional tuple/class/struct patterns, arrays, named fields and aliases,
+mutable and immutable declarations, assignment, and `try` success payloads.
+Line-leading `[` follows the reference parser rule and starts a new statement;
+postfix indexing requires the bracket to remain on the preceding expression's
+line. Array lowering performs the same minimum-size check and source-attributed
+bounds access as the reference emitter.
 The macOS manifest selects the Objective-C++ backend and Foundation without
 curl or pkg-config inputs. A deterministic localhost runtime binary is always
 built; execution is enabled with `DOOF_HTTP_RUNTIME_TEST=1` on hosts that permit

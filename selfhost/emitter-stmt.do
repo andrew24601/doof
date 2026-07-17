@@ -10,13 +10,14 @@ import {
   WhileStatement, CaseStatement, NamedType, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   Identifier, BreakStatement, ContinueStatement, DestructuringStatement, ForOfStatement, ForStatement, BinaryExpression,
   TryStatement, WithStatement, YieldStatement, YieldBlockAssignmentStatement,
-  MockImportDirective,
+  MockImportDirective, ClassDeclaration, ExportDeclaration,
 } from "./ast"
 import type { TypeAnnotation } from "./ast"
 import { ArrayResolvedType, ClassType, InterfaceType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext, isCapturedMutable, recordCoverageLine } from "./emitter-context"
 import { emitCaseTypePattern } from "./emitter-case-pattern"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
+import { quote } from "./emitter-expr-literals"
 import { emitType, specializeEmitType, usesVariantRepresentation } from "./emitter-types"
 
 export function emitBlock(block: Block, level: int, context: EmitContext): string {
@@ -96,11 +97,37 @@ function emitWith(statement: WithStatement, level: int, context: EmitContext): s
 }
 
 function emitDestructuring(statement: DestructuringStatement, level: int, context: EmitContext): string {
+  return emitDestructuringValue(statement, emitExpression(statement.value, context), statement.value.resolvedType, level, context)
+}
+
+/** Lowers every destructuring shape after evaluating its source exactly once. */
+function emitDestructuringValue(statement: DestructuringStatement, source: string, sourceType: ResolvedType | null, level: int, context: EmitContext): string {
   ind := indent(level)
   context.tryCounter = context.tryCounter + 1
   temporaryName := "_destructure_" + string(context.tryCounter)
-  let result = ind + "auto " + temporaryName + " = " + emitExpression(statement.value, context) + ";\n"
-  sourceType := statement.value.resolvedType
+  let result = ind + "const auto& " + temporaryName + " = " + source + ";\n"
+  if statement.kind.startsWith("array-destructuring") {
+    location := quote(context.modulePath) + ", " + string(statement.span.start.line)
+    result = result + ind + "doof::array_require_min_size(" + temporaryName + ", " + string(statement.bindings.length) + ", " + location + ");\n"
+  }
+  if statement.kind.startsWith("named-destructuring") {
+    for binding of statement.namedBindings {
+      value := emitDestructuredField(temporaryName, binding.name, sourceType, context)
+      localName := binding.alias ?? binding.name
+      if statement.kind.endsWith("-assignment") { result = result + ind + emitAssignmentTarget(localName, context) + " = " + value + ";\n" }
+      else {
+        qualifier := if statement.bindingKind == "let" then "auto" else "const auto"
+        result = result + ind + qualifier + " " + cppIdentifier(localName) + " = " + value + ";\n"
+      }
+    }
+    return result
+  }
+
+  let positionalFields: string[] = []
+  if sourceType != null { case sourceType! {
+    class_: ClassType -> { positionalFields = classFieldNames(class_, context) }
+    _ -> { }
+  } }
   for i of 0..<statement.bindings.length {
     name := statement.bindings[i]
     if name != "_" {
@@ -108,19 +135,66 @@ function emitDestructuring(statement: DestructuringStatement, level: int, contex
       let value = "std::get<" + string(i) + ">(" + temporaryName + ")"
       if sourceType != null {
         case sourceType! {
-          _: ArrayResolvedType -> { value = "(*" + temporaryName + ")[" + string(i) + "]" }
+          _: ArrayResolvedType -> { value = "doof::array_at(" + temporaryName + ", " + string(i) + ", " + quote(context.modulePath) + ", " + string(statement.span.start.line) + ")" }
           _: TupleResolvedType -> { }
+          class_: ClassType -> {
+            if i < positionalFields.length { value = emitDestructuredField(temporaryName, positionalFields[i], class_, context) }
+          }
           _ -> { }
         }
       }
       if statement.kind.endsWith("-assignment") {
-        result = result + ind + cppIdentifier(name) + " = " + value + ";\n"
+        result = result + ind + emitAssignmentTarget(name, context) + " = " + value + ";\n"
       } else {
         result = result + ind + qualifier + " " + cppIdentifier(name) + " = " + value + ";\n"
       }
     }
   }
   return result
+}
+
+function emitDestructuredField(source: string, field: string, sourceType: ResolvedType | null, context: EmitContext): string {
+  if sourceType != null { case sourceType! {
+    class_: ClassType -> {
+      accessor := if class_.symbol.kind == "struct" then "." else "->"
+      return source + accessor + cppIdentifier(field)
+    }
+    _: InterfaceType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(field) + "; }, " + source + ")" }
+    _ -> { }
+  } }
+  return source + "." + cppIdentifier(field)
+}
+
+function classFieldNames(class_: ClassType, context: EmitContext): string[] {
+  let result: string[] = []
+  declaration := findClassDeclaration(class_, context)
+  if declaration == null { return result }
+  for field of declaration!.fields {
+    if field.static_ { continue }
+    for name of field.names { result.push(name) }
+  }
+  return result
+}
+
+function findClassDeclaration(class_: ClassType, context: EmitContext): ClassDeclaration | null {
+  for program of context.allPrograms { for statement of program.statements {
+    candidate := statementClass(statement)
+    if candidate != null && candidate!.resolvedSymbol != null && candidate!.resolvedSymbol!.module == class_.symbol.module && candidate!.name == class_.name { return candidate }
+  } }
+  return null
+}
+
+function statementClass(statement: Statement): ClassDeclaration | null {
+  case statement {
+    class_: ClassDeclaration -> { return class_ }
+    export_: ExportDeclaration -> { return statementClass(export_.declaration) }
+    _ -> { return null }
+  }
+  return null
+}
+
+function emitAssignmentTarget(name: string, context: EmitContext): string {
+  return if isCapturedMutable(context, name) then "(*" + cppIdentifier(name) + ")" else cppIdentifier(name)
 }
 
 function emitBindingElse(binding: ImmutableBinding, level: int, context: EmitContext): string {
@@ -178,6 +252,7 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
     binding: ImmutableBinding -> { value = binding.value }
     declaration: LetDeclaration -> { value = declaration.value }
     expression: ExpressionStatement -> { value = expression.expression }
+    destructuring: DestructuringStatement -> { value = destructuring.value }
   }
   if context.catchVarName != "" {
       let output = ind + "auto " + temporaryName + " = " + emitExpression(value, context) + ";\n"
@@ -204,6 +279,7 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
         binding: ImmutableBinding -> { output = output + ind + "const auto " + cppIdentifier(binding.name) + " = doof::success_value(" + temporaryName + ");\n" }
         declaration: LetDeclaration -> { output = output + ind + "auto " + cppIdentifier(declaration.name) + " = doof::success_value(" + temporaryName + ");\n" }
         _: ExpressionStatement -> { }
+        destructuring: DestructuringStatement -> { output = output + emitTryDestructuring(destructuring, temporaryName, level, context) }
       }
       return output
   }
@@ -225,11 +301,21 @@ function emitTry(statement: TryStatement, level: int, context: EmitContext): str
           output = output + ind + "auto " + cppIdentifier(declaration.name) + " = doof::success_value(" + temporaryName + ");\n"
         }
         _: ExpressionStatement -> { }
+        destructuring: DestructuringStatement -> { output = output + emitTryDestructuring(destructuring, temporaryName, level, context) }
       }
       return output
   }
   panic("try expression is outside a Result-returning function")
   return ""
+}
+
+function emitTryDestructuring(statement: DestructuringStatement, temporaryName: string, level: int, context: EmitContext): string {
+  let successType: ResolvedType | null = null
+  if statement.value.resolvedType != null { case statement.value.resolvedType! {
+    result: ResultResolvedType -> { successType = result.valueType }
+    _ -> { }
+  } }
+  return emitDestructuringValue(statement, "doof::success_value(" + temporaryName + ")", successType, level, context)
 }
 
 function emitLocalDeclaration(ind: string, name: string, annotation: TypeAnnotation | null, resolvedType: ResolvedType | null, value: Expression, context: EmitContext, readonly_: bool, shallowImmutable: bool = false): string {

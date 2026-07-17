@@ -523,7 +523,8 @@ Strategy:
 - mutable and readonly set types share the C++ carrier but remain distinct and
   invariant in the checker; only the explicit freeze/copy helpers cross that
   semantic boundary
-- destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature
+- destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature; tuple positions use `std::get`, nominal positions and named bindings use representation-aware field access, and array patterns use checked `array_require_min_size` / `array_at` runtime helpers
+- both emitters evaluate the destructured source once, preserve `_` discards, and apply the same lowering to immutable/mutable declarations, assignment targets, and unwrapped `try` success payloads
 - collection behavior depends on both type lowering and statement or expression emission helpers
 
 Primary modules:
@@ -531,6 +532,7 @@ Primary modules:
 - `src/emitter-types.ts`
 - `src/emitter-stmt.ts`
 - `src/emitter-expr-ops.ts`
+- `selfhost/emitter-stmt.do`
 - `selfhost/emitter-expr-calls.do`
 
 Validation anchors:

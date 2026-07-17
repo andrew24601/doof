@@ -951,3 +951,22 @@ export function testEmitsCatchExpressionsWithRedirectedTryFailures(): void {
   Assert.stringContains(result.source, "doof::failure_error(_try_value_")
   Assert.stringContains(result.source, "break;")
 }
+
+export function testEmitsCompleteDestructuringSurface(): void {
+  result := emit("class Person { name: string\nage: int }\nstruct Pair { left: int\nright: string }\nfunction main(): int { values := [1, 2, 3]\n[first, _, third] := values\nperson := Person { name: \"Ada\", age: 37 }\n{ name as displayName, age } := person\npair := Pair { left: 4, right: \"ok\" }\n(left, right) := pair\nlet target = 0\n[target, _] = values\nlet renamed = \"\"\n{ name as renamed } = person\nreturn first + third + age + left + target + displayName.length + right.length + renamed.length }")
+  Assert.stringContains(result.source, "doof::array_require_min_size(")
+  Assert.stringContains(result.source, "doof::array_at(")
+  Assert.stringContains(result.source, "->name")
+  Assert.stringContains(result.source, "->age")
+  Assert.stringContains(result.source, ".left")
+  Assert.stringContains(result.source, ".right")
+  Assert.stringContains(result.source, "target = doof::array_at(")
+  Assert.stringContains(result.source, "renamed = _destructure_")
+}
+
+export function testEmitsTryDestructuringFromSuccessPayload(): void {
+  result := emit("function load(): Result<Tuple<int, int>, string> => Success { value: (1, 2) }\nfunction run(): Result<int, string> { try (left, right) := load()\nreturn Success { value: left + right } }")
+  Assert.stringContains(result.source, "doof::success_value(_try_value_")
+  Assert.stringContains(result.source, "std::get<0>(")
+  Assert.stringContains(result.source, "std::get<1>(")
+}

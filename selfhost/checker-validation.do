@@ -122,6 +122,7 @@ export function validateStatement(statement: Statement, module: string, diagnost
         binding: ImmutableBinding -> { validateStatement(binding, module, diagnostics) }
         declaration: LetDeclaration -> { validateStatement(declaration, module, diagnostics) }
         expression: ExpressionStatement -> { validateStatement(expression, module, diagnostics) }
+        destructuring: DestructuringStatement -> { validateStatement(destructuring, module, diagnostics) }
       }
     }
     export_: ExportDeclaration -> { validateStatement(export_.declaration, module, diagnostics) }

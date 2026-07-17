@@ -6,7 +6,7 @@ import {
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
   ActorCreationExpression, CaseExpression, EnumDeclaration, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, TypeAliasDeclaration, UnionType, YieldStatement,
-  MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement,
+  MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement, DestructuringStatement,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
@@ -773,5 +773,93 @@ export function testParsesIsolatedNativeFunction(): void {
       Assert.equal(fn.native_, true)
     }
     _ -> { panic("expected isolated native function") }
+  }
+}
+
+export function testParsesDestructuringDeclarationsAndAssignments(): void {
+  program := parse("function main(): void { values := [1, 2, 3]\n[first, _, third] := values\nlet (left, right) = (1, 2)\n{ name as displayName, age } := Person { name: \"Ada\", age: 37 }\n[first, third] = values\n(left, right) = (3, 4)\n{ name as displayName } = Person { name: \"Grace\", age: 40 } }")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> { case fn.body {
+      block: Block -> {
+        for i of 1..<7 {
+          case block.statements[i] {
+            destructuring: DestructuringStatement -> {
+              if i == 1 { Assert.equal(destructuring.kind, "array-destructuring") }
+              if i == 2 { Assert.equal(destructuring.kind, "positional-destructuring"); Assert.equal(destructuring.bindingKind, "let") }
+              if i == 3 { Assert.equal(destructuring.kind, "named-destructuring"); Assert.equal(destructuring.namedBindings[0].alias, "displayName") }
+              if i == 4 { Assert.equal(destructuring.kind, "array-destructuring-assignment") }
+              if i == 5 { Assert.equal(destructuring.kind, "positional-destructuring-assignment") }
+              if i == 6 { Assert.equal(destructuring.kind, "named-destructuring-assignment") }
+            }
+            _ -> { panic("expected destructuring statement") }
+          }
+        }
+      }
+      _ -> { panic("expected function block") }
+    } }
+    _ -> { panic("expected function") }
+  }
+}
+
+export function testParsesLineLeadingArrayDestructuringAfterExpression(): void {
+  program := parse("function main(): void { println(\"ready\")\n[first, second] := [1, 2] }")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> { case fn.body {
+      block: Block -> {
+        Assert.equal(block.statements.length, 2)
+        case block.statements[1] {
+          destructuring: DestructuringStatement -> { Assert.equal(destructuring.kind, "array-destructuring") }
+          _ -> { panic("expected array destructuring") }
+        }
+      }
+      _ -> { panic("expected function block") }
+    } }
+    _ -> { panic("expected function") }
+  }
+}
+
+export function testTreatsEveryLineLeadingArrayAsANewStatement(): void {
+  program := parse("function main(): void { println(\"ready\")\n[1, 2, 3] }")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> { case fn.body {
+      block: Block -> {
+        Assert.equal(block.statements.length, 2)
+        case block.statements[1] {
+          expression: ExpressionStatement -> { case expression.expression {
+            _: ArrayLiteral -> { }
+            _ -> { panic("expected array literal") }
+          } }
+          _ -> { panic("expected expression statement") }
+        }
+      }
+      _ -> { panic("expected function block") }
+    } }
+    _ -> { panic("expected function") }
+  }
+}
+
+export function testParsesTryDestructuringForms(): void {
+  program := parse("function load(): Result<Tuple<int, int>, string> => Success { value: (1, 2) }\nfunction run(): Result<int, string> { try (left, right) := load()\nlet a = 0\nlet b = 0\ntry (a, b) = load()\nreturn Success { value: left + right + a + b } }")
+  case program.statements[1] {
+    fn: FunctionDeclaration -> { case fn.body {
+      block: Block -> {
+        case block.statements[0] {
+          try_: TryStatement -> { case try_.binding {
+            destructuring: DestructuringStatement -> { Assert.equal(destructuring.kind, "positional-destructuring") },
+            _ -> { panic("expected try destructuring") }
+          } },
+          _ -> { panic("expected try") }
+        }
+        case block.statements[3] {
+          try_: TryStatement -> { case try_.binding {
+            destructuring: DestructuringStatement -> { Assert.equal(destructuring.kind, "positional-destructuring-assignment") },
+            _ -> { panic("expected try destructuring assignment") }
+          } },
+          _ -> { panic("expected try") }
+        }
+      }
+      _ -> { panic("expected function block") }
+    } }
+    _ -> { panic("expected function") }
   }
 }

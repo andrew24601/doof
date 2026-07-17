@@ -85,6 +85,9 @@ export function parseLet(parser: Parser): Statement {
   if parser.check(TokenType.LeftParen) && parser.looksLikePattern(TokenType.Equal) {
     return parser.parseDestructuring("positional", "let", TokenType.Equal)
   }
+  if parser.check(TokenType.LeftBrace) && parser.looksLikePattern(TokenType.Equal) {
+    return parser.parseDestructuring("named", "let", TokenType.Equal)
+  }
   name := parser.text(parser.expect(TokenType.Identifier))
   typeValue := parser.parseOptionalType()
   value := parseInitializer(parser)

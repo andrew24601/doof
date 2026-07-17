@@ -594,22 +594,21 @@ let userName = ""
 - Destructuring assignment uses the same positional, array, and named shape rules as destructuring declarations
 - `try` also supports destructuring assignment, for example `try [a, b] = load()`
 
-### Destructuring in Function Parameters
+### Function Parameters
+
+Destructuring patterns are not currently accepted directly in function
+parameters. Accept the value as an ordinary parameter and destructure it at the
+start of the function body:
 
 ```javascript
-// Positional
-function magnitude((x, y, z): Point): float {
+function magnitude(point: Point): float {
+    (x, y, z) := point
     return sqrt(x*x + y*y + z*z)
 }
 
-// Named
-function greet({ name, age }: User): string {
+function greet(user: User): string {
+    { name, age } := user
     return "Hello ${name}, you are ${age}"
-}
-
-// Tuple parameter destructuring
-function formatPair((key, value): Tuple<string, int>): string {
-    return "${key}: ${value}"
 }
 ```
 

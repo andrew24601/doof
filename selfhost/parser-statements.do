@@ -7,9 +7,9 @@ import {
   CasePattern, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   IfStatement, WhileStatement, ForOfStatement, ForStatement, WithStatement,
   BreakStatement, ContinueStatement, ReturnStatement, YieldStatement,
-  ExpressionStatement, DestructuringStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, TryStatement,
+  ExpressionStatement, DestructuringStatement, DestructureBinding, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, TryStatement,
   UnaryExpression, Identifier, LetDeclaration, LambdaExpression, CallExpression,
-  CallArgument, SourceSpan, YieldBlockExpression, YieldBlockAssignmentStatement,
+  CallArgument, AstLocation, SourceSpan, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation } from "./ast"
 
@@ -58,10 +58,24 @@ export function parseStatement(parser: Parser): Statement {
     if looksLikePattern(parser, TokenType.ColonEqual) {
       return parseDestructuring(parser, "array", "immutable", TokenType.ColonEqual)
     }
+    if looksLikePattern(parser, TokenType.Equal) {
+      return parseDestructuring(parser, "array", "assignment", TokenType.Equal)
+    }
   }
   if parser.check(TokenType.LeftParen) {
     if looksLikePattern(parser, TokenType.ColonEqual) {
       return parseDestructuring(parser, "positional", "immutable", TokenType.ColonEqual)
+    }
+    if looksLikePattern(parser, TokenType.Equal) {
+      return parseDestructuring(parser, "positional", "assignment", TokenType.Equal)
+    }
+  }
+  if parser.check(TokenType.LeftBrace) {
+    if looksLikePattern(parser, TokenType.ColonEqual) {
+      return parseDestructuring(parser, "named", "immutable", TokenType.ColonEqual)
+    }
+    if looksLikePattern(parser, TokenType.Equal) {
+      return parseDestructuring(parser, "named", "assignment", TokenType.Equal)
     }
   }
   if parser.check(TokenType.LeftBrace) { parser.fail("Bare block statements are not allowed") }
@@ -326,12 +340,21 @@ export function looksLikePattern(parser: Parser, separator: TokenType): bool {
 
 export function parseDestructuring(parser: Parser, shape: string, bindingKind: string, separator: TokenType): Statement {
   start := parser.location()
-  close := if shape == "array" then TokenType.RightBracket else TokenType.RightParen
-  open := if shape == "array" then TokenType.LeftBracket else TokenType.LeftParen
+  let close = TokenType.RightParen
+  let open = TokenType.LeftParen
+  if shape == "array" { close = TokenType.RightBracket; open = TokenType.LeftBracket }
+  if shape == "named" { close = TokenType.RightBrace; open = TokenType.LeftBrace }
   parser.expect(open)
   let bindings: string[] = []
+  let namedBindings: DestructureBinding[] = []
   while !parser.check(close) && !parser.atEnd() {
-    if parser.check(TokenType.Underscore) { bindings.push("_"); parser.advance() }
+    bindingStart := parser.location()
+    if shape == "named" {
+      name := parser.text(parser.expect(TokenType.Identifier))
+      let alias: string | null = null
+      if parser.match(TokenType.As) { alias = parser.text(parser.expect(TokenType.Identifier)) }
+      namedBindings.push(DestructureBinding { name, alias, span: parser.span(bindingStart) })
+    } else if parser.check(TokenType.Underscore) { bindings.push("_"); parser.advance() }
     else { bindings.push(parser.text(parser.expect(TokenType.Identifier))) }
     if !parser.match(TokenType.Comma) { break }
   }
@@ -339,9 +362,9 @@ export function parseDestructuring(parser: Parser, shape: string, bindingKind: s
   parser.expect(separator)
   value := parser.parseExpression()
   parser.consumeSemicolon()
-  let kind = if shape == "array" then "array-destructuring" else "positional-destructuring"
-  if separator == TokenType.Equal { kind = kind + "-assignment" }
-  return DestructuringStatement { kind, bindings, bindingKind, value, span: parser.span(start) }
+  let kind = if shape == "array" then "array-destructuring" else if shape == "named" then "named-destructuring" else "positional-destructuring"
+  if bindingKind == "assignment" { kind = kind + "-assignment" }
+  return DestructuringStatement { kind, bindings, namedBindings, bindingKind, value, span: parser.span(start) }
 }
 
 function parseExpressionStatement(parser: Parser): Statement {
@@ -443,8 +466,21 @@ export function parseTryStatement(parser: Parser): Statement {
   if parser.check(TokenType.Let) {
     case parser.parseLet() {
       binding: LetDeclaration -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
+      binding: DestructuringStatement -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
       _ -> { parser.fail("Expected named let declaration after try") }
     }
+  }
+  if parser.check(TokenType.LeftBracket) {
+    if looksLikePattern(parser, TokenType.ColonEqual) { return wrapTryDestructuring(parser, start, "array", "immutable", TokenType.ColonEqual) }
+    if looksLikePattern(parser, TokenType.Equal) { return wrapTryDestructuring(parser, start, "array", "assignment", TokenType.Equal) }
+  }
+  if parser.check(TokenType.LeftParen) {
+    if looksLikePattern(parser, TokenType.ColonEqual) { return wrapTryDestructuring(parser, start, "positional", "immutable", TokenType.ColonEqual) }
+    if looksLikePattern(parser, TokenType.Equal) { return wrapTryDestructuring(parser, start, "positional", "assignment", TokenType.Equal) }
+  }
+  if parser.check(TokenType.LeftBrace) {
+    if looksLikePattern(parser, TokenType.ColonEqual) { return wrapTryDestructuring(parser, start, "named", "immutable", TokenType.ColonEqual) }
+    if looksLikePattern(parser, TokenType.Equal) { return wrapTryDestructuring(parser, start, "named", "assignment", TokenType.Equal) }
   }
   if parser.check(TokenType.Identifier) && parser.peek(1).kind == TokenType.ColonEqual {
     name := parser.text(parser.advance())
@@ -466,6 +502,14 @@ export function parseTryStatement(parser: Parser): Statement {
     binding: ExpressionStatement { kind: "expression-statement", expression: value, span: parser.span(start) },
     span: parser.span(start),
   }
+}
+
+function wrapTryDestructuring(parser: Parser, start: AstLocation, shape: string, bindingKind: string, separator: TokenType): Statement {
+  case parseDestructuring(parser, shape, bindingKind, separator) {
+    binding: DestructuringStatement -> { return TryStatement { kind: "try-statement", binding, span: parser.span(start) } }
+    _ -> { parser.fail("Expected destructuring after try") }
+  }
+  return ExpressionStatement { kind: "expression-statement", expression: Identifier { kind: "identifier", name: "<error>", span: parser.locationSpan() }, span: parser.span(start) }
 }
 
 function parseInitializer(parser: Parser): Expression {

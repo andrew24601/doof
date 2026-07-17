@@ -37,9 +37,9 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 
 import { CheckerState } from "./checker-state"
 import { checkCasePatterns, checkExpression, addClassMethods, nonNullType, hasNullMember } from "./checker-expressions"
-import { resolveType } from "./checker-resolution"
+import { resolveType, memberType } from "./checker-resolution"
 import { typeError, requireBool } from "./checker-common"
-import { decorateAnnotationWithResolved, blockContainsLoopExit, optionalResolvedType, resolveAnnotation, declare, declareShadowing, returnScope, valueYieldScope, iterableElement, isPanicCall, symbolFor, declarationFor } from "./checker-symbols"
+import { decorateAnnotationWithResolved, blockContainsLoopExit, optionalResolvedType, resolveAnnotation, declare, declareShadowing, lookup, returnScope, valueYieldScope, iterableElement, isPanicCall, symbolFor, declarationFor } from "./checker-symbols"
 import { symbolSpan, addImplementedInterfaceType, classSatisfiesConcreteInterface } from "./checker-interfaces"
 import { checkerSemanticSpan } from "./checker-validation"
 
@@ -187,29 +187,7 @@ export function checkStatement(state: CheckerState, statement: Statement, scope:
       return !isPanicCall(expression.expression)
     }
     destructuring: DestructuringStatement -> {
-      valueType := checkExpression(state, destructuring.value, scope, null)
-      if !destructuring.kind.endsWith("-assignment") {
-        let bindingTypes: ResolvedType[] = []
-        case valueType {
-          tuple: TupleResolvedType -> { for element of tuple.elements { bindingTypes.push(element) } }
-          array: ArrayResolvedType -> { for ignoredName of destructuring.bindings { bindingTypes.push(array.elementType) } }
-          _ -> { }
-        }
-        for i of 0..<destructuring.bindings.length {
-          name := destructuring.bindings[i]
-          if name != "_" {
-            bindingType := if i < bindingTypes.length then bindingTypes[i] else unknownType()
-            declare(scope, Binding {
-              name,
-              kind: if destructuring.bindingKind == "let" then "let" else "immutable-binding",
-              type_: bindingType,
-              mutable: destructuring.bindingKind == "let",
-              span: checkerSemanticSpan(destructuring.span),
-              module: state.info!.path,
-            })
-          }
-        }
-      }
+      checkDestructuring(state, destructuring, scope, null)
       return true
     }
     try_: TryStatement -> { return checkTry(state, try_, scope) }
@@ -532,6 +510,7 @@ export function checkTry(state: CheckerState, statement: TryStatement, scope: Sc
     binding: ImmutableBinding -> { value = binding.value }
     declaration: LetDeclaration -> { value = declaration.value }
     expression: ExpressionStatement -> { value = expression.expression }
+    destructuring: DestructuringStatement -> { value = destructuring.value }
   }
   resultValue := checkExpression(state, value, scope, null)
   value.resolvedType = optionalResolvedType(resultValue)
@@ -564,11 +543,88 @@ export function checkTry(state: CheckerState, statement: TryStatement, scope: Sc
           declare(scope, Binding { name: declaration.name, kind: "let", type_: result.valueType, mutable: true, span: checkerSemanticSpan(declaration.span), module: state.info!.path })
         }
         expression: ExpressionStatement -> { expression.expression.resolvedType = optionalResolvedType(resultValue) }
+        destructuring: DestructuringStatement -> {
+          destructuring.value.resolvedType = optionalResolvedType(resultValue)
+          checkDestructuring(state, destructuring, scope, result.valueType)
+        }
       }
     }
     _ -> { typeError(state, "try requires a Result expression", value.span) }
   }
   return true
+}
+
+/** Checks declaration and assignment destructuring against an already-resolved source shape. */
+function checkDestructuring(state: CheckerState, statement: DestructuringStatement, scope: Scope, sourceType: ResolvedType | null): void {
+  valueType := if sourceType == null then checkExpression(state, statement.value, scope, null) else sourceType!
+  let bindingTypes: ResolvedType[] = []
+
+  if statement.kind.startsWith("array-destructuring") {
+    case valueType {
+      array: ArrayResolvedType -> { for ignored of statement.bindings { bindingTypes.push(array.elementType) } }
+      _ -> { typeError(state, "Array destructuring requires a T[] value, but got \"" + typeName(valueType) + "\"", statement.value.span) }
+    }
+  } else if statement.kind.startsWith("positional-destructuring") {
+    bindingTypes = positionalDestructuringTypes(state, valueType, statement.value.span)
+    if bindingTypes.length < statement.bindings.length {
+      typeError(state, "Positional destructuring expected at least " + string(statement.bindings.length) + " values, but got " + string(bindingTypes.length), statement.span)
+    }
+  }
+
+  if statement.kind.startsWith("named-destructuring") {
+    for named of statement.namedBindings {
+      localName := named.alias ?? named.name
+      fieldType := memberType(state, valueType, named.name, named.span)
+      if fieldType.kind == "unknown" { typeError(state, "Type \"" + typeName(valueType) + "\" has no field \"" + named.name + "\"", named.span) }
+      if statement.kind.endsWith("-assignment") { validateDestructuringTarget(state, scope, localName, fieldType, named.span) }
+      else { declareDestructuredBinding(state, scope, localName, fieldType, statement.bindingKind, named.span) }
+    }
+    return
+  }
+
+  for i of 0..<statement.bindings.length {
+    name := statement.bindings[i]
+    if name == "_" { continue }
+    bindingType := if i < bindingTypes.length then bindingTypes[i] else unknownType()
+    if statement.kind.endsWith("-assignment") { validateDestructuringTarget(state, scope, name, bindingType, statement.span) }
+    else { declareDestructuredBinding(state, scope, name, bindingType, statement.bindingKind, statement.span) }
+  }
+}
+
+function positionalDestructuringTypes(state: CheckerState, valueType: ResolvedType, span: SourceSpan): ResolvedType[] {
+  let result: ResolvedType[] = []
+  case valueType {
+    tuple: TupleResolvedType -> { for element of tuple.elements { result.push(element) } }
+    class_: ClassType -> {
+      declaration := declarationFor(state.result, class_.symbol)
+      if declaration != null { case declaration! {
+        owner: ClassDeclaration -> {
+          for field of owner.fields {
+            if field.static_ { continue }
+            for name of field.names { result.push(memberType(state, class_, name, field.span)) }
+          }
+        }
+        _ -> { }
+      } }
+    }
+    _ -> { typeError(state, "Positional destructuring requires a tuple or nominal object value, but got \"" + typeName(valueType) + "\"", span) }
+  }
+  return result
+}
+
+function declareDestructuredBinding(state: CheckerState, scope: Scope, name: string, type_: ResolvedType, bindingKind: string, span: SourceSpan): void {
+  declare(scope, Binding {
+    name,
+    kind: if bindingKind == "let" then "let" else "immutable-binding",
+    type_, mutable: bindingKind == "let", span: checkerSemanticSpan(span), module: state.info!.path,
+  })
+}
+
+function validateDestructuringTarget(state: CheckerState, scope: Scope, name: string, valueType: ResolvedType, span: SourceSpan): void {
+  target := lookup(scope, name)
+  if target == null { typeError(state, "Destructuring assignment target \"" + name + "\" is not defined", span); return }
+  if !target!.mutable { typeError(state, "Cannot assign to \"" + name + "\" because it is immutable", span) }
+  if !isAssignable(valueType, target!.type_) { typeError(state, "Cannot assign " + typeName(valueType) + " to " + typeName(target!.type_), span) }
 }
 
 function catchErrorScope(scope: Scope): Scope | null {

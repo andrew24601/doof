@@ -187,7 +187,7 @@ function parsePostfix(parser: Parser): Expression {
       property := parser.text(parser.expect(TokenType.Identifier, "Expected member name"))
       expression = MemberExpression { kind: "member-expression", object: expression, property, optional, force, span: SourceSpan { start: expression.span.start, end: parser.location() } }
       typeArgs = []
-    } else if parser.check(TokenType.LeftBracket) || parser.check(TokenType.QuestionBracket) {
+    } else if (parser.check(TokenType.LeftBracket) || parser.check(TokenType.QuestionBracket)) && parser.sameLineAsPrevious() {
       optional := parser.check(TokenType.QuestionBracket)
       parser.advance()
       index := parser.parseExpression()

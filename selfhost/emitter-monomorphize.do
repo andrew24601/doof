@@ -222,6 +222,7 @@ function collectStatement(statement: Statement, modulePath: string, analysis: An
         binding: ImmutableBinding -> { collectStatement(binding, modulePath, analysis, plan, names, arguments) }
         declaration: LetDeclaration -> { collectStatement(declaration, modulePath, analysis, plan, names, arguments) }
         expression: ExpressionStatement -> { collectStatement(expression, modulePath, analysis, plan, names, arguments) }
+        destructuring: DestructuringStatement -> { collectStatement(destructuring, modulePath, analysis, plan, names, arguments) }
       }
     }
     assignment: YieldBlockAssignmentStatement -> { collectExpression(assignment.value, modulePath, analysis, plan, names, arguments) }

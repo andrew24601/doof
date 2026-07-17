@@ -922,3 +922,37 @@ export function testChecksCatchExpressionErrorUnionsAndNesting(): void {
   Assert.equal(warning.diagnostics[0].severity, "warning")
   Assert.equal(warning.diagnostics[0].message.contains("contains no 'try'"), true)
 }
+
+export function testChecksDestructuringDeclarationsAndAssignments(): void {
+  valid := checked("class Person { name: string\nage: int }\nstruct Pair { left: int\nright: string }\nfunction main(): int { values := [1, 2, 3]\n[first, _, third] := values\nperson := Person { name: \"Ada\", age: 37 }\n{ name as displayName, age } := person\npair := Pair { left: 4, right: \"ok\" }\n(left, right) := pair\nlet target = 0\n[target, _] = values\nlet renamed = \"\"\n{ name as renamed } = person\nreturn first + third + age + left + target + displayName.length + right.length + renamed.length }")
+  for diagnostic of valid.diagnostics { println(diagnostic.message) }
+  Assert.equal(valid.diagnostics.length, 0)
+}
+
+export function testRejectsInvalidDestructuringAssignmentsAndShapes(): void {
+  immutable := checked("function main(): void { value := 0\n(value, _) = (1, 2) }")
+  Assert.equal(immutable.diagnostics.length > 0, true)
+  Assert.equal(immutable.diagnostics[0].message.contains("immutable"), true)
+
+  missing := checked("function main(): void { (missing, _) = (1, 2) }")
+  Assert.equal(missing.diagnostics.length > 0, true)
+  Assert.equal(missing.diagnostics[0].message.contains("not defined"), true)
+
+  incompatible := checked("function main(): void { let value = \"\"\n(value, _) = (1, 2) }")
+  Assert.equal(incompatible.diagnostics.length > 0, true)
+  Assert.equal(incompatible.diagnostics[0].message.contains("Cannot assign"), true)
+
+  nonArray := checked("function main(): void { [value] := 1 }")
+  Assert.equal(nonArray.diagnostics.length > 0, true)
+  Assert.equal(nonArray.diagnostics[0].message.contains("Array destructuring requires"), true)
+
+  tooShort := checked("class One { value: int }\nfunction main(): void { (first, second) := One { value: 1 } }")
+  Assert.equal(tooShort.diagnostics.length > 0, true)
+  Assert.equal(tooShort.diagnostics[0].message.contains("expected at least 2"), true)
+}
+
+export function testChecksTryDestructuringAgainstSuccessPayload(): void {
+  result := checked("class Person { name: string\nage: int }\nfunction load(): Result<Person, string> => Success { value: Person { name: \"Ada\", age: 37 } }\nfunction run(): Result<int, string> { try { name, age } := load()\nreturn Success { value: name.length + age } }")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+}

@@ -135,6 +135,7 @@ export function collectStatementExpressions(statement: Statement, result: Expres
         binding: ImmutableBinding -> { collectStatementExpressions(binding, result) }
         declaration: LetDeclaration -> { collectStatementExpressions(declaration, result) }
         expression: ExpressionStatement -> { collectStatementExpressions(expression, result) }
+        destructuring: DestructuringStatement -> { collectStatementExpressions(destructuring, result) }
       }
     }
     assignment: YieldBlockAssignmentStatement -> { result.push(assignment.value) }

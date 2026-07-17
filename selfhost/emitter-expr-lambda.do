@@ -11,7 +11,7 @@ import {
   ExpressionStatement, ForOfStatement, ForStatement, Identifier, IfExpression,
   IfStatement, ImmutableBinding, IndexExpression, LambdaExpression,
   LetDeclaration, MemberExpression, ObjectLiteral, ReadonlyDeclaration, RetireExpression, ReturnStatement,
-  Statement, StringLiteral, ThisExpression, TryStatement, TupleLiteral, UnaryExpression,
+  Statement, StringLiteral, ThisExpression, TryStatement, DestructuringStatement, TupleLiteral, UnaryExpression,
   WhileStatement, WithStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CatchExpression,
 } from "./ast"
 import { FunctionType, ResolvedType, ResultResolvedType, VoidType } from "./semantic"
@@ -179,6 +179,7 @@ function scanStatementForLambdas(statement: Statement, result: string[]): void {
         binding: ImmutableBinding -> { scanExpressionForLambdas(binding.value, result) }
         declaration: LetDeclaration -> { scanExpressionForLambdas(declaration.value, result) }
         expression: ExpressionStatement -> { scanExpressionForLambdas(expression.expression, result) }
+        destructuring: DestructuringStatement -> { scanExpressionForLambdas(destructuring.value, result) }
       }
     }
     assignment: YieldBlockAssignmentStatement -> { scanExpressionForLambdas(assignment.value, result) }
@@ -298,6 +299,7 @@ function collectStatementCaptures(statement: Statement, bodyStart: int, bodyEnd:
         binding: ImmutableBinding -> { collectExpressionCaptures(binding.value, bodyStart, bodyEnd, result, mutableOnly) }
         declaration: LetDeclaration -> { collectExpressionCaptures(declaration.value, bodyStart, bodyEnd, result, mutableOnly) }
         expression: ExpressionStatement -> { collectExpressionCaptures(expression.expression, bodyStart, bodyEnd, result, mutableOnly) }
+        destructuring: DestructuringStatement -> { collectExpressionCaptures(destructuring.value, bodyStart, bodyEnd, result, mutableOnly) }
       }
     }
     assignment: YieldBlockAssignmentStatement -> { collectExpressionCaptures(assignment.value, bodyStart, bodyEnd, result, mutableOnly) }

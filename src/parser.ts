@@ -895,7 +895,7 @@ export class Parser {
   private parseParameter(): Parameter {
     const startLoc = this.loc();
 
-    // Support destructuring parameters: (x, y): Type or { name, age }: Type
+    // Parameters currently use identifier bindings; destructure inside the body.
     const name = this.expect(TokenType.Identifier).value;
     const description = this.parseDescription();
 

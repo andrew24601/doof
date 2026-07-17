@@ -579,16 +579,23 @@ export class ExpressionStatement {
 
 export class DestructuringStatement {
   kind: string
-  bindings: string[]
+  bindings: string[] = []
+  namedBindings: DestructureBinding[] = []
   bindingKind: string
   value: Expression
+  span: SourceSpan
+}
+
+export class DestructureBinding {
+  name: string
+  alias: string | null = null
   span: SourceSpan
 }
 
 // Statement-level Result propagation used by std/json and std/fs.
 export class TryStatement {
   kind: string
-  binding: ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration | ExpressionStatement
+  binding: ConstDeclaration | ReadonlyDeclaration | ImmutableBinding | LetDeclaration | ExpressionStatement | DestructuringStatement
   span: SourceSpan
 }
 
