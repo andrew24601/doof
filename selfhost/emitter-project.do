@@ -32,6 +32,7 @@ export class ProjectEmission {
   supportFiles: ProjectSupportFile[] = []
   nativeCopies: ProjectNativeCopy[] = []
   nativeBuild: NativeBuildPlan = NativeBuildPlan {}
+  wasmExportNames: string[] = []
 }
 
 /** Plans generated support files and native package inputs for one project. */
@@ -40,6 +41,11 @@ export function planProjectEmission(
   packages: NativePackageInput[],
 ): ProjectEmission {
   project := ProjectEmission { modules: graph.modules }
+  if graph.wasmSupportSource != "" {
+    project.supportFiles.push(ProjectSupportFile { relativePath: "doof_wasm.cpp", content: graph.wasmSupportSource })
+    project.nativeBuild.sourceFiles.push("doof_wasm.cpp")
+    project.wasmExportNames = graph.wasmExportNames
+  }
   for package_ of packages {
     planPackageSupportFiles(project, graph, package_)
     planPackageNativeBuild(project, package_)

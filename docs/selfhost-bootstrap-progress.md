@@ -115,6 +115,13 @@ the task boundary later. Clang's generated C++ PCH is attached only to generated
 rejected a `c++-header` PCH. The runtime process helper uses `posix_spawnp` on
 POSIX hosts so actor-threaded compiler launches are safe.
 
+The self-hosted build pipeline also supports WebAssembly library targets. It
+selects `build.native.wasm`, emits the same JSON-over-C-ABI `doof_wasm.cpp`
+wrappers as the reference compiler, materializes `std/json` native support,
+and invokes `em++` with standalone WASM, size/LTO, and explicit export flags.
+The repository WebAssembly sample builds with the generated self-hosted
+compiler and runs through the shared Node host runtime.
+
 Release self-bootstrap also retains computed `for-of` iterable owners in named
 C++ temporaries. Previously the self-hosted emitter dereferenced a temporary
 `shared_ptr` directly in a range-for; `-O2` could destroy the owner before

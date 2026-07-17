@@ -54,6 +54,7 @@ export function parsePackageManifest(
   manifestPath: string,
   rootDirectory: string,
   platform: string,
+  targetOverride: string = "",
 ): Result<PackageManifest, string> {
   try parsed := parseJsonValue(source)
   try root := manifestObject(parsed, manifestPath, "root")
@@ -71,8 +72,9 @@ export function parsePackageManifest(
   }
 
   try resources := parseManifestResources(root, manifestPath, rootDirectory)
-  try target := parseManifestTarget(root, manifestPath)
-  try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform)
+  try manifestTarget := parseManifestTarget(root, manifestPath)
+  target := if targetOverride == "" then manifestTarget else targetOverride
+  try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform, target)
   try macosApp := parseMacOSApp(root, manifestPath, rootDirectory, name, version, target)
   try iosApp := parseIOSApp(root, manifestPath, rootDirectory, name, version, target)
   try packageConfig := parseMacOSPackage(root, manifestPath, rootDirectory)
@@ -95,6 +97,7 @@ function parseManifestNativeBuild(
   manifestPath: string,
   rootDirectory: string,
   platform: string,
+  target: string,
 ): Result<NativeBuildPlan, string> {
   result := NativeBuildPlan {}
   if !manifestJsonHas(root, "build") { return Success(result) }
@@ -103,7 +106,7 @@ function parseManifestNativeBuild(
   try native := manifestObject(manifestJsonField(build, "native"), manifestPath, "build.native")
 
   try appendNativeFragment(result, native, manifestPath, rootDirectory, "build.native")
-  platformKey := if platform == "ios-simulator" then "iosSimulator" else if platform == "ios-device" then "iosDevice" else platform
+  platformKey := if target == "wasm" then "wasm" else if platform == "ios-simulator" then "iosSimulator" else if platform == "ios-device" then "iosDevice" else platform
   if platformKey != "" && manifestJsonHas(native, platformKey) {
     try platformValue := manifestObject(
       manifestJsonField(native, platformKey),

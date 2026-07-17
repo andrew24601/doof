@@ -7,6 +7,7 @@
 import { AnalysisResult, ModuleInfo, createAnalyzerWithLoader } from "./analyzer"
 import { emitModuleGraph, ModuleGraphEmission } from "./emitter-module"
 import { buildInstantiationPlan } from "./emitter-monomorphize"
+import { emitWasmSupport } from "./emitter-wasm"
 import { ModuleNamespaceMapping, configureModuleNamespaces } from "./emitter-names"
 import { createChecker, ModuleChecker, validateCheckedTypes } from "./checker"
 import { SourceLoader, noSourceLoader } from "./resolver"
@@ -74,7 +75,17 @@ function compileInternal(
     })
     return Compilation { emission: null, diagnostics }
   }
-  return Compilation { emission: emitModuleGraph(analysis, entry, instantiations, entryMode, coverage), diagnostics }
+  emission := emitModuleGraph(analysis, entry, instantiations, entryMode, coverage)
+  if entryMode == "wasm" {
+    wasm := emitWasmSupport(analysis, entry) else message {
+      zero := SemanticLocation { line: 0, column: 0, offset: 0 }
+      diagnostics.push(Diagnostic { severity: "error", message, span: SemanticSpan { start: zero, end: zero }, module: entry })
+      return Compilation { emission: null, diagnostics }
+    }
+    emission.wasmSupportSource = wasm.source
+    emission.wasmExportNames = wasm.exportNames
+  }
+  return Compilation { emission, diagnostics }
 }
 
 // Analyzer discovery order is driven by import syntax, not by a fixed source

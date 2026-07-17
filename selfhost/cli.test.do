@@ -33,6 +33,17 @@ export function testParsesBuildCompiler(): void {
   Assert.equal(result.request!.compiler, "clang++")
 }
 
+export function testParsesWasmTargetOverride(): void {
+  result := parseCli(["build", "main.do", "--target", "wasm"])
+  Assert.equal(result.error, "")
+  Assert.equal(result.request!.targetOverride, "wasm")
+}
+
+export function testRejectsInvalidTargetOverride(): void {
+  result := parseCli(["build", "main.do", "--target", "browser"])
+  Assert.equal(result.error, "invalid value for --target: browser")
+}
+
 export function testParsesPackageCompiler(): void {
   result := parseCli(["package", "main.do", "--compiler", "clang++"])
   Assert.equal(result.error, "")

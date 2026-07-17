@@ -49,7 +49,7 @@ export class ProjectSpec {
   iosPackageConfig: IOSPackageConfig | null = null
 }
 
-export function readProjectSpec(requestedPath: string, platform: string = ""): ProjectSpec {
+export function readProjectSpec(requestedPath: string, platform: string = "", targetOverride: string = ""): ProjectSpec {
   absolutePath := try! absolute(requestedPath)
   directory := if isDirectory(absolutePath) then absolutePath else parentPath(absolutePath)
   manifest := projectManifestPath(absolutePath)
@@ -64,13 +64,14 @@ export function readProjectSpec(requestedPath: string, platform: string = ""): P
       hasManifest: false,
       resources: [],
       nativeBuild: NativeBuildPlan {},
+      target: targetOverride,
       packageConfig: MacOSPackageConfig { distDirectory: joinPath(directory, "dist") },
     }
   }
 
   packageDirectory := parentPath(manifest)
   manifestSource := try! readText(manifest)
-  packageManifest := try! parsePackageManifest(manifestSource, manifest, packageDirectory, platform)
+  packageManifest := try! parsePackageManifest(manifestSource, manifest, packageDirectory, platform, targetOverride)
   root := try! (try! parseJsonValue(manifestSource)) as JsonObject
   let name = fileName(packageDirectory)
   if root.has("name") { name = try! (try! root.get("name")) as string }

@@ -56,6 +56,8 @@ export function planNativeCompile(
   native: NativeBuildPlan,
   release: bool = false,
   platform: string = "",
+  wasmExportNames: string[] = [],
+  wasm: bool = false,
 ): NativeCompilePlan {
   let compileArguments: string[] = ["-std=c++17"]
   // Release defaults precede manifest flags so packages can intentionally
@@ -63,6 +65,10 @@ export function planNativeCompile(
   if release {
     compileArguments.push("-O2")
     compileArguments.push("-DNDEBUG")
+  }
+  if wasm {
+    compileArguments.push("-Oz")
+    compileArguments.push("-flto")
   }
   for define of native.defines { compileArguments.push("-D" + define) }
   compileArguments.push("-I")
@@ -76,7 +82,7 @@ export function planNativeCompile(
   let clangPchPath = ""
   // The runtime dominates repeated parsing in larger generated projects. Build
   // it once, but avoid paying the PCH startup cost for a single module.
-  if modules.length > 1 {
+  if modules.length > 1 && !wasm {
     runtimeHeader := resolveBuildPath(outputDirectory, "doof_runtime.hpp")
     clangPch := usesClangPrecompiledHeader(compiler, platform)
     pchPath := runtimeHeader + if clangPch then ".pch" else ".gch"
@@ -136,7 +142,19 @@ export function planNativeCompile(
     linkArguments.push("-framework")
     linkArguments.push(framework)
   }
-  for flag of native.linkerFlags { linkArguments.push(flag) }
+  if !wasm { for flag of native.linkerFlags { linkArguments.push(flag) } }
+  if wasm {
+    linkArguments.push("-Oz")
+    linkArguments.push("-flto")
+    linkArguments.push("--strip-debug")
+    linkArguments.push("-sASSERTIONS=0")
+    linkArguments.push("-sMALLOC=emmalloc")
+    linkArguments.push("-sSTANDALONE_WASM=1")
+    linkArguments.push("--no-entry")
+    linkArguments.push("-sFILESYSTEM=0")
+    linkArguments.push("-sEXPORTED_FUNCTIONS=" + wasmExportList(wasmExportNames))
+    for flag of native.linkerFlags { linkArguments.push(flag) }
+  }
   linkArguments.push("-o")
   linkArguments.push(outputPath)
   return NativeCompilePlan { compiler, precompiledHeaderArguments, compileTasks, linkArguments, outputPath }
@@ -162,6 +180,9 @@ function isCSource(path: string): bool {
 
 /** Selects the C driver adjacent to the configured GCC-compatible C++ driver. */
 function deriveCCompiler(compiler: string): string {
+  if compiler == "em++" || compiler.endsWith("/em++") {
+    return compiler.substring(0, compiler.length - 4) + "emcc"
+  }
   if compiler == "g++" || compiler.endsWith("/g++") {
     return compiler.substring(0, compiler.length - 3) + "gcc"
   }
@@ -172,6 +193,12 @@ function deriveCCompiler(compiler: string): string {
     return compiler.substring(0, compiler.length - 2)
   }
   return compiler
+}
+
+function wasmExportList(names: string[]): string {
+  let result = "[\"_malloc\",\"_free\",\"_doof_free\""
+  for name of names { result = result + ",\"_" + name + "\"" }
+  return result + "]"
 }
 
 function appendObjectArguments(arguments: string[], sourcePath: string, outputPath: string): void {

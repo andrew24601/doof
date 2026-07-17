@@ -78,6 +78,21 @@ export function testMergesOnlyTheSelectedPlatformFragment(): void {
   Assert.equal(manifest.nativeBuild.linkLibraries.length, 0)
 }
 
+export function testSelectsWasmNativeFragmentForWasmTargets(): void {
+  manifest := try! parsePackageManifest(
+    "{\"build\":{\"target\":\"wasm\",\"native\":{\"defines\":[\"BASE\"],\"linux\":{\"defines\":[\"LINUX\"]},\"wasm\":{\"sourceFiles\":[\"native_wasm.cpp\"],\"defines\":[\"WASM\"]}}}}",
+    "/app/doof.json",
+    "/app",
+    "linux",
+  )
+
+  Assert.equal(manifest.target, "wasm")
+  Assert.equal(manifest.nativeBuild.sourceFiles[0], "/app/native_wasm.cpp")
+  Assert.equal(manifest.nativeBuild.defines.contains("BASE"), true)
+  Assert.equal(manifest.nativeBuild.defines.contains("WASM"), true)
+  Assert.equal(manifest.nativeBuild.defines.contains("LINUX"), false)
+}
+
 export function testDeduplicatesManifestAndMergedNativeInputs(): void {
   first := try! parsePackageManifest(
     "{\"build\":{\"native\":{\"frameworks\":[\"CoreFoundation\",\"CoreFoundation\"]}}}",

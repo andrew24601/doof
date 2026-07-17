@@ -75,6 +75,8 @@ export class CoverageModuleMetadata {
 export class ModuleGraphEmission {
   modules: ModuleEmission[] = []
   coverageModules: CoverageModuleMetadata[] = []
+  wasmSupportSource: string = ""
+  wasmExportNames: string[] = []
 }
 
 export class CxxModuleEmitter {

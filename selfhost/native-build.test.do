@@ -230,3 +230,25 @@ export function testPlansGccAdjacentPrecompiledRuntime(): void {
   Assert.equal(plan.precompiledHeaderArguments.contains("/tmp/generated/doof_runtime.hpp.gch"), true)
   Assert.equal(plan.compileTasks[0].arguments.contains("-include-pch"), false)
 }
+
+export function testPlansStandaloneEmscriptenWasmLink(): void {
+  plan := planNativeCompile(
+    "em++",
+    "/tmp/generated",
+    "/tmp/generated/demo.wasm",
+    [ModuleEmission { modulePath: "/main.do", header: "", source: "", headerName: "main.hpp", sourceName: "main.cpp" }],
+    NativeBuildPlan { sourceFiles: ["doof_wasm.cpp"], linkerFlags: ["-sINITIAL_MEMORY=33554432"] },
+    false,
+    "linux",
+    ["doof_export_add"],
+    true,
+  )
+
+  Assert.equal(plan.precompiledHeaderArguments.length, 0)
+  Assert.equal(plan.compileTasks[0].arguments.contains("-Oz"), true)
+  Assert.equal(plan.compileTasks[0].arguments.contains("-flto"), true)
+  Assert.equal(plan.linkArguments.contains("-sSTANDALONE_WASM=1"), true)
+  Assert.equal(plan.linkArguments.contains("--no-entry"), true)
+  Assert.equal(plan.linkArguments.contains("-sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\",\"_doof_free\",\"_doof_export_add\"]"), true)
+  Assert.equal(plan.linkArguments.contains("-sINITIAL_MEMORY=33554432"), true)
+}

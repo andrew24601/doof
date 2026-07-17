@@ -118,6 +118,7 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `emitter-stmt.do` — statement and control-flow lowering
 - `json-semantics.do` — shared eligibility for compiler-generated JSON methods
 - `emitter-json.do` — automatic JSON serialization and deserialization lowering
+- `emitter-wasm.do` — WebAssembly export validation and JSON-over-C-ABI wrapper generation
 - `emitter-decl.do` — declaration lowering
 - `emitter-header.do` — header planning and rendering
 - `emitter-module.do` — `.hpp` / `.cpp` orchestration

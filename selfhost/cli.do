@@ -23,6 +23,7 @@ export class CliRequest {
   iosDestination: string = "simulator"
   iosSignIdentity: string = ""
   iosProvisioningProfile: string = ""
+  targetOverride: string = ""
 }
 
 export class ModuleSource {
@@ -49,6 +50,7 @@ export function cliUsage(): string {
     "options:\n" +
     "  -o, --output-directory <path>  output root (package uses <path>/release)\n" +
     "  --compiler <path>           C++ compiler command (default: CXX or c++)\n" +
+    "  --target <kind>            override build target (macos-app, ios-app, or wasm)\n" +
     "  --distdir <path>            packaged artifact directory\n" +
     "  --macos-signing <kind>      developer-id or ad-hoc\n" +
     "  --macos-sign-identity <id>  Developer ID Application identity\n" +
@@ -92,6 +94,16 @@ export function parseCli(args: string[]): CliParseResult {
     if argument == "--compiler" {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --compiler" } }
       request.compiler = args[index + 1]
+      index = index + 2
+      continue
+    }
+    if argument == "--target" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --target" } }
+      value := args[index + 1]
+      if value != "macos-app" && value != "ios-app" && value != "wasm" {
+        return CliParseResult { request: null, error: "invalid value for --target: " + value }
+      }
+      request.targetOverride = value
       index = index + 2
       continue
     }

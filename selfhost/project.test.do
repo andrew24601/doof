@@ -48,4 +48,7 @@ export function testFallsBackWhenNoProjectManifestExists(): void {
   Assert.equal(project.rootDirectory, root)
   Assert.equal(project.entry, "standalone.do")
   Assert.equal(project.name, "doof-selfhost-project-no-manifest-test")
+
+  wasmProject := readProjectSpec(entry, "macos", "wasm")
+  Assert.equal(wasmProject.target, "wasm")
 }

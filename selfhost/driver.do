@@ -351,12 +351,22 @@ function driverPackageOutputRoot(logicalPrefix: string): string {
   return logicalPrefix.substring(start, logicalPrefix.length)
 }
 
-function projectNativePackages(projectRoot: string, projectManifest: PackageManifest): NativePackageInput[] {
+function projectNativePackages(projectRoot: string, projectManifest: PackageManifest, stdlibRoot: string = ""): NativePackageInput[] {
   let packages: NativePackageInput[] = [NativePackageInput {
     logicalPrefix: driverLogicalPrefix(projectRoot),
     outputRoot: "",
     manifest: projectManifest,
   }]
+  if projectManifest.target == "wasm" && stdlibRoot != "" {
+    jsonRoot := joinPath(stdlibRoot, "json")
+    jsonManifestPath := joinPath(jsonRoot, "doof.json")
+    jsonManifest := try! parsePackageManifest(try! readText(jsonManifestPath), jsonManifestPath, jsonRoot, "wasm")
+    packages.push(NativePackageInput {
+      logicalPrefix: "/std/json",
+      outputRoot: "std/json",
+      manifest: jsonManifest,
+    })
+  }
   for reached of configuredDriverSourceState.reachedPackages {
     packages.push(NativePackageInput {
       logicalPrefix: reached.acquisition.logicalPrefix,
@@ -440,10 +450,12 @@ function buildProject(
     println("error: self-hosted build does not yet resolve pkg-config packages")
     return 1
   }
+  wasm := outputPath.endsWith(".wasm")
   let compiler = request.compiler
+  if compiler == "" && wasm { compiler = "em++" }
   if compiler == "" { compiler = environmentValue("CXX") }
   if compiler == "" { compiler = "c++" }
-  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release, hostPlatform())
+  plan := planNativeCompile(compiler, outputDirectory, outputPath, project.modules, project.nativeBuild, release, hostPlatform(), project.wasmExportNames, wasm)
   let remainingOutputLines = MAX_NATIVE_COMPILER_OUTPUT_LINES
   let truncationReported = false
   if plan.precompiledHeaderArguments.length > 0 {
@@ -783,10 +795,10 @@ function testRequest(request: CliRequest): int {
 }
 
 function emitRequest(request: CliRequest): int {
-  let project = readProjectSpec(request.entry, hostPlatform())
+  let project = readProjectSpec(request.entry, hostPlatform(), request.targetOverride)
   iosDestination := if request.command == "package" then "device" else request.iosDestination
   nativePlatform := if project.iosApp == null then hostPlatform() else "ios-" + iosDestination
-  if project.iosApp != null { project = readProjectSpec(request.entry, nativePlatform) }
+  if project.iosApp != null { project = readProjectSpec(request.entry, nativePlatform, request.targetOverride) }
   entryPath := joinPath(project.rootDirectory, project.entry)
   entry := driverLogicalPath(entryPath)
   stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
@@ -796,7 +808,8 @@ function emitRequest(request: CliRequest): int {
     outputRoot: "",
   }]
   loader := sourceLoaderForRequest(entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings, nativePlatform)
-  result := compileWithLoader([], entry, loader, namespaceMappings, if project.iosApp == null then "executable" else "ios-app")
+  entryMode := if project.target == "wasm" then "wasm" else if project.iosApp == null then "executable" else "ios-app"
+  result := compileWithLoader([], entry, loader, namespaceMappings, entryMode)
   if result.diagnostics.length > 0 {
     printDiagnostics(result.diagnostics)
     return 1
@@ -815,10 +828,11 @@ function emitRequest(request: CliRequest): int {
     manifestPath: project.manifestPath,
     rootDirectory: project.rootDirectory,
     nativeBuild: project.nativeBuild,
+    target: project.target,
   }
   emission := planProjectEmission(
     result.emission!,
-    projectNativePackages(project.rootDirectory, rootManifest),
+    projectNativePackages(project.rootDirectory, rootManifest, stdlibRoot),
   )
   materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
@@ -829,7 +843,7 @@ function emitRequest(request: CliRequest): int {
     }
   }
   if request.command == "build" {
-    executableName := if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
+    executableName := if project.target == "wasm" then buildOutputName(project.name) + ".wasm" else if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
     outputPath := driverOutputPath(outputDirectory, executableName)
     if project.macosApp == null && project.iosApp == null { materializeExecutableResources(project.resources, outputDirectory) }
     exitCode := buildProject(request, outputDirectory, outputPath, emission)
@@ -852,7 +866,7 @@ function emitRequest(request: CliRequest): int {
     if project.packageConfig == null { panic("project package settings were not resolved") }
     distDirectory := if request.distDirectory != "" then try! absolute(request.distDirectory) else project.packageConfig!.distDirectory
     ensureOutputDirectory(distDirectory)
-    executableName := if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
+    executableName := if project.target == "wasm" then buildOutputName(project.name) + ".wasm" else if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
     outputPath := if project.macosApp == null && project.iosApp == null
       then driverOutputPath(distDirectory, executableName)
       else driverOutputPath(outputDirectory, executableName)

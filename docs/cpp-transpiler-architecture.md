@@ -363,6 +363,12 @@ Some features require dedicated support generation beyond ordinary statement or 
 - WebAssembly library targets are coordinated by `src/emitter-module.ts`: they
   pull in the bundled `std/json` package support, emit `doof_wasm.cpp`, and
   expose entry-module exported functions through JSON-string C ABI wrappers
+- The self-hosted path mirrors that ownership in `selfhost/emitter-wasm.do`.
+  `selfhost/compiler.do` validates and generates wrappers after checking,
+  `selfhost/emitter-project.do` materializes the bridge and `std/json` native
+  header, and `selfhost/native-build.do` plans the standalone Emscripten link.
+  Manifest `build.target = "wasm"` and the self-hosted `--target wasm`
+  override both select this path.
 
 These modules are the owning surface when a feature requires both language lowering and runtime interop support.
 

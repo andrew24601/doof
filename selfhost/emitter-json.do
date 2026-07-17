@@ -95,7 +95,7 @@ function emitJsonValidation(json: string, type_: ResolvedType, name: string, fai
   return prefix + "if (!(" + check + ")) { return " + failureType + "{\"Field \\\"" + name + "\\\" expected " + expected + " but got \" + std::string(doof::json_type_name(" + json + "))}; }\n"
 }
 
-function emitJsonTypeCheck(json: string, type_: ResolvedType): string {
+export function emitJsonTypeCheck(json: string, type_: ResolvedType): string {
   case type_ {
     primitive: PrimitiveType -> {
       if primitive.name == "bool" { return "(_lenient ? doof::json_is_lenient_boolean(" + json + ") : doof::json_is_boolean(" + json + "))" }
@@ -115,7 +115,7 @@ function emitJsonTypeCheck(json: string, type_: ResolvedType): string {
   return "false"
 }
 
-function emitJsonRead(json: string, type_: ResolvedType, context: EmitContext): string {
+export function emitJsonRead(json: string, type_: ResolvedType, context: EmitContext): string {
   case type_ {
     primitive: PrimitiveType -> { return emitPrimitiveJsonRead(json, primitive.name) }
     _: JsonValueResolvedType -> { return json }
@@ -161,7 +161,7 @@ function emitPrimitiveJsonRead(json: string, name: string): string {
   return "(_lenient ? doof::json_as_string_lenient(" + json + ") : doof::json_as_string(" + json + "))"
 }
 
-function jsonTypeName(type_: ResolvedType): string {
+export function jsonTypeName(type_: ResolvedType): string {
   case type_ {
     primitive: PrimitiveType -> {
       if primitive.name == "bool" { return "boolean" }
@@ -178,7 +178,7 @@ function jsonTypeName(type_: ResolvedType): string {
   return "value"
 }
 
-function emitJsonField(value: string, resolvedType: ResolvedType, context: EmitContext): string {
+export function emitJsonField(value: string, resolvedType: ResolvedType, context: EmitContext): string {
   case resolvedType {
     _: JsonValueResolvedType -> { return value }
     _: NullType -> { return "doof::json_value(nullptr)" }

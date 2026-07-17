@@ -65,7 +65,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, harness imports, and coverage reports
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
-- `selfhost/package-manifest.do` — normalized package identity, root/app resources, macOS/iOS target and release settings, and host-platform `build.native` manifest parsing
+- `selfhost/package-manifest.do` — normalized package identity, root/app resources, macOS/iOS/WASM target and release settings, and target/platform `build.native` manifest parsing
 - `selfhost/macos-app.do` — deterministic macOS app metadata, Info.plist rendering, archive naming, and codesign argument planning
 - `selfhost/macos-app-driver.do` — macOS filesystem/tool boundary for bundle assembly, embedded Mach-O rewriting, signing, and zip archives
 - `selfhost/ios-app.do` — deterministic iOS app metadata, UIKit shell, Info.plist rendering, target triples, archive naming, and codesign argument planning
@@ -102,10 +102,11 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-expr-lambda.do` — self-hosted lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
 - `selfhost/emitter-json.do` — self-hosted automatic JSON method declarations and definitions
+- `selfhost/emitter-wasm.do` — self-hosted WebAssembly export validation and JSON-over-C-ABI wrapper generation
 - `selfhost/emitter-decl.do` — self-hosted function signatures, definitions, and value declarations
 - `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary
 - `selfhost/emitter-module.do` — self-hosted module planning, dependency includes, and split `.hpp` / `.cpp` orchestration
-- `selfhost/emitter-project.do` — self-hosted generated support-file and native package output planning
+- `selfhost/emitter-project.do` — self-hosted generated support-file, WASM bridge source, and native package output planning
 - `selfhost/emitter.test.do` — focused string and structure tests for the self-hosted emitter
 
 ## `src/` by Concern
