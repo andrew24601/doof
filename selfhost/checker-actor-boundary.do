@@ -8,8 +8,8 @@ import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
   ActorType, ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType,
   JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType,
-  ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType,
-  TypeParameterType, UnionResolvedType, UnknownType, VoidType,
+  ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, TupleResolvedType,
+  TypeParameterType, UnionResolvedType, UnknownType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { ClassDeclaration, ExportDeclaration, InterfaceDeclaration, Statement } from "./ast"
 import { classType, substituteTypeParams, typeName } from "./checker-types"
@@ -33,6 +33,7 @@ function findViolation(result: AnalysisResult, type_: ResolvedType, seen: string
     _: JsonValueResolvedType -> { return null }
     _: ActorType -> { return ActorBoundaryViolation { reason: "Actor<T> references cannot cross actor boundaries" } }
     _: PromiseType -> { return ActorBoundaryViolation { reason: "Promise<T> values cannot cross actor boundaries" } }
+    weak_: WeakResolvedType -> { return findViolation(result, weak_.inner, seen) }
     array: ArrayResolvedType -> {
       if !array.readonly_ { return ActorBoundaryViolation { reason: "array type \"" + typeName(type_) + "\" is mutable" } }
       return findViolation(result, array.elementType, seen)
@@ -42,6 +43,10 @@ function findViolation(result: AnalysisResult, type_: ResolvedType, seen: string
       keyViolation := findViolation(result, map.keyType, seen)
       if keyViolation != null { return keyViolation }
       return findViolation(result, map.valueType, seen)
+    }
+    set_: SetResolvedType -> {
+      if !set_.readonly_ { return ActorBoundaryViolation { reason: "set type \"" + typeName(type_) + "\" is mutable" } }
+      return findViolation(result, set_.elementType, seen)
     }
     stream: StreamResolvedType -> { return ActorBoundaryViolation { reason: "stream type \"" + typeName(stream) + "\" is mutable" } }
     result_: ResultResolvedType -> {

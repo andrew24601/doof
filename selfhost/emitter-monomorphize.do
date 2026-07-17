@@ -15,8 +15,8 @@ import {
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import { isAssignable, sameType, substituteTypeParams, typeName } from "./checker-types"
 import {
-  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, PromiseType, ResolvedType, ResultResolvedType,
-  StreamResolvedType, TupleResolvedType, TypeParameterType, TypeSubstitution, UnionResolvedType,
+  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, PromiseType, ResolvedType, ResultResolvedType, SetResolvedType,
+  StreamResolvedType, TupleResolvedType, TypeParameterType, TypeSubstitution, UnionResolvedType, WeakResolvedType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
 
@@ -330,12 +330,14 @@ function collectType(type_: ResolvedType, analysis: AnalysisResult, plan: Instan
     }
     array: ArrayResolvedType -> { collectType(array.elementType, analysis, plan) }
     map: MapResolvedType -> { collectType(map.keyType, analysis, plan); collectType(map.valueType, analysis, plan) }
+    set_: SetResolvedType -> { collectType(set_.elementType, analysis, plan) }
     stream: StreamResolvedType -> { collectType(stream.elementType, analysis, plan); addInterface(plan, "", "Stream", [stream.elementType]) }
     result: ResultResolvedType -> { collectType(result.valueType, analysis, plan); collectType(result.errorType, analysis, plan) }
     actor: ActorType -> { collectType(actor.innerClass, analysis, plan) }
     promise: PromiseType -> { collectType(promise.valueType, analysis, plan) }
     tuple: TupleResolvedType -> { for element of tuple.elements { collectType(element, analysis, plan) } }
     union_: UnionResolvedType -> { for member of union_.types { collectType(member, analysis, plan) } }
+    weak_: WeakResolvedType -> { collectType(weak_.inner, analysis, plan) }
     function_: FunctionType -> {
       for parameter of function_.params { collectType(parameter.type_, analysis, plan) }
       collectType(function_.returnType, analysis, plan)
@@ -389,12 +391,14 @@ function collectNativeTemplateClasses(type_: ResolvedType, plan: InstantiationPl
     interface_: InterfaceType -> { for argument of interface_.typeArgs { collectNativeTemplateClasses(argument, plan) } }
     array: ArrayResolvedType -> { collectNativeTemplateClasses(array.elementType, plan) }
     map: MapResolvedType -> { collectNativeTemplateClasses(map.keyType, plan); collectNativeTemplateClasses(map.valueType, plan) }
+    set_: SetResolvedType -> { collectNativeTemplateClasses(set_.elementType, plan) }
     stream: StreamResolvedType -> { collectNativeTemplateClasses(stream.elementType, plan) }
     result_: ResultResolvedType -> { collectNativeTemplateClasses(result_.valueType, plan); collectNativeTemplateClasses(result_.errorType, plan) }
     actor: ActorType -> { collectNativeTemplateClasses(actor.innerClass, plan) }
     promise: PromiseType -> { collectNativeTemplateClasses(promise.valueType, plan) }
     tuple: TupleResolvedType -> { for element of tuple.elements { collectNativeTemplateClasses(element, plan) } }
     union_: UnionResolvedType -> { for member of union_.types { collectNativeTemplateClasses(member, plan) } }
+    weak_: WeakResolvedType -> { collectNativeTemplateClasses(weak_.inner, plan) }
     function_: FunctionType -> {
       for parameter of function_.params { collectNativeTemplateClasses(parameter.type_, plan) }
       collectNativeTemplateClasses(function_.returnType, plan)
@@ -631,12 +635,14 @@ function containsTypeParameter(type_: ResolvedType): bool {
     interface_: InterfaceType -> { return containsTypeParameters(interface_.typeArgs) }
     array: ArrayResolvedType -> { return containsTypeParameter(array.elementType) }
     map: MapResolvedType -> { return containsTypeParameter(map.keyType) || containsTypeParameter(map.valueType) }
+    set_: SetResolvedType -> { return containsTypeParameter(set_.elementType) }
     stream: StreamResolvedType -> { return containsTypeParameter(stream.elementType) }
     result: ResultResolvedType -> { return containsTypeParameter(result.valueType) || containsTypeParameter(result.errorType) }
     actor: ActorType -> { return containsTypeParameter(actor.innerClass) }
     promise: PromiseType -> { return containsTypeParameter(promise.valueType) }
     tuple: TupleResolvedType -> { return containsTypeParameters(tuple.elements) }
     union_: UnionResolvedType -> { return containsTypeParameters(union_.types) }
+    weak_: WeakResolvedType -> { return containsTypeParameter(weak_.inner) }
     function_: FunctionType -> {
       for parameter of function_.params { if containsTypeParameter(parameter.type_) { return true } }
       return containsTypeParameter(function_.returnType)
@@ -658,12 +664,14 @@ function canonicalTypeKey(type_: ResolvedType): string {
     interface_: InterfaceType -> { return "interface:" + interface_.symbol.module + ":" + interface_.name + concreteTypeListKey(interface_.typeArgs) }
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly-array:" else "array:") + canonicalTypeKey(array.elementType) }
     map: MapResolvedType -> { return (if map.readonly_ then "readonly-map:" else "map:") + canonicalTypeKey(map.keyType) + ":" + canonicalTypeKey(map.valueType) }
+    set_: SetResolvedType -> { return (if set_.readonly_ then "readonly-set:" else "set:") + canonicalTypeKey(set_.elementType) }
     stream: StreamResolvedType -> { return "stream:" + canonicalTypeKey(stream.elementType) }
     result: ResultResolvedType -> { return "result:" + canonicalTypeKey(result.valueType) + ":" + canonicalTypeKey(result.errorType) }
     actor: ActorType -> { return "actor:" + canonicalTypeKey(actor.innerClass) }
     promise: PromiseType -> { return "promise:" + canonicalTypeKey(promise.valueType) }
     tuple: TupleResolvedType -> { return "tuple:" + concreteTypeListKey(tuple.elements) }
     union_: UnionResolvedType -> { return "union:" + concreteTypeListKey(union_.types) }
+    weak_: WeakResolvedType -> { return "weak:" + canonicalTypeKey(weak_.inner) }
     _ -> { return typeName(type_) }
   }
   return typeName(type_)
@@ -675,12 +683,14 @@ function mangleType(type_: ResolvedType): string {
     interface_: InterfaceType -> { return sanitize(moduleNamespace(interface_.symbol.module) + "_" + interface_.name + "_" + concreteTypeListMangle(interface_.typeArgs)) }
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly_array_" else "array_") + mangleType(array.elementType) }
     map: MapResolvedType -> { return (if map.readonly_ then "readonly_map_" else "map_") + mangleType(map.keyType) + "_" + mangleType(map.valueType) }
+    set_: SetResolvedType -> { return (if set_.readonly_ then "readonly_set_" else "set_") + mangleType(set_.elementType) }
     stream: StreamResolvedType -> { return "stream_" + mangleType(stream.elementType) }
     result: ResultResolvedType -> { return "result_" + mangleType(result.valueType) + "_" + mangleType(result.errorType) }
     actor: ActorType -> { return "actor_" + mangleType(actor.innerClass) }
     promise: PromiseType -> { return "promise_" + mangleType(promise.valueType) }
     tuple: TupleResolvedType -> { return "tuple_" + concreteTypeListMangle(tuple.elements) }
     union_: UnionResolvedType -> { return "union_" + concreteTypeListMangle(union_.types) }
+    weak_: WeakResolvedType -> { return "weak_" + mangleType(weak_.inner) }
     _ -> { return sanitize(typeName(type_)) }
   }
   return "type"

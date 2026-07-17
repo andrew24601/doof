@@ -1,7 +1,7 @@
 // Literal, array, object, tuple, and string expression lowering.
 
 import { ArrayLiteral, ObjectLiteral, StringLiteral, TupleLiteral } from "./ast"
-import { ArrayResolvedType, ClassType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, ResultResolvedType, SetResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { emittedSymbolName, emitNullableVariantPromotion, exprModuleNamespaceFor, findProperty, needsNullableVariantPromotion } from "./emitter-expr-utils"
@@ -29,6 +29,7 @@ export function emitNullLiteral(expected: ResolvedType | null): string {
             }
             _: ArrayResolvedType -> { return "nullptr" }
             _: MapResolvedType -> { return "nullptr" }
+            _: SetResolvedType -> { return "nullptr" }
             _ -> { }
           }
         }
@@ -71,6 +72,15 @@ export function emitArray(expression: ArrayLiteral, context: EmitContext, expect
           values = values + emitExpression(expression.elements[i], context)
         }
         return "std::make_shared<std::vector<" + elementType + ">>(std::vector<" + elementType + ">{" + values + "})"
+      }
+      set_: SetResolvedType -> {
+        elementType := emitType(set_.elementType, context.modulePath)
+        let values = ""
+        for i of 0..<expression.elements.length {
+          if i > 0 { values = values + ", " }
+          values = values + emitExpression(expression.elements[i], context)
+        }
+        return "std::make_shared<doof::ordered_set<" + elementType + ">>(doof::ordered_set<" + elementType + ">{" + values + "})"
       }
       _: JsonValueResolvedType -> {
         let values = ""

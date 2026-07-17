@@ -37,6 +37,35 @@ export function testInfersExpressionsAndCalls(): void {
   }
 }
 
+export function testChecksWeakTypesAndStructRestrictions(): void {
+  source := "class Node { weak parent: Node\nancestor: weak Node }\nfunction keep(value: weak Node): weak Node => value"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  semantic := createChecker(analysis).check("/main.do")
+  Assert.equal(semantic.diagnostics.length, 0)
+  case analysis.modules[0].program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(typeName(class_.fields[0].resolvedType ?? unknownType()), "Node")
+      Assert.equal(typeName(class_.fields[1].resolvedType ?? unknownType()), "weak Node")
+    }
+    _ -> { panic("expected class") }
+  }
+
+  invalid := checked("class Node {}\nstruct Links { weak parent: Node\nancestor: weak Node }")
+  Assert.equal(invalid.diagnostics.length, 2)
+  Assert.equal(invalid.diagnostics[0].message.contains("cannot be weak"), true)
+  Assert.equal(invalid.diagnostics[1].message.contains("cannot be weak"), true)
+}
+
+export function testRejectsGeneratedJsonForWeakFields(): void {
+  modifier := checked("class Node { weak parent: Node }\nfunction encode(value: Node): JsonValue => value.toJsonObject()")
+  Assert.equal(modifier.diagnostics.length > 0, true)
+  Assert.equal(modifier.diagnostics[0].message.contains("does not support automatic JSON serialization"), true)
+
+  qualifier := checked("class Node { parent: weak Node }\nfunction encode(value: Node): JsonValue => value.toJsonObject()")
+  Assert.equal(qualifier.diagnostics.length > 0, true)
+  Assert.equal(qualifier.diagnostics[0].message.contains("does not support automatic JSON serialization"), true)
+}
+
 export function testChecksArrayAndStringSearchMembers(): void {
   result := checked("function main(): int { values := [1, 2, 3]\ntext := \"hello\"\nif values.contains(2) && text.contains(\"ell\") { return values.indexOf(3) + text.indexOf(\"e\") }\nreturn 0 }")
   Assert.equal(result.diagnostics.length, 0)
@@ -392,6 +421,13 @@ export function testValidatesActorBoundaryPayloads(): void {
 
   readonlyResult := checked("class Payload { readonly value: int }\nclass Worker { function accept(payload: Payload): int => payload.value }\nworker := Actor<Worker>()\npayload := Payload { value: 1 }\nvalue := worker.accept(payload)")
   Assert.equal(readonlyResult.diagnostics.length, 0)
+
+  mutableSet := checked("class Worker { function accept(values: Set<int>): void {} }\nworker := Actor<Worker>()\nvalues: Set<int> := [1]\nworker.accept(values)")
+  Assert.equal(mutableSet.diagnostics.length > 0, true)
+  Assert.equal(mutableSet.diagnostics[0].message.contains("set type \"Set<int>\" is mutable"), true)
+
+  readonlySet := checked("class Worker { function accept(values: ReadonlySet<int>): int => values.size }\nworker := Actor<Worker>()\nvalues: Set<int> := [1]\nfrozen := values.buildReadonly()\nvalue := worker.accept(frozen)")
+  Assert.equal(readonlySet.diagnostics.length, 0)
 }
 
 export function testValidatesNestedAndGenericActorBoundaryPayloads(): void {
@@ -793,4 +829,42 @@ export function testAssignsJsonValueNullableUnions(): void {
 export function testResolvesMapKeyAndValueArrays(): void {
   result := checked("function main(): int { values: Map<int, string> = {}\nreturn values.keys().length + values.values().length }")
   Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksSetAndReadonlySetMembers(): void {
+  result := checked("enum Flag { One, Two }\nfunction bytes(values: Set<byte>): int => values.size\nfunction count(values: ReadonlySet<Flag>): int { let total = 0\nfor value of values { if values.has(value) { total = total + 1 } }\nreturn total + values.values().length }\nfunction main(): int { let values: Set<Flag> = [Flag.One, Flag.Two, Flag.One]\nvalues.add(Flag.Two)\nvalues.delete(Flag.One)\nfrozen := values.buildReadonly()\ncopy := frozen.cloneMutable()\ncopy.add(Flag.One)\nreturn count(frozen) + copy.size }")
+  for diagnostic of result.diagnostics { println(diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsReadonlySetMutation(): void {
+  result := checked("function mutate(values: ReadonlySet<int>): void { values.add(1)\nvalues.delete(1)\nvalues.buildReadonly() }")
+  Assert.equal(result.diagnostics.length >= 3, true)
+  let add = false
+  let delete = false
+  let build = false
+  for diagnostic of result.diagnostics {
+    if diagnostic.message.contains("Method \"add\" is not available on readonly set") { add = true }
+    if diagnostic.message.contains("Method \"delete\" is not available on readonly set") { delete = true }
+    if diagnostic.message.contains("Method \"buildReadonly\" is not available on readonly set") { build = true }
+  }
+  Assert.equal(add, true)
+  Assert.equal(delete, true)
+  Assert.equal(build, true)
+}
+
+export function testRejectsUnsupportedSetElementTypes(): void {
+  numeric := checked("function use(values: Set<float>): void {}")
+  Assert.equal(numeric.diagnostics.length > 0, true)
+  Assert.equal(numeric.diagnostics[0].message.contains("Set element type \"float\" is not supported"), true)
+
+  nominal := checked("class Item {}\nfunction use(values: ReadonlySet<Item>): void {}")
+  Assert.equal(nominal.diagnostics.length > 0, true)
+  Assert.equal(nominal.diagnostics[0].message.contains("Set element type \"Item\" is not supported"), true)
+}
+
+export function testKeepsSetMutabilityInvariant(): void {
+  result := checked("function bad(values: Set<int>): ReadonlySet<int> { return values }")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("Cannot return Set<int> from function returning ReadonlySet<int>"), true)
 }

@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -22,13 +22,13 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
-  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
+  isJsonValueType, isSupportedHashCollectionType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
   nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
-  substituteTypeParams, typeParameter, unknownType, voidType,
+  substituteTypeParams, typeParameter, unknownType, voidType, weakType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
 import { findActorBoundaryViolation } from "./checker-actor-boundary"
@@ -60,6 +60,14 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
         key := resolveType(state, named.typeArgs[0], module, scope)
         value := resolveType(state, named.typeArgs[1], module, scope)
         return decorateType(state, annotation, mapType(key, value, named.name == "ReadonlyMap"))
+      }
+      if named.name == "Set" || named.name == "ReadonlySet" {
+        if named.typeArgs.length != 1 { typeError(state, named.name + " requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
+        element := resolveType(state, named.typeArgs[0], module, scope)
+        if !isSupportedHashCollectionType(element) {
+          typeError(state, "Set element type \"" + typeName(element) + "\" is not supported; set elements must be byte, string, int, long, char, bool, or enum", named.typeArgs[0].span)
+        }
+        return decorateType(state, annotation, setType(element, named.name == "ReadonlySet"))
       }
       if named.name == "Stream" {
         if named.typeArgs.length != 1 { typeError(state, "Stream requires one type argument", named.span); return decorateType(state, annotation, unknownType()) }
@@ -136,6 +144,7 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       for parameter of function_.params { params.push(FunctionParamType { name: parameter.name, type_: resolveType(state, parameter.type_, module, scope), hasDefault: false }) }
       return decorateType(state, annotation, functionType(params, resolveType(state, function_.returnType, module, scope)))
     }
+    weak_: WeakType -> { return decorateType(state, annotation, weakType(resolveType(state, weak_.type_, module, scope))) }
   }
   return decorateType(state, annotation, unknownType())
 }
@@ -213,6 +222,19 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "keys" { return functionType([], arrayType(map.keyType)) }
       if property == "values" { return functionType([], arrayType(map.valueType)) }
       if property == "buildReadonly" { return functionType([], mapType(map.keyType, map.valueType, true)) }
+      return unknownType()
+    }
+    set: SetResolvedType -> {
+      if property == "size" { return primitive("int") }
+      if property == "has" { return functionType([FunctionParamType { name: "value", type_: set.elementType, hasDefault: false }], primitive("bool")) }
+      if set.readonly_ && property == "add" { typeError(state, "Method \"add\" is not available on readonly set", span); return unknownType() }
+      if property == "add" { return functionType([FunctionParamType { name: "value", type_: set.elementType, hasDefault: false }], voidType()) }
+      if set.readonly_ && property == "delete" { typeError(state, "Method \"delete\" is not available on readonly set", span); return unknownType() }
+      if property == "delete" { return functionType([FunctionParamType { name: "value", type_: set.elementType, hasDefault: false }], voidType()) }
+      if property == "values" { return functionType([], arrayType(set.elementType)) }
+      if set.readonly_ && property == "buildReadonly" { typeError(state, "Method \"buildReadonly\" is not available on readonly set", span); return unknownType() }
+      if property == "buildReadonly" { return functionType([], setType(set.elementType, true)) }
+      if property == "cloneMutable" { return functionType([], setType(set.elementType)) }
       return unknownType()
     }
     result: ResultResolvedType -> {

@@ -127,6 +127,7 @@ function nullableJsonMemberUnchecked(union_: UnionResolvedType): ResolvedType | 
 // Use syntax/default literals until the normal class-checking pass decorates
 // the field, then defer to the resolved semantic type thereafter.
 function isGeneratedJsonDeserializationField(field: ClassField, programs: Program[], visited: string[]): bool {
+  if field.weak_ { return false }
   if field.resolvedType != null { return isGeneratedJsonType(field.resolvedType!, programs, visited) }
   if field.type_ != null { return isGeneratedJsonDeserializationAnnotation(field.type_!, programs, visited) }
   if field.defaultValue == null { return false }
@@ -144,6 +145,7 @@ function isGeneratedJsonDeserializationField(field: ClassField, programs: Progra
 }
 
 function isGeneratedJsonSerializationField(field: ClassField, programs: Program[], visited: string[]): bool {
+  if field.weak_ { return false }
   if field.resolvedType != null { return isGeneratedJsonSerializationType(field.resolvedType!, programs, visited) }
   if field.type_ != null { return isGeneratedJsonSerializationAnnotation(field.type_!, programs, visited) }
   return isGeneratedJsonDeserializationField(field, programs, visited)

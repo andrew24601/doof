@@ -1,7 +1,7 @@
 // Assignment, identifier, operator, member, and index lowering.
 
 import { AsExpression, AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
@@ -360,6 +360,7 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       _: StreamResolvedType -> { return "std::visit([](auto&& _obj) { return _obj->" + cppIdentifier(expression.property) + "; }, " + object + ")" }
       _: ArrayResolvedType -> { if expression.property == "length" { return "static_cast<int32_t>((" + object + ")->size())" } }
       _: MapResolvedType -> { if expression.property == "size" { return object + "->size()" } }
+      _: SetResolvedType -> { if expression.property == "size" { return object + "->size()" } }
       _: RangeResolvedType -> {
         if expression.property == "lowerBound" || expression.property == "upperBound" { return object + "." + expression.property }
       }

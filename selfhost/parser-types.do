@@ -2,7 +2,7 @@
 
 import type { Parser } from "./parser"
 import { TokenType } from "./lexer"
-import { AstFunctionType, ArrayType, FunctionTypeParam, NamedType, SourceSpan, UnionType } from "./ast"
+import { AstFunctionType, ArrayType, FunctionTypeParam, NamedType, SourceSpan, UnionType, WeakType } from "./ast"
 import type { TypeAnnotation } from "./ast"
 
 export function parseOptionalType(parser: Parser): TypeAnnotation | null {
@@ -20,6 +20,11 @@ export function parseTypeAnnotation(parser: Parser): TypeAnnotation {
 }
 
 function parseTypeMember(parser: Parser): TypeAnnotation {
+  start := parser.location()
+  if parser.match(TokenType.Weak) {
+    inner := parseTypeAnnotation(parser)
+    return WeakType { type_: inner, span: SourceSpan { start, end: inner.span.end } }
+  }
   let readonlyPrefix = parser.match(TokenType.Readonly)
   let result = parsePrimaryType(parser)
   while parser.check(TokenType.LeftBracket) && parser.peek(1).kind == TokenType.RightBracket {
@@ -38,12 +43,15 @@ function parseTypeMember(parser: Parser): TypeAnnotation {
         } else if named.name == "Map" || named.name == "ReadonlyMap" {
           named.name = "ReadonlyMap"
           readonlyPrefix = false
+        } else if named.name == "Set" || named.name == "ReadonlySet" {
+          named.name = "ReadonlySet"
+          readonlyPrefix = false
         }
       }
       _ -> { }
     }
   }
-  if readonlyPrefix { parser.fail("Unexpected readonly type modifier; expected an array, Array<T>, or Map<K, V> type") }
+  if readonlyPrefix { parser.fail("Unexpected readonly type modifier; expected an array, Array<T>, Map<K, V>, or Set<T> type") }
   return result
 }
 

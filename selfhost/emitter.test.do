@@ -39,6 +39,13 @@ export function testEmitsIOSAppEntryWithoutNativeMain(): void {
   Assert.equal(source.contains("int main("), false)
 }
 
+export function testEmitsWeakFieldsAsWeakPointers(): void {
+  result := emit("class Node { weak parent: Node\nancestor: weak Node }")
+  Assert.equal(result.header.contains("std::weak_ptr<Node> parent"), true)
+  Assert.equal(result.header.contains("std::weak_ptr<Node> ancestor"), true)
+  Assert.equal(result.header.contains("Node(std::weak_ptr<Node> parent, std::weak_ptr<Node> ancestor)"), true)
+}
+
 export function testEmitsJsonValueNullCasePattern(): void {
   result := emit("function isNull(value: JsonValue): bool => case value { _: null -> true, _ -> false }")
   Assert.stringContains(result.source, "doof::json_is_null(")
@@ -73,6 +80,18 @@ export function testEmitsRangeValuesSignaturesAndMembers(): void {
   Assert.equal(result.source.contains("for (const auto& value : _iterable_"), true)
   Assert.equal(result.source.contains("values.lowerBound + values.upperBound"), true)
   Assert.equal(result.source.contains("first(doof::range_exclusive(1, 4))"), true)
+}
+
+export function testEmitsSetAndReadonlySetOperations(): void {
+  result := emit("enum Flag { One, Two }\nfunction count(values: ReadonlySet<Flag>): int { let total = 0\nfor value of values { total = total + 1 }\nreturn total }\nfunction main(): int { let values: Set<Flag> = [Flag.One, Flag.Two, Flag.One]\nvalues.add(Flag.Two)\nvalues.delete(Flag.One)\nfrozen := values.buildReadonly()\ncopy := frozen.cloneMutable()\nreturn count(frozen) + copy.values().length + copy.size }")
+  Assert.equal(result.header.contains("std::shared_ptr<doof::ordered_set<Flag>>"), true)
+  Assert.equal(result.source.contains("std::make_shared<doof::ordered_set<Flag>>"), true)
+  Assert.equal(result.source.contains("->insert(Flag::Two)"), true)
+  Assert.equal(result.source.contains("->erase(Flag::One)"), true)
+  Assert.equal(result.source.contains("doof::set_buildReadonly"), true)
+  Assert.equal(result.source.contains("doof::set_cloneMutable"), true)
+  Assert.equal(result.source.contains("doof::set_values"), true)
+  Assert.equal(result.source.contains("->size()"), true)
 }
 
 export function testEmitsNullableJsonValueAsNarrowing(): void {

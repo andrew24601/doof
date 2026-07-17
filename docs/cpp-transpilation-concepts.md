@@ -331,6 +331,10 @@ Strategy:
   form used by ordinary static calls
 - class destructor blocks lower to C++ destructors in both emitters, preserving
   deterministic cleanup when the last `shared_ptr` owner leaves scope
+- weak class fields and `weak T` annotations lower to `std::weak_ptr<T>` in
+  both emitters; the self-hosted type pipeline preserves weak wrappers through
+  alias resolution, generic substitution and monomorphization, while excluding
+  weak fields from generated JSON methods
 - structs are not emitted with shared ownership bases, destructors, weak references, or interface dispatch support in v1
 
 Primary modules:
@@ -339,10 +343,12 @@ Primary modules:
 - `src/emitter-expr-calls.ts`
 - `src/emitter-defaults.ts`
 - `selfhost/emitter-expr-calls.do`
+- `selfhost/emitter-types.do`
 
 Validation anchors:
 
 - `src/emitter-basics.test.ts`
+- `selfhost/emitter.test.do`
 - `src/emitter-e2e-compile.test.ts`
 - `selfhost/emitter.test.do`
 - `spec/07-classes-and-interfaces.md`
@@ -501,6 +507,12 @@ Strategy:
   self-hosted emitter selects these from the decorated receiver type
 - map `.size` lowers to the native container size call, while mutable-map
   `.buildReadonly()` lowers through `doof::map_buildReadonly`
+- sets lower to `std::shared_ptr<doof::ordered_set<T>>`; `has`, `add`, and
+  `delete` use ordered-set lookup/mutation, while `values`, `buildReadonly`, and
+  `cloneMutable` lower through the shared `doof::set_*` runtime helpers
+- mutable and readonly set types share the C++ carrier but remain distinct and
+  invariant in the checker; only the explicit freeze/copy helpers cross that
+  semantic boundary
 - destructuring expands into explicit extraction and assignment code rather than a dedicated C++ destructuring feature
 - collection behavior depends on both type lowering and statement or expression emission helpers
 

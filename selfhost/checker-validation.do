@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -22,7 +22,7 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
@@ -281,6 +281,10 @@ export function validateTypeAnnotation(annotation: TypeAnnotation, module: strin
       for parameter of function_.params { validateTypeAnnotation(parameter.type_, module, diagnostics) }
       validateTypeAnnotation(function_.returnType, module, diagnostics)
     }
+    weak_: WeakType -> {
+      validateResolved(weak_.resolvedType, weak_.span, module, "type annotation", diagnostics)
+      validateTypeAnnotation(weak_.type_, module, diagnostics)
+    }
   }
 }
 
@@ -291,10 +295,12 @@ export function validateResolved(resolvedType: ResolvedType | null, span: Source
     class_: ClassType -> { for argument of class_.typeArgs { validateResolved(argument, span, module, owner + " type argument", diagnostics) } }
     array: ArrayResolvedType -> { validateResolved(array.elementType, span, module, owner + " element", diagnostics) }
     map: MapResolvedType -> { validateResolved(map.keyType, span, module, owner + " key", diagnostics); validateResolved(map.valueType, span, module, owner + " value", diagnostics) }
+    set_: SetResolvedType -> { validateResolved(set_.elementType, span, module, owner + " element", diagnostics) }
     stream: StreamResolvedType -> { validateResolved(stream.elementType, span, module, owner + " element", diagnostics) }
     result: ResultResolvedType -> { validateResolved(result.valueType, span, module, owner + " success", diagnostics); validateResolved(result.errorType, span, module, owner + " error", diagnostics) }
     actor: ActorType -> { validateResolved(optionalResolvedType(actor.innerClass), span, module, owner + " actor state", diagnostics) }
     promise: PromiseType -> { validateResolved(promise.valueType, span, module, owner + " promise value", diagnostics) }
+    weak_: WeakResolvedType -> { validateResolved(weak_.inner, span, module, owner + " weak target", diagnostics) }
     tuple: TupleResolvedType -> { for item of tuple.elements { validateResolved(item, span, module, owner + " tuple element", diagnostics) } }
     union_: UnionResolvedType -> {
       if union_.types.length == 0 { addValidationError(module, span, "Empty resolved union for " + owner, diagnostics) }

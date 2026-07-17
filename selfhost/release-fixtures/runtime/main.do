@@ -67,11 +67,24 @@ function interfaceResult(): int {
   return shape.render() + shape.value
 }
 
+function setResult(): int {
+  let values: Set<int> = [3, 1, 3, 2]
+  values.delete(1)
+  frozen := values.buildReadonly()
+  if values.size != 0 || frozen.size != 2 || !frozen.has(3) { return 90 }
+  copy := frozen.cloneMutable()
+  copy.add(4)
+  let total = 0
+  for value of copy { total = total + value }
+  return total
+}
+
 function main(): int {
   if actorResult() != 17 { return 1 }
   if iterableResult() != 6 { return 2 }
   if lambdaResult() != 3 { return 3 }
   if jsonResult() != 10 { return 4 }
   if interfaceResult() != 18 { return 5 }
+  if setResult() != 9 { return 6 }
   return 0
 }

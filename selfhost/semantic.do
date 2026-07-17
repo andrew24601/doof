@@ -114,6 +114,12 @@ export class MapResolvedType {
   readonly_: bool
 }
 
+export class SetResolvedType {
+  kind: string = "set"
+  elementType: ResolvedType
+  readonly_: bool
+}
+
 export class StreamResolvedType {
   kind: string = "stream"
   elementType: ResolvedType
@@ -147,6 +153,11 @@ export class UnionResolvedType {
   types: ResolvedType[]
 }
 
+export class WeakResolvedType {
+  kind: string = "weak"
+  inner: ResolvedType
+}
+
 export class NullType {
   kind: string = "null"
 }
@@ -168,7 +179,7 @@ export class TypeParameterType {
 }
 
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
-  ActorType | PromiseType | ArrayResolvedType | MapResolvedType | StreamResolvedType | RangeResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType |
+  ActorType | PromiseType | ArrayResolvedType | MapResolvedType | SetResolvedType | StreamResolvedType | RangeResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType | WeakResolvedType |
   NullType | VoidType | UnknownType | TypeParameterType
 
 export class TypeSubstitution {

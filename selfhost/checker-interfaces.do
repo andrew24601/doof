@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -110,10 +110,12 @@ export function concreteTypes(types: ResolvedType[]): bool {
       interface_: InterfaceType -> { if !concreteTypes(interface_.typeArgs) { return false } }
       array: ArrayResolvedType -> { if !concreteTypes([array.elementType]) { return false } }
       map: MapResolvedType -> { if !concreteTypes([map.keyType, map.valueType]) { return false } }
+      set_: SetResolvedType -> { if !concreteTypes([set_.elementType]) { return false } }
       stream: StreamResolvedType -> { if !concreteTypes([stream.elementType]) { return false } }
       result_: ResultResolvedType -> { if !concreteTypes([result_.valueType, result_.errorType]) { return false } }
       tuple: TupleResolvedType -> { if !concreteTypes(tuple.elements) { return false } }
       union_: UnionResolvedType -> { if !concreteTypes(union_.types) { return false } }
+      weak_: WeakResolvedType -> { if !concreteTypes([weak_.inner]) { return false } }
       function_: FunctionType -> {
         for parameter of function_.params { if !concreteTypes([parameter.type_]) { return false } }
         if !concreteTypes([function_.returnType]) { return false }

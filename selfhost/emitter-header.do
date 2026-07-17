@@ -14,8 +14,8 @@ import { emitExpression } from "./emitter-expr"
 import { emitType } from "./emitter-types"
 import {
   ArrayResolvedType, ClassType, EnumType, FunctionType, ImportBinding, InterfaceType,
-  MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, StreamResolvedType,
-  Symbol, TupleResolvedType, UnionResolvedType,
+  MapResolvedType, PrimitiveType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType,
+  Symbol, TupleResolvedType, UnionResolvedType, WeakResolvedType,
 } from "./semantic"
 import { moduleHeaderName, moduleNamespace, moduleNativeHeaderPath } from "./emitter-names"
 
@@ -187,6 +187,7 @@ function typeNeedsCompleteNominalDefinition(type_: ResolvedType): bool {
     map: MapResolvedType -> {
       return typeNeedsCompleteNominalDefinition(map.keyType) || typeNeedsCompleteNominalDefinition(map.valueType)
     }
+    set_: SetResolvedType -> { return typeNeedsCompleteNominalDefinition(set_.elementType) }
     stream: StreamResolvedType -> { return typeNeedsCompleteNominalDefinition(stream.elementType) }
     result: ResultResolvedType -> {
       return typeNeedsCompleteNominalDefinition(result.valueType) || typeNeedsCompleteNominalDefinition(result.errorType)
@@ -203,6 +204,7 @@ function typeNeedsCompleteNominalDefinition(type_: ResolvedType): bool {
       for parameter of function_.params { if typeNeedsCompleteNominalDefinition(parameter.type_) { return true } }
       return typeNeedsCompleteNominalDefinition(function_.returnType)
     }
+    weak_: WeakResolvedType -> { return typeNeedsCompleteNominalDefinition(weak_.inner) }
     _ -> { return false }
   }
 }
@@ -231,6 +233,7 @@ function collectNativeTypeAliases(type_: ResolvedType, namespace: string, plan: 
       collectNativeTypeAliases(map.keyType, namespace, plan, context)
       collectNativeTypeAliases(map.valueType, namespace, plan, context)
     }
+    set_: SetResolvedType -> { collectNativeTypeAliases(set_.elementType, namespace, plan, context) }
     stream: StreamResolvedType -> { collectNativeTypeAliases(stream.elementType, namespace, plan, context) }
     result: ResultResolvedType -> {
       collectNativeTypeAliases(result.valueType, namespace, plan, context)
@@ -238,6 +241,7 @@ function collectNativeTypeAliases(type_: ResolvedType, namespace: string, plan: 
     }
     tuple: TupleResolvedType -> { for element of tuple.elements { collectNativeTypeAliases(element, namespace, plan, context) } }
     union_: UnionResolvedType -> { for member of union_.types { collectNativeTypeAliases(member, namespace, plan, context) } }
+    weak_: WeakResolvedType -> { collectNativeTypeAliases(weak_.inner, namespace, plan, context) }
     function_: FunctionType -> {
       for parameter of function_.params { collectNativeTypeAliases(parameter.type_, namespace, plan, context) }
       collectNativeTypeAliases(function_.returnType, namespace, plan, context)

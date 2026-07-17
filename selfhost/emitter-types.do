@@ -5,8 +5,8 @@
 // emitter modules.
 
 import {
-  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol,
-  NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol,
+  NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
 import { substituteTypeParams } from "./checker-types"
@@ -58,8 +58,10 @@ function lowerRegisteredTypes(type_: ResolvedType, context: EmitContext): Resolv
     }
     array: ArrayResolvedType -> { return ArrayResolvedType { elementType: lowerRegisteredTypes(array.elementType, context), readonly_: array.readonly_ } }
     map: MapResolvedType -> { return MapResolvedType { keyType: lowerRegisteredTypes(map.keyType, context), valueType: lowerRegisteredTypes(map.valueType, context), readonly_: map.readonly_ } }
+    set_: SetResolvedType -> { return SetResolvedType { elementType: lowerRegisteredTypes(set_.elementType, context), readonly_: set_.readonly_ } }
     stream: StreamResolvedType -> { return StreamResolvedType { elementType: lowerRegisteredTypes(stream.elementType, context) } }
     result_: ResultResolvedType -> { return ResultResolvedType { valueType: lowerRegisteredTypes(result_.valueType, context), errorType: lowerRegisteredTypes(result_.errorType, context) } }
+    weak_: WeakResolvedType -> { return WeakResolvedType { inner: lowerRegisteredTypes(weak_.inner, context) } }
     actor: ActorType -> {
       lowered := lowerRegisteredTypes(actor.innerClass, context)
       case lowered {
@@ -103,7 +105,7 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     class_: ClassType -> {
       if class_.name == "Expression" { return "std::variant<" + expressionAlternatives(class_.symbol.module, currentModulePath) + ">" }
       if class_.name == "Statement" { return "std::variant<" + statementAlternatives(class_.symbol.module, currentModulePath) + ">" }
-      if class_.name == "TypeAnnotation" { return "std::variant<std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", class_.symbol.module, currentModulePath) + ">>" }
+      if class_.name == "TypeAnnotation" { return "std::variant<std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("AstFunctionType", class_.symbol.module, currentModulePath) + ">, std::shared_ptr<" + ownedName("WeakType", class_.symbol.module, currentModulePath) + ">>" }
       if class_.name == "AstNamedType" { return "std::shared_ptr<" + ownedName("NamedType", class_.symbol.module, currentModulePath) + ">" }
       if class_.name == "AstArrayType" { return "std::shared_ptr<" + ownedName("ArrayType", class_.symbol.module, currentModulePath) + ">" }
       if class_.name == "AstUnionType" { return "std::shared_ptr<" + ownedName("UnionType", class_.symbol.module, currentModulePath) + ">" }
@@ -126,6 +128,9 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     map: MapResolvedType -> {
       return "std::shared_ptr<doof::ordered_map<" + emitType(map.keyType, currentModulePath) + ", " + emitType(map.valueType, currentModulePath) + ">>"
     }
+    set_: SetResolvedType -> {
+      return "std::shared_ptr<doof::ordered_set<" + emitType(set_.elementType, currentModulePath) + ">>"
+    }
     stream: StreamResolvedType -> { return concreteName("Stream", [stream.elementType]) }
     _: RangeResolvedType -> { return "doof::Range" }
     _: JsonValueResolvedType -> { return "doof::JsonValue" }
@@ -134,6 +139,12 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     promise: PromiseType -> { return "doof::Promise<" + emitType(promise.valueType, currentModulePath) + ">" }
     tuple: TupleResolvedType -> { return emitTupleType(tuple, currentModulePath) }
     union_: UnionResolvedType -> { return emitUnionType(union_, currentModulePath) }
+    weak_: WeakResolvedType -> {
+      case weak_.inner {
+        class_: ClassType -> { return "std::weak_ptr<" + emitClassInnerType(class_, currentModulePath) + ">" }
+        _ -> { return "std::weak_ptr<" + emitType(weak_.inner, currentModulePath) + ">" }
+      }
+    }
     _: NullType -> { return "std::monostate" }
     _: VoidType -> { return "void" }
     _: UnknownType -> { panic("Cannot emit unresolved unknown type in " + currentModulePath) }
@@ -220,6 +231,8 @@ function emitUnionType(union_: UnionResolvedType, currentModulePath: string = ""
       }
       _: ArrayResolvedType -> { return emitType(nonNull[0], currentModulePath) }
       _: MapResolvedType -> { return emitType(nonNull[0], currentModulePath) }
+      _: SetResolvedType -> { return emitType(nonNull[0], currentModulePath) }
+      _: WeakResolvedType -> { return emitType(nonNull[0], currentModulePath) }
       _: PrimitiveType -> { return "std::optional<" + emitType(nonNull[0], currentModulePath) + ">" }
       _ -> { }
     }
@@ -282,6 +295,8 @@ function usesNaturalNullableMember(member: ResolvedType): bool {
     _: ClassType -> { return true }
     _: ArrayResolvedType -> { return true }
     _: MapResolvedType -> { return true }
+    _: SetResolvedType -> { return true }
+    _: WeakResolvedType -> { return true }
     _: PrimitiveType -> { return true }
     _ -> { return false }
   }

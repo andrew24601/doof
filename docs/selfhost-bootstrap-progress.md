@@ -6,6 +6,9 @@ This document tracks the path from the Doof implementation of the compiler to
 a compiler that can rebuild itself. The TypeScript compiler remains the
 bootstrap implementation; the self-hosted compiler is the long-term target.
 
+For the detailed post-bootstrap parity audit, priorities, and replacement
+gates, see [reference-selfhost-gap-analysis.md](reference-selfhost-gap-analysis.md).
+
 ## Definition of self-hosting
 
 Self-hosting is complete when the self-hosted implementation can:
@@ -31,10 +34,26 @@ The bootstrap is complete for the current self-hosted language slice. The
 self-hosted checker and emitter now include the intrinsic `JsonValue` carrier,
 ordered JSON object/array lowering, native function-import syntax, and
 generated `toJsonObject()` support. Non-generic classes and structs whose
-instance fields are primitives, `JsonValue`, or nullable primitives now also
-receive strict `fromJsonValue()` generation with required-field checks,
-defaults, field-specific type failures, and value/reference-correct `Result`
-payloads. The optional lenient argument remains outside this strict slice.
+instance fields are primitives, `JsonValue`, enums, nested eligible nominal
+values, arrays, or supported nullable forms now also receive
+`fromJsonValue()` generation with required-field checks, defaults,
+field-specific type failures, lenient primitive conversion, and
+value/reference-correct `Result` payloads.
+Weak class fields and `weak T` annotations are now supported across the
+self-hosted parser, analyzer, checker, and emitter. Weak types survive generic
+substitution and header planning, lower to `std::weak_ptr<T>`, are rejected on
+structs, and make a class ineligible for automatic JSON methods, matching the
+reference compiler's implemented weak surface.
+The self-hosted slice now also includes explicitly typed `Set<T>` and
+`ReadonlySet<T>` end to end. Set literals use array-literal syntax under contextual typing, elements
+are restricted to the same supported primitive and enum domain as the
+reference, mutable and readonly types remain invariant, and `buildReadonly()`
+and `cloneMutable()` provide the explicit move-freeze and shallow-copy
+transitions. Generated C++ uses the shared ordered-set runtime helpers. The
+production regex API graph is a concrete consumer through
+`ReadonlySet<RegexFlag>`.
+As with the existing self-hosted map implementation, omitted collection type
+arguments and same-site literal inference remain future parity work.
 Array and string `contains` / `indexOf`
 calls now use the canonical runtime helpers, and declaration-`else` supports
 typed bindings, failure capture, nullable narrowing, discard handlers, and
@@ -256,7 +275,7 @@ work; child output is captured when coverage markers must be separated.
 The maintained verification gates are:
 
 - `npm run build`
-- `npm test` — 2244 TypeScript tests passing
+- `npm test` — 2260 TypeScript tests passing
 - `npm run test:selfhost` — focused Doof-native unit and component tests
 - `npm run test:selfhost:coverage` — the same suite with Doof line coverage
 - `npm run test:release` — seed/B5/B6 bootstrap, fixed-point comparison, and
@@ -277,13 +296,12 @@ Work through these in order, keeping all existing gates green after each step:
 2. **Unify runtime and support planning.** Give runtime generation one owner,
    make the emitter report required native/support artifacts explicitly, and
    add parity tests between TypeScript and self-hosted generated support.
-3. **Split the checker.** Extract statement, declaration, control-flow, member,
-   Result, and generic responsibilities before expanding the supported language
-   surface further.
-4. **Complete JSON deserialization parity.** Extend the strict primitive
-   class/struct slice with nested values and collections, then add lenient
-   conversion, interface/union dispatch, and native `std/json` support-file
-   materialization.
+3. **Maintain focused checker boundaries.** Continue moving cohesive
+   cross-cutting responsibilities out of the remaining broad checker modules
+   as new language surfaces are added.
+4. **Complete JSON deserialization parity.** Add tuples, remaining supported
+   nested collection cases, interface/union/type-alias dispatch, constraint-driven generic
+   conversion, and native `std/json` support-file materialization.
 5. **Complete package-aware module loading.** Resolve package identity and
    dependency manifests, then align generated namespaces with the TypeScript
    compiler's package-relative rules.

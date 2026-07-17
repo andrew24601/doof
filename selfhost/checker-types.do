@@ -3,12 +3,12 @@
 import {
   ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
   InterfaceType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
-  UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import type {
   ArrayType as AstArrayType, AstFunctionType,
-  NamedType as AstNamedType, TypeAnnotation, UnionType as AstUnionType,
+  NamedType as AstNamedType, TypeAnnotation, UnionType as AstUnionType, WeakType,
 } from "./ast"
 
 export function primitive(name: string): ResolvedType {
@@ -25,6 +25,10 @@ export function arrayType(element: ResolvedType, readonly_: bool = false): Resol
 
 export function mapType(key: ResolvedType, value: ResolvedType, readonly_: bool = false): ResolvedType {
   return MapResolvedType { keyType: key, valueType: value, readonly_ }
+}
+
+export function setType(element: ResolvedType, readonly_: bool = false): ResolvedType {
+  return SetResolvedType { elementType: element, readonly_ }
 }
 
 export function streamType(element: ResolvedType): ResolvedType {
@@ -50,6 +54,8 @@ export function resultType(value: ResolvedType, error: ResolvedType): ResolvedTy
 export function actorType(innerClass: ClassType): ResolvedType { return ActorType { innerClass } }
 
 export function promiseType(valueType: ResolvedType): ResolvedType { return PromiseType { valueType } }
+
+export function weakType(inner: ResolvedType): ResolvedType { return WeakResolvedType { inner } }
 
 export function tupleType(elements: ResolvedType[]): ResolvedType {
   return TupleResolvedType { elements }
@@ -84,8 +90,10 @@ export function applyDeepReadonly(type_: ResolvedType): ResolvedType {
   case type_ {
     array: ArrayResolvedType -> { return arrayType(applyDeepReadonly(array.elementType), true) }
     map: MapResolvedType -> { return mapType(applyDeepReadonly(map.keyType), applyDeepReadonly(map.valueType), true) }
+    set: SetResolvedType -> { return setType(applyDeepReadonly(set.elementType), true) }
     stream: StreamResolvedType -> { return streamType(applyDeepReadonly(stream.elementType)) }
     result: ResultResolvedType -> { return resultType(applyDeepReadonly(result.valueType), applyDeepReadonly(result.errorType)) }
+    weak_: WeakResolvedType -> { return weakType(weak_.inner) }
     actor: ActorType -> {
       let typeArgs: ResolvedType[] = []
       for argument of actor.innerClass.typeArgs { typeArgs.push(applyDeepReadonly(argument)) }
@@ -129,8 +137,10 @@ export function substituteTypeParams(type_: ResolvedType, names: string[], argum
     }
     array: ArrayResolvedType -> { return arrayType(substituteTypeParams(array.elementType, names, arguments), array.readonly_) }
     map: MapResolvedType -> { return mapType(substituteTypeParams(map.keyType, names, arguments), substituteTypeParams(map.valueType, names, arguments), map.readonly_) }
+    set: SetResolvedType -> { return setType(substituteTypeParams(set.elementType, names, arguments), set.readonly_) }
     stream: StreamResolvedType -> { return streamType(substituteTypeParams(stream.elementType, names, arguments)) }
     result: ResultResolvedType -> { return resultType(substituteTypeParams(result.valueType, names, arguments), substituteTypeParams(result.errorType, names, arguments)) }
+    weak_: WeakResolvedType -> { return weakType(substituteTypeParams(weak_.inner, names, arguments)) }
     actor: ActorType -> {
       let typeArgs: ResolvedType[] = []
       for argument of actor.innerClass.typeArgs { typeArgs.push(substituteTypeParams(argument, names, arguments)) }
@@ -210,10 +220,12 @@ export function typeName(resolvedType: ResolvedType): string {
     function_: FunctionType -> { return "function" }
     array: ArrayResolvedType -> { return (if array.readonly_ then "readonly " else "") + typeName(array.elementType) + "[]" }
     map: MapResolvedType -> { return (if map.readonly_ then "readonly " else "") + "Map<" + typeName(map.keyType) + ", " + typeName(map.valueType) + ">" }
+    set: SetResolvedType -> { return (if set.readonly_ then "ReadonlySet" else "Set") + "<" + typeName(set.elementType) + ">" }
     stream: StreamResolvedType -> { return "Stream<" + typeName(stream.elementType) + ">" }
     _: RangeResolvedType -> { return "Range" }
     _: JsonValueResolvedType -> { return "JsonValue" }
     result: ResultResolvedType -> { return "Result<" + typeName(result.valueType) + ", " + typeName(result.errorType) + ">" }
+    weak_: WeakResolvedType -> { return "weak " + typeName(weak_.inner) }
     actor: ActorType -> { return "Actor<" + typeName(actor.innerClass) + ">" }
     promise: PromiseType -> { return "Promise<" + typeName(promise.valueType) + ">" }
     tuple: TupleResolvedType -> {
@@ -259,6 +271,14 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
         _ -> { return false }
       }
     }
+    leftSet: SetResolvedType -> {
+      case right {
+        rightSet: SetResolvedType -> {
+          return leftSet.readonly_ == rightSet.readonly_ && sameType(leftSet.elementType, rightSet.elementType)
+        }
+        _ -> { return false }
+      }
+    }
     leftStream: StreamResolvedType -> {
       case right {
         rightStream: StreamResolvedType -> { return sameType(leftStream.elementType, rightStream.elementType) }
@@ -268,6 +288,12 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
     leftResult: ResultResolvedType -> {
       case right {
         rightResult: ResultResolvedType -> { return sameType(leftResult.valueType, rightResult.valueType) && sameType(leftResult.errorType, rightResult.errorType) }
+        _ -> { return false }
+      }
+    }
+    leftWeak: WeakResolvedType -> {
+      case right {
+        rightWeak: WeakResolvedType -> { return sameType(leftWeak.inner, rightWeak.inner) }
         _ -> { return false }
       }
     }
@@ -389,9 +415,24 @@ export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
         _ -> { }
       }
     }
+    valueSet: SetResolvedType -> {
+      case target {
+        targetSet: SetResolvedType -> {
+          if targetSet.readonly_ != valueSet.readonly_ { return false }
+          return sameType(valueSet.elementType, targetSet.elementType)
+        }
+        _ -> { }
+      }
+    }
     valueStream: StreamResolvedType -> {
       case target {
         targetStream: StreamResolvedType -> { return isAssignable(valueStream.elementType, targetStream.elementType) }
+        _ -> { }
+      }
+    }
+    valueWeak: WeakResolvedType -> {
+      case target {
+        targetWeak: WeakResolvedType -> { return isAssignable(valueWeak.inner, targetWeak.inner) }
         _ -> { }
       }
     }
@@ -513,6 +554,21 @@ export function isNumeric(resolvedType: ResolvedType): bool {
   return false
 }
 
+/** Hash collections deliberately support only stable primitive and enum keys. */
+export function isSupportedHashCollectionType(type_: ResolvedType): bool {
+  case type_ {
+    primitive_: PrimitiveType -> {
+      return primitive_.name == "byte" || primitive_.name == "string" || primitive_.name == "int" || primitive_.name == "long" ||
+        primitive_.name == "char" || primitive_.name == "bool"
+    }
+    _: EnumType -> { return true }
+    _: TypeParameterType -> { return true }
+    _: UnknownType -> { return true }
+    _ -> { return false }
+  }
+  return false
+}
+
 export function numericResult(left: ResolvedType, right: ResolvedType): ResolvedType {
   if typeName(left) == "double" || typeName(right) == "double" { return primitive("double") }
   if typeName(left) == "float" || typeName(right) == "float" { return primitive("float") }
@@ -532,6 +588,7 @@ export function typeFromAnnotation(annotation: TypeAnnotation): ResolvedType {
     }
     _: AstNamedType -> { return unknownType() }
     _: AstFunctionType -> { return unknownType() }
+    weak_: WeakType -> { return weakType(typeFromAnnotation(weak_.type_)) }
   }
   return unknownType()
 }

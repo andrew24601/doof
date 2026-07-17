@@ -17,7 +17,7 @@ import {
   NamedImport, NamedType, NamespaceImport, ReadonlyDeclaration, ReturnStatement,
   YieldStatement, WhileStatement, WithStatement, BreakStatement, ContinueStatement,
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
-  CaseStatement, MockImportDirective,
+  CaseStatement, MockImportDirective, WeakType,
 } from "./ast"
 import type { ImportDeclaration, Program, SourceSpan, Statement, TryStatement, TypeAnnotation } from "./ast"
 
@@ -39,7 +39,7 @@ export class AnalysisResult {
   diagnostics: Diagnostic[] = []
 }
 
-readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "SourceLocation", "Map", "ReadonlyMap", "Result", "Stream", "Range", "Tuple", "Actor", "Promise"]
+readonly BUILTIN_TYPES = ["byte", "int", "long", "float", "double", "string", "char", "bool", "void", "null", "JsonValue", "JsonObject", "SourceLocation", "Map", "ReadonlyMap", "Set", "ReadonlySet", "Result", "Stream", "Range", "Tuple", "Actor", "Promise"]
 
 export class ModuleAnalyzer {
   resolver: ModuleResolver
@@ -322,6 +322,7 @@ export class ModuleAnalyzer {
         for parameter of function_.params { visitType(parameter.type_, info, typeParams) }
         visitType(function_.returnType, info, typeParams)
       }
+      weak_: WeakType -> { visitType(weak_.type_, info, typeParams) }
     }
   }
 

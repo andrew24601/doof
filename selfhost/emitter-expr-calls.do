@@ -1,7 +1,7 @@
 // Call, native-constructor, and class-construction lowering.
 
 import { CallArgument, CallExpression, ClassDeclaration, ConstructExpression, Expression, FunctionDeclaration, Identifier, MemberExpression, ObjectProperty, SourceSpan, ThisExpression } from "./ast"
-import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, StreamResolvedType, Symbol } from "./semantic"
+import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, SetResolvedType, StreamResolvedType, Symbol } from "./semantic"
 import { EmitContext, SourceLocationSpanOverride } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
@@ -168,6 +168,14 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             if member.property == "get" && expression.args.length > 0 { return "doof::map_get(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "keys" { return "doof::map_keys(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "buildReadonly" { return "doof::map_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
+          }
+          _: SetResolvedType -> {
+            if member.property == "has" { return "(" + emitExpression(member.object, context) + "->count(" + emitExpression(expression.args[0].value, context) + ") > 0)" }
+            if member.property == "add" { return emitExpression(member.object, context) + "->insert(" + emitExpression(expression.args[0].value, context) + ")" }
+            if member.property == "delete" { return emitExpression(member.object, context) + "->erase(" + emitExpression(expression.args[0].value, context) + ")" }
+            if member.property == "values" { return "doof::set_values(" + emitExpression(member.object, context) + ", \"\", 0)" }
+            if member.property == "buildReadonly" { return "doof::set_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
+            if member.property == "cloneMutable" { return "doof::set_cloneMutable(" + emitExpression(member.object, context) + ", \"\", 0)" }
           }
           _ -> { }
         }

@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -22,13 +22,13 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
-  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
+  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
   nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
-  substituteTypeParams, typeParameter, unknownType, voidType,
+  substituteTypeParams, typeParameter, unknownType, voidType, weakType,
 } from "./checker-types"
 import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
 import { findActorBoundaryViolation } from "./checker-actor-boundary"
@@ -100,6 +100,13 @@ export function decorateAnnotationWithResolved(annotation: TypeAnnotation, resol
           }
           decorateAnnotationWithResolved(function_.returnType, functionResolved.returnType)
         }
+        _ -> { }
+      }
+    }
+    weak_: WeakType -> {
+      weak_.resolvedType = optionalResolvedType(resolved)
+      case resolved {
+        weakResolved: WeakResolvedType -> { decorateAnnotationWithResolved(weak_.type_, weakResolved.inner) }
         _ -> { }
       }
     }
@@ -273,6 +280,10 @@ export function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, 
         }
         return mapType(key, value, named.name == "ReadonlyMap")
       }
+      if named.name == "Set" || named.name == "ReadonlySet" {
+        element := if named.typeArgs.length >= 1 then resolveAnnotation(named.typeArgs[0], info, result, typeParams) else unknownType()
+        return setType(element, named.name == "ReadonlySet")
+      }
       if named.name == "Stream" && named.typeArgs.length >= 1 { return streamType(resolveAnnotation(named.typeArgs[0], info, result, typeParams)) }
       if named.name == "Actor" && named.typeArgs.length == 1 {
         inner := resolveAnnotation(named.typeArgs[0], info, result, typeParams)
@@ -340,6 +351,7 @@ export function resolveAnnotation(annotation: TypeAnnotation, info: ModuleInfo, 
       }
       return functionType(params, resolveAnnotation(function_.returnType, info, result, typeParams))
     }
+    weak_: WeakType -> { return weakType(resolveAnnotation(weak_.type_, info, result, typeParams)) }
   }
   return unknownType()
 }
@@ -409,6 +421,7 @@ export function iterableElement(iterable: ResolvedType): ResolvedType {
   case iterable {
     array: ArrayResolvedType -> { return array.elementType }
     map: MapResolvedType -> { return tupleType([map.keyType, map.valueType]) }
+    set: SetResolvedType -> { return set.elementType }
     stream: StreamResolvedType -> { return stream.elementType }
     _: RangeResolvedType -> { return primitive("int") }
     _ -> { return unknownType() }

@@ -17,7 +17,7 @@ import { buildInstantiationPlan, ClassInstantiation, FunctionInstantiation, Inst
 import { moduleHeaderName, moduleNamespace, moduleSourceName } from "./emitter-names"
 import {
   ArrayResolvedType, ClassType, FunctionType, ImportBinding, InterfaceType, MapResolvedType, NamespaceBinding,
-  ResolvedType, ResultResolvedType, StreamResolvedType, TupleResolvedType, TypeSubstitution, UnionResolvedType,
+  ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, TupleResolvedType, TypeSubstitution, UnionResolvedType, WeakResolvedType,
 } from "./semantic"
 
 export class ModulePlan {
@@ -321,10 +321,12 @@ function addConcreteTypeForwardDeclarations(plan: HeaderPlan, context: EmitConte
     interface_: InterfaceType -> { for argument of interface_.typeArgs { addConcreteTypeForwardDeclarations(plan, context, argument) } }
     array: ArrayResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, array.elementType) }
     map: MapResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, map.keyType); addConcreteTypeForwardDeclarations(plan, context, map.valueType) }
+    set_: SetResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, set_.elementType) }
     stream: StreamResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, stream.elementType) }
     result_: ResultResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, result_.valueType); addConcreteTypeForwardDeclarations(plan, context, result_.errorType) }
     tuple: TupleResolvedType -> { for element of tuple.elements { addConcreteTypeForwardDeclarations(plan, context, element) } }
     union_: UnionResolvedType -> { for member of union_.types { addConcreteTypeForwardDeclarations(plan, context, member) } }
+    weak_: WeakResolvedType -> { addConcreteTypeForwardDeclarations(plan, context, weak_.inner) }
     function_: FunctionType -> {
       for parameter of function_.params { addConcreteTypeForwardDeclarations(plan, context, parameter.type_) }
       addConcreteTypeForwardDeclarations(plan, context, function_.returnType)

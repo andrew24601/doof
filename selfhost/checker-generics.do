@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -54,6 +54,12 @@ export function inferTypeArgument(pattern: ResolvedType, actual: ResolvedType, n
           if key != null { return key }
           return inferTypeArgument(map.valueType, concrete.valueType, name)
         }
+        _ -> { }
+      }
+    }
+    set_: SetResolvedType -> {
+      case actual {
+        concrete: SetResolvedType -> { return inferTypeArgument(set_.elementType, concrete.elementType, name) }
         _ -> { }
       }
     }
@@ -124,6 +130,12 @@ export function inferTypeArgument(pattern: ResolvedType, actual: ResolvedType, n
             }
           }
         }
+        _ -> { }
+      }
+    }
+    weak_: WeakResolvedType -> {
+      case actual {
+        concrete: WeakResolvedType -> { return inferTypeArgument(weak_.inner, concrete.inner, name) }
         _ -> { }
       }
     }

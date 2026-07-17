@@ -3,8 +3,8 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -350,6 +350,10 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
     }
     if field.readonly_ { fieldType = applyDeepReadonly(fieldType) }
     field.resolvedType = optionalResolvedType(fieldType)
+    if class_.struct_ && (field.weak_ || containsWeakType(fieldType)) {
+      name := if field.names.length == 0 then "<field>" else field.names[0]
+      typeError(state, "Struct field \"" + name + "\" cannot be weak", field.span)
+    }
     if field.defaultValue != null && field.type_ != null { checkExpression(state, field.defaultValue!, classScope, optionalResolvedType(fieldType)) }
   }
   for method of class_.methods { checkFunction(state, method, classScope, owner) }
@@ -387,6 +391,21 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
       _ -> { typeError(state, "\"" + interfaceRef.name + "\" is not an interface", interfaceRef.span) }
     }
   }
+}
+
+function containsWeakType(type_: ResolvedType): bool {
+  case type_ {
+    _: WeakResolvedType -> { return true }
+    array: ArrayResolvedType -> { return containsWeakType(array.elementType) }
+    map: MapResolvedType -> { return containsWeakType(map.keyType) || containsWeakType(map.valueType) }
+    set_: SetResolvedType -> { return containsWeakType(set_.elementType) }
+    tuple: TupleResolvedType -> { for item of tuple.elements { if containsWeakType(item) { return true } } }
+    union_: UnionResolvedType -> { for member of union_.types { if containsWeakType(member) { return true } } }
+    result: ResultResolvedType -> { return containsWeakType(result.valueType) || containsWeakType(result.errorType) }
+    promise: PromiseType -> { return containsWeakType(promise.valueType) }
+    _ -> { }
+  }
+  return false
 }
 
 export function checkInterface(state: CheckerState, interface_: InterfaceDeclaration, scope: Scope): void {

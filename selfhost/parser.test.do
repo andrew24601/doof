@@ -6,12 +6,33 @@ import {
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
   ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, UnionType, YieldStatement,
-  MockImportDirective,
+  MockImportDirective, WeakType,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
 function first(source: string): Statement {
   return parse(source).statements[0]
+}
+
+export function testParsesWeakFieldAndTypeQualifiers(): void {
+  program := parse("class Node { weak parent: Node\nancestor: weak Node | null }")
+  case program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.fields[0].weak_, true)
+      Assert.equal(class_.fields[1].weak_, false)
+      case class_.fields[1].type_! {
+        weak_: WeakType -> {
+          Assert.equal(weak_.kind, "weak-type")
+          case weak_.type_ {
+            union_: UnionType -> { Assert.equal(union_.types.length, 2) }
+            _ -> { panic("expected weak to qualify the complete union") }
+          }
+        }
+        _ -> { panic("expected weak type") }
+      }
+    }
+    _ -> { panic("expected class declaration") }
+  }
 }
 
 function assertInt(expression: Expression, expected: int): void {
@@ -179,6 +200,21 @@ export function testParsesReadonlyMapType(): void {
           Assert.equal(named.typeArgs.length, 2)
         }
         _ -> { panic("expected readonly map named type") }
+      }
+    }
+    _ -> { panic("expected function declaration") }
+  }
+}
+
+export function testParsesReadonlySetType(): void {
+  case first("function read(value: readonly Set<int>): void { }") {
+    fn: FunctionDeclaration -> {
+      case fn.params[0].type_! {
+        named: NamedType -> {
+          Assert.equal(named.name, "ReadonlySet")
+          Assert.equal(named.typeArgs.length, 1)
+        }
+        _ -> { panic("expected readonly set named type") }
       }
     }
     _ -> { panic("expected function declaration") }

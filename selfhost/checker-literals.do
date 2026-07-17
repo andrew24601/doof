@@ -3,7 +3,7 @@
 import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, Symbol,
+  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -26,7 +26,7 @@ import {
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
-  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, streamType,
+  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
   nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
@@ -67,6 +67,7 @@ export function checkArray(state: CheckerState, expression: ArrayLiteral, scope:
   if expression.elements.length == 0 && expected != null {
     case expected! {
       _: ArrayResolvedType -> { return finish(state, expression, expected!) }
+      _: SetResolvedType -> { return finish(state, expression, expected!) }
       _ -> { }
     }
   }
@@ -74,6 +75,7 @@ export function checkArray(state: CheckerState, expression: ArrayLiteral, scope:
   if expected != null {
     case expected! {
       array: ArrayResolvedType -> { expectedElement = array.elementType }
+      set: SetResolvedType -> { expectedElement = set.elementType }
       _ -> { }
     }
   }
@@ -84,6 +86,7 @@ export function checkArray(state: CheckerState, expression: ArrayLiteral, scope:
     }
     case expected! {
       array: ArrayResolvedType -> { return finish(state, expression, arrayType(expectedElement!, array.readonly_)) }
+      set: SetResolvedType -> { return finish(state, expression, setType(expectedElement!, set.readonly_)) }
       _ -> { }
     }
   }

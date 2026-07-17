@@ -4,9 +4,9 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, RangeResolvedType, ResultResolvedType, StreamResolvedType,
+  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, RangeResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType,
   FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
-  UnknownType, TypeParameterType, VoidType,
+  UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import type { ResolvedType } from "./semantic"
 
@@ -53,13 +53,20 @@ export class AstFunctionType {
   span: SourceSpan
 }
 
+export class WeakType {
+  kind: string = "weak-type"
+  type_: TypeAnnotation
+  resolvedType: ResolvedType | null = null
+  span: SourceSpan
+}
+
 export class FunctionTypeParam {
   name: string
   type_: TypeAnnotation
   span: SourceSpan
 }
 
-export type TypeAnnotation = NamedType | ArrayType | UnionType | AstFunctionType
+export type TypeAnnotation = NamedType | ArrayType | UnionType | AstFunctionType | WeakType
 
 export class IntLiteral {
   kind: string
@@ -575,6 +582,7 @@ export class ClassField {
   defaultValue: Expression | null
   static_: bool
   readonly_: bool
+  weak_: bool = false
   private_: bool
   resolvedType: ResolvedType | null = null
   span: SourceSpan

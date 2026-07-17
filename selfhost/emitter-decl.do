@@ -8,13 +8,13 @@ import {
   ImmutableBinding, LetDeclaration, ReadonlyDeclaration,
 } from "./ast"
 import {
-  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, PromiseType, ResolvedType, ResultResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
-  UnionResolvedType, UnknownType, VoidType,
+  ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, PromiseType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  UnionResolvedType, UnknownType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { EmitContext, recordCoverageLine } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
 import { emitBlock } from "./emitter-stmt"
-import { emitContextType, emitType, specializeEmitType } from "./emitter-types"
+import { emitClassInnerType, emitContextType, emitType, specializeEmitType } from "./emitter-types"
 import { scanCapturedMutablesInBlock, scanCapturedMutablesInExpression } from "./emitter-expr-lambda"
 import { moduleNamespace } from "./emitter-names"
 import { MethodInstantiation } from "./emitter-monomorphize"
@@ -153,6 +153,7 @@ function ensureKnown(resolvedType: ResolvedType, owner: string): void {
   case resolvedType {
     _: UnknownType -> { panic("Cannot emit unresolved type for " + owner) }
     array: ArrayResolvedType -> { ensureKnown(array.elementType, owner + " element") }
+    set_: SetResolvedType -> { ensureKnown(set_.elementType, owner + " element") }
     tuple: TupleResolvedType -> {
       for i of 0..<tuple.elements.length { ensureKnown(tuple.elements[i], owner + " tuple element") }
     }
@@ -165,6 +166,7 @@ function ensureKnown(resolvedType: ResolvedType, owner: string): void {
     }
     actor: ActorType -> { ensureKnown(actor.innerClass, owner + " actor state") }
     promise: PromiseType -> { ensureKnown(promise.valueType, owner + " promise value") }
+    weak_: WeakResolvedType -> { ensureKnown(weak_.inner, owner + " weak target") }
     _ -> { }
   }
 }
@@ -298,6 +300,14 @@ function fieldTypeForEmission(field: ClassField): ResolvedType {
 }
 
 function fieldTypeTextForEmission(field: ClassField, resolvedType: ResolvedType, context: EmitContext): string {
+  if field.weak_ {
+    specialized := specializeEmitType(resolvedType, context)
+    case specialized {
+      weak_: WeakResolvedType -> { return emitContextType(weak_, context) }
+      class_: ClassType -> { return "std::weak_ptr<" + emitClassInnerType(class_, context.modulePath) + ">" }
+      _ -> { return "std::weak_ptr<" + emitContextType(specialized, context) + ">" }
+    }
+  }
   typeText := emitContextType(resolvedType, context)
   if field.defaultValue == null { return typeText }
   defaultText := emitExpression(field.defaultValue!, context, resolvedType)

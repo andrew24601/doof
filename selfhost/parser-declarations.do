@@ -266,13 +266,14 @@ function parseClassField(parser: Parser, static_: bool, private_: bool): ClassFi
   let staticValue = static_
   readonly_ := parser.match(TokenType.Readonly)
   if parser.match(TokenType.Static) { staticValue = true }
+  weak_ := parser.match(TokenType.Weak)
   let names: string[] = [parser.text(parser.expect(TokenType.Identifier))]
   while parser.match(TokenType.Comma) { names.push(parser.text(parser.expect(TokenType.Identifier))) }
   typeValue := parser.parseOptionalType()
   let defaultValue: Expression | null = null
   if parser.match(TokenType.Equal) { defaultValue = parser.parseExpression() }
   parser.consumeSemicolon()
-  return ClassField { kind: "class-field", names, type_: typeValue, defaultValue, static_: staticValue, readonly_, private_, span: parser.span(start) }
+  return ClassField { kind: "class-field", names, type_: typeValue, defaultValue, static_: staticValue, readonly_, weak_, private_, span: parser.span(start) }
 }
 
 export function parseInterface(parser: Parser, exported: bool): Statement {
