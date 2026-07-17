@@ -1,7 +1,7 @@
 // Assignment, identifier, operator, member, and index lowering.
 
 import { AsExpression, AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
@@ -322,8 +322,13 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
       class_: ClassType -> {
         if expression.resolvedStaticOwner != null {
           owner := expression.resolvedStaticOwner!
-          ownerName := if owner.native_ then "::" + (if owner.nativeCppName == "" then owner.name else owner.nativeCppName) else object
-          return ownerName + "::" + cppIdentifier(expression.property)
+          let ownerName = owner.name
+          if owner.native_ {
+            ownerName = "::" + (if owner.nativeCppName == "" then owner.name else owner.nativeCppName)
+          } else if owner.resolvedSymbol != null && owner.resolvedSymbol!.module != context.modulePath && context.modulePath != "" {
+            ownerName = "::" + exprModuleNamespaceFor(owner.resolvedSymbol!.module) + "::" + owner.name
+          }
+          return ownerName + "::" + (if expression.property == "metadata" then "_metadata" else cppIdentifier(expression.property))
         }
       }
       _ -> { }
@@ -373,6 +378,8 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
         if expression.property == "value" { return "doof::success_value(" + object + ")" }
         if expression.property == "error" { return "doof::failure_error(" + object + ")" }
       }
+      _: ClassMetadataResolvedType -> { return object + "." + cppIdentifier(expression.property) }
+      _: MethodReflectionResolvedType -> { return object + "." + cppIdentifier(expression.property) }
       enum_: EnumType -> {
         if expression.property == "value" { return "static_cast<int32_t>(" + object + ")" }
         return object + "::" + cppIdentifier(expression.property)

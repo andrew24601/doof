@@ -24,6 +24,15 @@ class Config {
   notes: string | null = null
 }
 
+class Calculator "A calculator." {
+  function add "Adds two values."(left "Left value.": int, right "Right value.": int): int => left + right
+}
+
+struct Multiplier "A multiplier." {
+  factor: int
+  function apply(value: int): int => value * factor
+}
+
 function actorResult(): int {
   worker := Actor<Accumulator>(1)
   first := worker.add(2)
@@ -59,6 +68,20 @@ function jsonResult(): int {
     return 91
   }
   return 92
+}
+
+function metadataResult(): int {
+  metadata := Calculator.metadata
+  if metadata.name != "Calculator" || metadata.description != "A calculator." { return 90 }
+  calculator := Calculator {}
+  firstJson := metadata.invoke(calculator, "add", { left: 2, right: 3 }) else { return 91 }
+  first := firstJson as int else { return 92 }
+  secondJson := metadata.methods[0].invoke(calculator, { left: 1, right: 4 }) else { return 93 }
+  second := secondJson as int else { return 94 }
+  multiplier := Multiplier { factor: 3 }
+  multipliedJson := Multiplier.metadata.invoke(multiplier, "apply", { value: 2 }) else { return 95 }
+  multiplied := multipliedJson as int else { return 96 }
+  return first + second + multiplied
 }
 
 function interfaceResult(): int {
@@ -114,5 +137,6 @@ function main(): int {
   if interfaceResult() != 18 { return 5 }
   if setResult() != 9 { return 6 }
   if yieldCatchResult() != 8 { return 7 }
+  if metadataResult() != 16 { return 8 }
   return 0
 }

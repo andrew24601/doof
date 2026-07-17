@@ -104,6 +104,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/emitter-expr-lambda.do` — self-hosted lambda capture analysis, escaping mutable boxing, and actor-affine callback lowering
 - `selfhost/emitter-stmt.do` — self-hosted block and control-flow lowering
 - `selfhost/emitter-json.do` — self-hosted automatic JSON method declarations and definitions
+- `selfhost/emitter-metadata.do` — self-hosted JSON Schema, `.metadata`, method reflection, and `.invoke()` lowering
 - `selfhost/emitter-wasm.do` — self-hosted WebAssembly export validation and JSON-over-C-ABI wrapper generation
 - `selfhost/emitter-decl.do` — self-hosted function signatures, definitions, and value declarations
 - `selfhost/emitter-header.do` — self-hosted header planning and header rendering boundary

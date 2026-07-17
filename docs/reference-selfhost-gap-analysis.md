@@ -31,8 +31,9 @@ The largest remaining gaps are:
    vertical slices.
 3. **Reflection and JSON:** the self-host supports a useful automatic JSON
    subset, but not interface/alias dispatch, tuples and the complete reference
-   serializability surface. Declaration descriptions, `.metadata`, schema
-   generation, `.invoke`, `JsonSerializable`, and `Reflectable` are absent.
+   serializability surface. Declaration descriptions and direct class/struct
+   `.metadata`, schema generation, and `.invoke` are implemented; interface
+   reflection plus `JsonSerializable` and `Reflectable` remain absent.
 4. **CLI and target parity:** the self-host has no `run` command, target
    override, WebAssembly target, observer mode, class-lifecycle instrumentation,
    TypeScript-style external native flags, Windows/MSVC path, or incremental
@@ -113,8 +114,7 @@ Priority meanings:
 | Range patterns | Finite range values work in the self-host, but open-ended and range `case` patterns have no dedicated representation/lowering. | Reference `RangePattern`; self-host `CasePattern` contains only type, wildcard, and value patterns. | P1 | Differential tests for `a..b`, `a..<b`, `a..`, `..<b`, exhaustiveness interaction, and invalid non-numeric bounds. |
 | Recorded mocks | `mock import` works, but `mock function`, `mock class`, and typed `.calls` storage/checking/emission are absent. | Explicit limitation in `docs/testing.md`; no mock callable/class fields in the self-host AST. | P1 | Run the reference mock-function/class examples unchanged under the self-host runner, including bodyless panic and per-instance call logs. |
 | Test timeouts | `DOOF_TEST_TIMEOUT_MS` is reference-runner-only. | Explicit limitation in `docs/testing.md`; self-host process wrapper has no timed execution option. | P2 | A hanging test is terminated, reported as a timeout, and does not prevent remaining isolated tests from running. |
-| Declaration descriptions | The self-host discards a class description string and does not retain descriptions for functions, parameters, fields, interfaces, enums, aliases, or bindings. | Comment and token skip in `selfhost/parser-declarations.do`; description fields throughout `src/ast.ts`. | P1 | Parse and retain every form in `spec/13-descriptions.md`, emit comments, and feed the same data into metadata/schema generation. |
-| Metadata/schema/invoke | `.metadata`, schema generation, method reflection, JSON invocation, and `Reflectable` are reference-only. | `src/emitter-schema.ts`, `src/emitter-metadata.ts`, and reference checker member types have no self-host equivalents. | P1 | Port the metadata/schema test families, then add native calls through class, struct, interface, generic `Reflectable`, and failure-returning methods. |
+| Metadata/schema/invoke | Direct non-generic class/struct `.metadata`, JSON Schema, per-method and name-based invocation are implemented. Interface-qualified reflection and generic `Reflectable` remain missing. | `selfhost/emitter-metadata.do` and focused parser/checker/emitter tests cover the direct nominal surface; the self-host constraint model still has no `Reflectable`. | P1 | Add native calls through struct and interface surfaces, preserve failure-returning behavior, then enable generic access through the `Reflectable` constraint model. |
 | JSON completeness | The self-host supports primitives, `JsonValue`, enums, nested non-generic classes/structs, arrays, nullable members, defaults, and lenient primitive conversion. It lacks the complete reference surface, notably tuple conversion and interface/union/type-alias deserialization dispatch; generic JSON constraints depend on the missing constraint model. | Eligibility/lowering in `selfhost/json-semantics.do` and `selfhost/emitter-json.do` versus dispatcher/tuple paths in `src/emitter-json.ts`. | P1 | A shared JSON corpus covers strict/lenient conversion, tuples, nested collections, nullable values, aliases, interfaces with discriminators, recursive values, error paths, and `JsonSerializable` generic calls. |
 | CLI command/options | Self-host supports `build`, `package`, `emit`, `check`, and `test`, but not `run`; it also lacks `--target`, native include/library/object/define/flag overrides, `--std`, verbose/version, metrics instrumentation, and observer mode. | `docs/cli.md` versus `selfhost/cli.do`. | P2, except `run` is P1 | Use one table-driven CLI option contract for both implementations and differential tests for parsing, precedence over manifests, output paths, and exit codes. |
 | WebAssembly | No self-host `wasm` target, Emscripten planning, `doof_wasm.cpp`, or JSON C ABI export wrappers exist. | Reference target in `src/build-targets.ts`, `src/cli-core.ts`, and `src/emitter-module.ts`; self-host target parsing accepts app targets only. | P1 if wasm remains supported | Build the maintained wasm fixture and compare exported names plus JSON call behaviour from a minimal host. |
@@ -125,6 +125,17 @@ Priority meanings:
 | Differential coverage | Self-host unit/component and release fixtures cover the supported slice, while the much broader reference test corpus is not replayed against both compilers. | Separate `src/*.test.ts` and `selfhost/*.test.do` families; B5/B6 compares self-host output only. | P0 | Add a manifest-driven parity corpus executed by both pipelines, with explicit expected-equal, expected-different, and intentionally-unsupported classifications. |
 
 ## Recently closed gaps
+
+Declaration descriptions are retained for classes/structs, functions and
+methods, parameters, per-name fields, interfaces and their members, enums and
+variants, type aliases, and readonly declarations. The self-host emitter
+renders declaration and `@param` comments and feeds the retained descriptions
+into on-demand metadata and JSON Schema generation. Direct non-generic
+class/struct metadata includes public instance-method reflection, schema
+literals, per-method invocation, name-based invocation, JSON parameter
+validation/defaults, Result success serialization, JsonValue failure
+passthrough, and generic 500 redaction for other failures. Interface-qualified
+reflection and generic `Reflectable` remain tracked above.
 
 Catch expressions and `<-` yield blocks are now complete self-hosted vertical
 slices. The self-host parser preserves dedicated expression and reassignment

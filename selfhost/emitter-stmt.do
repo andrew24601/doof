@@ -154,12 +154,13 @@ function isSingleOptional(resolvedType: ResolvedType): bool {
   case resolvedType {
     union_: UnionResolvedType -> {
       let hasNull = false
-      let nonNull = 0
       for member of union_.types {
         if member.kind == "null" { hasNull = true }
-        else { nonNull = nonNull + 1 }
       }
-      return hasNull && nonNull == 1
+      // Nullable aliases may flatten into several non-null arms. All native
+      // nullable carriers (pointer, optional, or monostate variant) share the
+      // is_null/unwrap_optional runtime surface.
+      return hasNull
     }
     _ -> { return false }
   }

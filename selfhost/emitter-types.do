@@ -5,7 +5,7 @@
 // emitter modules.
 
 import {
-  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol,
+  ActorType, ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionParamType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol,
   NullType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { moduleNamespace } from "./emitter-names"
@@ -149,6 +149,8 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     _: VoidType -> { return "void" }
     _: UnknownType -> { panic("Cannot emit unresolved unknown type in " + currentModulePath) }
     parameter: TypeParameterType -> { return parameter.name }
+    metadata: ClassMetadataResolvedType -> { return "doof::ClassMetadata<" + emitClassInnerType(metadata.classType, currentModulePath) + ">" }
+    reflection: MethodReflectionResolvedType -> { return "doof::MethodReflection<" + emitClassInnerType(reflection.classType, currentModulePath) + ">" }
   }
   return "void"
 }

@@ -4,7 +4,7 @@
 // nodes in place so later compiler phases do not re-resolve syntax.
 
 import {
-  ActorType, ArrayResolvedType, Binding, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, PromiseType, RangeResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType,
+  ActorType, ArrayResolvedType, Binding, ClassMetadataResolvedType, ClassType, EnumType, InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, PromiseType, RangeResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType,
   FunctionType, NullType, PrimitiveType, Symbol, TupleResolvedType, UnionResolvedType,
   UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
@@ -343,6 +343,7 @@ export type Expression =
 
 export class Parameter {
   name: string
+  description: string = ""
   type_: TypeAnnotation | null
   defaultValue: Expression | null
   resolvedType: ResolvedType | null = null
@@ -358,6 +359,7 @@ export class Block {
 export class ConstDeclaration {
   kind: string
   name: string
+  description: string = ""
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
@@ -368,6 +370,7 @@ export class ConstDeclaration {
 export class ReadonlyDeclaration {
   kind: string
   name: string
+  description: string = ""
   type_: TypeAnnotation | null
   value: Expression
   exported: bool
@@ -399,6 +402,7 @@ export class LetDeclaration {
 export class FunctionDeclaration {
   kind: string
   name: string
+  description: string = ""
   typeParams: string[]
   params: Parameter[]
   returnType: TypeAnnotation | null
@@ -591,6 +595,7 @@ export class TryStatement {
 export class ClassDeclaration {
   kind: string
   name: string
+  description: string = ""
   struct_: bool = false
   typeParams: string[]
   implements_: NamedType[]
@@ -603,12 +608,14 @@ export class ClassDeclaration {
   nativeHeader: string = ""
   nativeCppName: string = ""
   resolvedSymbol: Symbol | null = null
+  needsMetadata: bool = false
   span: SourceSpan
 }
 
 export class ClassField {
   kind: string
   names: string[]
+  descriptions: string[] = []
   type_: TypeAnnotation | null
   defaultValue: Expression | null
   static_: bool
@@ -622,6 +629,7 @@ export class ClassField {
 export class InterfaceDeclaration {
   kind: string
   name: string
+  description: string = ""
   typeParams: string[]
   fields: InterfaceField[]
   methods: FunctionDeclaration[]
@@ -633,6 +641,7 @@ export class InterfaceDeclaration {
 export class InterfaceField {
   kind: string
   name: string
+  description: string = ""
   type_: TypeAnnotation
   readonly_: bool = false
   resolvedType: ResolvedType | null = null
@@ -642,6 +651,7 @@ export class InterfaceField {
 export class EnumDeclaration {
   kind: string
   name: string
+  description: string = ""
   variants: EnumVariant[]
   exported: bool
   span: SourceSpan
@@ -650,6 +660,7 @@ export class EnumDeclaration {
 export class EnumVariant {
   kind: string
   name: string
+  description: string = ""
   value: Expression | null
   span: SourceSpan
 }
@@ -657,6 +668,7 @@ export class EnumVariant {
 export class TypeAliasDeclaration {
   kind: string
   name: string
+  description: string = ""
   typeParams: string[]
   type_: TypeAnnotation
   exported: bool

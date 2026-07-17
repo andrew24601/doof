@@ -5,7 +5,7 @@ import {
   MemberExpression, FunctionDeclaration, ClassDeclaration, ArrayLiteral, Block,
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
-  ActorCreationExpression, CaseExpression, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, UnionType, YieldStatement,
+  ActorCreationExpression, CaseExpression, EnumDeclaration, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, TypeAliasDeclaration, UnionType, YieldStatement,
   MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
@@ -65,6 +65,43 @@ export function testParsesWeakFieldAndTypeQualifiers(): void {
       }
     }
     _ -> { panic("expected class declaration") }
+  }
+}
+
+export function testRetainsDeclarationDescriptions(): void {
+  program := parse("class Tool \"A tool.\" { x \"x-axis\", y: int\nfunction run \"Runs.\"(input \"Payload.\": string): string => input }\ninterface Named \"A name.\" { value \"Value.\": string\nread \"Reads.\"(): string }\nenum State \"State.\" { Ready \"Ready now.\", Done }\ntype Label \"Label.\" = string\nreadonly version \"Version.\" = 1")
+  case program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.description, "A tool.")
+      Assert.equal(class_.fields[0].descriptions[0], "x-axis")
+      Assert.equal(class_.fields[0].descriptions[1], "")
+      Assert.equal(class_.methods[0].description, "Runs.")
+      Assert.equal(class_.methods[0].params[0].description, "Payload.")
+    }
+    _ -> { panic("expected described class") }
+  }
+  case program.statements[1] {
+    interface_: InterfaceDeclaration -> {
+      Assert.equal(interface_.description, "A name.")
+      Assert.equal(interface_.fields[0].description, "Value.")
+      Assert.equal(interface_.methods[0].description, "Reads.")
+    }
+    _ -> { panic("expected described interface") }
+  }
+  case program.statements[2] {
+    enum_: EnumDeclaration -> {
+      Assert.equal(enum_.description, "State.")
+      Assert.equal(enum_.variants[0].description, "Ready now.")
+    }
+    _ -> { panic("expected described enum") }
+  }
+  case program.statements[3] {
+    alias: TypeAliasDeclaration -> { Assert.equal(alias.description, "Label.") }
+    _ -> { panic("expected described alias") }
+  }
+  case program.statements[4] {
+    readonly_: ReadonlyDeclaration -> { Assert.equal(readonly_.description, "Version.") }
+    _ -> { panic("expected described readonly") }
   }
 }
 

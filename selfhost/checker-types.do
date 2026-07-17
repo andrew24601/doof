@@ -1,9 +1,9 @@
 // Resolved-type utilities shared by the self-hosted checker.
 
 import {
-  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
+  ActorType, ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionParamType, FunctionType,
   InterfaceType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
+  JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType,
   UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import type {
@@ -48,6 +48,10 @@ export function isJsonValueType(resolvedType: ResolvedType): bool {
 }
 
 export function jsonObjectType(): ResolvedType { return mapType(primitive("string"), jsonValueType()) }
+
+export function classMetadataType(classType_: ClassType): ResolvedType { return ClassMetadataResolvedType { classType: classType_ } }
+
+export function methodReflectionType(classType_: ClassType): ResolvedType { return MethodReflectionResolvedType { classType: classType_ } }
 
 export function resultType(value: ResolvedType, error: ResolvedType): ResolvedType { return ResultResolvedType { valueType: value, errorType: error } }
 
@@ -248,6 +252,8 @@ export function typeName(resolvedType: ResolvedType): string {
     _: VoidType -> { return "void" }
     _: UnknownType -> { return "unknown" }
     parameter: TypeParameterType -> { return parameter.name }
+    metadata: ClassMetadataResolvedType -> { return "ClassMetadata<" + typeName(metadata.classType) + ">" }
+    reflection: MethodReflectionResolvedType -> { return "MethodReflection<" + typeName(reflection.classType) + ">" }
   }
   return "unknown"
 }

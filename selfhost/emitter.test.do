@@ -515,6 +515,29 @@ export function testEmitsRecursiveAutomaticJsonTypes(): void {
   Assert.equal(result.source.contains("Point::fromJsonValue"), true)
 }
 
+export function testEmitsDescriptionsMetadataSchemasAndInvoke(): void {
+  result := emit("class Tool \"A tool.\" { count \"Current count.\": int = 0\nfunction run \"Runs it.\"(input \"The input.\": string): string => input }\nmetadata := Tool.metadata\nfunction invoke(tool: Tool, params: JsonValue): Result<JsonValue, JsonValue> => metadata.invoke(tool, \"run\", params)")
+  Assert.equal(result.header.contains("// A tool."), true)
+  Assert.equal(result.header.contains("// Current count."), true)
+  Assert.equal(result.header.contains("// Runs it."), true)
+  Assert.equal(result.header.contains("// @param input The input."), true)
+  Assert.equal(result.header.contains("static const doof::ClassMetadata<Tool> _metadata;"), true)
+  Assert.equal(result.source.contains("inline const doof::ClassMetadata<Tool> Tool::_metadata"), true)
+  Assert.equal(result.source.contains("doof::MethodReflection<Tool>"), true)
+  Assert.equal(result.source.contains("\"input\""), true)
+  Assert.equal(result.source.contains("\"required\""), true)
+  Assert.equal(result.source.contains("_instance.run(input)"), true)
+  Assert.equal(result.source.contains("doof::Success<doof::JsonValue>"), true)
+  Assert.equal(result.source.contains("Tool::_metadata"), true)
+  Assert.equal(result.source.contains("metadata.invoke"), true)
+}
+
+export function testDoesNotEmitMetadataWhenUnused(): void {
+  result := emit("class Tool { function run(input: string): string => input }")
+  Assert.equal(result.header.contains("ClassMetadata<Tool>"), false)
+  Assert.equal(result.source.contains("Tool::_metadata"), false)
+}
+
 export function testDoesNotEmitJsonMethodsThatDependOnUnsupportedNominalFields(): void {
   result := emit("class Handler { callback: (value: int): void }\nclass Envelope { handler: Handler }")
   Assert.equal(result.header.contains("doof::JsonObject toJsonObject() const;"), false)

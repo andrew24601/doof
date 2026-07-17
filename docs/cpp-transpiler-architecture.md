@@ -58,6 +58,7 @@ The initial slice is split into small modules:
 - `selfhost/json-semantics.do` owns shared checker/emitter eligibility for
   compiler-generated JSON methods
 - `selfhost/emitter-json.do` owns automatic JSON method declarations and definitions
+- `selfhost/emitter-metadata.do` owns on-demand reflection records, JSON Schema literals, and JSON-backed method invocation
 - `selfhost/emitter-header.do` owns header planning and rendering
 - `selfhost/emitter-names.do` owns stable generated module namespaces and artifact names
 - `selfhost/emitter-module.do` owns module-graph planning, stable coverage module IDs, and `.hpp` / `.cpp` orchestration

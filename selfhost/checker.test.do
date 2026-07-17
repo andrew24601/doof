@@ -381,6 +381,17 @@ export function testAcceptsLenientJsonDeserialization(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksMetadataSchemaAndInvokeSurface(): void {
+  result := checked("class Tool \"A tool.\" { function run \"Runs.\"(input \"Payload.\": string): string => input }\nmetadata := Tool.metadata\nname := metadata.name\nmethods := metadata.methods\ninvoked := metadata.invoke(Tool {}, \"run\", { input: \"ok\" })\nmethodInvoked := methods[0].invoke(Tool {}, { input: \"ok\" })")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsMetadataForNonSerializableMethods(): void {
+  result := checked("class Bad { function run(callback: (value: int): void): string => \"no\" }\nmetadata := Bad.metadata")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("not JSON-serializable"), true)
+}
+
 export function testChecksReadonlyArrayLiteralAndReadonlyField(): void {
   result := checked("class Request { readonly headers: int[] }\nfunction use(values: readonly int[]): int => values.length\nfunction main(): int { values := readonly [1, 2]\nrequest := Request { headers: values }\nreturn use(request.headers) }")
   Assert.equal(result.diagnostics.length, 0)

@@ -9,7 +9,7 @@ import {
   Program, ReadonlyDeclaration, Statement, TypeAliasDeclaration,
 } from "./ast"
 import { EmitContext, EmitModuleSurface } from "./emitter-context"
-import { emitClassDeclaration, emitFunctionDeclaration, emitFunctionDefinition, emitInterfaceAlias } from "./emitter-decl"
+import { emitClassDeclaration, emitDescriptionComment, emitFunctionDeclaration, emitFunctionDefinition, emitInterfaceAlias } from "./emitter-decl"
 import { emitExpression } from "./emitter-expr"
 import { emitType } from "./emitter-types"
 import {
@@ -133,8 +133,8 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
     // Generic aliases are erased after checker substitution. Concrete uses
     // lower directly to their substituted concrete type.
     alias: TypeAliasDeclaration -> { if alias.typeParams.length == 0 { plan.typeAliases.push(emitTypeAlias(alias, context)) } }
-    const_: ConstDeclaration -> { if const_.exported { plan.exportedValueDefinitions.push(emitExportedValue(const_.name, const_.value, context)) } }
-    readonly_: ReadonlyDeclaration -> { if readonly_.exported { plan.exportedValueDefinitions.push(emitExportedValue(readonly_.name, readonly_.value, context)) } }
+    const_: ConstDeclaration -> { if const_.exported { plan.exportedValueDefinitions.push(emitDescriptionComment(const_.description, "") + emitExportedValue(const_.name, const_.value, context)) } }
+    readonly_: ReadonlyDeclaration -> { if readonly_.exported { plan.exportedValueDefinitions.push(emitDescriptionComment(readonly_.description, "") + emitExportedValue(readonly_.name, readonly_.value, context)) } }
     fn: FunctionDeclaration -> {
       if fn.native_ {
         if fn.nativeHeader != "" { addUnique(plan.nativeIncludes, moduleNativeHeaderPath(context.modulePath, fn.nativeHeader)) }
@@ -353,10 +353,10 @@ function nativeNamespace(cppName: string): string {
 }
 
 function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext): string {
-  let result = "enum class " + declaration.name + " {\n"
+  let result = emitDescriptionComment(declaration.description, "") + "enum class " + declaration.name + " {\n"
   for i of 0..<declaration.variants.length {
     variant := declaration.variants[i]
-    result = result + "    " + variant.name
+    result = result + emitDescriptionComment(variant.description, "    ") + "    " + variant.name
     if variant.value != null { result = result + " = " + emitExpression(variant.value!, context) }
     if i + 1 < declaration.variants.length { result = result + "," }
     result = result + "\n"
@@ -378,7 +378,7 @@ function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext)
 
 function emitTypeAlias(alias: TypeAliasDeclaration, context: EmitContext): string {
   if alias.resolvedType == null { panic("Type alias " + alias.name + " was not checked before emission") }
-  return "using " + alias.name + " = " + emitType(alias.resolvedType!, context.modulePath) + ";\n"
+  return emitDescriptionComment(alias.description, "") + "using " + alias.name + " = " + emitType(alias.resolvedType!, context.modulePath) + ";\n"
 }
 
 function functionReturnsInt(fn: FunctionDeclaration): bool {

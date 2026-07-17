@@ -371,6 +371,9 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
   for typeParam of class_.typeParams { ownerTypeArgs.push(typeParameter(typeParam)) }
   owner := classType(class_.name, symbol!, ownerTypeArgs)
   for field of class_.fields {
+    for fieldName of field.names {
+      if generatedMemberName(fieldName) { typeError(state, "Member name \"" + fieldName + "\" is reserved for compiler-generated reflection and JSON support", field.span) }
+    }
     let fieldType = unknownType()
     if field.type_ != null {
       fieldType = resolveType(state, field.type_!, state.info!, classScope)
@@ -385,7 +388,10 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
     }
     if field.defaultValue != null && field.type_ != null { checkExpression(state, field.defaultValue!, classScope, optionalResolvedType(fieldType)) }
   }
-  for method of class_.methods { checkFunction(state, method, classScope, owner) }
+  for method of class_.methods {
+    if generatedMemberName(method.name) { typeError(state, "Method name \"" + method.name + "\" is reserved for compiler-generated reflection and JSON support", method.span) }
+    checkFunction(state, method, classScope, owner)
+  }
   if class_.destructor_ != null {
     if class_.struct_ {
       typeError(state, "Struct \"" + class_.name + "\" cannot declare a destructor", class_.destructor_!.span)
@@ -420,6 +426,10 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
       _ -> { typeError(state, "\"" + interfaceRef.name + "\" is not an interface", interfaceRef.span) }
     }
   }
+}
+
+function generatedMemberName(name: string): bool {
+  return name == "metadata" || name == "toJsonObject" || name == "fromJsonValue"
 }
 
 function containsWeakType(type_: ResolvedType): bool {

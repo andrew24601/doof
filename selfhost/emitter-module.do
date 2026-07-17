@@ -12,6 +12,7 @@ import { AnalysisResult, ModuleInfo } from "./analyzer"
 import { createEmitContext, createEmitContextForModule, EmitContext, EmitModuleSurface } from "./emitter-context"
 import { emitClassDeclaration, emitClassMethodDefinition, emitFunctionDeclaration, emitFunctionDefinition, emitNativeFunctionAdapterDefinition, emitStaticClassFieldDefinitions, emitValueDeclaration } from "./emitter-decl"
 import { emitGeneratedJsonMethods } from "./emitter-json"
+import { emitMetadataDefinition } from "./emitter-metadata"
 import { HeaderPlan, planHeader, renderHeader } from "./emitter-header"
 import { buildInstantiationPlan, ClassInstantiation, FunctionInstantiation, InstantiationPlan, MethodInstantiation, nativeTemplateClassKey } from "./emitter-monomorphize"
 import { moduleHeaderName, moduleNamespace, moduleSourceName } from "./emitter-names"
@@ -418,6 +419,7 @@ function emitSourceStatement(statement: Statement, context: EmitContext): string
         for method of class_.methods { result = result + emitClassMethodDefinition(class_, method, context) }
       }
       result = result + emitGeneratedJsonMethods(class_, context)
+      result = result + emitMetadataDefinition(class_, context)
       return result
     }
     const_: ConstDeclaration -> { return if const_.exported then "" else emitValueDeclaration(const_, context) }

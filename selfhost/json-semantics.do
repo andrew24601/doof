@@ -47,7 +47,7 @@ export function nullableJsonMember(type_: ResolvedType): ResolvedType | null {
   return null
 }
 
-function isGeneratedJsonType(type_: ResolvedType, programs: Program[] = [], visited: string[] = []): bool {
+export function isGeneratedJsonType(type_: ResolvedType, programs: Program[] = [], visited: string[] = []): bool {
   case type_ {
     _: PrimitiveType -> { return true }
     _: JsonValueResolvedType -> { return true }

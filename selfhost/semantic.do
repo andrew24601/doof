@@ -178,9 +178,21 @@ export class TypeParameterType {
   name: string
 }
 
+/** Compiler-known reflection value returned by `Type.metadata`. */
+export class ClassMetadataResolvedType {
+  kind: string = "class-metadata"
+  classType: ClassType
+}
+
+/** Compiler-known element type of `ClassMetadata.methods`. */
+export class MethodReflectionResolvedType {
+  kind: string = "method-reflection"
+  classType: ClassType
+}
+
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
   ActorType | PromiseType | ArrayResolvedType | MapResolvedType | SetResolvedType | StreamResolvedType | RangeResolvedType | JsonValueResolvedType | ResultResolvedType | TupleResolvedType | UnionResolvedType | WeakResolvedType |
-  NullType | VoidType | UnknownType | TypeParameterType
+  NullType | VoidType | UnknownType | TypeParameterType | ClassMetadataResolvedType | MethodReflectionResolvedType
 
 export class TypeSubstitution {
   names: string[] = []

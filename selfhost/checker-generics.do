@@ -249,6 +249,7 @@ export function staticMemberOwner(objectType: ResolvedType, property: string, re
       if declaration != null {
         case declaration! {
           classDeclaration: ClassDeclaration -> {
+            if property == "metadata" && classDeclaration.needsMetadata { return classDeclaration }
             if property == "fromJsonValue" && canGenerateJsonDeserialization(classDeclaration, jsonPrograms(result)) { return classDeclaration }
             for method of classDeclaration.methods { if method.name == property && method.static_ { return classDeclaration } }
             for field of classDeclaration.fields {

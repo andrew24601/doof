@@ -1,9 +1,9 @@
 // Type annotation, member, index, and callable-field resolution.
 
 import {
-  ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
+  ActorType, ArrayResolvedType, Binding, CheckResult, ClassMetadataResolvedType, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
-  JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
+  JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
   StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
@@ -25,12 +25,12 @@ import {
   AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
 } from "./ast"
 import {
-  actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
+  actorType, applyDeepReadonly, arrayType, classMetadataType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
   isJsonValueType, isSupportedHashCollectionType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
   nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
-  substituteTypeParams, typeParameter, unknownType, voidType, weakType,
+  methodReflectionType, substituteTypeParams, typeParameter, unknownType, voidType, weakType,
 } from "./checker-types"
-import { canGenerateJsonDeserialization, canGenerateJsonSerialization } from "./json-semantics"
+import { canGenerateJsonDeserialization, canGenerateJsonSerialization, isGeneratedJsonType } from "./json-semantics"
 import { findActorBoundaryViolation } from "./checker-actor-boundary"
 import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-actor-lifecycle"
 
@@ -257,6 +257,30 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "get" { return functionType([], resultType(promise.valueType, primitive("string"))) }
       return unknownType()
     }
+    metadata: ClassMetadataResolvedType -> {
+      if property == "name" || property == "description" { return primitive("string") }
+      if property == "methods" { return arrayType(methodReflectionType(metadata.classType)) }
+      if property == "defs" { return unionType([jsonValueType(), nullType()]) }
+      if property == "invoke" {
+        return functionType([
+          FunctionParamType { name: "instance", type_: metadata.classType, hasDefault: false },
+          FunctionParamType { name: "methodName", type_: primitive("string"), hasDefault: false },
+          FunctionParamType { name: "params", type_: jsonValueType(), hasDefault: false },
+        ], resultType(jsonValueType(), jsonValueType()))
+      }
+      return unknownType()
+    }
+    reflection: MethodReflectionResolvedType -> {
+      if property == "name" || property == "description" { return primitive("string") }
+      if property == "inputSchema" || property == "outputSchema" { return jsonValueType() }
+      if property == "invoke" {
+        return functionType([
+          FunctionParamType { name: "instance", type_: reflection.classType, hasDefault: false },
+          FunctionParamType { name: "params", type_: jsonValueType(), hasDefault: false },
+        ], resultType(jsonValueType(), jsonValueType()))
+      }
+      return unknownType()
+    }
     enum_: EnumType -> {
       if property == "name" { return primitive("string") }
       if property == "value" { return primitive("int") }
@@ -281,6 +305,45 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if declaration == null { return unknownType() }
       case declaration! {
         classDeclaration: ClassDeclaration -> {
+          if property == "metadata" {
+            if classDeclaration.typeParams.length > 0 {
+              typeError(state, "Metadata is not available on generic type \"" + classDeclaration.name + "\"", span)
+              return unknownType()
+            }
+            if !canGenerateJsonSerialization(classDeclaration, jsonPrograms(state.result)) || !canGenerateJsonDeserialization(classDeclaration, jsonPrograms(state.result)) {
+              typeError(state, "Type \"" + classDeclaration.name + "\" is not eligible for metadata because it does not support automatic JSON generation", span)
+              return unknownType()
+            }
+            let valid = true
+            for method of classDeclaration.methods {
+              if method.private_ || method.static_ { continue }
+              for parameter of method.params {
+                if parameter.resolvedType != null && !isGeneratedJsonType(parameter.resolvedType!, jsonPrograms(state.result)) {
+                  typeError(state, "Parameter \"" + parameter.name + "\" of method \"" + method.name + "\" is not JSON-serializable", parameter.span)
+                  valid = false
+                }
+              }
+              if method.resolvedType != null {
+                case method.resolvedType! {
+                function_: FunctionType -> {
+                  let successType = function_.returnType
+                  case successType {
+                    result: ResultResolvedType -> { successType = result.valueType }
+                    _ -> { }
+                  }
+                  if successType.kind != "void" && !isGeneratedJsonType(successType, jsonPrograms(state.result)) {
+                    typeError(state, "Return type of method \"" + method.name + "\" is not JSON-serializable", method.span)
+                    valid = false
+                  }
+                }
+                _ -> { }
+                }
+              }
+            }
+            if !valid { return unknownType() }
+            classDeclaration.needsMetadata = true
+            return classMetadataType(class_)
+          }
           if property == "toJsonObject" && canGenerateJsonSerialization(classDeclaration, jsonPrograms(state.result)) {
             return functionType([], jsonObjectType())
           }

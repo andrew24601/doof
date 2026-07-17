@@ -6,8 +6,8 @@
 
 import { Program, SourceSpan } from "./ast"
 import {
-  ActorType, ArrayResolvedType, ClassType, EnumType, FunctionType, ImportBinding,
-  InterfaceType, JsonValueResolvedType, MapResolvedType, NamespaceBinding, NullType,
+  ActorType, ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionType, ImportBinding,
+  InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, NamespaceBinding, NullType,
   PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType,
   SetResolvedType, StreamResolvedType, Symbol, TupleResolvedType, TypeParameterType,
   TypeSubstitution, UnionResolvedType, UnknownType, VoidType, WeakResolvedType,

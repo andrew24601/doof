@@ -282,6 +282,7 @@ Primary modules:
 - `selfhost/emitter-module.do`
 - `selfhost/emitter-decl.do`
 - `selfhost/emitter-json.do`
+- `selfhost/emitter-metadata.do`
 - `selfhost/emitter-expr-calls.do`
 
 Validation anchors:
