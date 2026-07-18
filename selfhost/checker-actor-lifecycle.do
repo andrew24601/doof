@@ -161,7 +161,10 @@ export function collectNestedExpressions(expression: Expression, result: Express
     array: ArrayLiteral -> { for element of array.elements { result.push(element) } }
     object: ObjectLiteral -> {
       if object.spread != null { result.push(object.spread!) }
-      for property of object.properties { if property.value != null { result.push(property.value!) } }
+      for property of object.properties {
+        if property.key != null { result.push(property.key!) }
+        if property.value != null { result.push(property.value!) }
+      }
     }
     tuple: TupleLiteral -> { for element of tuple.elements { result.push(element) } }
     lambda: LambdaExpression -> {

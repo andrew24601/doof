@@ -280,7 +280,10 @@ function collectExpression(expression: Expression, modulePath: string, analysis:
     array: ArrayLiteral -> { for item of array.elements { collectExpression(item, modulePath, analysis, plan, names, arguments) } }
     object: ObjectLiteral -> {
       if object.spread != null { collectExpression(object.spread!, modulePath, analysis, plan, names, arguments) }
-      for property of object.properties { if property.value != null { collectExpression(property.value!, modulePath, analysis, plan, names, arguments) } }
+      for property of object.properties {
+        if property.key != null { collectExpression(property.key!, modulePath, analysis, plan, names, arguments) }
+        if property.value != null { collectExpression(property.value!, modulePath, analysis, plan, names, arguments) }
+      }
     }
     tuple: TupleLiteral -> { for item of tuple.elements { collectExpression(item, modulePath, analysis, plan, names, arguments) } }
     lambda: LambdaExpression -> {

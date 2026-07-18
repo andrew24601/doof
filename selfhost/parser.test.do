@@ -6,7 +6,7 @@ import {
   IfStatement, ExpressionStatement, ConstDeclaration, ReadonlyDeclaration, ImmutableBinding, LetDeclaration, TryStatement,
   StringLiteral, LambdaExpression, AsyncExpression, RetireExpression, AsExpression,
   ActorCreationExpression, CaseExpression, EnumDeclaration, InterfaceDeclaration, NamedType, ObjectLiteral, RangePattern, TypeAliasDeclaration, UnionType, YieldStatement,
-  MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement, DestructuringStatement,
+  MockImportDirective, WeakType, CatchExpression, YieldBlockExpression, YieldBlockAssignmentStatement, DestructuringStatement, DotShorthand,
 } from "./ast"
 import type { Statement, Expression } from "./ast"
 
@@ -653,6 +653,28 @@ export function testParsesQuotedStringMapKeys(): void {
           }
         }
         _ -> { panic("expected string-keyed map literal") }
+      }
+    }
+    _ -> { panic("expected immutable binding") }
+  }
+}
+
+export function testParsesDotShorthandEnumMapKeys(): void {
+  case first("piles: Map<Suit, int> := { .Spades: 1, .Hearts: 2 }") {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        object: ObjectLiteral -> {
+          Assert.equal(object.properties.length, 2)
+          case object.properties[0].key! {
+            shorthand: DotShorthand -> { Assert.equal(shorthand.name, "Spades") }
+            _ -> { panic("expected dot-shorthand map key") }
+          }
+          case object.properties[1].key! {
+            shorthand: DotShorthand -> { Assert.equal(shorthand.name, "Hearts") }
+            _ -> { panic("expected dot-shorthand map key") }
+          }
+        }
+        _ -> { panic("expected enum-keyed map literal") }
       }
     }
     _ -> { panic("expected immutable binding") }

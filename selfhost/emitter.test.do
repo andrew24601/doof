@@ -80,6 +80,12 @@ export function testEmitsJsonValueAsNarrowing(): void {
   Assert.equal(result.source.contains("doof::json_as_bool(_as_value)"), true)
 }
 
+export function testEmitsDotShorthandEnumMapKeys(): void {
+  result := emit("enum Suit { Spades, Hearts }\nclass Pile {}\nclass State { foundations: Map<Suit, Pile> = { .Spades: Pile {}, .Hearts: Pile {} } }")
+  Assert.stringContains(result.header, "{Suit::Spades, std::make_shared<Pile>()}")
+  Assert.stringContains(result.header, "{Suit::Hearts, std::make_shared<Pile>()}")
+}
+
 export function testEmitsRangeValuesSignaturesAndMembers(): void {
   result := emit("function first(values: Range): int { for value of values { return value }\nreturn values.lowerBound + values.upperBound }\nfunction main(): int => first(1..<4)")
   Assert.equal(result.header.contains("int32_t first(doof::Range values)"), true)

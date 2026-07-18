@@ -174,7 +174,8 @@ function emitMapObject(expression: ObjectLiteral, context: EmitContext, map: Map
     if i > 0 { values = values + ", " }
     property := expression.properties[i]
     value := if property.value == null then "{}" else emitExpression(property.value!, context, map.valueType)
-    values = values + "{" + quote(property.name) + ", " + value + "}"
+    key := if property.key == null then quote(property.name) else emitExpression(property.key!, context, map.keyType)
+    values = values + "{" + key + ", " + value + "}"
   }
   keyType := emitType(map.keyType, context.modulePath)
   valueType := emitType(map.valueType, context.modulePath)

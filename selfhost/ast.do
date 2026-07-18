@@ -212,6 +212,9 @@ export class ArrayLiteral {
 
 export class ObjectProperty {
   name: string
+  // Map entries retain non-string keys as expressions so contextual typing can
+  // resolve enum shorthand such as `.Spades` against Map<Suit, V>.
+  key: Expression | null = null
   value: Expression | null
   resolvedType: ResolvedType | null = null
   span: SourceSpan

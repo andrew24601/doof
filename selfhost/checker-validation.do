@@ -201,7 +201,11 @@ export function validateExpression(expression: Expression, module: string, diagn
     array: ArrayLiteral -> { for item of array.elements { validateExpression(item, module, diagnostics) } }
     object: ObjectLiteral -> {
       if object.spread != null { validateExpression(object.spread!, module, diagnostics) }
-      for property of object.properties { validateResolved(property.resolvedType, property.span, module, "object property", diagnostics); if property.value != null { validateExpression(property.value!, module, diagnostics) } }
+      for property of object.properties {
+        validateResolved(property.resolvedType, property.span, module, "object property", diagnostics)
+        if property.key != null { validateExpression(property.key!, module, diagnostics) }
+        if property.value != null { validateExpression(property.value!, module, diagnostics) }
+      }
       if object.resolvedType != null {
         case object.resolvedType! {
           _: ClassType -> {

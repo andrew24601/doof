@@ -243,7 +243,14 @@ export function checkObject(state: CheckerState, expression: ObjectLiteral, scop
         if containsJsonValue(state, union_) { expectedValue = jsonValueType() }
       }
       map: MapResolvedType -> {
-        if expression.properties.length > 0 && !sameType(map.keyType, primitive("string")) { typeError(state, "Object literal keys must be strings", expression.span) }
+        for property of expression.properties {
+          if property.key != null {
+            actualKey := checkExpression(state, property.key!, scope, optionalResolvedType(map.keyType))
+            if !isAssignable(actualKey, map.keyType) { typeError(state, "Cannot assign " + typeName(actualKey) + " to map key type " + typeName(map.keyType), property.span) }
+          } else if !sameType(map.keyType, primitive("string")) {
+            typeError(state, "Cannot assign string to map key type " + typeName(map.keyType), property.span)
+          }
+        }
         expectedValue = map.valueType
       }
       _ -> { }

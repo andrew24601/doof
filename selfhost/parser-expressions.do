@@ -490,16 +490,21 @@ function parseObjectLiteral(parser: Parser): Expression {
     } else {
       propertyStart := parser.location()
       let name = ""
+      let key: Expression | null = null
       let value: Expression | null = null
       if parser.check(TokenType.StringLiteral) {
         name = tokenValue(parser.advance(), parser.source)
         parser.expect(TokenType.Colon, "Expected ':' after string map key")
         value = parser.parseExpression()
+      } else if parser.check(TokenType.Dot) && parser.peek(1).kind == TokenType.Identifier && parser.peek(2).kind == TokenType.Colon {
+        key = parser.parseExpression()
+        parser.expect(TokenType.Colon, "Expected ':' after map key")
+        value = parser.parseExpression()
       } else {
         name = parser.text(parser.expect(TokenType.Identifier))
         if parser.match(TokenType.Colon) { value = parser.parseExpression() }
       }
-      properties.push(ObjectProperty { name, value, span: parser.span(propertyStart) })
+      properties.push(ObjectProperty { name, key, value, span: parser.span(propertyStart) })
     }
     if !parser.match(TokenType.Comma) { break }
   }

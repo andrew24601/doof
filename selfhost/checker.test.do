@@ -989,6 +989,11 @@ export function testInfersOmittedCollectionTypeArgumentsFromLiterals(): void {
   }
 }
 
+export function testChecksDotShorthandEnumMapKeysInFieldDefaults(): void {
+  result := checked("enum Suit { Spades, Hearts }\nclass Pile {}\nclass State { foundations: Map<Suit, Pile> = { .Spades: Pile {}, .Hearts: Pile {} } }")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testRejectsInvalidOmittedCollectionInferenceSites(): void {
   emptySet := checked("values: Set := []")
   Assert.equal(emptySet.diagnostics.length > 0, true)

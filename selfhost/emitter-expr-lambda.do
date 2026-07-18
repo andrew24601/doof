@@ -202,7 +202,10 @@ function scanExpressionForLambdas(expression: Expression, result: string[]): voi
       for argument of call.args { scanExpressionForLambdas(argument.value, result) } }
     array: ArrayLiteral -> { for element of array.elements { scanExpressionForLambdas(element, result) } }
     object: ObjectLiteral -> {
-      for property of object.properties { if property.value != null { scanExpressionForLambdas(property.value!, result) } }
+      for property of object.properties {
+        if property.key != null { scanExpressionForLambdas(property.key!, result) }
+        if property.value != null { scanExpressionForLambdas(property.value!, result) }
+      }
       if object.spread != null { scanExpressionForLambdas(object.spread!, result) }
     }
     tuple: TupleLiteral -> { for element of tuple.elements { scanExpressionForLambdas(element, result) } }
@@ -324,7 +327,10 @@ function collectExpressionCaptures(expression: Expression, bodyStart: int, bodyE
       for argument of call.args { collectExpressionCaptures(argument.value, bodyStart, bodyEnd, result, mutableOnly) } }
     array: ArrayLiteral -> { for element of array.elements { collectExpressionCaptures(element, bodyStart, bodyEnd, result, mutableOnly) } }
     object: ObjectLiteral -> {
-      for property of object.properties { if property.value != null { collectExpressionCaptures(property.value!, bodyStart, bodyEnd, result, mutableOnly) } }
+      for property of object.properties {
+        if property.key != null { collectExpressionCaptures(property.key!, bodyStart, bodyEnd, result, mutableOnly) }
+        if property.value != null { collectExpressionCaptures(property.value!, bodyStart, bodyEnd, result, mutableOnly) }
+      }
       if object.spread != null { collectExpressionCaptures(object.spread!, bodyStart, bodyEnd, result, mutableOnly) }
     }
     tuple: TupleLiteral -> { for element of tuple.elements { collectExpressionCaptures(element, bodyStart, bodyEnd, result, mutableOnly) } }
