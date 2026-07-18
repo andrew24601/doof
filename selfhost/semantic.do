@@ -176,18 +176,19 @@ export class UnknownType {
 export class TypeParameterType {
   kind: string = "type-parameter"
   name: string
+  constraintName: string = ""
 }
 
 /** Compiler-known reflection value returned by `Type.metadata`. */
 export class ClassMetadataResolvedType {
   kind: string = "class-metadata"
-  classType: ClassType
+  classType: ResolvedType
 }
 
 /** Compiler-known element type of `ClassMetadata.methods`. */
 export class MethodReflectionResolvedType {
   kind: string = "method-reflection"
-  classType: ClassType
+  classType: ResolvedType
 }
 
 export type ResolvedType = PrimitiveType | ClassType | EnumType | InterfaceType | FunctionType |
@@ -214,6 +215,7 @@ export class Scope {
   parent: Scope | null
   bindings: Binding[] = []
   typeParams: string[] = []
+  typeParamConstraintNames: string[] = []
   returnType: ResolvedType | null = null
   thisType: ResolvedType | null = null
   functionName: string = ""

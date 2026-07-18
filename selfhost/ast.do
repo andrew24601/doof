@@ -404,6 +404,7 @@ export class FunctionDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
+  typeParamConstraints: string[] = []
   params: Parameter[]
   returnType: TypeAnnotation | null
   body: Expression | Block
@@ -605,6 +606,7 @@ export class ClassDeclaration {
   description: string = ""
   struct_: bool = false
   typeParams: string[]
+  typeParamConstraints: string[] = []
   implements_: NamedType[]
   fields: ClassField[]
   methods: FunctionDeclaration[]
@@ -638,6 +640,7 @@ export class InterfaceDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
+  typeParamConstraints: string[] = []
   fields: InterfaceField[]
   methods: FunctionDeclaration[]
   exported: bool
@@ -677,6 +680,7 @@ export class TypeAliasDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
+  typeParamConstraints: string[] = []
   type_: TypeAnnotation
   exported: bool
   resolvedType: ResolvedType | null = null

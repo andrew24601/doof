@@ -46,6 +46,12 @@ export function testEmitsWeakFieldsAsWeakPointers(): void {
   Assert.equal(result.header.contains("Node(std::weak_ptr<Node> parent, std::weak_ptr<Node> ancestor)"), true)
 }
 
+export function testEmitsReflectableTypeParameterMetadataAccess(): void {
+  result := emitMonomorphized("class Tool { function run(input: string): string => input }\nfunction describe<T: Reflectable>(tool: T): string => T.metadata.name\nfunction main(): int { println(describe<Tool>(Tool {}))\nreturn 0 }")
+  Assert.stringContains(result.source, "doof::metadata_for_type<std::shared_ptr<Tool>>().name")
+  Assert.stringContains(result.header, "static const doof::ClassMetadata<Tool> _metadata")
+}
+
 export function testEmitsJsonValueNullCasePattern(): void {
   result := emit("function isNull(value: JsonValue): bool => case value { _: null -> true, _ -> false }")
   Assert.stringContains(result.source, "doof::json_is_null(")

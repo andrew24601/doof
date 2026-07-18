@@ -386,6 +386,23 @@ export function testChecksMetadataSchemaAndInvokeSurface(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksMetadataOnReflectableTypeParameter(): void {
+  result := checked("function describe<T: Reflectable>(tool: T): string => T.metadata.name")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testRejectsMetadataOnUnconstrainedTypeParameter(): void {
+  result := checked("function describe<T>(tool: T): string => T.metadata.name")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("constrained by Reflectable"), true)
+}
+
+export function testRejectsNonClassReflectableTypeArgument(): void {
+  result := checked("function describe<T: Reflectable>(tool: T): string => T.metadata.name\nname := describe<int>(1)")
+  Assert.equal(result.diagnostics.length > 0, true)
+  Assert.equal(result.diagnostics[0].message.contains("does not satisfy constraint \"Reflectable\""), true)
+}
+
 export function testRejectsMetadataForNonSerializableMethods(): void {
   result := checked("class Bad { function run(callback: (value: int): void): string => \"no\" }\nmetadata := Bad.metadata")
   Assert.equal(result.diagnostics.length > 0, true)

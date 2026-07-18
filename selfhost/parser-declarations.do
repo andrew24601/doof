@@ -12,6 +12,11 @@ import {
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation, ImportSpecifier } from "./ast"
 
+class ParsedTypeParameters {
+  names: string[]
+  constraints: string[]
+}
+
 export function parseExport(parser: Parser): Statement {
   start := parser.location()
   parser.expect(TokenType.Export)
@@ -112,46 +117,48 @@ export function parseFunction(parser: Parser, exported: bool, static_: bool, iso
   parser.expect(TokenType.Function)
   name := parser.text(parser.expect(TokenType.Identifier))
   description := parseDescription(parser)
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   parser.expect(TokenType.LeftParen)
   params := parseParameters(parser)
   parser.expect(TokenType.RightParen)
   returnType := parser.parseOptionalType()
   if parser.check(TokenType.Arrow) {
     body := parseExpressionBody(parser)
-    return makeFunctionExpression(parser, name, description, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
+    return makeFunctionExpression(parser, name, description, typeParams, parsedTypeParams.constraints, params, returnType, body, exported, static_, isolated_, private_, start)
   }
   body := parser.parseBlock()
-  return makeFunctionBlock(parser, name, description, typeParams, params, returnType, body, exported, static_, isolated_, private_, start)
+  return makeFunctionBlock(parser, name, description, typeParams, parsedTypeParams.constraints, params, returnType, body, exported, static_, isolated_, private_, start)
 }
 
 function parseMethod(parser: Parser, static_: bool, private_: bool): FunctionDeclaration {
   start := parser.location()
   name := parser.text(parser.expect(TokenType.Identifier))
   description := parseDescription(parser)
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   parser.expect(TokenType.LeftParen)
   params := parseParameters(parser)
   parser.expect(TokenType.RightParen)
   returnType := parser.parseOptionalType()
   if parser.check(TokenType.Arrow) {
     body := parseExpressionBody(parser)
-    return makeFunctionExpression(parser, name, description, typeParams, params, returnType, body, false, static_, false, private_, start)
+    return makeFunctionExpression(parser, name, description, typeParams, parsedTypeParams.constraints, params, returnType, body, false, static_, false, private_, start)
   }
   body := parser.parseBlock()
-  return makeFunctionBlock(parser, name, description, typeParams, params, returnType, body, false, static_, false, private_, start)
+  return makeFunctionBlock(parser, name, description, typeParams, parsedTypeParams.constraints, params, returnType, body, false, static_, false, private_, start)
 }
 
-function makeFunctionExpression(parser: Parser, name: string, description: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+function makeFunctionExpression(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
   return FunctionDeclaration {
-    kind: "function-declaration", name, description, typeParams, params, returnType, body: body,
+    kind: "function-declaration", name, description, typeParams, typeParamConstraints, params, returnType, body: body,
     exported, static_, isolated_, private_, bodyless: false, span: parser.span(start),
   }
 }
 
-function makeFunctionBlock(parser: Parser, name: string, description: string, typeParams: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+function makeFunctionBlock(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
   return FunctionDeclaration {
-    kind: "function-declaration", name, description, typeParams, params, returnType, body: body,
+    kind: "function-declaration", name, description, typeParams, typeParamConstraints, params, returnType, body: body,
     exported, static_, isolated_, private_, bodyless: false, span: parser.span(start),
   }
 }
@@ -163,16 +170,24 @@ function parseExpressionBody(parser: Parser): Expression {
   return value
 }
 
-function parseTypeParameterNames(parser: Parser): string[] {
+function parseTypeParameters(parser: Parser): ParsedTypeParameters {
   names: string[] := []
-  if !parser.match(TokenType.Less) { return names }
+  constraints: string[] := []
+  if !parser.match(TokenType.Less) { return ParsedTypeParameters { names, constraints } }
   while !parser.check(TokenType.Greater) && !parser.atEnd() {
     names.push(parser.text(parser.expect(TokenType.Identifier)))
-    if parser.match(TokenType.Colon) { parser.parseTypeAnnotation() }
+    let constraintName = ""
+    if parser.match(TokenType.Colon) {
+      case parser.parseTypeAnnotation() {
+        constraint: NamedType -> { if constraint.typeArgs.length == 0 { constraintName = constraint.name } }
+        _ -> { }
+      }
+    }
+    constraints.push(constraintName)
     if !parser.match(TokenType.Comma) { break }
   }
   parser.expect(TokenType.Greater)
-  return names
+  return ParsedTypeParameters { names, constraints }
 }
 
 function parseParameters(parser: Parser): Parameter[] {
@@ -196,7 +211,8 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
   parser.advance()
   name := parser.text(parser.expect(TokenType.Identifier))
   description := parseDescription(parser)
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   let implements_: NamedType[] = []
   if parser.match(TokenType.Implements) {
     implements_.push(parseNamedType(parser))
@@ -251,7 +267,7 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
     }
   }
   parser.expect(TokenType.RightBrace)
-  return ClassDeclaration { kind: "class-declaration", name, description, struct_, typeParams, implements_, fields, methods, destructor_, exported, private_, span: parser.span(start) }
+  return ClassDeclaration { kind: "class-declaration", name, description, struct_, typeParams, typeParamConstraints: parsedTypeParams.constraints, implements_, fields, methods, destructor_, exported, private_, span: parser.span(start) }
 }
 
 function checkAheadMethod(parser: Parser, offset: int): bool {
@@ -301,7 +317,8 @@ export function parseInterface(parser: Parser, exported: bool): Statement {
   parser.expect(TokenType.Interface)
   name := parser.text(parser.expect(TokenType.Identifier))
   description := parseDescription(parser)
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   parser.expect(TokenType.LeftBrace)
   let fields: InterfaceField[] = []
   let methods: FunctionDeclaration[] = []
@@ -331,7 +348,7 @@ export function parseInterface(parser: Parser, exported: bool): Statement {
     }
   }
   parser.expect(TokenType.RightBrace)
-  return InterfaceDeclaration { kind: "interface-declaration", name, description, typeParams, fields, methods, exported, span: parser.span(start) }
+  return InterfaceDeclaration { kind: "interface-declaration", name, description, typeParams, typeParamConstraints: parsedTypeParams.constraints, fields, methods, exported, span: parser.span(start) }
 }
 
 export function parseEnum(parser: Parser, exported: bool): Statement {
@@ -359,11 +376,12 @@ export function parseTypeAlias(parser: Parser, exported: bool): Statement {
   parser.expect(TokenType.Type)
   name := parser.text(parser.expect(TokenType.Identifier))
   description := parseDescription(parser)
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   parser.expect(TokenType.Equal)
   typeValue := parser.parseTypeAnnotation()
   parser.consumeSemicolon()
-  return TypeAliasDeclaration { kind: "type-alias-declaration", name, description, typeParams, type_: typeValue, exported, span: parser.span(start) }
+  return TypeAliasDeclaration { kind: "type-alias-declaration", name, description, typeParams, typeParamConstraints: parsedTypeParams.constraints, type_: typeValue, exported, span: parser.span(start) }
 }
 
 function parseDescription(parser: Parser): string {
@@ -492,7 +510,8 @@ function parseNativeMethod(parser: Parser): FunctionDeclaration {
 function parseNativeFunction(parser: Parser, exported: bool, isolated_: bool, start: AstLocation): FunctionDeclaration {
   parser.expect(TokenType.Function)
   name := parser.text(parser.expect(TokenType.Identifier))
-  typeParams := parseTypeParameterNames(parser)
+  parsedTypeParams := parseTypeParameters(parser)
+  typeParams := parsedTypeParams.names
   parser.expect(TokenType.LeftParen)
   params := parseParameters(parser)
   parser.expect(TokenType.RightParen)
@@ -504,7 +523,7 @@ function parseNativeFunction(parser: Parser, exported: bool, isolated_: bool, st
   if parser.match(TokenType.As) { cppName = parseCppQualifiedName(parser) }
   parser.consumeSemicolon()
   return FunctionDeclaration {
-    kind: "function-declaration", name, typeParams, params, returnType,
+    kind: "function-declaration", name, typeParams, typeParamConstraints: parsedTypeParams.constraints, params, returnType,
     body: Block { kind: "block", statements: [], span: parser.span(start) },
     exported, static_: false, isolated_, private_: false, bodyless: true,
     native_: true, nativeHeader: headerPath, nativeCppName: cppName, span: parser.span(start),

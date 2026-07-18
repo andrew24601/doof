@@ -37,7 +37,7 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 
 import { CheckerState } from "./checker-state"
 import { typeError } from "./checker-common"
-import { builtinSourceLocationType, optionalResolvedType, methodSignature, hasTypeParam, symbolFor, declarationFor } from "./checker-symbols"
+import { builtinSourceLocationType, optionalResolvedType, methodSignature, hasTypeParam, typeParamConstraintName, symbolFor, declarationFor } from "./checker-symbols"
 import { registerConcreteInterfaceImplementations, concreteTypes, classModuleFor } from "./checker-interfaces"
 
 export function resolveType(state: CheckerState, annotation: TypeAnnotation, module: ModuleInfo, scope: Scope): ResolvedType {
@@ -49,7 +49,7 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       if named.name == "JsonObject" { return decorateType(state, annotation, jsonObjectType()) }
       if named.name == "SourceLocation" { return decorateType(state, annotation, builtinSourceLocationType()) }
       if named.name == "Range" { return decorateType(state, annotation, rangeType()) }
-      if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name)) }
+      if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name, typeParamConstraintName(scope, named.name))) }
       if named.name == "Tuple" {
         let elements: ResolvedType[] = []
         for argument of named.typeArgs { elements.push(resolveType(state, argument, module, scope)) }
@@ -264,6 +264,26 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
     actor: ActorType -> { return memberType(state, actor.innerClass, property, span) }
     promise: PromiseType -> {
       if property == "get" { return functionType([], resultType(promise.valueType, primitive("string"))) }
+      return unknownType()
+    }
+    parameter: TypeParameterType -> {
+      if property == "metadata" {
+        if parameter.constraintName != "Reflectable" {
+          typeError(state, "Static member \"metadata\" requires type parameter \"" + parameter.name + "\" to be constrained by Reflectable", span)
+          return unknownType()
+        }
+        return classMetadataType(parameter)
+      }
+      if property == "fromJsonValue" {
+        if parameter.constraintName != "JsonSerializable" {
+          typeError(state, "Static member \"fromJsonValue\" requires type parameter \"" + parameter.name + "\" to be constrained by JsonSerializable", span)
+          return unknownType()
+        }
+        return functionType([
+          FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
+          FunctionParamType { name: "lenient", type_: primitive("bool"), hasDefault: true },
+        ], resultType(parameter, primitive("string")))
+      }
       return unknownType()
     }
     metadata: ClassMetadataResolvedType -> {

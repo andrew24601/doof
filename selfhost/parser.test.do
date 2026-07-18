@@ -779,6 +779,17 @@ export function testParsesGenericNativeFunction(): void {
   }
 }
 
+export function testPreservesGenericFunctionConstraints(): void {
+  program := parse("function describe<T: Reflectable>(tool: T): string => T.metadata.name")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> {
+      Assert.equal(fn.typeParamConstraints.length, 1)
+      Assert.equal(fn.typeParamConstraints[0], "Reflectable")
+    }
+    _ -> { panic("expected generic function") }
+  }
+}
+
 export function testParsesIsolatedNativeFunction(): void {
   program := parse("export import isolated function poll(): int from \"native.hpp\" as native::poll")
   case program.statements[0] {

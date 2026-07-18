@@ -279,7 +279,10 @@ export function checkValueDeclaration(state: CheckerState, declaration: Statemen
 
 export function checkFunction(state: CheckerState, fn: FunctionDeclaration, outer: Scope, owner: ClassType | null): ResolvedType {
   scope := Scope { parent: outer, typeParams: [], thisType: if owner == null then unknownType() else owner!, functionName: fn.name }
-  for typeParam of fn.typeParams { scope.typeParams.push(typeParam) }
+  for index of 0..<fn.typeParams.length {
+    scope.typeParams.push(fn.typeParams[index])
+    scope.typeParamConstraintNames.push(if index < fn.typeParamConstraints.length then fn.typeParamConstraints[index] else "")
+  }
   if owner != null {
     declaration := declarationFor(state.result, owner!.symbol)
     if declaration != null {
@@ -344,7 +347,10 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
   symbol := symbolFor(state.info!, class_.name)
   if symbol == null { return }
   classScope := Scope { parent: scope, typeParams: [] }
-  for typeParam of class_.typeParams { classScope.typeParams.push(typeParam) }
+  for index of 0..<class_.typeParams.length {
+    classScope.typeParams.push(class_.typeParams[index])
+    classScope.typeParamConstraintNames.push(if index < class_.typeParamConstraints.length then class_.typeParamConstraints[index] else "")
+  }
   let ownerTypeArgs: ResolvedType[] = []
   for typeParam of class_.typeParams { ownerTypeArgs.push(typeParameter(typeParam)) }
   owner := classType(class_.name, symbol!, ownerTypeArgs)

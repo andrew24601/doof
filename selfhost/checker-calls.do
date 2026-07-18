@@ -90,6 +90,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
           let resolvedTypeArgs: ResolvedType[] = []
           for argument of expression.typeArgs { resolvedTypeArgs.push(resolveType(state, argument, state.info!, scope)) }
           expression.resolvedGenericTypeArgs = resolvedTypeArgs
+          applyTypeArgumentConstraints(state, expression.resolvedFunction, resolvedTypeArgs, expression.span)
           substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, resolvedTypeArgs)
           case substituted {
             function_: FunctionType -> { effectiveFunction = function_ }
@@ -120,6 +121,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
         }
         if complete {
           expression.resolvedGenericTypeArgs = inferred
+          applyTypeArgumentConstraints(state, expression.resolvedFunction, inferred, expression.span)
           substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, inferred)
           case substituted {
             function_: FunctionType -> { effectiveFunction = function_ }
@@ -222,6 +224,21 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
     _ -> { typeError(state, "Expression of type " + typeName(calleeType) + " is not callable", expression.span); return finish(state, expression, unknownType()) }
   }
   return finish(state, expression, unknownType())
+}
+
+function applyTypeArgumentConstraints(state: CheckerState, declaration: FunctionDeclaration | null, arguments: ResolvedType[], span: SourceSpan): void {
+  if declaration == null { return }
+  for index of 0..<declaration!.typeParams.length {
+    if index >= declaration!.typeParamConstraints.length || index >= arguments.length { continue }
+    constraint := declaration!.typeParamConstraints[index]
+    if constraint == "Reflectable" {
+      case arguments[index] {
+        class_: ClassType -> { memberType(state, class_, "metadata", span) }
+        _ -> { typeError(state, "Type \"" + typeName(arguments[index]) + "\" does not satisfy constraint \"Reflectable\" for type parameter \"" + declaration!.typeParams[index] + "\"", span) }
+      }
+    }
+    if constraint == "JsonSerializable" { memberType(state, arguments[index], "fromJsonValue", span) }
+  }
 }
 
 // Positional class calls share function-call assignability rules, but report

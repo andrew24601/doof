@@ -149,8 +149,17 @@ export function emitType(resolvedType: ResolvedType, currentModulePath: string =
     _: VoidType -> { return "void" }
     _: UnknownType -> { panic("Cannot emit unresolved unknown type in " + currentModulePath) }
     parameter: TypeParameterType -> { return parameter.name }
-    metadata: ClassMetadataResolvedType -> { return "doof::ClassMetadata<" + emitClassInnerType(metadata.classType, currentModulePath) + ">" }
-    reflection: MethodReflectionResolvedType -> { return "doof::MethodReflection<" + emitClassInnerType(reflection.classType, currentModulePath) + ">" }
+    metadata: ClassMetadataResolvedType -> { return "doof::ClassMetadata<" + emitMetadataInnerType(metadata.classType, currentModulePath) + ">" }
+    reflection: MethodReflectionResolvedType -> { return "doof::MethodReflection<" + emitMetadataInnerType(reflection.classType, currentModulePath) + ">" }
+  }
+  return "void"
+}
+
+function emitMetadataInnerType(owner: ResolvedType, currentModulePath: string): string {
+  case owner {
+    class_: ClassType -> { return emitClassInnerType(class_, currentModulePath) }
+    parameter: TypeParameterType -> { return "doof::metadata_inner_t<" + parameter.name + ">" }
+    _ -> { panic("Metadata owner must be a class or Reflectable type parameter") }
   }
   return "void"
 }

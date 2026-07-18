@@ -1,11 +1,11 @@
 // Assignment, identifier, operator, member, and index lowering.
 
 import { AsExpression, AssignmentExpression, BinaryExpression, Expression, Identifier, IndexExpression, MemberExpression, ThisExpression, UnaryExpression } from "./ast"
-import { ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, UnionResolvedType, VoidType } from "./semantic"
+import { ArrayResolvedType, ClassMetadataResolvedType, ClassType, EnumType, FunctionType, InterfaceType, JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, SetResolvedType, StreamResolvedType, TypeParameterType, UnionResolvedType, VoidType } from "./semantic"
 import { EmitContext, isCapturedMutable } from "./emitter-context"
 import { emitExpression } from "./emitter-expr"
 import { decoratedExpressionType, emittedSymbolName, exprModuleNamespaceFor, hasSinglePrimitiveMember, isNullableVariantType, requireExpressionType } from "./emitter-expr-utils"
-import { emitType, naturalNullableUnionMember, usesVariantRepresentation } from "./emitter-types"
+import { emitType, naturalNullableUnionMember, specializeEmitType, usesVariantRepresentation } from "./emitter-types"
 import { isNumeric, sameType } from "./checker-types"
 
 /** Lowers checked `as` conversion to a Result without evaluating its source twice. */
@@ -319,6 +319,17 @@ export function emitMember(expression: MemberExpression, context: EmitContext): 
   staticObjectType := decoratedExpressionType(expression.object)
   if staticObjectType != null {
     case staticObjectType! {
+      parameter: TypeParameterType -> {
+        specialized := specializeEmitType(parameter, context)
+        if expression.property == "metadata" { return "doof::metadata_for_type<" + emitType(specialized, context.modulePath) + ">()" }
+        if expression.property == "fromJsonValue" {
+          case specialized {
+            concrete: ClassType -> { return emitType(concrete, context.modulePath) + "::element_type::fromJsonValue" }
+            unresolved: TypeParameterType -> { return cppIdentifier(unresolved.name) + "::element_type::fromJsonValue" }
+            _ -> { }
+          }
+        }
+      }
       class_: ClassType -> {
         if expression.resolvedStaticOwner != null {
           owner := expression.resolvedStaticOwner!
