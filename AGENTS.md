@@ -125,6 +125,7 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `emitter-module.do` — `.hpp` / `.cpp` orchestration
 - `emitter-project.do` — package-relative support files and native project emission planning
 - `native-build.do` — native compiler invocation planning for materialized projects
+- `pkg-config.do` — pkg-config flag classification and resolution diagnostics
 - `compiler.do` — self-hosted graph checking and emission orchestration
 - `module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings
 - `package-manifest.do` — normalized package identity, executable resources, and host-platform `build.native` manifest parsing

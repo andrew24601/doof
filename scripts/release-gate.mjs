@@ -147,6 +147,7 @@ try {
   const runtimeFixture = copyFixture("runtime");
   const nativeFixture = copyFixture("native-interop");
   const stdlibFixture = copyFixture("stdlib");
+  const pkgConfigFixture = copyFixture("pkg-config");
   const testFixture = copyFixture("test-runner");
   const localDependencyFixture = copyFixture("local-dependency");
 
@@ -161,6 +162,15 @@ try {
     const stdlibOutput = path.join(runRoot, "verify", "stdlib");
     run(b6Compiler, ["build", stdlibFixture, "-o", stdlibOutput]);
     run(builtProgramPath(stdlibOutput, "selfhost-release-stdlib"), [], { cwd: runRoot });
+
+    const pkgConfigOutput = path.join(runRoot, "verify", "pkg-config");
+    run(b6Compiler, ["build", pkgConfigFixture, "-o", pkgConfigOutput], {
+      env: {
+        ...environment,
+        PKG_CONFIG_PATH: path.join(pkgConfigFixture, "pkgconfig"),
+      },
+    });
+    run(builtProgramPath(pkgConfigOutput, "selfhost-release-pkg-config"), [], { cwd: runRoot });
 
     const stdlibPackageState = path.join(runRoot, "verify", "stdlib-package");
     run(b6Compiler, ["package", stdlibFixture, "-o", stdlibPackageState]);

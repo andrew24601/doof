@@ -79,6 +79,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/ios-app-driver.do` — iOS SDK/native-build selection, bundle and icon assembly, provisioning-profile signing, and IPA creation
 - `selfhost/emitter-project.do` — package-relative generated support files, native-copy paths, and output native-build planning
 - `selfhost/native-build.do` — output-relative native path resolution and GCC-compatible compile/link argument planning
+- `selfhost/pkg-config.do` — pkg-config flag classification and actionable resolution diagnostics
 - `selfhost/driver.do` — generic native filesystem/process boundary, executable-resource uptake, project materialization, Apple app orchestration, isolated test execution, and coverage artifact writing for the self-hosted CLI
 - `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests

@@ -1,0 +1,5 @@
+Name: doof-selfhost-smoke
+Description: Header-only self-hosted pkg-config release fixture
+Version: 1.0
+Cflags: -I${pcfiledir}/../native
+Libs:

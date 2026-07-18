@@ -1,0 +1,8 @@
+{
+  "name": "selfhost-release-pkg-config",
+  "build": {
+    "native": {
+      "pkgConfigPackages": ["doof-selfhost-smoke"]
+    }
+  }
+}

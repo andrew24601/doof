@@ -30,8 +30,7 @@ It is not yet a drop-in replacement. The remaining replacement blockers are:
    dependencies, transitive version selection, cache acquisition, and remote
    stdlib fallback remain reference-only.
 2. **External build contracts:** the self-host does not emit the reference
-   `doof-build.json` or `provenance.json`, and it cannot resolve
-   `pkgConfigPackages`.
+   `doof-build.json` or `provenance.json`.
 3. **Language compatibility:** arbitrary generic constraints are not preserved
    or enforced; only the compiler-known `JsonSerializable` and `Reflectable`
    constraints have self-host semantics. Same-site inference for omitted
@@ -117,7 +116,6 @@ Priority meanings:
 | Doof package dependencies | `selfhost/package-manifest.do` models root/reached identities, native inputs, and external vendor dependencies, but not the reference manifest's declared local/remote Doof dependency graph. M5 in `docs/selfhost-module-acquisition-plan.md` remains pending. | P0 | Build a root package with a local dependency and compatible transitive remote dependencies without `--module` or `DOOF_STDLIB_ROOT`; verify cache hit/miss behaviour and deterministic conflict diagnostics. |
 | Remote stdlib/package acquisition | The acquisition boundary accepts arbitrary logical-prefix mappings, but the driver has no Git/cache provider or normal remote stdlib fallback. `DOOF_STDLIB_ROOT` is still required for implicit `std/*` discovery. | P0 | The same package builds from a clean cache, a warm cache, and an explicit local stdlib override, with identical selected package identities. |
 | Build handoff and provenance | Self-host `emit` materializes generated and native inputs but does not write the schema-versioned `doof-build.json` or `provenance.json` produced by `src/cli-core.ts`. External vendor acquisition therefore also lacks emitted provenance. | P0 | Normalize and compare both documents for local, remote, external-native, resource, macOS, iOS, and wasm fixtures. External build consumers must accept either compiler's output unchanged. |
-| pkg-config | `PackageManifest` preserves `pkgConfigPackages`, but `selfhost/driver.do` explicitly rejects a non-empty list instead of resolving compile/link flags. | P1 | Build a fixture whose flags come only from pkg-config; cover a missing `pkg-config` executable and a missing package with actionable diagnostics. |
 | Generic constraints | The self-host retains one string name per constraint and implements the intrinsic `JsonSerializable` and `Reflectable` cases. It does not preserve a general constraint type annotation or enforce ordinary named/union constraints such as `T: int | long`, which are supported by the reference checker. | P0 | Preserve constraint annotations through AST decoration and substitution; accept valid explicit and inferred arguments, reject invalid ones, and validate every concrete instantiation before emission. Include the two intrinsic constraints in the same differential corpus. |
 | Collection type inference | Omitted `Map`, `ReadonlyMap`, `Set`, and `ReadonlySet` type arguments are not inferred from same-site non-empty homogeneous literals in the self-host. | P1 | Port the specification examples and negative cases for empty, heterogeneous, non-literal, and type-only positions. |
 | JSON breadth | The self-host automatic JSON eligibility/lowering lacks tuples, interface discriminator dispatch, and general non-null union dispatch. Map support is limited to serialization of `Map<string, JsonValue>`. `JsonSerializable` generic access exists, but it inherits this narrower concrete eligibility surface. | P1 | Run a shared JSON corpus for tuples, nested collections, interfaces, aliases resolving to dispatchable types, recursive values, nullable values, strict/lenient conversion, defaults, and path-preserving failures. |
@@ -150,6 +148,9 @@ vertical slices landed. These are no longer backlog items:
   materialization, and the maintained Node-hosted acceptance sample
 - external archive/Git vendor acquisition with checksum/ref validation,
   interpolation, setup commands, and cache sentinels
+- pkg-config resolution into structured include paths, library paths, link
+  libraries, frameworks, defines, and compiler/linker flags, with actionable
+  executable and package lookup failures
 - `run` for native programs and Apple app targets, including program arguments,
   iOS device selection, provisioning resolution, installation, and launch
 
@@ -183,7 +184,7 @@ new reference language or CLI behaviour cannot land without one.
 3. Emit `provenance.json` for Doof and external vendor dependencies.
 4. Emit the versioned `doof-build.json` contract from the self-host project
    plan.
-5. Resolve pkg-config inputs into that same explicit native plan.
+5. Preserve resolved pkg-config inputs in that same explicit build handoff.
 
 Keep acquisition outside the resolver: providers should continue returning
 logical-prefix-to-disk-root mappings through `module-acquisition.do`.

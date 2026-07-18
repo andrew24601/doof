@@ -113,9 +113,11 @@ curl or pkg-config inputs. A deterministic localhost runtime binary is always
 built; execution is enabled with `DOOF_HTTP_RUNTIME_TEST=1` on hosts that permit
 loopback sockets.
 
-The self-hosted native build now compiles generated and manifest-owned sources
-to explicit object tasks distributed across at most eight temporary actors,
-then links only after every batch succeeds. Each actor runs its assigned tasks
+The self-hosted native build now resolves manifest-declared pkg-config packages
+into structured compiler and linker inputs, then compiles generated and
+manifest-owned sources to explicit object tasks distributed across at most
+eight temporary actors. It links only after every batch succeeds. Each actor
+runs its assigned tasks
 serially, bounding native process concurrency. The plan records source and object paths so
 incremental fingerprints and discovered header dependencies can be added at
 the task boundary later. Clang's generated C++ PCH is attached only to generated
@@ -275,8 +277,7 @@ device builds as `Payload/<App>.app` IPA archives. Signing inputs come from
 `build.package.ios`, environment overrides, or CLI flags; deterministic tests
 cover manifest normalization, plist/shell rendering, target planning, and the
 emitter entry boundary. Explicit iOS embedded-library bundling remains a
-follow-up. Declared
-package dependencies, pkg-config resolution, and remote stdlib fallback remain
+follow-up. Declared package dependencies and remote stdlib fallback remain
 future CLI layers.
 
 The runnable driver also implements `test` with the TypeScript runner's static

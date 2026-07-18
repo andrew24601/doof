@@ -28,6 +28,7 @@ import { iosPackageArchiveName, iosTargetTriple } from "./ios-app"
 import { assembleIOSApp, configureIOSNativeBuild, signAndArchiveIOSApp } from "./ios-app-driver"
 import { resolveIOSDeviceIdentifier, resolveIOSDeviceSigningOptions, signIOSDeviceApp } from "./ios-device"
 import { Parser } from "./parser"
+import { PkgConfigCommandResult, applyPkgConfigResult } from "./pkg-config"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { renderBuildProvenance } from "./provenance"
 import { SourceLoader } from "./resolver"
@@ -695,9 +696,25 @@ function buildProject(
   project: ProjectEmission,
   release: bool = false,
 ): int {
-  if project.nativeBuild.pkgConfigPackages.length > 0 {
-    println("error: self-hosted build does not yet resolve pkg-config packages")
-    return 1
+  for packageName of project.nativeBuild.pkgConfigPackages {
+    for mode of ["cflags", "libs"] {
+      pkgConfigResult := runNativeCommand("pkg-config", ["--" + mode, packageName])
+      output := BlobReader(pkgConfigResult.output).readString(long(pkgConfigResult.output.length))
+      applied := applyPkgConfigResult(
+        project.nativeBuild,
+        packageName,
+        mode,
+        PkgConfigCommandResult {
+          exitCode: pkgConfigResult.exitCode,
+          output,
+          error: pkgConfigResult.error,
+        },
+      )
+      _ := applied else error {
+        println("error: " + error)
+        return 1
+      }
+    }
   }
   wasm := outputPath.endsWith(".wasm")
   let compiler = request.compiler

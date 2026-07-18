@@ -146,11 +146,9 @@ Completed:
   with a root native source/define, and a focused macOS package that requires
   `CoreFoundation`.
 
-Intentionally deferred:
-
-- `pkgConfigPackages` are preserved in the native plan, but the self-hosted
-  build command reports them as unsupported until a pkg-config provider is
-  added. Direct paths, libraries, frameworks, defines, and flags are supported.
+The self-hosted driver now resolves preserved `pkgConfigPackages` into the same
+explicit include paths, library paths, link libraries, frameworks, defines,
+and compiler/linker flags used by direct manifest inputs.
 
 ### M5 — Git/cache acquisition provider
 
