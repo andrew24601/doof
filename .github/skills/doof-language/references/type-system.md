@@ -281,6 +281,8 @@ Index access reads and writes directly. `ReadonlyMap<K, V>` is the readonly vari
 unique: Set<int> = [1, 2, 3, 2, 1]
 palette: Set<Color> = [Color.Red, Color.Blue]
 frozenIds: ReadonlySet := [1, 2, 3]
+view: readonly Set := [1, 2, 3]
+readonly deepIds: Set = [1, 2, 3]
 ```
 
 Supported element types are `string`, `int`, `long`, `char`, `bool`, and enums.
@@ -291,6 +293,7 @@ Rules:
 - Duplicate inserts keep the first position.
 - Empty literals require a full type annotation.
 - Omitted `Set` or `ReadonlySet` type arguments work only for same-site non-empty homogeneous literals.
+- `:=` is a shallow immutable binding, `readonly Set` is a readonly collection type, and a `readonly` declaration deep-freezes an inferred `Set` to `ReadonlySet<T>`.
 
 Common APIs: `.size`, `.has()`, `.add()`, `.delete()`, `.values()`, `.buildReadonly()`, `.cloneMutable()`.
 

@@ -5516,6 +5516,32 @@ describe("checker — Map type", () => {
     });
   });
 
+  it("keeps binding and inferred set mutability independent", () => {
+    const cr = check({ "/main.do": `
+      shallow: Set := [1, 2, 3]
+      qualified: readonly Set := [1, 2, 3]
+      let reboundable: readonly Set = [1, 2, 3]
+      readonly deep: Set = [1, 2, 3]
+      print(shallow)
+      print(qualified)
+      print(reboundable)
+      print(deep)
+    ` }, "/main.do");
+    expect(cr.diagnostics).toHaveLength(0);
+    expect(findId(cr, "shallow")[0]?.type).toEqual({
+      kind: "set",
+      elementType: { kind: "primitive", name: "int" },
+      readonly_: false,
+    });
+    for (const name of ["qualified", "reboundable", "deep"]) {
+      expect(findId(cr, name)[0]?.type).toEqual({
+        kind: "set",
+        elementType: { kind: "primitive", name: "int" },
+        readonly_: true,
+      });
+    }
+  });
+
   it("rejects bare Set annotation with an empty literal", () => {
     const cr = check({ "/main.do": `
       unique: Set := []

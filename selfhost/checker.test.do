@@ -2,7 +2,7 @@ import { Assert } from "std/assert"
 import { createAnalyzer } from "./analyzer"
 import { createChecker, validateCheckedTypes } from "./checker"
 import { CheckResult, Diagnostic, SourceFile } from "./semantic"
-import { AsExpression, AssignmentExpression, Block, ClassDeclaration, ConstructExpression, Expression, ExpressionStatement, Identifier, IfStatement, FunctionDeclaration, ImmutableBinding, ObjectLiteral, WithStatement } from "./ast"
+import { AsExpression, AssignmentExpression, Block, ClassDeclaration, ConstructExpression, Expression, ExpressionStatement, Identifier, IfStatement, FunctionDeclaration, ImmutableBinding, LetDeclaration, ObjectLiteral, ReadonlyDeclaration, WithStatement } from "./ast"
 import { typeName, unknownType } from "./checker-types"
 
 function checked(source: string): CheckResult {
@@ -878,6 +878,65 @@ export function testChecksSetAndReadonlySetMembers(): void {
   result := checked("enum Flag { One, Two }\nfunction bytes(values: Set<byte>): int => values.size\nfunction count(values: ReadonlySet<Flag>): int { let total = 0\nfor value of values { if values.has(value) { total = total + 1 } }\nreturn total + values.values().length }\nfunction main(): int { let values: Set<Flag> = [Flag.One, Flag.Two, Flag.One]\nvalues.add(Flag.Two)\nvalues.delete(Flag.One)\nfrozen := values.buildReadonly()\ncopy := frozen.cloneMutable()\ncopy.add(Flag.One)\nreturn count(frozen) + copy.size }")
   for diagnostic of result.diagnostics { println(diagnostic.message) }
   Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testInfersOmittedCollectionTypeArgumentsFromLiterals(): void {
+  source := "numbers: Set := [1, 2, 3]\nfrozen: ReadonlySet := [1, 2, 3]\nqualified: readonly Set := [1, 2, 3]\nlet reboundable: readonly Set = [1, 2, 3]\nreadonly deep: Set = [1, 2, 3]\nscores: Map := { \"Ada\": 10, \"Grace\": 20 }\nfrozenScores: readonly Map := { \"Ada\": 10 }\nreadonly deepScores: Map = { \"Ada\": 10 }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  semantic := createChecker(analysis).check("/main.do")
+  for diagnostic of semantic.diagnostics { println(diagnostic.message) }
+  Assert.equal(semantic.diagnostics.length, 0)
+
+  case analysis.modules[0].program.statements[0] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "Set<int>") }
+    _ -> { panic("expected an immutable binding") }
+  }
+  case analysis.modules[0].program.statements[1] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "ReadonlySet<int>") }
+    _ -> { panic("expected an immutable binding") }
+  }
+  case analysis.modules[0].program.statements[2] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "ReadonlySet<int>") }
+    _ -> { panic("expected an immutable binding") }
+  }
+  case analysis.modules[0].program.statements[3] {
+    binding: LetDeclaration -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "ReadonlySet<int>") }
+    _ -> { panic("expected a let binding") }
+  }
+  case analysis.modules[0].program.statements[4] {
+    binding: ReadonlyDeclaration -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "ReadonlySet<int>") }
+    _ -> { panic("expected a readonly binding") }
+  }
+  case analysis.modules[0].program.statements[5] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "Map<string, int>") }
+    _ -> { panic("expected an immutable binding") }
+  }
+  case analysis.modules[0].program.statements[6] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "readonly Map<string, int>") }
+    _ -> { panic("expected an immutable binding") }
+  }
+  case analysis.modules[0].program.statements[7] {
+    binding: ReadonlyDeclaration -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "readonly Map<string, int>") }
+    _ -> { panic("expected a readonly binding") }
+  }
+}
+
+export function testRejectsInvalidOmittedCollectionInferenceSites(): void {
+  emptySet := checked("values: Set := []")
+  Assert.equal(emptySet.diagnostics.length > 0, true)
+  Assert.equal(emptySet.diagnostics[0].message.contains("empty set literal"), true)
+
+  mixedSet := checked("values: Set := [1, \"two\"]")
+  Assert.equal(mixedSet.diagnostics.length > 0, true)
+  Assert.equal(mixedSet.diagnostics[0].message.contains("heterogeneous set elements"), true)
+
+  wrongLiteral := checked("values: Set := { \"one\": 1 }")
+  Assert.equal(wrongLiteral.diagnostics.length > 0, true)
+  Assert.equal(wrongLiteral.diagnostics[0].message.contains("same-site non-empty set literal"), true)
+
+  emptyMap := checked("values: Map := {}")
+  Assert.equal(emptyMap.diagnostics.length > 0, true)
+  Assert.equal(emptyMap.diagnostics[0].message.contains("empty map literal"), true)
 }
 
 export function testRejectsReadonlySetMutation(): void {

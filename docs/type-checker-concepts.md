@@ -83,17 +83,21 @@ Primary modules:
 - `src/checker-stmt.ts`
 - `src/checker-decl.ts`
 - `src/checker.ts`
+- `selfhost/checker-literals.do`
+- `selfhost/checker-statements.do`
 
 Keep aligned:
 
 - collection annotation arity rules and omitted-type-argument rules belong in `checker-collection-annotations.ts`
 - unsupported hash-collection diagnostics should flow through the shared `reportUnsupportedHashCollectionConstraint()` helper so declared and inferred paths produce the same message
 - if supported map-key or set-element types change, update the shared checker-type predicate, this document, and all affected checker tests together
+- the self-hosted checker currently finalizes omitted collection arguments on value bindings; field and parameter defaults remain parity work
 
 Validation anchors:
 
 - `src/checker-compat.test.ts`
 - `src/checker-validation.test.ts`
+- `selfhost/checker.test.do`
 - `spec/02-type-system.md`
 
 ## Generic JSON and Metadata Constraints

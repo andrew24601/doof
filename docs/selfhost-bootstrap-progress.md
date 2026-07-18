@@ -52,8 +52,11 @@ and `cloneMutable()` provide the explicit move-freeze and shallow-copy
 transitions. Generated C++ uses the shared ordered-set runtime helpers. The
 production regex API graph is a concrete consumer through
 `ReadonlySet<RegexFlag>`.
-As with the existing self-hosted map implementation, omitted collection type
-arguments and same-site literal inference remain future parity work.
+Same-site non-empty homogeneous literals now infer omitted `Map`, `ReadonlyMap`,
+`Set`, and `ReadonlySet` arguments on self-hosted value bindings. This includes
+the `readonly Set` / `readonly Map` type spellings and preserves the distinction
+between shallow `:=`, reassignable `let`, and deeply immutable `readonly`
+bindings. Parameter and field default inference remains future parity work.
 Array and string `contains` / `indexOf`
 calls now use the canonical runtime helpers, and declaration-`else` supports
 typed bindings, failure capture, nullable narrowing, discard handlers, and

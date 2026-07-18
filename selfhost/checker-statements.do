@@ -37,6 +37,7 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 
 import { CheckerState } from "./checker-state"
 import { checkCasePatterns, checkExpression, addClassMethods, nonNullType, hasNullMember } from "./checker-expressions"
+import { checkOmittedCollectionLiteral } from "./checker-literals"
 import { resolveType, memberType } from "./checker-resolution"
 import { typeError, requireBool } from "./checker-common"
 import { decorateAnnotationWithResolved, blockContainsLoopExit, optionalResolvedType, resolveAnnotation, declare, declareShadowing, lookup, returnScope, valueYieldScope, iterableElement, isPanicCall, symbolFor, declarationFor } from "./checker-symbols"
@@ -221,11 +222,19 @@ export function checkValueDeclaration(state: CheckerState, declaration: Statemen
     }
     _ -> { }
   }
+  let inferredCollectionType: ResolvedType | null = null
+  if annotation != null && elseBlock == null { inferredCollectionType = checkOmittedCollectionLiteral(state, annotation!, value, scope) }
   let expectedValueType: ResolvedType | null = null
-  if annotation != null && elseBlock == null { expectedValueType = optionalResolvedType(resolveType(state, annotation!, state.info!, scope)) }
-  valueType := checkExpression(state, value, scope, expectedValueType)
+  if annotation != null && elseBlock == null && inferredCollectionType == null { expectedValueType = optionalResolvedType(resolveType(state, annotation!, state.info!, scope)) }
+  let valueType = if inferredCollectionType == null then checkExpression(state, value, scope, expectedValueType) else inferredCollectionType!
   let declaredType: ResolvedType = valueType
-  if annotation != null { declaredType = resolveType(state, annotation!, state.info!, scope) }
+  if annotation != null && inferredCollectionType == null { declaredType = resolveType(state, annotation!, state.info!, scope) }
+  if kind == "readonly" {
+    valueType = applyDeepReadonly(valueType)
+    declaredType = applyDeepReadonly(declaredType)
+    value.resolvedType = optionalResolvedType(valueType)
+  }
+  if annotation != null && inferredCollectionType != null { decorateAnnotationWithResolved(annotation!, declaredType) }
   if elseBlock != null {
     let narrowedType: ResolvedType = unknownType()
     let failureType: ResolvedType | null = null

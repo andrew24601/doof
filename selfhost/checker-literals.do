@@ -26,7 +26,7 @@ import {
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
-  isJsonValueType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
+  isJsonValueType, isSupportedHashCollectionType, jsonObjectType, jsonValueType, mapType, resultType, setType, streamType,
   nullType, numericResult, primitive, promiseType, sameType, tupleType, typeName, unionType,
   substituteTypeParams, typeParameter, unknownType, voidType,
 } from "./checker-types"
@@ -41,6 +41,83 @@ import { memberType } from "./checker-resolution"
 import { finish, typeError } from "./checker-common"
 import { optionalResolvedType, hasObjectProperty, lookup, declarationFor } from "./checker-symbols"
 import { findClassField } from "./checker-interfaces"
+
+// Bare Map/Set annotations are declaration-local inference requests. Keep the
+// literal inspection here so contextual literal typing and collection
+// finalization share one owner in the self-hosted checker.
+export function checkOmittedCollectionLiteral(state: CheckerState, annotation: TypeAnnotation, expression: Expression, scope: Scope): ResolvedType | null {
+  case annotation {
+    named: NamedType -> {
+      if named.typeArgs.length != 0 { return null }
+      if named.name == "Set" || named.name == "ReadonlySet" {
+        case expression {
+          array: ArrayLiteral -> {
+            if array.elements.length == 0 {
+              typeError(state, "Cannot infer " + named.name + " element type from an empty set literal; provide a full " + named.name + "<T> annotation", array.span)
+              return finish(state, expression, setType(unknownType(), named.name == "ReadonlySet"))
+            }
+            inferred := checkArray(state, array, scope, null)
+            case inferred {
+              arrayType_: ArrayResolvedType -> {
+                let hasConcreteElement = true
+                case arrayType_.elementType {
+                  _: UnknownType -> { hasConcreteElement = false; typeError(state, "Cannot infer " + named.name + " element type from this set literal; provide a full " + named.name + "<T> annotation", array.span) }
+                  _: UnionResolvedType -> { hasConcreteElement = false; typeError(state, "Cannot infer " + named.name + " element type from heterogeneous set elements; provide a full " + named.name + "<T> annotation", array.span) }
+                  _ -> { }
+                }
+                if hasConcreteElement && !isSupportedHashCollectionType(arrayType_.elementType) {
+                  typeError(state, "Set element type \"" + typeName(arrayType_.elementType) + "\" is not supported; set elements must be byte, string, int, long, char, bool, or enum", array.span)
+                }
+                return finish(state, expression, setType(arrayType_.elementType, named.name == "ReadonlySet"))
+              }
+              _ -> { return finish(state, expression, setType(unknownType(), named.name == "ReadonlySet")) }
+            }
+          }
+          _ -> {
+            checkExpression(state, expression, scope, null)
+            typeError(state, "Omitted type arguments for " + named.name + " require a same-site non-empty set literal", expression.span)
+            return setType(unknownType(), named.name == "ReadonlySet")
+          }
+        }
+      }
+      if named.name == "Map" || named.name == "ReadonlyMap" {
+        case expression {
+          object: ObjectLiteral -> {
+            if object.properties.length == 0 {
+              typeError(state, "Cannot infer " + named.name + " type arguments from an empty map literal; provide a full " + named.name + "<K, V> annotation", object.span)
+              return finish(state, expression, mapType(unknownType(), unknownType(), named.name == "ReadonlyMap"))
+            }
+            let valueType = unknownType()
+            for property of object.properties {
+              let propertyType = unknownType()
+              if property.value != null { propertyType = checkExpression(state, property.value!, scope, null) }
+              else {
+                binding := lookup(scope, property.name)
+                if binding == null { typeError(state, "Unknown shorthand property '" + property.name + "'", property.span) }
+                else { propertyType = binding!.type_ }
+              }
+              property.resolvedType = optionalResolvedType(propertyType)
+              valueType = joinTypes(valueType, propertyType)
+            }
+            case valueType {
+              _: UnknownType -> { typeError(state, "Cannot infer " + named.name + " type arguments from this map literal; provide a full " + named.name + "<K, V> annotation", object.span) }
+              _: UnionResolvedType -> { typeError(state, "Cannot infer " + named.name + " value type from heterogeneous map values; provide a full " + named.name + "<K, V> annotation", object.span) }
+              _ -> { }
+            }
+            return finish(state, expression, mapType(primitive("string"), valueType, named.name == "ReadonlyMap"))
+          }
+          _ -> {
+            checkExpression(state, expression, scope, null)
+            typeError(state, "Omitted type arguments for " + named.name + " require a same-site non-empty map literal", expression.span)
+            return mapType(unknownType(), unknownType(), named.name == "ReadonlyMap")
+          }
+        }
+      }
+    }
+    _ -> { }
+  }
+  return null
+}
 
 export function checkArray(state: CheckerState, expression: ArrayLiteral, scope: Scope, expected: ResolvedType | null): ResolvedType {
   if expected != null {

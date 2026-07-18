@@ -1013,6 +1013,9 @@ let palette: Set<Color> = [Color.Red, Color.Blue, Color.Red]
 let ids: Set<long> = [1, 2, 3]  // int literals widen to long in Set<long> context
 unique: Set := [1, 2, 3]        // Set<int>
 frozen: ReadonlySet := [1, 2, 3] // ReadonlySet<int>
+view: readonly Set := [1, 2, 3]  // ReadonlySet<int>; immutable binding
+let replaceable: readonly Set = [1, 2, 3] // ReadonlySet<int>; reassignable binding
+readonly deep: Set = [1, 2, 3]   // ReadonlySet<int>; deep readonly binding
 let frozen2: readonly Set<int> = [1, 2, 3] // Same as ReadonlySet<int>
 ```
 
@@ -1024,6 +1027,11 @@ frozen: ReadonlySet := [1, 2, 3]  // ReadonlySet<int>
 let unique: Set<int> = [1, 2, 3]  // Also valid
 empty: Set := []                  // Error
 ```
+
+Binding mutability and collection mutability are independent. `:=` prevents
+rebinding but leaves `Set` mutable; `readonly Set` (or `ReadonlySet`) prevents
+collection mutation; a `readonly` declaration applies deep readonly semantics
+and therefore turns an inferred bare `Set` into `ReadonlySet<T>`.
 
 Extra type arguments such as `Set<int, string>` or `ReadonlySet<int, string>` are compile errors.
 

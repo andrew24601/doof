@@ -34,7 +34,8 @@ It is not yet a drop-in replacement. The remaining replacement blockers are:
 3. **Language compatibility:** arbitrary generic constraints are not preserved
    or enforced; only the compiler-known `JsonSerializable` and `Reflectable`
    constraints have self-host semantics. Same-site inference for omitted
-   `Map`/`Set` type arguments is also missing.
+   `Map`/`Set` type arguments now covers value bindings, but parameter and field
+   defaults are still missing.
 4. **Parity assurance:** the release fixed point proves reproducibility of the
    self-hosted slice, not equivalence with the reference compiler. There is no
    maintained differential corpus for diagnostics, generated projects,

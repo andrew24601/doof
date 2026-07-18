@@ -48,7 +48,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-statements.do` — statements, declarations, scopes, control flow, and definite returns
 - `selfhost/checker-expressions.do` — expression dispatch, identifiers, operators, narrowing, and assignments
 - `selfhost/checker-calls.do` — calls, lambdas, construction, generic call inference, and actor method boundaries
-- `selfhost/checker-literals.do` — contextual array and object literal inference
+- `selfhost/checker-literals.do` — contextual array/object literal inference and same-site omitted `Map`/`Set` argument finalization
 - `selfhost/checker-resolution.do` — type annotations, members, indexes, and callable fields
 - `selfhost/checker-symbols.do` — bindings, symbols, builtins, annotation helpers, and scope lookup
 - `selfhost/checker-generics.do` — generic inference and decorated call/constructor target resolution

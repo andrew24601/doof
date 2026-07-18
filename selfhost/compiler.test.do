@@ -24,6 +24,18 @@ export function testCompilesAnImportedProject(): void {
   Assert.equal(result.emission!.modules[0].header.contains("#include \"math.hpp\""), true)
 }
 
+export function testCompilesInferredCollectionAnnotations(): void {
+  result := compile([SourceFile {
+    path: "/main.do",
+    source: "function main(): int { values: Set := [1, 2, 3]\nscores: Map := { \"Ada\": 10 }\nreturn values.size + scores.size }",
+  }], "/main.do")
+  for diagnostic of result.diagnostics { println(diagnostic.module + ": " + diagnostic.message) }
+  Assert.equal(result.diagnostics.length, 0)
+  Assert.equal(result.emission != null, true)
+  Assert.equal(result.emission!.modules[0].source.contains("doof::ordered_set<int32_t>"), true)
+  Assert.equal(result.emission!.modules[0].source.contains("doof::ordered_map<std::string, int32_t>"), true)
+}
+
 export function testEmitsCoverageMetadataAndStatementMarks(): void {
   result := compile([
     SourceFile { path: "/main.test.do", source: "import { add } from \"./math\"\nfunction main(): int { value := add(2, 3)\nreturn value }" },
