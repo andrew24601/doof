@@ -116,6 +116,43 @@ export function testCompilesNativeCSourcesWithAdjacentCDriver(): void {
   Assert.equal(defaultPlan.compileTasks[0].compiler, "cc")
 }
 
+export function testCompilesSwiftSourcesAndLinksWithSwiftRuntime(): void {
+  plan := planNativeCompile(
+    "clang++",
+    "/tmp/generated",
+    "/tmp/generated/demo",
+    [ModuleEmission {
+      modulePath: "/main.do",
+      header: "",
+      source: "",
+      headerName: "main.hpp",
+      sourceName: "main.cpp",
+    }],
+    NativeBuildPlan {
+      sourceFiles: ["std/apple-intelligence/apple_intelligence_impl.swift"],
+      frameworks: ["Foundation", "FoundationModels"],
+      linkerFlags: ["-Wl,-rpath,/tmp/lib"],
+    },
+    false,
+    "macos",
+  )
+
+  Assert.equal(plan.compiler, "clang++")
+  Assert.equal(plan.linker, "swiftc")
+  Assert.equal(plan.compileTasks.length, 2)
+  swiftTask: NativeCompileTask := plan.compileTasks[1]
+  Assert.equal(swiftTask.compiler, "swiftc")
+  Assert.equal(swiftTask.sourcePath, "/tmp/generated/std/apple-intelligence/apple_intelligence_impl.swift")
+  Assert.equal(swiftTask.arguments[0], "-parse-as-library")
+  Assert.equal(swiftTask.arguments[1], "-emit-object")
+  Assert.equal(swiftTask.arguments.contains("-std=c++17"), false)
+  Assert.equal(plan.linkArguments.contains("-framework"), true)
+  Assert.equal(plan.linkArguments.contains("FoundationModels"), true)
+  Assert.equal(plan.linkArguments.contains("-Xlinker"), true)
+  Assert.equal(plan.linkArguments.contains("-lc++"), true)
+  Assert.equal(plan.linkArguments.contains("-Wl,-rpath,/tmp/lib"), true)
+}
+
 export function testAddsReleaseDefaultsBeforeManifestFlags(): void {
   plan := planNativeCompile(
     "clang++",

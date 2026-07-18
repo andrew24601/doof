@@ -105,6 +105,22 @@ export function testRetainsDeclarationDescriptions(): void {
   }
 }
 
+export function testRecognizesDescriptionsWhenClassifyingShortFormMethods(): void {
+  program := parse("class Tool { run \"Runs.\"(input: string): string => input\nstatic build \"Builds.\"<T>(value: T): T => value\nprivate reset \"Resets.\"(): void {} }")
+  case program.statements[0] {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.fields.length, 0)
+      Assert.equal(class_.methods.length, 3)
+      Assert.equal(class_.methods[0].description, "Runs.")
+      Assert.equal(class_.methods[1].description, "Builds.")
+      Assert.equal(class_.methods[1].static_, true)
+      Assert.equal(class_.methods[2].description, "Resets.")
+      Assert.equal(class_.methods[2].private_, true)
+    }
+    _ -> { panic("expected class with described short-form methods") }
+  }
+}
+
 function assertInt(expression: Expression, expected: int): void {
   case expression {
     value: IntLiteral -> { Assert.equal(value.kind, "int-literal"); Assert.equal(value.value, expected) }

@@ -241,6 +241,15 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "value" { return result.valueType }
       if property == "error" { return result.errorType }
       if property == "isSuccess" || property == "isFailure" { return functionType([], primitive("bool")) }
+      if property == "unwrapOr" {
+        if result.valueType.kind == "void" {
+          typeError(state, "Method \"unwrapOr\" is not available on Result<void, E>", span)
+          return unknownType()
+        }
+        return functionType([
+          FunctionParamType { name: "defaultValue", type_: result.valueType, hasDefault: false },
+        ], result.valueType)
+      }
       return unknownType()
     }
     stream: StreamResolvedType -> {

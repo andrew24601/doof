@@ -120,7 +120,9 @@ serially, bounding native process concurrency. The plan records source and objec
 incremental fingerprints and discovered header dependencies can be added at
 the task boundary later. Clang's generated C++ PCH is attached only to generated
 `.cpp` tasks, fixing the macOS HTTP build where the Objective-C++ frontend
-rejected a `c++-header` PCH. The runtime process helper uses `posix_spawnp` on
+rejected a `c++-header` PCH. Manifest-owned Swift sources compile with `swiftc`,
+and mixed C++/Swift programs use `swiftc` for the final link while retaining the
+C++ runtime on macOS. The runtime process helper uses `posix_spawnp` on
 POSIX hosts so actor-threaded compiler launches are safe.
 
 The self-hosted build pipeline also supports WebAssembly library targets. It
@@ -200,8 +202,19 @@ doof-selfhost emit main.do -o build --source math.do
 doof-selfhost check path/to/package
 doof-selfhost emit path/to/package
 doof-selfhost build path/to/package
+doof-selfhost run path/to/package -- --program-argument
 doof-selfhost package path/to/package
 ```
+
+Like the TypeScript CLI, `run` uses the normal debug build pipeline, executes
+plain native programs from the package root with inherited standard I/O,
+forwards arguments after `--`, and returns the program's exit code. It opens
+assembled macOS apps and installs and launches iOS simulator or physical-device
+apps. Physical-device runs accept `--ios-device`, auto-detect a single connected
+iOS device when omitted, resolve the most specific active provisioning profile
+and its installed signing identity when overrides are omitted, sign the bundle,
+then install and launch it with `devicectl`. WebAssembly runs remain an explicit
+error because the consumer owns module instantiation.
 
 `--source` is repeatable for explicit source files used by relative imports. A
 bare/external import can be provided explicitly with `--module <specifier>

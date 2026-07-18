@@ -158,7 +158,8 @@ function decodeMessage(data: readonly byte[]): (int, string) {
 Cryptographic helpers for hashing, HMAC, binary/text encoding, randomness, and JWT parsing.
 
 ```doof
-import { sha256, sha256String, sha256Hex, sha256HexString,
+import { sha1, sha1String, sha1Hex, sha1HexString,
+         sha256, sha256String, sha256Hex, sha256HexString,
          blobStreamToSha256,
          hmacSha256, hmacSha256String,
          encodeHex, decodeHex,
@@ -171,6 +172,11 @@ import { sha256, sha256String, sha256Hex, sha256HexString,
 ### API
 
 ```
+sha1(data: readonly byte[]): readonly byte[]
+sha1String(text: string): readonly byte[]
+sha1Hex(data: readonly byte[]): string
+sha1HexString(text: string): string
+
 sha256(data: readonly byte[]): readonly byte[]
 sha256String(text: string): readonly byte[]
 sha256Hex(data: readonly byte[]): string

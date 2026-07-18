@@ -132,6 +132,8 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `macos-app-driver.do` — macOS bundle materialization, embedded Mach-O rewriting, signing, and zip execution
 - `ios-app.do` — iOS app metadata, plist/UIKit-shell rendering, target triples, and signing/archive planning
 - `ios-app-driver.do` — iOS SDK selection, bundle/icon materialization, provisioning-profile signing, and IPA execution
+- `ios-device.do` — iOS physical-device discovery, signing resolution, standalone app signing, and device execution support
+- `run-command.do` — deterministic native, macOS, and iOS launch invocation planning
 - `driver.do` — runnable self-hosted compiler driver, executable-resource uptake, and native filesystem boundary
 - `scripts/release-gate.mjs` — expensive seed/B5/B6 bootstrap, fixed-point comparison, and native release acceptance workflow
 

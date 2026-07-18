@@ -21,6 +21,7 @@ export type NativeCompileTaskBatch = readonly NativeCompileTask[]
 /** A complete native compiler invocation for one emitted executable. */
 export class NativeCompilePlan {
   compiler: string
+  linker: string
   precompiledHeaderArguments: string[] = []
   compileTasks: NativeCompileTask[] = []
   linkArguments: string[] = []
@@ -119,10 +120,11 @@ export function planNativeCompile(
   for index of 0..<native.sourceFiles.length {
     sourcePath := resolveBuildPath(outputDirectory, native.sourceFiles[index])
     objectPath := resolveBuildPath(outputDirectory, ".doof-objects/native-" + string(index) + ".o")
+    swiftSource := isSwiftSource(sourcePath)
     cSource := isCSource(sourcePath)
-    arguments := copyNativeCompileArguments(compileArguments, cSource)
-    appendObjectArguments(arguments, sourcePath, objectPath)
-    taskCompiler := if cSource then deriveCCompiler(compiler) else compiler
+    arguments := if swiftSource then swiftObjectArguments(sourcePath, objectPath) else copyNativeCompileArguments(compileArguments, cSource)
+    if !swiftSource { appendObjectArguments(arguments, sourcePath, objectPath) }
+    taskCompiler := if swiftSource then "swiftc" else if cSource then deriveCCompiler(compiler) else compiler
     compileTasks.push(NativeCompileTask {
       compiler: taskCompiler,
       sourcePath,
@@ -142,6 +144,11 @@ export function planNativeCompile(
     linkArguments.push("-framework")
     linkArguments.push(framework)
   }
+  swiftLink := hasSwiftSource(native.sourceFiles)
+  if swiftLink && platform == "macos" {
+    linkArguments.push("-Xlinker")
+    linkArguments.push("-lc++")
+  }
   if !wasm { for flag of native.linkerFlags { linkArguments.push(flag) } }
   if wasm {
     linkArguments.push("-Oz")
@@ -157,7 +164,14 @@ export function planNativeCompile(
   }
   linkArguments.push("-o")
   linkArguments.push(outputPath)
-  return NativeCompilePlan { compiler, precompiledHeaderArguments, compileTasks, linkArguments, outputPath }
+  return NativeCompilePlan {
+    compiler,
+    linker: if swiftLink then "swiftc" else compiler,
+    precompiledHeaderArguments,
+    compileTasks,
+    linkArguments,
+    outputPath,
+  }
 }
 
 function copyArguments(source: string[]): string[] {
@@ -176,6 +190,19 @@ function copyNativeCompileArguments(source: string[], cSource: bool): string[] {
 
 function isCSource(path: string): bool {
   return path.toLowerCase().endsWith(".c")
+}
+
+function isSwiftSource(path: string): bool {
+  return path.toLowerCase().endsWith(".swift")
+}
+
+function hasSwiftSource(paths: string[]): bool {
+  for path of paths { if isSwiftSource(path) { return true } }
+  return false
+}
+
+function swiftObjectArguments(sourcePath: string, objectPath: string): string[] {
+  return ["-parse-as-library", "-emit-object", sourcePath, "-o", objectPath]
 }
 
 /** Selects the C driver adjacent to the configured GCC-compatible C++ driver. */

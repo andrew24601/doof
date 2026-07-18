@@ -55,9 +55,16 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       if member.object.resolvedType != null {
         case member.object.resolvedType! {
           actor: ActorType -> { return emitSyncActorCall(expression, member, actor, context) }
-          _: ResultResolvedType -> {
+          resultType: ResultResolvedType -> {
             if member.property == "isSuccess" { return "doof::is_success(" + emitExpression(member.object, context) + ")" }
             if member.property == "isFailure" { return "doof::is_failure(" + emitExpression(member.object, context) + ")" }
+            if member.property == "unwrapOr" && expression.args.length == 1 {
+              temporaryName := "_result_unwrap_" + string(context.tryCounter)
+              context.tryCounter += 1
+              object := emitExpression(member.object, context)
+              fallback := emitExpression(expression.args[0].value, context, resultType.valueType)
+              return "[&]() -> " + emitType(resultType.valueType, context.modulePath) + " { auto " + temporaryName + " = " + object + "; if (doof::is_failure(" + temporaryName + ")) return " + fallback + "; return std::move(doof::success_value(" + temporaryName + ")); }()"
+            }
           }
           _ -> { }
         }

@@ -412,6 +412,14 @@ export function testEmitsResultStatusMethods(): void {
   Assert.equal(result.source.contains("doof::is_success(load())"), true)
 }
 
+export function testEmitsResultUnwrapOrWithSingleEvaluation(): void {
+  result := emit("function load(): Result<JsonValue, string> => Failure { error: \"no\" }\nfunction value(): JsonValue => load().unwrapOr(null)")
+  Assert.stringContains(result.source, "auto _result_unwrap_")
+  Assert.stringContains(result.source, "if (doof::is_failure(_result_unwrap_")
+  Assert.stringContains(result.source, "return doof::json_value(nullptr);")
+  Assert.stringContains(result.source, "return std::move(doof::success_value(_result_unwrap_")
+}
+
 export function testEmitsTryValueDeclarationsWithMutability(): void {
   result := emit("function load(): Result<int, string> => Success { value: 1 }\nfunction run(): Result<int, string> { try const first = load()\ntry readonly second = load()\ntry let third = load()\nthird = third + first\nreturn Success { value: third + second } }")
   Assert.equal(result.source.contains("const auto first = doof::success_value("), true)

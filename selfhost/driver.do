@@ -19,9 +19,14 @@ import { macOSPackageArchiveName } from "./macos-app"
 import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
 import { iosPackageArchiveName, iosTargetTriple } from "./ios-app"
 import { assembleIOSApp, configureIOSNativeBuild, signAndArchiveIOSApp } from "./ios-app-driver"
+import { resolveIOSDeviceIdentifier, resolveIOSDeviceSigningOptions, signIOSDeviceApp } from "./ios-device"
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
 import { SourceLoader } from "./resolver"
+import {
+  planIOSDeviceInstall, planIOSDeviceLaunch, planIOSSimulatorInstall, planIOSSimulatorLaunch,
+  planMacOSAppRun, planNativeProgramRun,
+} from "./run-command"
 import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
 import {
   CoverageModuleMetadata, CoverageReport, DiscoveredTest, buildCoverageReport, discoverModuleTests,
@@ -549,7 +554,7 @@ function buildProject(
     return compileExitCode
   }
 
-  linkResult := runNativeCommand(plan.compiler, plan.linkArguments)
+  linkResult := runNativeCommand(plan.linker, plan.linkArguments)
   ignoredRemainingLines := printNativeCommandOutput(linkResult, remainingOutputLines)
   if linkResult.truncated && !truncationReported {
     println("... native linker output capture truncated after " + string(MAX_NATIVE_COMPILER_OUTPUT_BYTES) + " bytes")
@@ -903,25 +908,83 @@ function emitRequest(request: CliRequest): int {
       return 1
     }
   }
-  if request.command == "build" {
+  if request.command == "build" || request.command == "run" {
+    if request.command == "run" && project.target == "wasm" {
+      println("error: doof run is not supported for --target wasm; instantiate the generated .wasm from your host runtime")
+      return 1
+    }
     executableName := if project.target == "wasm" then buildOutputName(project.name) + ".wasm" else if project.macosApp != null then project.macosApp!.executableName else if project.iosApp != null then project.iosApp!.executableName else buildOutputName(project.name)
     outputPath := driverOutputPath(outputDirectory, executableName)
     if project.macosApp == null && project.iosApp == null { materializeExecutableResources(project.resources, outputDirectory) }
     exitCode := buildProject(request, outputDirectory, outputPath, emission)
     if exitCode != 0 { return exitCode }
     if project.iosApp != null {
-      _ := assembleIOSApp(outputDirectory, outputPath, project.iosApp!, iosDestination) else error {
+      appPath := assembleIOSApp(outputDirectory, outputPath, project.iosApp!, iosDestination) else error {
         println("error: " + error)
         return 1
       }
-      return 0
+      if request.command == "build" { return 0 }
+      if iosDestination == "device" {
+        signingWorkDirectory := driverOutputPath(outputDirectory, ".doof-ios-signing-resolution")
+        signing := resolveIOSDeviceSigningOptions(
+          project.iosApp!.bundleId,
+          request.iosSignIdentity,
+          request.iosProvisioningProfile,
+          signingWorkDirectory,
+        ) else error {
+          println("error: " + error)
+          return 1
+        }
+        _ := signIOSDeviceApp(
+          appPath,
+          project.iosApp!.bundleId,
+          signing,
+          driverOutputPath(outputDirectory, ".doof-ios-sign"),
+        ) else error {
+          println("error: " + error)
+          return 1
+        }
+        deviceIdentifier := resolveIOSDeviceIdentifier(
+          request.iosDevice,
+          driverOutputPath(outputDirectory, ".doof-ios-device-discovery"),
+        ) else error {
+          println("error: " + error)
+          return 1
+        }
+        installPlan := planIOSDeviceInstall(appPath, deviceIdentifier, project.rootDirectory)
+        installResult := runNativeCommand(installPlan.command, installPlan.arguments, installPlan.directory, true)
+        if installResult.error != "" { println("error: " + installResult.error) }
+        if installResult.exitCode != 0 { return installResult.exitCode }
+        launchPlan := planIOSDeviceLaunch(project.iosApp!.bundleId, deviceIdentifier, project.rootDirectory)
+        launchResult := runNativeCommand(launchPlan.command, launchPlan.arguments, launchPlan.directory, true)
+        if launchResult.error != "" { println("error: " + launchResult.error) }
+        return launchResult.exitCode
+      }
+      installPlan := planIOSSimulatorInstall(appPath, project.rootDirectory)
+      installResult := runNativeCommand(installPlan.command, installPlan.arguments, installPlan.directory, true)
+      if installResult.error != "" { println("error: " + installResult.error) }
+      if installResult.exitCode != 0 { return installResult.exitCode }
+      launchPlan := planIOSSimulatorLaunch(project.iosApp!.bundleId, project.rootDirectory)
+      launchResult := runNativeCommand(launchPlan.command, launchPlan.arguments, launchPlan.directory, true)
+      if launchResult.error != "" { println("error: " + launchResult.error) }
+      return launchResult.exitCode
     }
-    if project.macosApp == null { return 0 }
-    _ := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {
-      println("error: " + error)
-      return 1
+    if project.macosApp != null {
+      appPath := assembleMacOSApp(outputDirectory, outputPath, project.macosApp!, emission.nativeBuild.libraryPaths) else error {
+        println("error: " + error)
+        return 1
+      }
+      if request.command == "build" { return 0 }
+      launchPlan := planMacOSAppRun(appPath, project.rootDirectory)
+      launchResult := runNativeCommand(launchPlan.command, launchPlan.arguments, launchPlan.directory, true)
+      if launchResult.error != "" { println("error: " + launchResult.error) }
+      return launchResult.exitCode
     }
-    return 0
+    if request.command == "build" { return 0 }
+    runPlan := planNativeProgramRun(outputPath, request.programArguments, project.rootDirectory)
+    runResult := runNativeCommand(runPlan.command, runPlan.arguments, runPlan.directory, true)
+    if runResult.error != "" { println("error: " + runResult.error) }
+    return runResult.exitCode
   }
   if request.command == "package" {
     if project.packageConfig == null { panic("project package settings were not resolved") }

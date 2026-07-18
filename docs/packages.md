@@ -218,7 +218,7 @@ Packages can declare native build inputs under `build.native`. These values prop
     "targetExecutableName": "demo-app",
     "native": {
       "includePaths": ["native/include"],
-      "sourceFiles": ["native/bridge.cpp"],
+      "sourceFiles": ["native/bridge.cpp", "native/model.swift"],
       "extraCopyPaths": ["templates", "native/config.json"],
       "libraryPaths": ["native/lib"],
       "linkLibraries": ["curl"],
@@ -245,7 +245,7 @@ This copied output is authoritative for compilation and for `doof-build.json`. R
 
 Best practice is to keep these fields narrow and intentional:
 
-- Use `sourceFiles` for native `.c`, `.cc`, `.cpp`, or `.mm` translation units that should be compiled.
+- Use `sourceFiles` for native `.c`, `.cc`, `.cpp`, `.mm`, or `.swift` translation units that should be compiled. Swift sources are compiled with `swiftc`; a mixed C++/Swift executable is linked with `swiftc` so the Swift runtime is included automatically.
 - Use `extraCopyPaths` for package-local headers or resources that need to exist in the emitted output but are not meant to define a compiler include root.
 - Use `includePaths` only for directories that are intentionally part of the compiler's include search path.
 

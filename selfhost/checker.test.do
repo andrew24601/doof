@@ -677,6 +677,11 @@ export function testChecksResultStatusMethods(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksResultUnwrapOrFallback(): void {
+  result := checked("function load(): Result<JsonValue, string> => Failure { error: \"no\" }\nfunction value(): JsonValue => load().unwrapOr(null)")
+  Assert.equal(result.diagnostics.length, 0)
+}
+
 export function testAcceptsUnconditionalNonTerminatingLoop(): void {
   result := checked("function run(): int { while true {} }")
   Assert.equal(result.diagnostics.length, 0)

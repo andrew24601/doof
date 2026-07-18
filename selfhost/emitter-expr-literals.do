@@ -14,6 +14,7 @@ export function emitNullLiteral(expected: ResolvedType | null): string {
       if class_.name == "Expression" || class_.name == "Statement" || class_.name == "TypeAnnotation" { return "std::monostate{}" }
       return "nullptr"
     }
+    _: JsonValueResolvedType -> { return "doof::json_value(nullptr)" }
     _: NullType -> { return "std::monostate{}" }
     union_: UnionResolvedType -> {
       let nonNull = 0

@@ -21,9 +21,11 @@ export class CliRequest {
   macosSandbox: bool = false
   macosEntitlements: string = ""
   iosDestination: string = "simulator"
+  iosDevice: string = ""
   iosSignIdentity: string = ""
   iosProvisioningProfile: string = ""
   targetOverride: string = ""
+  programArguments: string[] = []
 }
 
 export class ModuleSource {
@@ -38,10 +40,11 @@ export class CliParseResult {
 }
 
 export function cliUsage(): string {
-  return "usage: doof-selfhost <build|package|emit|check|test> [entry.do|package-dir] [options]\n" +
+  return "usage: doof-selfhost <build|run|package|emit|check|test> [entry.do|package-dir] [options] [-- program-args...]\n" +
     "\n" +
     "commands:\n" +
     "  build   emit generated C++ and build the executable\n" +
+    "  run     emit, build, and run the executable\n" +
     "  package build an optimized executable in the package dist directory\n" +
     "  emit    check the source graph and write generated C++\n" +
     "  check   check the source graph without writing output\n" +
@@ -57,6 +60,7 @@ export function cliUsage(): string {
     "  --macos-sandbox             enable App Sandbox entitlement\n" +
     "  --macos-entitlements <path> merge additional entitlements plist\n" +
     "  --ios-destination <kind>   iOS build destination: simulator or device\n" +
+    "  --ios-device <id>          connected iOS device identifier or name\n" +
     "  --ios-sign-identity <id>   Apple signing identity for device/package builds\n" +
     "  --ios-provisioning-profile <path> provisioning profile for device/package builds\n" +
     "  --source <path>             add a source file to the graph (repeatable)\n" +
@@ -65,7 +69,8 @@ export function cliUsage(): string {
     "  --list                      list tests without building or running\n" +
     "  --coverage                  collect line coverage while running tests\n" +
     "  --coverage-output <path>    write coverage JSON to this path\n" +
-    "  -h, --help                  show this help"
+    "  -h, --help                  show this help\n" +
+    "  --                           pass remaining arguments to doof-selfhost run"
 }
 
 export function parseCli(args: string[]): CliParseResult {
@@ -75,13 +80,24 @@ export function parseCli(args: string[]): CliParseResult {
   }
 
   command := args[0]
-  if command != "build" && command != "package" && command != "emit" && command != "check" && command != "test" {
+  if command != "build" && command != "run" && command != "package" && command != "emit" && command != "check" && command != "test" {
     return CliParseResult { request: null, error: "unknown command '" + command + "'" }
   }
   request := CliRequest { command, entry: if args.length < 2 then "." else args[1] }
   let index = if args.length < 2 then 1 else 2
   while index < args.length {
     argument := args[index]
+    if argument == "--" {
+      if command != "run" {
+        return CliParseResult { request: null, error: "-- is only supported with the run command" }
+      }
+      index += 1
+      while index < args.length {
+        request.programArguments.push(args[index])
+        index += 1
+      }
+      continue
+    }
     if argument == "-h" || argument == "--help" {
       return CliParseResult { request: null, help: true }
     }
@@ -153,6 +169,12 @@ export function parseCli(args: string[]): CliParseResult {
     if argument == "--ios-sign-identity" {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --ios-sign-identity" } }
       request.iosSignIdentity = args[index + 1]
+      index += 2
+      continue
+    }
+    if argument == "--ios-device" {
+      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --ios-device" } }
+      request.iosDevice = args[index + 1]
       index += 2
       continue
     }

@@ -467,6 +467,8 @@ Strategy:
   name is only an equivalent alias for native bridge signatures
 - arm tests and extraction use centralized free helpers, while `case` uses the
   normal `std::visit` lowering
+- `unwrapOr` evaluates its Result receiver once in a typed IIFE, returns the
+  fallback on failure, and moves the extracted success payload otherwise
 - `JsonValue` type patterns use representation predicates; in particular, a
   `null` arm lowers to `doof::json_is_null(...)` rather than a variant type test
 - `try` and `catch` forms are emitted with explicit success/failure control
@@ -581,6 +583,9 @@ Strategy:
   by extern signatures, including non-generic sibling exports and the specific
   nominal dependencies imported by their defining module; dependency modules
   are not recursively flattened into the native namespace
+- manifest-owned Swift sources compile as independent `swiftc` objects; mixed
+  C++/Swift executables use `swiftc` for the final link and explicitly retain
+  the C++ runtime on macOS
 - the emitted project layout is designed to be consumed by the CLI build pipeline rather than by a separate handwritten build integration layer
 - `build.target = "wasm"` (or `--target wasm`) adds `doof_wasm.cpp`, which exposes entry-module exported functions as JSON-string C ABI wrappers and is compiled as an extra generated native source; the TypeScript and self-hosted compilers share this ABI, reject unsupported or generic exports, materialize the `std/json` parser/formatter, and export the bridge plus allocation functions from a standalone Emscripten module
 

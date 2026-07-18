@@ -220,11 +220,11 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
       parser.advance()
       if parser.check(TokenType.Function) {
         methods.push(parseFunction(parser, false, false, false, true))
-      } else if parser.check(TokenType.Identifier) && (parser.peek(1).kind == TokenType.LeftParen || parser.peek(1).kind == TokenType.Less) {
+      } else if checkAheadMethod(parser, 0) {
         methods.push(parseMethod(parser, false, true))
       } else if parser.check(TokenType.Static) {
         parser.advance()
-        if parser.check(TokenType.Identifier) && (parser.peek(1).kind == TokenType.LeftParen || parser.peek(1).kind == TokenType.Less) {
+        if checkAheadMethod(parser, 0) {
           methods.push(parseMethod(parser, true, true))
         } else {
           fields.push(parseClassField(parser, true, true))
@@ -244,7 +244,7 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
         parser.advance()
         fields.push(parseClassField(parser, true, false))
       }
-    } else if parser.check(TokenType.Identifier) && (parser.peek(1).kind == TokenType.LeftParen || parser.peek(1).kind == TokenType.Less) {
+    } else if checkAheadMethod(parser, 0) {
       methods.push(parseMethod(parser, false, false))
     } else {
       fields.push(parseClassField(parser, false, false))
@@ -255,8 +255,10 @@ export function parseClass(parser: Parser, exported: bool, private_: bool): Stat
 }
 
 function checkAheadMethod(parser: Parser, offset: int): bool {
-  return parser.peek(offset).kind == TokenType.Identifier &&
-    (parser.peek(offset + 1).kind == TokenType.LeftParen || parser.peek(offset + 1).kind == TokenType.Less)
+  if parser.peek(offset).kind != TokenType.Identifier { return false }
+  let suffixOffset = offset + 1
+  if parser.peek(suffixOffset).kind == TokenType.StringLiteral { suffixOffset += 1 }
+  return parser.peek(suffixOffset).kind == TokenType.LeftParen || parser.peek(suffixOffset).kind == TokenType.Less
 }
 
 function parseNamedType(parser: Parser): NamedType {

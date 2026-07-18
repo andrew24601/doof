@@ -3,7 +3,8 @@
 ## std/crypto
 
 ```doof
-import { sha256, sha256String, sha256Hex, sha256HexString,
+import { sha1, sha1String, sha1Hex, sha1HexString,
+         sha256, sha256String, sha256Hex, sha256HexString,
          blobStreamToSha256,
          hmacSha256, hmacSha256String,
          encodeHex, decodeHex,
@@ -15,6 +16,7 @@ import { sha256, sha256String, sha256Hex, sha256HexString,
 
 ### Core API
 
+- SHA-1 compatibility: `sha1`, `sha1String`, `sha1Hex`, `sha1HexString`
 - SHA-256: `sha256`, `sha256String`, `sha256Hex`, `sha256HexString`, `blobStreamToSha256`
 - HMAC-SHA256: `hmacSha256`, `hmacSha256String`
 - Encoding: `encodeHex`, `decodeHex`, `encodeBase64`, `decodeBase64`, `encodeBase64Url`, `decodeBase64Url`

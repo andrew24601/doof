@@ -311,6 +311,8 @@ statement checking, and scope mutation:
 - `try` validates the RHS and propagates error types
 - successful bindings are retyped from `Result<T, E>` to `T`
 - `catch` collects error types into nullable unions
+- `unwrapOr(fallback)` requires a non-void success channel, checks the fallback
+  against `T`, and resolves the call itself to `T` in both checkers
 - the self-hosted checker stores the active catch collector on the lexical
   scope chain, so nested catches consume only their own `try` failures while
   successful `try` bindings are still retyped in the ordinary block scope
@@ -338,6 +340,7 @@ Primary modules:
 - `src/checker-expr.ts`
 - `selfhost/checker-statements.do`
 - `selfhost/checker-expressions.do`
+- `selfhost/checker-resolution.do`
 
 Keep aligned:
 
