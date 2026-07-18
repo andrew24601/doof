@@ -140,6 +140,10 @@ Keep aligned:
 - ordinary constraint annotations must be analyzer-decorated, checker-resolved, substituted with every concrete argument, and covered by the pre-emission validation gate
 - member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` / `T.metadata` are rejected and constrained instantiations mark concrete classes for generated helpers
 - diagnostics and serializability checks should reuse the same field-level JSON helpers used by concrete class `.fromJsonValue()`
+- fixed class fields are immutable, excluded from nominal constructor arguments,
+  and validated rather than assigned during JSON decoding; interface dispatch
+  may use them only when every closed-world implementor shares the field with
+  a distinct string value
 - classes with a dedicated static `constructor(...): Self` or
   `constructor(...): Result<Self, E>` must fail
   `JsonSerializable`, `Reflectable`, and direct `.toJsonObject()` /

@@ -207,7 +207,7 @@ export function checkObject(state: CheckerState, expression: ObjectLiteral, scop
               expression.resolvedClass = classDeclaration
               for property of expression.properties {
                 field := findClassField(classDeclaration.fields, property.name)
-                if field == null || field!.static_ {
+                if field == null || field!.static_ || field!.const_ {
                   typeError(state, "Unknown field '" + property.name + "' for " + class_.name, property.span)
                   continue
                 }
@@ -221,7 +221,7 @@ export function checkObject(state: CheckerState, expression: ObjectLiteral, scop
                 if !isAssignable(property.resolvedType!, fieldType) { typeError(state, "Cannot assign " + typeName(property.resolvedType!) + " to " + typeName(fieldType), property.span) }
               }
               for field of classDeclaration.fields {
-                if field.static_ { continue }
+                if field.static_ || field.const_ { continue }
                 for name of field.names {
                   if field.defaultValue == null && !hasObjectProperty(expression.properties, name) { typeError(state, "Missing required field '" + name + "'", expression.span) }
                 }

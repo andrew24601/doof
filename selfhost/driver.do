@@ -21,7 +21,7 @@ import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from ".
 import {
   ExternalDependency, NativeBuildPlan, PackageDependency, PackageManifest, PackageResource, parsePackageManifest,
 } from "./package-manifest"
-import { ExactPackageSource, acquireExactGitPackage, defaultPackageCacheRoot } from "./package-acquisition"
+import { ExactPackageSource, acquireExactGitPackage, workspacePackageAcquisitionRoot } from "./package-acquisition"
 import { macOSPackageArchiveName } from "./macos-app"
 import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
 import { iosPackageArchiveName, iosTargetTriple } from "./ios-app"
@@ -202,7 +202,7 @@ class DriverSourceState {
   externalTarget: ExternalDependencyTarget
   rootManifest: PackageManifest
   stdCatalog: StdCatalog
-  packageCacheRoot: string
+  packageAcquisitionRoot: string
 }
 
 let configuredDriverSourceState: DriverSourceState = DriverSourceState {
@@ -215,7 +215,7 @@ let configuredDriverSourceState: DriverSourceState = DriverSourceState {
   externalTarget: ExternalDependencyTarget { nativeTarget: "" },
   rootManifest: PackageManifest { name: "", manifestPath: "", rootDirectory: "", nativeBuild: NativeBuildPlan {} },
   stdCatalog: StdCatalog { schemaVersion: 1, compilerVersion: "", digest: "", packages: [] },
-  packageCacheRoot: "",
+  packageAcquisitionRoot: "",
 }
 
 function driverSourceDiskPath(
@@ -334,7 +334,7 @@ function ensureStdPackageAcquisition(logicalPath: string): Result<void, string> 
   acquired := acquireExactGitPackage(ExactPackageSource {
     name: package!.name, expectedManifestName: package!.name,
     url: package!.url, ref: package!.ref, commit: package!.commit,
-  }, configuredDriverSourceState.packageCacheRoot) else error { return Failure(error) }
+  }, configuredDriverSourceState.packageAcquisitionRoot) else error { return Failure(error) }
   acquisition := ModuleAcquisition { logicalPrefix: "/" + packageName, diskRoot: acquired.rootDirectory }
   configuredDriverSourceState.acquisitions.push(acquisition)
   configuredDriverSourceState.acquiredSources.push(DriverAcquiredSource {
@@ -400,10 +400,10 @@ function sourceLoaderForRequest(
   }
   catalogSource := readTextResource("std-catalog.json") else { return Failure("Could not read embedded std-catalog.json") }
   try catalog := parseStdCatalog(catalogSource)
-  try packageCacheRoot := defaultPackageCacheRoot()
+  packageAcquisitionRoot := workspacePackageAcquisitionRoot(rootManifest.rootDirectory)
   platformName := if nativePlatform == "" then hostPlatform() else nativePlatform
   try configureDeclaredDependencies(
-    rootManifest, "", rootManifest, packageCacheRoot,
+    rootManifest, "", rootManifest, packageAcquisitionRoot,
     platformName, acquisitions, acquiredSources,
   )
   configuredDriverSourceState = DriverSourceState {
@@ -418,7 +418,7 @@ function sourceLoaderForRequest(
       else externalTarget!,
     rootManifest,
     stdCatalog: catalog,
-    packageCacheRoot,
+    packageAcquisitionRoot,
   }
   return Success(configuredDriverSource)
 }
@@ -427,7 +427,7 @@ function configureDeclaredDependencies(
   manifest: PackageManifest,
   ownerPrefix: string,
   rootManifest: PackageManifest,
-  packageCacheRoot: string,
+  packageAcquisitionRoot: string,
   nativePlatform: string,
   acquisitions: ModuleAcquisition[],
   acquiredSources: DriverAcquiredSource[],
@@ -448,7 +448,7 @@ function configureDeclaredDependencies(
     } else {
       acquired := acquireExactGitPackage(ExactPackageSource {
         name: selected.name, url: selected.url, ref: selected.ref, commit: selected.commit,
-      }, packageCacheRoot) else error { return Failure(error) }
+      }, packageAcquisitionRoot) else error { return Failure(error) }
       diskRoot = acquired.rootDirectory
       sourceKind = "git"
       sourceUrl = canonicalDependencyUrl(selected.url)
@@ -485,7 +485,7 @@ function configureDeclaredDependencies(
       return Failure("resolutions are only allowed in the root doof.json: " + dependencyManifestPath)
     }
     try configureDeclaredDependencies(
-      dependencyManifest, logicalPrefix, rootManifest, packageCacheRoot,
+      dependencyManifest, logicalPrefix, rootManifest, packageAcquisitionRoot,
       nativePlatform, acquisitions, acquiredSources,
     )
   }

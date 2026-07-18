@@ -376,6 +376,35 @@ export function testChecksRecursiveAutomaticJsonTypes(): void {
   Assert.equal(result.diagnostics.length, 0)
 }
 
+export function testChecksTupleAutomaticJsonTypes(): void {
+  source := "class Point { x: int\ny: int }\nclass Payload { pair: Tuple<string, int>\npoint: Tuple<Point, bool>\noptional: Tuple<int, string> | null = null }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)"
+  result := checked(source)
+  Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksStringMapAutomaticJsonTypes(): void {
+  source := "class Point { x: int\ny: int }\nclass Payload { counts: Map<string, int>\npoints: Map<string, Point> }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)"
+  result := checked(source)
+  Assert.equal(result.diagnostics.length, 0)
+
+  invalid := checked("class Payload { values: Map<int, string> }\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)")
+  Assert.equal(invalid.diagnostics.length > 0, true)
+  Assert.equal(invalid.diagnostics[0].message, "Type \"Payload\" does not support automatic JSON deserialization")
+}
+
+export function testChecksDiscriminatedInterfaceJsonDeserialization(): void {
+  valid := checked("interface Shape { area(): double }\nclass Circle implements Shape { const kind = \"circle\"\nradius: double\narea(): double => radius * radius }\nclass Rect implements Shape { const kind = \"rect\"\nwidth: double\nheight: double\narea(): double => width * height }\nfunction decode(value: JsonValue): Result<Shape, string> => Shape.fromJsonValue(value, true)")
+  Assert.equal(valid.diagnostics.length, 0)
+
+  invalid := checked("interface Shape { area(): double }\nclass Circle implements Shape { radius: double\narea(): double => radius * radius }\nclass Rect implements Shape { width: double\narea(): double => width }\nfunction decode(value: JsonValue): Result<Shape, string> => Shape.fromJsonValue(value)")
+  Assert.equal(invalid.diagnostics.length > 0, true)
+  Assert.stringContains(invalid.diagnostics[0].message, "must share a const string field with distinct values")
+
+  duplicate := checked("interface Shape { area(): double }\nclass Circle implements Shape { const kind = \"shape\"\nradius: double\narea(): double => radius }\nclass Rect implements Shape { const kind = \"shape\"\nwidth: double\narea(): double => width }\nfunction decode(value: JsonValue): Result<Shape, string> => Shape.fromJsonValue(value)")
+  Assert.equal(duplicate.diagnostics.length > 0, true)
+  Assert.stringContains(duplicate.diagnostics[0].message, "distinct values")
+}
+
 export function testAcceptsLenientJsonDeserialization(): void {
   result := checked("class Config { name: string }\nfunction parse(value: JsonValue): Result<Config, string> => Config.fromJsonValue(value, true)")
   Assert.equal(result.diagnostics.length, 0)

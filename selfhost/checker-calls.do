@@ -214,7 +214,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
           classDeclaration: ClassDeclaration -> {
             expression.resolvedClass = classDeclaration
             for field of classDeclaration.fields {
-              if field.static_ { continue }
+              if field.static_ || field.const_ { continue }
               for name of field.names {
                 constructorParams.push(FunctionParamType {
                   name,

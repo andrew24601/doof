@@ -194,7 +194,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
       fieldType := fieldTypeTextForEmission(field, effectiveType, context)
       ensureKnown(effectiveType, decl.name + "." + name)
       result = result + emitDescriptionComment(description, "    ")
-      result = result + "    " + (if field.static_ then "static " else "") + fieldType + " " + cppIdentifier(name)
+      result = result + "    " + (if field.static_ then "static " else if field.const_ then "const " else "") + fieldType + " " + cppIdentifier(name)
       if field.defaultValue != null && !field.static_ {
         defaultText := emitExpression(field.defaultValue!, context, effectiveType)
         if !defaultNeedsImportedDefinition(defaultText, context) { result = result + " = " + defaultText }
@@ -209,7 +209,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
     let lastRequiredParameter = -1
     let parameterIndex = 0
     for field of decl.fields {
-      if field.static_ { continue }
+      if field.static_ || field.const_ { continue }
       for name of field.names {
         if field.defaultValue == null { lastRequiredParameter = parameterIndex }
         parameterIndex = parameterIndex + 1
@@ -218,7 +218,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
     let suppressTrailingDefaults = false
     parameterIndex = 0
     for field of decl.fields {
-      if field.static_ { continue }
+      if field.static_ || field.const_ { continue }
       for name of field.names {
         if parameterIndex > lastRequiredParameter && field.defaultValue != null {
           defaultText := emitExpression(field.defaultValue!, context, fieldTypeForEmission(field))
@@ -231,7 +231,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
     let firstParameter = true
     parameterIndex = 0
     for field of decl.fields {
-      if field.static_ { continue }
+      if field.static_ || field.const_ { continue }
       for name of field.names {
         if !firstParameter { result = result + ", " }
         firstParameter = false
@@ -248,7 +248,7 @@ export function emitClassDeclaration(decl: ClassDeclaration, context: EmitContex
     result = result + ") : "
     let firstInitializer = true
     for field of decl.fields {
-      if field.static_ { continue }
+      if field.static_ || field.const_ { continue }
       for name of field.names {
         if !firstInitializer { result = result + ", " }
         firstInitializer = false
@@ -323,7 +323,7 @@ function fieldTypeTextForEmission(field: ClassField, resolvedType: ResolvedType,
 }
 
 function hasInstanceFields(decl: ClassDeclaration): bool {
-  for field of decl.fields { if !field.static_ { return true } }
+  for field of decl.fields { if !field.static_ && !field.const_ { return true } }
   return false
 }
 

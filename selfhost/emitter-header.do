@@ -11,6 +11,7 @@ import {
 import { EmitContext, EmitModuleSurface } from "./emitter-context"
 import { emitClassDeclaration, emitDescriptionComment, emitFunctionDeclaration, emitFunctionDefinition, emitInterfaceAlias } from "./emitter-decl"
 import { emitExpression } from "./emitter-expr"
+import { emitInterfaceJsonDeclaration } from "./emitter-json"
 import { emitType } from "./emitter-types"
 import {
   ArrayResolvedType, ClassType, EnumType, FunctionType, ImportBinding, InterfaceType,
@@ -128,7 +129,13 @@ function collect(statement: Statement, plan: HeaderPlan, context: EmitContext): 
         else { plan.classDefinitions.push(definition) }
       }
     }
-    interface_: InterfaceDeclaration -> { if interface_.typeParams.length == 0 { plan.interfaceAliases.push(emitInterfaceAlias(interface_, context)) } }
+    interface_: InterfaceDeclaration -> {
+      if interface_.typeParams.length == 0 {
+        plan.interfaceAliases.push(emitInterfaceAlias(interface_, context))
+        declaration := emitInterfaceJsonDeclaration(interface_)
+        if declaration != "" { plan.functionSignatures.push(declaration) }
+      }
+    }
     enum_: EnumDeclaration -> { plan.enumDefinitions.push(emitEnumDeclaration(enum_, context)) }
     // Generic aliases are erased after checker substitution. Concrete uses
     // lower directly to their substituted concrete type.

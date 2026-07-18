@@ -69,7 +69,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
 - `selfhost/package-manifest.do` — exact package coordinates, root resolutions/policy, root/app resources, external vendor declarations, target settings, and `build.native` parsing
 - `selfhost/std-catalog.do` — immutable embedded std catalog parsing, lookup, and canonical source identity
-- `selfhost/package-acquisition.do` — exact-commit Git package caching and acquired-manifest validation
+- `selfhost/package-acquisition.do` — workspace-local exact-commit Git package expansion, disposable acquisition receipts, replacement, and acquired-manifest validation
 - `selfhost/dependency-policy.do` — root conflict resolution and transitive source/native allowlist enforcement
 - `selfhost/provenance.do` — deterministic graph-shaped package, external, catalog, mutable-input, and native provenance
 - `selfhost/external-dependency.do` — `std/http` archive download, checksum/ref-pinned archive and Git vendor acquisition, sentinels, and target-specific setup command execution

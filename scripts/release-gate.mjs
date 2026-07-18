@@ -14,7 +14,6 @@ const stdlibRoot = path.resolve(process.env.DOOF_STDLIB_ROOT || path.join(reposi
 const environment = {
   ...process.env,
   DOOF_STDLIB_ROOT: stdlibRoot,
-  DOOF_PACKAGE_CACHE: path.join(runRoot, "package-cache"),
 };
 
 function displayCommand(command, args) {

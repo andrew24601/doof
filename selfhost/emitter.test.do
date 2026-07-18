@@ -507,10 +507,10 @@ export function testEmitsStructJsonDeserializationByValue(): void {
   Assert.equal(result.source.contains("std::make_shared<Point>"), false)
 }
 
-export function testPreservesJsonCollectionSerialization(): void {
+export function testEmitsJsonCollectionSerializationAndDeserialization(): void {
   result := emit("class Payload { items: JsonValue[]\nvalues: Map<string, JsonValue> }\nfunction serialize(value: Payload): JsonObject => value.toJsonObject()")
   Assert.equal(result.header.contains("doof::JsonObject toJsonObject() const;"), true)
-  Assert.equal(result.header.contains("fromJsonValue"), false)
+  Assert.equal(result.header.contains("fromJsonValue"), true)
   Assert.equal(result.source.contains("doof::json_value(this->items)"), true)
   Assert.equal(result.source.contains("doof::json_value(this->values)"), true)
 }
@@ -518,7 +518,7 @@ export function testPreservesJsonCollectionSerialization(): void {
 export function testEmitsNullableJsonObjectSerialization(): void {
   result := emit("class Config { values: JsonObject | null = null }\nfunction write(value: Config): JsonObject => value.toJsonObject()")
   Assert.equal(result.source.contains("this->values ? doof::json_value(this->values) : doof::json_value(nullptr)"), true)
-  Assert.equal(result.header.contains("fromJsonValue"), false)
+  Assert.equal(result.header.contains("fromJsonValue"), true)
 }
 
 export function testEmitsRecursiveAutomaticJsonTypes(): void {
@@ -527,6 +527,40 @@ export function testEmitsRecursiveAutomaticJsonTypes(): void {
   Assert.equal(result.source.contains("this->kind"), true)
   Assert.equal(result.source.contains("for (const auto& _element : *this->ids)"), true)
   Assert.equal(result.source.contains("Point::fromJsonValue"), true)
+}
+
+export function testEmitsTupleAutomaticJsonTypes(): void {
+  result := emit("class Point { x: int\ny: int }\nclass Payload { pair: Tuple<string, int>\npoint: Tuple<Point, bool>\noptional: Tuple<int, string> | null = null }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)")
+  Assert.stringContains(result.header, "doof::JsonObject toJsonObject() const;")
+  Assert.stringContains(result.header, "fromJsonValue(const doof::JsonValue& _json")
+  Assert.stringContains(result.source, "std::get<0>(this->pair)")
+  Assert.stringContains(result.source, "std::get<1>(this->point)")
+  Assert.stringContains(result.source, "std::make_tuple(")
+  Assert.stringContains(result.source, "Point::fromJsonValue((*_tuple)[0], _lenient)")
+  Assert.stringContains(result.source, "std::holds_alternative<std::monostate>(this->optional)")
+  Assert.stringContains(result.source, "std::variant<std::monostate, std::tuple<int32_t, std::string>>{std::monostate{}}")
+}
+
+export function testEmitsStringMapAutomaticJsonTypes(): void {
+  result := emit("class Point { x: int\ny: int }\nclass Payload { counts: Map<string, int>\npoints: Map<string, Point> }\nfunction encode(value: Payload): JsonObject => value.toJsonObject()\nfunction decode(value: JsonValue): Result<Payload, string> => Payload.fromJsonValue(value)")
+  Assert.stringContains(result.source, "std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>();")
+  Assert.stringContains(result.source, "for (const auto& _entry : *this->counts)")
+  Assert.stringContains(result.source, "doof::json_value(_entry.second)")
+  Assert.stringContains(result.source, "std::make_shared<doof::ordered_map<std::string, std::shared_ptr<Point>>>()")
+  Assert.stringContains(result.source, "Point::fromJsonValue(_entry.second, _lenient)")
+}
+
+export function testEmitsDiscriminatedInterfaceJsonDeserialization(): void {
+  result := emit("interface Shape { area(): double }\nclass Circle implements Shape { const kind = \"circle\"\nradius: double\narea(): double => radius * radius }\nclass Rect implements Shape { const kind = \"rect\"\nwidth: double\nheight: double\narea(): double => width * height }\nfunction decode(value: JsonValue): Result<Shape, string> => Shape.fromJsonValue(value, true)")
+  Assert.stringContains(result.header, "doof::Result<Shape, std::string> Shape_fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);")
+  Assert.stringContains(result.source, "Shape_fromJsonValue(value, true)")
+  Assert.stringContains(result.source, "_object->find(\"kind\")")
+  Assert.stringContains(result.source, "if (_discriminator == \"circle\")")
+  Assert.stringContains(result.source, "Circle::fromJsonValue(_json, _lenient)")
+  Assert.stringContains(result.source, "Rect::fromJsonValue(_json, _lenient)")
+  Assert.stringContains(result.source, "doof::Success<Shape>{Shape{doof::success_value(_result)}}")
+  Assert.stringContains(result.header, "const std::string kind = std::string(\"circle\")")
+  Assert.stringContains(result.source, "Field \\\"kind\\\" must be \\\"circle\\\"")
 }
 
 export function testEmitsDescriptionsMetadataSchemasAndInvoke(): void {

@@ -68,6 +68,20 @@ export function testParsesWeakFieldAndTypeQualifiers(): void {
   }
 }
 
+export function testParsesFixedConstClassFields(): void {
+  case first("class Circle { const kind = \"circle\"\nradius: double }") {
+    class_: ClassDeclaration -> {
+      Assert.equal(class_.fields[0].const_, true)
+      Assert.equal(class_.fields[0].readonly_, false)
+      case class_.fields[0].defaultValue! {
+        value: StringLiteral -> { Assert.equal(value.value, "circle") }
+        _ -> { panic("expected fixed string field") }
+      }
+    }
+    _ -> { panic("expected class declaration") }
+  }
+}
+
 export function testRetainsDeclarationDescriptions(): void {
   program := parse("class Tool \"A tool.\" { x \"x-axis\", y: int\nfunction run \"Runs.\"(input \"Payload.\": string): string => input }\ninterface Named \"A name.\" { value \"Value.\": string\nread \"Reads.\"(): string }\nenum State \"State.\" { Ready \"Ready now.\", Done }\ntype Label \"Label.\" = string\nreadonly version \"Version.\" = 1")
   case program.statements[0] {

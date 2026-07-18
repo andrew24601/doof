@@ -1,16 +1,44 @@
 // Automatic JSON method lowering for the self-hosted emitter.
 //
-// This first deserialization slice deliberately supports only non-generic
-// classes/structs whose instance fields are primitives, JsonValue, or nullable
-// primitives. Keeping eligibility and lowering together prevents the checker
-// and generated C++ surface from promising methods the emitter cannot define.
+// Eligibility and lowering deliberately share one recursive surface so the
+// checker never advertises synthetic methods the emitter cannot define.
 
-import { ClassDeclaration, ClassField } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, UnionResolvedType } from "./semantic"
+import { ClassDeclaration, ClassField, IntLiteral, InterfaceDeclaration, StringLiteral } from "./ast"
+import { ArrayResolvedType, ClassType, EnumType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, TupleResolvedType, UnionResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
-import { emitClassInnerType, emitContextType } from "./emitter-types"
-import { canGenerateJsonDeserialization, canGenerateJsonSerialization, nullableJsonMember } from "./json-semantics"
+import { emitClassInnerType, emitContextType, usesVariantRepresentation } from "./emitter-types"
+import { canGenerateJsonDeserialization, canGenerateJsonSerialization, interfaceJsonDiscriminator, nullableJsonMember } from "./json-semantics"
+
+export function emitInterfaceJsonDeclaration(owner: InterfaceDeclaration): string {
+  if !owner.needsJson { return "" }
+  return "doof::Result<" + owner.name + ", std::string> " + owner.name + "_fromJsonValue(const doof::JsonValue& _json, bool _lenient = false);\n"
+}
+
+export function emitInterfaceJsonDefinition(owner: InterfaceDeclaration, context: EmitContext): string {
+  if !owner.needsJson { return "" }
+  discriminator := interfaceJsonDiscriminator(owner, context.allPrograms)
+  if discriminator == null { return "" }
+  failureType := "doof::Failure<std::string>"
+  successType := "doof::Success<" + owner.name + ">"
+  let result = "\ndoof::Result<" + owner.name + ", std::string> " + owner.name + "_fromJsonValue(const doof::JsonValue& _json, bool _lenient) {\n"
+  result = result + "    const auto* _object = doof::json_as_object(_json);\n"
+  result = result + "    if (_object == nullptr) { return " + failureType + "{\"Expected JSON object\"}; }\n"
+  result = result + "    auto _discriminator_iterator = _object->find(\"" + discriminator!.fieldName + "\");\n"
+  result = result + "    if (_discriminator_iterator == _object->end() || !doof::json_is_string(_discriminator_iterator->second)) { return " + failureType + "{\"Missing or invalid discriminator field \\\"" + discriminator!.fieldName + "\\\"\"}; }\n"
+  result = result + "    auto _discriminator = doof::json_as_string(_discriminator_iterator->second);\n"
+  for i of 0..<discriminator!.entries.length {
+    entry := discriminator!.entries[i]
+    classType_ := ClassType { name: entry.declaration.name, symbol: entry.declaration.resolvedSymbol! }
+    className := emitClassInnerType(classType_, context.modulePath)
+    result = result + "    " + (if i == 0 then "if" else "else if") + " (_discriminator == \"" + entry.value + "\") {\n"
+    result = result + "        auto _result = " + className + "::fromJsonValue(_json, _lenient);\n"
+    result = result + "        if (doof::is_success(_result)) { return " + successType + "{" + owner.name + "{doof::success_value(_result)}}; }\n"
+    result = result + "        return " + failureType + "{doof::failure_error(_result)};\n"
+    result = result + "    }\n"
+  }
+  return result + "    return " + failureType + "{\"Unknown " + discriminator!.fieldName + ": \\\"\" + _discriminator + \"\\\"\"};\n}\n"
+}
 
 /** Emits automatic JSON declarations owned by a concrete class or struct. */
 export function emitGeneratedJsonDeclarations(owner: ClassDeclaration, context: EmitContext): string {
@@ -51,11 +79,14 @@ function emitFromJsonValue(owner: ClassDeclaration, context: EmitContext): strin
   result = result + "    if (_object == nullptr) { return " + failureType + "{\"Expected JSON object\"}; }\n"
   for field of owner.fields {
     if field.static_ { continue }
-    for name of field.names { result = result + emitJsonFieldRead(field, name, context, failureType) }
+    for name of field.names {
+      if field.const_ { result = result + emitJsonConstFieldValidation(field, name, failureType) }
+      else { result = result + emitJsonFieldRead(field, name, context, failureType) }
+    }
   }
   let arguments = ""
   for field of owner.fields {
-    if field.static_ { continue }
+    if field.static_ || field.const_ { continue }
     for name of field.names {
       if arguments != "" { arguments = arguments + ", " }
       arguments = arguments + "_field_" + cppIdentifier(name)
@@ -64,6 +95,25 @@ function emitFromJsonValue(owner: ClassDeclaration, context: EmitContext): strin
   let constructed = owner.name + "{" + arguments + "}"
   if !owner.struct_ { constructed = "std::make_shared<" + owner.name + ">(" + arguments + ")" }
   return result + "    return doof::Success<" + valueType + ">{" + constructed + "};\n}\n"
+}
+
+function emitJsonConstFieldValidation(field: ClassField, name: string, failureType: string): string {
+  if field.defaultValue == null { return "" }
+  iterator := "_iterator_" + cppIdentifier(name)
+  case field.defaultValue! {
+    value: StringLiteral -> {
+      let result = "    if (auto " + iterator + " = _object->find(\"" + name + "\"); " + iterator + " != _object->end()) {\n"
+      result = result + "        if (!doof::json_is_string(" + iterator + "->second) || doof::json_as_string(" + iterator + "->second) != \"" + value.value + "\") { return " + failureType + "{\"Field \\\"" + name + "\\\" must be \\\"" + value.value + "\\\"\"}; }\n"
+      return result + "    }\n"
+    }
+    value: IntLiteral -> {
+      let result = "    if (auto " + iterator + " = _object->find(\"" + name + "\"); " + iterator + " != _object->end()) {\n"
+      result = result + "        if (!doof::json_is_number(" + iterator + "->second) || doof::json_as_int(" + iterator + "->second) != " + string(value.value) + ") { return " + failureType + "{\"Field \\\"" + name + "\\\" must be " + string(value.value) + "\"}; }\n"
+      return result + "    }\n"
+    }
+    _ -> { return "" }
+  }
+  return ""
 }
 
 function emitJsonFieldRead(field: ClassField, name: string, context: EmitContext, failureType: string): string {
@@ -106,6 +156,8 @@ export function emitJsonTypeCheck(json: string, type_: ResolvedType): string {
     _: ClassType -> { return "doof::json_is_object(" + json + ")" }
     _: EnumType -> { return "doof::json_is_string(" + json + ")" }
     _: ArrayResolvedType -> { return "doof::json_is_array(" + json + ")" }
+    tuple: TupleResolvedType -> { return "doof::json_is_array(" + json + ") && doof::json_as_array(" + json + ")->size() == " + string(tuple.elements.length) }
+    _: MapResolvedType -> { return "doof::json_is_object(" + json + ")" }
     union_: UnionResolvedType -> {
       inner := nullableJsonMember(union_)!
       return "doof::json_is_null(" + json + ") || " + emitJsonTypeCheck(json, inner)
@@ -130,20 +182,39 @@ export function emitJsonRead(json: string, type_: ResolvedType, context: EmitCon
       elementValue := emitJsonRead("_element", array.elementType, context)
       return "[&]() { const auto* _array = doof::json_as_array(" + json + "); auto _values = std::make_shared<std::vector<" + elementType + ">>(); _values->reserve(_array->size()); for (const auto& _element : *_array) { _values->push_back(" + elementValue + "); } return _values; }()"
     }
+    tuple: TupleResolvedType -> {
+      let elements = ""
+      for i of 0..<tuple.elements.length {
+        if i > 0 { elements = elements + ", " }
+        elements = elements + emitJsonRead("(*_tuple)[" + string(i) + "]", tuple.elements[i], context)
+      }
+      return "[&]() { const auto* _tuple = doof::json_as_array(" + json + "); return std::make_tuple(" + elements + "); }()"
+    }
+    map: MapResolvedType -> {
+      valueType := emitContextType(map.valueType, context)
+      entryValue := emitJsonRead("_entry.second", map.valueType, context)
+      return "[&]() { const auto* _object_value = doof::json_as_object(" + json + "); auto _values = std::make_shared<doof::ordered_map<std::string, " + valueType + ">>(); for (const auto& _entry : *_object_value) { (*_values)[_entry.first] = " + entryValue + "; } return _values; }()"
+    }
     union_: UnionResolvedType -> {
       inner := nullableJsonMember(union_)!
+      if usesVariantRepresentation(type_) {
+        optionalType := emitContextType(type_, context)
+        return "(doof::json_is_null(" + json + ") ? " + optionalType + "{std::monostate{}} : " + optionalType + "{" + emitJsonRead(json, inner, context) + "})"
+      }
       case inner {
-        _: ClassType -> {
-          return "(doof::json_is_null(" + json + ") ? nullptr : " + emitJsonRead(json, inner, context) + ")"
+        class_: ClassType -> {
+          if class_.symbol.kind != "struct" { return "(doof::json_is_null(" + json + ") ? nullptr : " + emitJsonRead(json, inner, context) + ")" }
         }
         _: ArrayResolvedType -> {
           return "(doof::json_is_null(" + json + ") ? nullptr : " + emitJsonRead(json, inner, context) + ")"
         }
-        _ -> {
-          optionalType := emitContextType(type_, context)
-          return "(doof::json_is_null(" + json + ") ? " + optionalType + "{std::nullopt} : " + optionalType + "{" + emitJsonRead(json, inner, context) + "})"
+        _: MapResolvedType -> {
+          return "(doof::json_is_null(" + json + ") ? nullptr : " + emitJsonRead(json, inner, context) + ")"
         }
+        _ -> { }
       }
+      optionalType := emitContextType(type_, context)
+      return "(doof::json_is_null(" + json + ") ? " + optionalType + "{std::nullopt} : " + optionalType + "{" + emitJsonRead(json, inner, context) + "})"
     }
     _ -> { return "{}" }
   }
@@ -172,6 +243,8 @@ export function jsonTypeName(type_: ResolvedType): string {
     _: ClassType -> { return "object" }
     _: EnumType -> { return "string" }
     _: ArrayResolvedType -> { return "array" }
+    _: TupleResolvedType -> { return "array" }
+    _: MapResolvedType -> { return "object" }
     union_: UnionResolvedType -> { return jsonTypeName(nullableJsonMember(union_)!) + " or null" }
     _ -> { return "value" }
   }
@@ -196,8 +269,15 @@ export function emitJsonField(value: string, resolvedType: ResolvedType, context
     }
     union_: UnionResolvedType -> {
       inner := nullableJsonMember(union_)!
+      if usesVariantRepresentation(resolvedType) {
+        innerType := emitContextType(inner, context)
+        return "(std::holds_alternative<std::monostate>(" + value + ") ? doof::json_value(nullptr) : " + emitJsonField("std::get<" + innerType + ">(" + value + ")", inner, context) + ")"
+      }
       case inner {
-        _: ClassType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
+        class_: ClassType -> {
+          if class_.symbol.kind == "struct" { return "(" + value + ".has_value() ? " + emitJsonField(value + ".value()", inner, context) + " : doof::json_value(nullptr))" }
+          return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))"
+        }
         _: ArrayResolvedType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
         _: MapResolvedType -> { return "(" + value + " ? " + emitJsonField(value, inner, context) + " : doof::json_value(nullptr))" }
         _ -> { return "(" + value + ".has_value() ? " + emitJsonField(value + ".value()", inner, context) + " : doof::json_value(nullptr))" }
@@ -208,8 +288,18 @@ export function emitJsonField(value: string, resolvedType: ResolvedType, context
       element := emitJsonField("_element", array.elementType, context)
       return "[&]() { auto _array = std::make_shared<std::vector<doof::JsonValue>>(); _array->reserve(" + value + "->size()); for (const auto& _element : *" + value + ") { _array->push_back(" + element + "); } return doof::json_value(_array); }()"
     }
+    tuple: TupleResolvedType -> {
+      let elements = ""
+      for i of 0..<tuple.elements.length {
+        if i > 0 { elements = elements + ", " }
+        elements = elements + emitJsonField("std::get<" + string(i) + ">(" + value + ")", tuple.elements[i], context)
+      }
+      return "doof::json_value(std::make_shared<std::vector<doof::JsonValue>>(std::initializer_list<doof::JsonValue>{" + elements + "}))"
+    }
     map: MapResolvedType -> {
       if map.keyType.kind == "primitive" && map.valueType.kind == "json-value" { return "doof::json_value(" + value + ")" }
+      entryValue := emitJsonField("_entry.second", map.valueType, context)
+      return "[&]() { auto _object_value = std::make_shared<doof::ordered_map<std::string, doof::JsonValue>>(); for (const auto& _entry : *" + value + ") { (*_object_value)[_entry.first] = " + entryValue + "; } return doof::json_value(_object_value); }()"
     }
     _ -> { return "doof::json_value(nullptr)" }
   }

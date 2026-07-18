@@ -150,13 +150,14 @@ The self-hosted driver now resolves preserved `pkgConfigPackages` into the same
 explicit include paths, library paths, link libraries, frameworks, defines,
 and compiler/linker flags used by direct manifest inputs.
 
-### M5 — Git/cache acquisition provider
+### M5 — Workspace-local Git acquisition provider
 
 Status: complete
 
 - Generate and embed one immutable std catalog per compiler release.
 - Resolve remote Doof packages and std packages by exact ref plus verified commit.
-- Cache packages by canonical URL and commit without a versions map.
+- Expand one current copy per logical package under the root workspace's ignored `.doof/packages/` directory.
+- Keep a disposable `.doof-acquisition.json` receipt in the expanded package root and replace that root when its exact coordinates change.
 - Preserve `DOOF_STDLIB_ROOT` as an explicitly opted-in mutable development override.
 - Resolve exact canonical-URL clashes through root declarations, validate optional transitive policy, and emit graph-shaped provenance.
 
@@ -168,7 +169,7 @@ Acceptance:
 Completed:
 
 - The release generator discovers `std/*` Git checkouts, validates clean package identity/origin/HEAD state, and embeds a deterministic catalog resource and digest.
-- The self-host driver acquires catalog and manifest packages into the platform cache by canonical URL plus commit, verifies `HEAD` and package identity, and returns ordinary package-specific acquisitions.
+- The self-host driver acquires catalog and manifest packages directly into the root workspace by logical package name, verifies `HEAD` and package identity, removes Git metadata, writes an acquisition receipt, and returns ordinary package-specific acquisitions.
 - Remote package declarations are exact `{ url, ref, commit }` coordinates. Root-only package/external resolutions, transitive origin/native policy, deferred external acquisition, mutable-local controls, and deterministic provenance are covered by focused tests.
 
 ## Verification gates

@@ -127,7 +127,7 @@ Pass `--observe` to `doof run` to start a local observer server inside the gener
 - `provenance.json`
 - `doof-build.json`
 
-Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` subtree instead of mirroring the cache path from `~/.doof/packages/`.
+Remote package outputs are written into the emitted `.packages/<logical-package-name>/` subtree instead of mirroring the self-hosted compiler's workspace acquisition path under `.doof/packages/`.
 
 The self-hosted compiler resolves std imports from its immutable generated catalog by default. `DOOF_STDLIB_ROOT` explicitly selects a mutable local standard-library checkout for every command, including `package`. Reached local packages are marked mutable in provenance, and packaging prints a warning when standard packages were overridden.
 

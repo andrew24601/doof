@@ -77,6 +77,7 @@ println(formatJsonValue(u.toJsonObject()))
 | Class or struct instances | JSON object (recursive) |
 | `T[]` | JSON array |
 | `Tuple<T1, T2, ...>` | JSON array |
+| `Map<string, T>` | JSON object when `T` is serializable |
 | Enums | JSON string (member name) |
 | `T | null` | Value or `null` |
 | `JsonValue` | Preserved as-is |
@@ -339,6 +340,16 @@ class Pair {
 
 println(formatJsonValue(Pair { value: ("hello", 42) }.toJsonObject()))
 // {"value":["hello",42]}
+```
+
+String-keyed maps serialize as JSON objects and recursively convert their values:
+
+```doof
+class Scores {
+  values: Map<string, int>
+}
+
+scores := Scores.fromJsonValue({ values: { alice: 10, bob: 12 } })
 ```
 
 ## Enums

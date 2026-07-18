@@ -5,9 +5,68 @@
 
 import {
   ArrayType, BoolLiteral, CharLiteral, ClassDeclaration, ClassField, DoubleLiteral, FloatLiteral,
-  ExportDeclaration, IntLiteral, LongLiteral, NamedType, Program, Statement, StringLiteral, TypeAnnotation, UnionType,
+  ExportDeclaration, IntLiteral, InterfaceDeclaration, LongLiteral, NamedType, Program, Statement, StringLiteral, TypeAnnotation, UnionType,
 } from "./ast"
-import { ArrayResolvedType, ClassType, EnumType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, Symbol, UnionResolvedType } from "./semantic"
+import { ArrayResolvedType, ClassType, EnumType, JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, ResolvedType, Symbol, TupleResolvedType, UnionResolvedType } from "./semantic"
+
+export class JsonDiscriminatorEntry {
+  value: string
+  declaration: ClassDeclaration
+}
+
+export class JsonDiscriminator {
+  fieldName: string
+  entries: JsonDiscriminatorEntry[] = []
+}
+
+// Automatic dispatch deliberately uses only fixed string fields. Shape-based
+// unique-field matching belongs to contextual object literal inference and is
+// not stable enough for decoding untrusted JSON.
+export function interfaceJsonDiscriminator(owner: InterfaceDeclaration, programs: Program[]): JsonDiscriminator | null {
+  if owner.resolvedSymbol == null || owner.resolvedSymbol!.implementations.length == 0 { return null }
+  let implementations: ClassDeclaration[] = []
+  for symbol of owner.resolvedSymbol!.implementations {
+    declaration := findJsonClassDeclaration(programs, symbol)
+    if declaration == null || !canGenerateJsonDeserialization(declaration!, programs) { return null }
+    implementations.push(declaration!)
+  }
+  if implementations.length == 0 { return null }
+  for candidate of implementations[0].fields {
+    if candidate.static_ || !candidate.const_ || candidate.names.length != 1 || candidate.defaultValue == null { continue }
+    case candidate.defaultValue! {
+      firstValue: StringLiteral -> {
+        discriminator := JsonDiscriminator { fieldName: candidate.names[0] }
+        for implementation of implementations {
+          matching := fixedStringField(implementation, discriminator.fieldName)
+          if matching == null || discriminatorHasValue(discriminator, matching!) { discriminator.entries = []; break }
+          discriminator.entries.push(JsonDiscriminatorEntry { value: matching!, declaration: implementation })
+        }
+        if discriminator.entries.length == implementations.length { return discriminator }
+      }
+      _ -> { }
+    }
+  }
+  return null
+}
+
+function fixedStringField(owner: ClassDeclaration, name: string): string | null {
+  for field of owner.fields {
+    if field.static_ || !field.const_ || field.defaultValue == null { continue }
+    let matches = false
+    for fieldName of field.names { if fieldName == name { matches = true } }
+    if !matches { continue }
+    case field.defaultValue! {
+      value: StringLiteral -> { return value.value }
+      _ -> { return null }
+    }
+  }
+  return null
+}
+
+function discriminatorHasValue(discriminator: JsonDiscriminator, value: string): bool {
+  for entry of discriminator.entries { if entry.value == value { return true } }
+  return false
+}
 
 export function canGenerateJsonSerialization(owner: ClassDeclaration, programs: Program[] = []): bool {
   let visited: string[] = []
@@ -60,6 +119,18 @@ export function isGeneratedJsonType(type_: ResolvedType, programs: Program[] = [
       return canGenerateJsonDeserializationInner(declaration!, programs, visited)
     }
     array: ArrayResolvedType -> { return isGeneratedJsonType(array.elementType, programs, visited) }
+    map: MapResolvedType -> {
+      case map.keyType {
+        key: PrimitiveType -> { return key.name == "string" && isGeneratedJsonType(map.valueType, programs, visited) }
+        _ -> { return false }
+      }
+    }
+    tuple: TupleResolvedType -> {
+      for element of tuple.elements {
+        if !isGeneratedJsonType(element, programs, visited) { return false }
+      }
+      return true
+    }
     union_: UnionResolvedType -> {
       inner := nullableJsonMemberUnchecked(union_)
       return inner != null && isGeneratedJsonType(inner!, programs, visited)
@@ -80,6 +151,18 @@ function isGeneratedJsonSerializationType(type_: ResolvedType, programs: Program
     array: ArrayResolvedType -> {
       if array.elementType.kind == "json-value" { return true }
       return isGeneratedJsonSerializationType(array.elementType, programs, visited)
+    }
+    map: MapResolvedType -> {
+      case map.keyType {
+        key: PrimitiveType -> { return key.name == "string" && isGeneratedJsonSerializationType(map.valueType, programs, visited) }
+        _ -> { return false }
+      }
+    }
+    tuple: TupleResolvedType -> {
+      for element of tuple.elements {
+        if !isGeneratedJsonSerializationType(element, programs, visited) { return false }
+      }
+      return true
     }
     union_: UnionResolvedType -> {
       inner := nullableJsonMemberUnchecked(union_)
@@ -158,6 +241,20 @@ function isGeneratedJsonDeserializationAnnotation(annotation: TypeAnnotation, pr
       if named.name == "byte" || named.name == "int" || named.name == "long" ||
         named.name == "float" || named.name == "double" || named.name == "string" ||
         named.name == "char" || named.name == "bool" || named.name == "JsonValue" { return true }
+      if named.name == "Tuple" {
+        if named.typeArgs.length == 0 { return false }
+        for element of named.typeArgs {
+          if !isGeneratedJsonDeserializationAnnotation(element, programs, visited) { return false }
+        }
+        return true
+      }
+      if named.name == "Map" || named.name == "ReadonlyMap" {
+        if named.typeArgs.length != 2 { return false }
+        case named.typeArgs[0] {
+          key: NamedType -> { return key.name == "string" && isGeneratedJsonDeserializationAnnotation(named.typeArgs[1], programs, visited) }
+          _ -> { return false }
+        }
+      }
       if named.typeArgs.length != 0 || named.resolvedSymbol == null || named.resolvedSymbol!.native_ { return false }
       if named.resolvedSymbol!.kind == "enum" { return true }
       if named.resolvedSymbol!.kind != "class" && named.resolvedSymbol!.kind != "struct" { return false }
@@ -193,6 +290,20 @@ function isGeneratedJsonSerializationAnnotation(annotation: TypeAnnotation, prog
   if annotation.resolvedType != null { return isGeneratedJsonSerializationType(annotation.resolvedType!, programs, visited) }
   case annotation {
     named: NamedType -> {
+      if named.name == "Tuple" {
+        if named.typeArgs.length == 0 { return false }
+        for element of named.typeArgs {
+          if !isGeneratedJsonSerializationAnnotation(element, programs, visited) { return false }
+        }
+        return true
+      }
+      if named.name == "Map" || named.name == "ReadonlyMap" {
+        if named.typeArgs.length != 2 { return false }
+        case named.typeArgs[0] {
+          key: NamedType -> { return key.name == "string" && isGeneratedJsonSerializationAnnotation(named.typeArgs[1], programs, visited) }
+          _ -> { return false }
+        }
+      }
       if named.resolvedSymbol != null && (named.resolvedSymbol!.kind == "class" || named.resolvedSymbol!.kind == "struct") {
         declaration := findJsonClassDeclaration(programs, named.resolvedSymbol!)
         if declaration == null { return programs.length == 0 }
@@ -208,7 +319,7 @@ function isGeneratedJsonSerializationAnnotation(annotation: TypeAnnotation, prog
   case annotation {
     named: NamedType -> {
       if named.name == "null" { return true }
-      if named.name == "Map" && named.typeArgs.length == 2 {
+      if (named.name == "Map" || named.name == "ReadonlyMap") && named.typeArgs.length == 2 {
         case named.typeArgs[0] {
           key: NamedType -> {
             case named.typeArgs[1] {

@@ -367,7 +367,7 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
     } else if field.defaultValue != null {
       fieldType = checkExpression(state, field.defaultValue!, classScope, null)
     }
-    if field.readonly_ { fieldType = applyDeepReadonly(fieldType) }
+    if field.readonly_ || field.const_ { fieldType = applyDeepReadonly(fieldType) }
     field.resolvedType = optionalResolvedType(fieldType)
     if class_.struct_ && (field.weak_ || containsWeakType(fieldType)) {
       name := if field.names.length == 0 then "<field>" else field.names[0]
@@ -742,7 +742,7 @@ export function addClassFields(state: CheckerState, scope: Scope, owner: ClassTy
             name,
             kind: "field",
             type_: field.resolvedType ?? unknownType(),
-            mutable: !field.readonly_,
+            mutable: !field.readonly_ && !field.const_,
             span: checkerSemanticSpan(field.span),
             module: state.info!.path,
           })

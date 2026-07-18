@@ -121,7 +121,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         if expression.resolvedClass != null {
           let fieldIndex = 0
           for field of expression.resolvedClass!.fields {
-            if field.static_ { continue }
+            if field.static_ || field.const_ { continue }
             for name of field.names {
               if fieldIndex >= expression.args.length {
                 if values != "" { values = values + ", " }
@@ -158,7 +158,10 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       }
       if arrayObjectType != null {
         case arrayObjectType! {
-          _: InterfaceType -> { return emitInterfaceCall(member, expression, context) }
+          _: InterfaceType -> {
+            if member.property == "fromJsonValue" { return emitInterfaceJsonCall(member, expression, context) }
+            return emitInterfaceCall(member, expression, context)
+          }
           _: StreamResolvedType -> { return emitInterfaceCall(member, expression, context) }
           _: ArrayResolvedType -> {
             if member.property == "buildReadonly" { return "doof::array_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
@@ -243,6 +246,13 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
         for i of 0..<expression.args.length {
           if i > 0 { args = args + ", " }
           args = args + emitExpression(expression.args[i].value, context)
+        }
+        objectType := decoratedExpressionType(member.object)
+        if objectType != null {
+          case objectType! {
+            _: InterfaceType -> { return object + "_fromJsonValue(" + args + ")" }
+            _ -> { }
+          }
         }
         return object + "::fromJsonValue(" + args + ")"
       }
@@ -423,6 +433,15 @@ function emitInterfaceCall(member: MemberExpression, call: CallExpression, conte
   return "std::visit([&](auto&& _obj) { return _obj->" + cppIdentifier(member.property) + "(" + args + "); }, " + object + ")"
 }
 
+function emitInterfaceJsonCall(member: MemberExpression, call: CallExpression, context: EmitContext): string {
+  let args = ""
+  for i of 0..<call.args.length {
+    if i > 0 { args = args + ", " }
+    args = args + emitExpression(call.args[i].value, context)
+  }
+  return emitExpression(member.object, context) + "_fromJsonValue(" + args + ")"
+}
+
 function builtinName(name: string): string {
   if name == "println" { return "doof::println" }
   if name == "panic" { return "doof::panic" }
@@ -505,7 +524,7 @@ export function emitConstruct(expression: ConstructExpression, context: EmitCont
   let values = ""
   let first = true
   for field of class_!.fields {
-    if field.static_ { continue }
+    if field.static_ || field.const_ { continue }
     for name of field.names {
       if !first { values = values + ", " }
       first = false

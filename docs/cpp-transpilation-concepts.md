@@ -609,6 +609,12 @@ Strategy:
 - classes and structs with a dedicated static `constructor(...): Self` or
   `constructor(...): Result<Self, E>` are excluded from automatic JSON helper generation
 - interface-level deserialization relies on the known set of implementations in the analyzed project
+- self-hosted interface decoding selects implementations by a shared fixed
+  string field with distinct values, then preserves the selected class
+  decoder's `Failure<string>` instead of guessing from ordinary unique fields
+- self-hosted tuple fields lower element-by-element through `std::get` / `std::make_tuple`,
+  while `Map<string, T>` fields lower through ordered JSON-object iteration when
+  `T` is recursively JSON-serializable
 - metadata surfaces and `.invoke()` generation build on the same emitted type knowledge and JSON support
 
 Primary modules:

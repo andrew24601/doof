@@ -30,7 +30,7 @@ import {
   nullType, numericResult, primitive, promiseType, rangeType, sameType, tupleType, typeName, unionType,
   methodReflectionType, substituteTypeParams, typeParameter, unknownType, voidType, weakType,
 } from "./checker-types"
-import { canGenerateJsonDeserialization, canGenerateJsonSerialization, isGeneratedJsonType } from "./json-semantics"
+import { canGenerateJsonDeserialization, canGenerateJsonSerialization, interfaceJsonDiscriminator, isGeneratedJsonType } from "./json-semantics"
 import { findActorBoundaryViolation } from "./checker-actor-boundary"
 import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-actor-lifecycle"
 
@@ -478,6 +478,26 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if declaration == null { return unknownType() }
       case declaration! {
         interface_: InterfaceDeclaration -> {
+          if property == "fromJsonValue" {
+            if interface_.typeParams.length > 0 {
+              typeError(state, "Automatic JSON deserialization is not available on generic interface \"" + interface_.name + "\"", span)
+              return unknownType()
+            }
+            if interfaceType_.symbol.implementations.length == 0 {
+              typeError(state, "Cannot deserialize interface \"" + interface_.name + "\": no implementing classes found", span)
+              return unknownType()
+            }
+            discriminator := interfaceJsonDiscriminator(interface_, jsonPrograms(state.result))
+            if discriminator == null {
+              typeError(state, "Cannot deserialize interface \"" + interface_.name + "\": all implementing classes must share a const string field with distinct values (e.g. const kind = \"variant\")", span)
+              return unknownType()
+            }
+            interface_.needsJson = true
+            return functionType([
+              FunctionParamType { name: "value", type_: jsonValueType(), hasDefault: false },
+              FunctionParamType { name: "lenient", type_: primitive("bool"), hasDefault: true },
+            ], resultType(object, primitive("string")))
+          }
           for field of interface_.fields {
             if field.name == property {
               fieldType := field.resolvedType ?? resolveType(state, field.type_, state.info!, state.moduleScope!)

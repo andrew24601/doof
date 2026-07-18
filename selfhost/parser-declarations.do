@@ -291,6 +291,7 @@ function parseNamedType(parser: Parser): NamedType {
 function parseClassField(parser: Parser, static_: bool, private_: bool): ClassField {
   start := parser.location()
   let staticValue = static_
+  const_ := parser.match(TokenType.Const)
   readonly_ := parser.match(TokenType.Readonly)
   if parser.match(TokenType.Static) { staticValue = true }
   weak_ := parser.match(TokenType.Weak)
@@ -305,8 +306,9 @@ function parseClassField(parser: Parser, static_: bool, private_: bool): ClassFi
   typeValue := parser.parseOptionalType()
   let defaultValue: Expression | null = null
   if parser.match(TokenType.Equal) { defaultValue = parser.parseExpression() }
+  if const_ && defaultValue == null { parser.fail("Const class fields require a fixed value") }
   parser.consumeSemicolon()
-  return ClassField { kind: "class-field", names, descriptions, type_: typeValue, defaultValue, static_: staticValue, readonly_, weak_, private_, span: parser.span(start) }
+  return ClassField { kind: "class-field", names, descriptions, type_: typeValue, defaultValue, static_: staticValue, const_, readonly_, weak_, private_, span: parser.span(start) }
 }
 
 export function parseInterface(parser: Parser, exported: bool): Statement {

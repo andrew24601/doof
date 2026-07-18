@@ -45,7 +45,7 @@ Point at a Git repository with a descriptive ref and an exact commit:
 }
 ```
 
-The self-hosted compiler caches remote packages by canonical URL and commit. It fetches `ref`, verifies `HEAD` equals `commit`, validates the acquired manifest, and never maintains a moving version-to-commit map. Set `DOOF_PACKAGE_CACHE` to override the platform cache directory.
+The self-hosted compiler expands one current copy of each remote package under `<workspace>/.doof/packages/<package-name>/`. The package content and its compiler-owned `.doof-acquisition.json` receipt share that directory. The receipt records the canonical URL, descriptive `ref`, and exact `commit`; it is disposable workspace state and is not a lock file. If the requested coordinates change, the receipt is missing or invalid, or the expanded manifest no longer validates, the compiler replaces that package directory from a clean exact-commit acquisition. No global package cache is used.
 
 See [`samples/hello-package/`](../samples/hello-package/) for a working remote package example.
 
@@ -269,7 +269,7 @@ Packages can declare native build inputs under `build.native`. These values prop
 }
 ```
 
-Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized into `~/.doof/packages/<owner>/<repo>/<commit>/`.
+Path entries under `build.native` are resolved relative to the declaring package root and must stay within that package. This keeps remote packages self-contained when they are materialized directly into `<workspace>/.doof/packages/<package-name>/`.
 
 Canonical style is to omit the leading `./` for package-local paths. These fields treat bare values such as `native/include`, `native/bridge.cpp`, `native/lib`, `templates`, `main.do`, or `app-icon.png` as package-root-relative. Leading `./` is accepted, but it is just extra noise in `doof.json` and the docs prefer the shorter package-relative form.
 

@@ -632,6 +632,7 @@ export class ClassField {
   type_: TypeAnnotation | null
   defaultValue: Expression | null
   static_: bool
+  const_: bool = false
   readonly_: bool
   weak_: bool = false
   private_: bool
@@ -649,6 +650,7 @@ export class InterfaceDeclaration {
   methods: FunctionDeclaration[]
   exported: bool
   resolvedSymbol: Symbol | null = null
+  needsJson: bool = false
   span: SourceSpan
 }
 

@@ -35,10 +35,13 @@ self-hosted checker and emitter now include the intrinsic `JsonValue` carrier,
 ordered JSON object/array lowering, native function-import syntax, and
 generated `toJsonObject()` support. Non-generic classes and structs whose
 instance fields are primitives, `JsonValue`, enums, nested eligible nominal
-values, arrays, or supported nullable forms now also receive
+values, arrays, tuples, recursively serializable string-keyed maps, or
+supported nullable forms now also receive
 `fromJsonValue()` generation with required-field checks, defaults,
 field-specific type failures, lenient primitive conversion, and
-value/reference-correct `Result` payloads.
+value/reference-correct `Result` payloads. Closed-world interfaces can decode
+through a shared fixed string discriminator with distinct implementor values;
+the selected class decoder preserves its `Failure<string>` result.
 Weak class fields and `weak T` annotations are now supported across the
 self-hosted parser, analyzer, checker, and emitter. Weak types survive generic
 substitution and header planning, lower to `std::weak_ptr<T>`, are rejected on

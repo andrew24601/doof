@@ -171,7 +171,7 @@ allows imports such as:
 import { say } from "hello-doof/hello"
 ```
 
-Remote dependencies never float. `ref` is descriptive and supplies the Git fetch target; the compiler verifies that the checkout resolves to the exact 40-character `commit`. Packages are cached by canonical source URL and commit.
+Remote dependencies never float. `ref` is descriptive and supplies the Git fetch target; the compiler verifies that the checkout resolves to the exact 40-character `commit`. The self-hosted compiler keeps one expanded copy per logical package under the root workspace's `.doof/packages/` directory. A disposable acquisition receipt inside that package root records its canonical source URL, ref, and commit. When those coordinates or the expanded package validation no longer match, the package directory is replaced cleanly. No committed lock file or global package cache participates in resolution.
 
 The compiler applies the same rule to `std/*`: each compiler release embeds a generated catalog of canonical package origins and exact commits. A compiler upgrade intentionally selects a new tested catalog; no lock file participates in resolution.
 
