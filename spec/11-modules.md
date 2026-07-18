@@ -158,7 +158,8 @@ Package-style imports are wired through the nearest `doof.json` above the entry 
     "dependencies": {
         "hello-doof": {
             "url": "https://github.com/andrew24601/hello-doof",
-            "version": "0.1"
+            "ref": "v0.1",
+            "commit": "5497e5306fcb80d3a0014ca41cfb236096c3583f"
         }
     }
 }
@@ -170,7 +171,13 @@ allows imports such as:
 import { say } from "hello-doof/hello"
 ```
 
-Remote dependencies are materialized into a shared `~/.doof/packages/` cache by default. Version strings resolve git tags matching either the exact version or a `v`-prefixed form, so `0.1` can resolve `v0.1`.
+Remote dependencies never float. `ref` is descriptive and supplies the Git fetch target; the compiler verifies that the checkout resolves to the exact 40-character `commit`. Packages are cached by canonical source URL and commit.
+
+The compiler applies the same rule to `std/*`: each compiler release embeds a generated catalog of canonical package origins and exact commits. A compiler upgrade intentionally selects a new tested catalog; no lock file participates in resolution.
+
+If reached packages request different commits from the same canonical URL, compilation fails unless the root `doof.json` selects an exact winner under `resolutions.packages` or `resolutions.externalDependencies`. Package-specific vendor destinations and build commands remain owned by the declaring package. Optional root policy allowlists can reject unapproved transitive package origins, external origins, libraries, frameworks, and pkg-config packages before vendor acquisition or linking.
+
+Local path dependencies and `DOOF_STDLIB_ROOT` are explicit mutable overrides accepted by every command. They are recorded as mutable provenance; packaging additionally warns when reached standard packages came from `DOOF_STDLIB_ROOT`. Source-graph and bare-module overrides are declared in `doof.json`, not supplied through command-line escape hatches.
 
 ### Generated C++ Namespaces
 

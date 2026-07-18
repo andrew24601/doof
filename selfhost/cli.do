@@ -9,8 +9,6 @@ export class CliRequest {
   entry: string
   outputDirectory: string = ""
   compiler: string = ""
-  sourcePaths: string[] = []
-  moduleSources: ModuleSource[] = []
   filter: string = ""
   listOnly: bool = false
   coverage: bool = false
@@ -26,11 +24,6 @@ export class CliRequest {
   iosProvisioningProfile: string = ""
   targetOverride: string = ""
   programArguments: string[] = []
-}
-
-export class ModuleSource {
-  specifier: string
-  sourcePath: string
 }
 
 export class CliParseResult {
@@ -63,8 +56,6 @@ export function cliUsage(): string {
     "  --ios-device <id>          connected iOS device identifier or name\n" +
     "  --ios-sign-identity <id>   Apple signing identity for device/package builds\n" +
     "  --ios-provisioning-profile <path> provisioning profile for device/package builds\n" +
-    "  --source <path>             add a source file to the graph (repeatable)\n" +
-    "  --module <specifier> <path> map an external import to a source file\n" +
     "  --filter <text>             run tests whose id contains text\n" +
     "  --list                      list tests without building or running\n" +
     "  --coverage                  collect line coverage while running tests\n" +
@@ -184,12 +175,6 @@ export function parseCli(args: string[]): CliParseResult {
       index += 2
       continue
     }
-    if argument == "--source" {
-      if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --source" } }
-      request.sourcePaths.push(args[index + 1])
-      index = index + 2
-      continue
-    }
     if argument == "--filter" {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --filter" } }
       request.filter = args[index + 1]
@@ -210,16 +195,6 @@ export function parseCli(args: string[]): CliParseResult {
       if index + 1 >= args.length { return CliParseResult { request: null, error: "missing value for --coverage-output" } }
       request.coverageOutput = args[index + 1]
       index = index + 2
-      continue
-    }
-    if argument == "--module" {
-      if index + 2 >= args.length { return CliParseResult { request: null, error: "missing values for --module" } }
-      specifier := args[index + 1]
-      if specifier.startsWith(".") || specifier == "" {
-        return CliParseResult { request: null, error: "--module requires a bare module specifier" }
-      }
-      request.moduleSources.push(ModuleSource { specifier, sourcePath: args[index + 2] })
-      index = index + 3
       continue
     }
     return CliParseResult { request: null, error: "unknown option '" + argument + "'" }

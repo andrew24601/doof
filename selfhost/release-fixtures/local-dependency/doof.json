@@ -1,0 +1,8 @@
+{
+  "name": "selfhost-release-local-dependency",
+  "dependencies": {
+    "local-lib": {
+      "path": "local-lib"
+    }
+  }
+}

@@ -117,6 +117,12 @@ function markerMatches(path: string, fingerprint: string): bool {
   }
 }
 
+function markerContentMatches(path: string, expected: string): bool {
+  if !exists(path) { return false }
+  source := readText(path) else { return false }
+  return source == expected
+}
+
 function externalJsonSet(object: JsonObject, key: string, value: JsonValue): void {
   object.set(key, value)
 }
@@ -304,8 +310,11 @@ function runExternalCommands(
   nativeMarker := externalPath(destination, ".doof-external-native-" + target.nativeTarget + ".json")
   fingerprint := externalNativeFingerprint(dependency, target)
   if markerMatches(nativeMarker, fingerprint) {
-    _ := writeText(nativeMarker, externalNativeMarkerContent(dependency, target, fingerprint)) else error {
-      return Failure("Could not refresh external dependency native marker")
+    content := externalNativeMarkerContent(dependency, target, fingerprint)
+    if !markerContentMatches(nativeMarker, content) {
+      _ := writeText(nativeMarker, content) else error {
+        return Failure("Could not refresh external dependency native marker")
+      }
     }
     return Success()
   }
@@ -373,8 +382,11 @@ export function acquirePackageExternalDependencies(
     }
     // Refresh matching older self-host sentinels into the reference-compatible
     // schema without reacquiring their payload.
-    _ := writeText(sourceMarker, externalSourceMarkerContent(dependency, fingerprint)) else error {
-      return Failure("Could not refresh external dependency marker")
+    content := externalSourceMarkerContent(dependency, fingerprint)
+    if !markerContentMatches(sourceMarker, content) {
+      _ := writeText(sourceMarker, content) else error {
+        return Failure("Could not refresh external dependency marker")
+      }
     }
     if dependency.commands.length > 0 {
       _ := runExternalCommands(dependency, manifest.rootDirectory, destination, target) else error {

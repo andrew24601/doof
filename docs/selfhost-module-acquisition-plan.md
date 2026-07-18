@@ -3,20 +3,19 @@
 Status date: 2026-07-14
 
 This plan tracks the self-hosted compiler work needed for implicit `std/*`
-imports and manifest-driven native build inputs. `DOOF_STDLIB_ROOT` remains a
-required configuration for stdlib discovery during the current phase. The
-acquisition boundary must nevertheless accept arbitrary logical-module to disk
-folder mappings so a Git/cache provider can supply individual packages later.
+imports and manifest-driven native build inputs. Compiler releases embed an
+exact std catalog; `DOOF_STDLIB_ROOT` remains an optional mutable override. The
+acquisition boundary accepts arbitrary logical-module to disk-folder mappings
+so exact Git/cache providers and local manifest dependencies share one path.
 
 ## Invariants
 
 - Source code imports `std/<package>` without declaring or registering it in
   the consuming `doof.json`.
-- `DOOF_STDLIB_ROOT` is currently the source of stdlib package folders; it is
-  an override/provider input, not resolver policy.
+- `DOOF_STDLIB_ROOT` is an explicit mutable override/provider input, not
+  resolver policy; absent that override, std packages come from the catalog.
 - Resolution probes both a direct `.do` module and an `index.do` barrel.
 - Imports and re-exports load only their transitively reached source graph.
-- Explicit `--module` mappings continue to override acquired package roots.
 - A more-specific acquired prefix wins, allowing `/std/time` to come from a
   cache folder while other `/std/*` packages still come from the configured
   stdlib root.
@@ -34,7 +33,8 @@ Status: complete
 - Add a focused module that maps logical module prefixes to arbitrary disk
   roots using deterministic longest-prefix matching.
 - Route `DOOF_STDLIB_ROOT` through that abstraction.
-- Keep explicit local and `--module` mappings ahead of acquired roots.
+- Keep the root project and manifest-declared local dependencies ahead of
+  acquired remote package roots.
 - Cover umbrella roots, package-specific overrides, boundary matching, barrel
   paths, and manifest paths with unit tests.
 
@@ -42,7 +42,7 @@ Acceptance:
 
 - `/std/time/index.do` can map through `/std` or a more-specific `/std/time`
   acquisition without resolver changes.
-- `std/*` still fails clearly when `DOOF_STDLIB_ROOT` is absent.
+- `std/*` resolves from the exact compiler catalog when no local override is set.
 
 Completed in the initial slice:
 
@@ -73,8 +73,8 @@ Acceptance:
 Completed:
 
 - Successful acquired-source loads are mapped back to a package-specific
-  logical prefix and disk root; local and explicit `--module` sources do not
-  claim acquired-package ownership.
+  logical prefix and disk root; root-project sources do not claim
+  acquired-package ownership.
 - Each reached acquired package is deduplicated before its `doof.json` is read.
 - Root and acquired manifests share `PackageManifest` / `NativeBuildPlan`.
 - Base and host-platform native fragments normalize all filesystem paths and
@@ -154,17 +154,24 @@ Intentionally deferred:
 
 ### M5 — Git/cache acquisition provider
 
-Status: pending
+Status: complete
 
-- Introduce a provider that resolves a requested package name/version to a
-  cached folder and returns a package-specific acquisition mapping.
-- Preserve `DOOF_STDLIB_ROOT` as an explicit local override.
-- Add cache-hit, cache-miss, unavailable-package, and version-selection tests.
+- Generate and embed one immutable std catalog per compiler release.
+- Resolve remote Doof packages and std packages by exact ref plus verified commit.
+- Cache packages by canonical URL and commit without a versions map.
+- Preserve `DOOF_STDLIB_ROOT` as an explicitly opted-in mutable development override.
+- Resolve exact canonical-URL clashes through root declarations, validate optional transitive policy, and emit graph-shaped provenance.
 
 Acceptance:
 
 - Resolver, analyzer, and emitter code are unchanged when switching between a
   local-root provider and a Git/cache provider.
+
+Completed:
+
+- The release generator discovers `std/*` Git checkouts, validates clean package identity/origin/HEAD state, and embeds a deterministic catalog resource and digest.
+- The self-host driver acquires catalog and manifest packages into the platform cache by canonical URL plus commit, verifies `HEAD` and package identity, and returns ordinary package-specific acquisitions.
+- Remote package declarations are exact `{ url, ref, commit }` coordinates. Root-only package/external resolutions, transitive origin/native policy, deferred external acquisition, mutable-local controls, and deterministic provenance are covered by focused tests.
 
 ## Verification gates
 
@@ -178,6 +185,12 @@ Update milestone statuses and record any intentionally deferred acceptance
 checks in this file as implementation progresses.
 
 ## Progress log
+
+### 2026-07-18 — M5 exact acquisition and provenance completed
+
+- Replaced floating self-host package resolution with exact commits and an automatically generated compiler-owned std catalog.
+- Added canonical-URL conflict arbitration, root transitive input policy, exact Git caching, local-development opt-in, package-time mutable rejection, and graph-shaped `provenance.json`.
+- Kept module resolution and emission independent of the acquisition provider; reference-compiler migration remains a separate follow-up.
 
 ### 2026-07-17 — external vendor acquisition completed
 

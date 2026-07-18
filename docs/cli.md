@@ -129,7 +129,7 @@ Pass `--observe` to `doof run` to start a local observer server inside the gener
 
 Remote package outputs are written into the emitted `.packages/<owner>/<repo>/` subtree instead of mirroring the cache path from `~/.doof/packages/`.
 
-When `DOOF_STDLIB_ROOT` is set, std imports such as `std/fs` resolve from that local checkout root instead of fetching the compiler's default GitHub-backed std packages. For example, `DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib` makes `std/fs` resolve from `/Users/andrew/develop/doof-stdlib/fs`.
+The self-hosted compiler resolves std imports from its immutable generated catalog by default. `DOOF_STDLIB_ROOT` explicitly selects a mutable local standard-library checkout for every command, including `package`. Reached local packages are marked mutable in provenance, and packaging prints a warning when standard packages were overridden.
 
 For `build.target = "macos-app"`, `doof emit` also writes bundle support files such as `Info.plist`. For `build.target = "ios-app"`, it writes the iOS `Info.plist`, a generated UIKit entry shell, and an app-icon asset catalog scaffold. During `doof build` and `doof run`, that catalog is compiled with Xcode's `actool` for the selected simulator or device platform, and the generated icon metadata is merged into the bundled `Info.plist`. Built-in app targets require PNG icons.
 
@@ -141,7 +141,7 @@ Command-line executable builds default the output file name to the package `name
 
 `doof-build.json` is the tool-agnostic external build handoff. It contains the resolved generated source list, propagated include paths, propagated native source files, library paths, libraries, frameworks, defines, flags, and resource mappings. External CMake or Xcode integrations should consume this file instead of re-implementing package resolution.
 
-`provenance.json` records the finalized remote dependency graph using resolved git metadata:
+The self-hosted `provenance.json` records the reached graph, compiler/catalog identity, exact selected package and external sources, requested sources overridden by root resolutions, mutable local inputs, and final explicit native inputs. The reference compiler retains its legacy flattened document until its separate acquisition migration.
 
 ```json
 {

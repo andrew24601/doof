@@ -28,6 +28,7 @@
     "test:selfhost": "npm run build && node dist/bin.js test selfhost",
     "test:selfhost:coverage": "npm run build && node dist/bin.js test selfhost --coverage --coverage-output build/coverage/selfhost/selfhost.json",
     "test:release": "node scripts/release-gate.mjs",
+    "generate:std-catalog": "node scripts/generate-std-catalog.mjs",
     "test:watch": "vitest"
   },
   "keywords": [],

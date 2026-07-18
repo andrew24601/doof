@@ -2,6 +2,8 @@
 
 Doof's standard library packages use `std/<name>` import paths and are available without adding explicit package entries.
 
+Each compiler release embeds a generated, immutable catalog of standard package origins and commits. There is no std version map or lock file. `DOOF_STDLIB_ROOT` is an explicit mutable override accepted by every command. Packaging warns when it reaches overridden standard packages, and provenance records them as mutable inputs.
+
 ## Package Index
 
 | Package | Import | Focus |

@@ -31,22 +31,60 @@ Point at another Doof package directory using a relative path:
 
 ### Remote packages
 
-Point at a git repository URL with a version string:
+Point at a Git repository with a descriptive ref and an exact commit:
 
 ```json
 {
   "dependencies": {
     "hello-doof": {
       "url": "https://github.com/andrew24601/hello-doof",
-      "version": "0.1"
+      "ref": "v0.1",
+      "commit": "5497e5306fcb80d3a0014ca41cfb236096c3583f"
     }
   }
 }
 ```
 
-The compiler materializes remote packages into `~/.doof/packages/` by default. Git dependencies are cached under a package coordinate plus resolved commit, for example `~/.doof/packages/andrew24601/hello-doof/<commit>/`, and each package cache root keeps a `versions.json` file that maps requested versions to cached commits. Version lookup still tries the declared tag first and then `v<version>`, so `"version": "0.1"` resolves the `v0.1` tag when needed, but later builds can reuse `versions.json` instead of resolving that tag again.
+The self-hosted compiler caches remote packages by canonical URL and commit. It fetches `ref`, verifies `HEAD` equals `commit`, validates the acquired manifest, and never maintains a moving version-to-commit map. Set `DOOF_PACKAGE_CACHE` to override the platform cache directory.
 
 See [`samples/hello-package/`](../samples/hello-package/) for a working remote package example.
+
+## Root conflict resolutions and policy
+
+Exact pins can still conflict. The root application may select one exact source while each consuming package retains its own destination and integration commands:
+
+```json
+{
+  "resolutions": {
+    "packages": {
+      "shared": { "url": "https://example.com/shared.git", "ref": "v2", "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    },
+    "externalDependencies": {
+      "quickjs": { "kind": "git", "url": "https://github.com/quickjs-ng/quickjs.git", "ref": "v0.14.0", "commit": "3c051980ab7e783dfbfb1c70c014ce5e05ecf24c" }
+    }
+  }
+}
+```
+
+Canonical URL is the identity; labels such as `shared` and `quickjs` are diagnostic. Resolutions are root-only and deliberately transfer compatibility responsibility to the application.
+
+Optional root policy catches newly introduced fourth-party and native inputs before acquisition or linking:
+
+```json
+{
+  "policy": {
+    "allowedPackageSources": ["https://example.com/shared.git"],
+    "allowedExternalSources": ["https://github.com/quickjs-ng/quickjs.git"],
+    "native": {
+      "allowedLinkLibraries": ["z"],
+      "allowedFrameworks": ["Foundation"],
+      "allowedPkgConfigPackages": ["libcurl"]
+    }
+  }
+}
+```
+
+Root-declared direct package sources and root resolutions are already authorized. Native inputs and external sources contributed by dependencies must satisfy an allowlist when that allowlist is present.
 
 ## Generated C++ namespaces
 
@@ -76,7 +114,7 @@ When working on the standard library itself, set `DOOF_STDLIB_ROOT` to a checkou
 export DOOF_STDLIB_ROOT=/Users/andrew/develop/doof-stdlib
 ```
 
-With that override in place, `import { writeText } from "std/fs"` resolves against `/Users/andrew/develop/doof-stdlib/fs` instead of materializing `https://github.com/doof-lang/fs.git`. The same override also applies to implicit std package loading during `doof emit`, `doof build`, `doof run`, and `doof check`.
+With that override, `import { writeText } from "std/fs"` resolves against `/Users/andrew/develop/doof-stdlib/fs` instead of the compiler's exact embedded catalog. Every command accepts the override and provenance marks reached packages mutable. `doof package` also prints a warning when it packages with overridden standard packages.
 
 The local development override also affects `npm run sync:stdlib`: when `DOOF_STDLIB_ROOT` is set, the command refreshes this repository's ignored `stdlib/` mirror by copying from that local checkout instead of downloading GitHub archives.
 

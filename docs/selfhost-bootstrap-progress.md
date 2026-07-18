@@ -197,8 +197,8 @@ The generated driver currently supports source-graph checking and split C++
 emission:
 
 ```sh
-doof-selfhost check main.do --source math.do
-doof-selfhost emit main.do -o build --source math.do
+doof-selfhost check main.do
+doof-selfhost emit main.do -o build
 doof-selfhost check path/to/package
 doof-selfhost emit path/to/package
 doof-selfhost build path/to/package
@@ -216,19 +216,12 @@ and its installed signing identity when overrides are omitted, sign the bundle,
 then install and launch it with `devicectl`. WebAssembly runs remain an explicit
 error because the consumer owns module instantiation.
 
-`--source` is repeatable for explicit source files used by relative imports. A
-bare/external import can be provided explicitly with `--module <specifier>
-<path>`:
-
-```sh
-doof-selfhost check main.do --module hello-doof/math vendor/math.do
-```
-
-This maps the logical import `hello-doof/math` to the supplied source file.
-When `DOOF_STDLIB_ROOT` is set, the loader maps requested `std/<package>/`
-modules to `<DOOF_STDLIB_ROOT>/<package>/` on demand. Package imports use
-`index.do` as their barrel when present; explicit `--module` mappings take
-precedence.
+Relative source modules are discovered from imports. Bare package imports are
+declared in `doof.json` using exact Git coordinates or local paths. When
+`DOOF_STDLIB_ROOT` is set, the loader maps requested `std/<package>/` modules
+to `<DOOF_STDLIB_ROOT>/<package>/` on demand; otherwise it uses the compiler's
+embedded exact catalog. Package imports use `index.do` as their barrel when
+present.
 
 The self-hosted front end now parses and emits the source constructs used by
 `std/json` (try bindings, Result case arms, declaration-else, and Success/

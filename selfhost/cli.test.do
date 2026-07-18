@@ -2,27 +2,21 @@ import { Assert } from "std/assert"
 import { parseCli } from "./cli"
 
 export function testParsesEmitRequest(): void {
-  result := parseCli(["emit", "main.do", "-o", "build", "--source", "math.do", "--module", "std/assert", "assert.do"])
+  result := parseCli(["emit", "main.do", "-o", "build"])
   Assert.equal(result.error, "")
   Assert.equal(result.help, false)
   Assert.equal(result.request != null, true)
   Assert.equal(result.request!.command, "emit")
   Assert.equal(result.request!.entry, "main.do")
   Assert.equal(result.request!.outputDirectory, "build")
-  Assert.equal(result.request!.sourcePaths.length, 1)
-  Assert.equal(result.request!.sourcePaths[0], "math.do")
-  Assert.equal(result.request!.moduleSources.length, 1)
-  Assert.equal(result.request!.moduleSources[0].specifier, "std/assert")
-  Assert.equal(result.request!.moduleSources[0].sourcePath, "assert.do")
 }
 
 export function testParsesCheckWithoutOutput(): void {
-  result := parseCli(["check", "main.do", "--source", "math.do", "--source", "types.do"])
+  result := parseCli(["check", "main.do"])
   Assert.equal(result.error, "")
   Assert.equal(result.request != null, true)
   Assert.equal(result.request!.command, "check")
   Assert.equal(result.request!.outputDirectory, "")
-  Assert.equal(result.request!.sourcePaths.length, 2)
 }
 
 export function testParsesBuildCompiler(): void {
@@ -173,12 +167,11 @@ export function testRejectsUnknownCommandsAndOptions(): void {
   Assert.equal(unknownOption.error, "unknown option '--wat'")
 }
 
-export function testRejectsInvalidExternalModuleMappings(): void {
-  missingValues := parseCli(["check", "main.do", "--module", "std/assert"])
-  Assert.equal(missingValues.error, "missing values for --module")
-
-  relativeSpecifier := parseCli(["check", "main.do", "--module", "./assert", "assert.do"])
-  Assert.equal(relativeSpecifier.error, "--module requires a bare module specifier")
+export function testRejectsRemovedSourceGraphOverrides(): void {
+  for option of ["--source", "--module", "--allow-local-dependencies"] {
+    result := parseCli(["check", "main.do", option])
+    Assert.equal(result.error, "unknown option '" + option + "'")
+  }
 }
 
 export function testRecognizesHelp(): void {

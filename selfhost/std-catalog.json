@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "compilerVersion": "0.1.0",
+  "digest": "3d9911f2716faaaf8f2750bcc814bb77475dbe2cebceb61e3ffceed3867700a7",
+  "packages": [
+    {
+      "name": "std/apple-intelligence",
+      "url": "https://github.com/doof-lang/apple-intelligence",
+      "ref": "a4720dc",
+      "version": "0.1.0",
+      "commit": "a4720dcec37c93e5f0aa518e1591981fb80d7d17"
+    },
+    {
+      "name": "std/archive",
+      "url": "https://github.com/doof-lang/archive",
+      "ref": "ad67770",
+      "version": "0.1.0",
+      "commit": "ad67770bf95e135f183652ab12c5f7ce03b1ef8e"
+    },
+    {
+      "name": "std/assert",
+      "url": "https://github.com/doof-lang/assert",
+      "ref": "v0.1-4-gabf239b",
+      "version": "0.1.0",
+      "commit": "abf239b54a880659523ecc06fcf305fbc8861afb"
+    },
+    {
+      "name": "std/blob",
+      "url": "https://github.com/doof-lang/blob",
+      "ref": "v0.1-10-g66d4651",
+      "version": "0.1.0",
+      "commit": "66d46510ef86071475379f86479a051749c3f2e3"
+    },
+    {
+      "name": "std/cli",
+      "url": "https://github.com/doof-lang/cli",
+      "ref": "88eb733",
+      "version": "0.1.0",
+      "commit": "88eb7335c8dc1d6c67e6e6709da9b7020db57e07"
+    },
+    {
+      "name": "std/crypto",
+      "url": "https://github.com/doof-lang/crypto",
+      "ref": "v0.1-8-g30e6d42",
+      "version": "0.1.0",
+      "commit": "30e6d4262f9ca9ba246c5cbcf2862c89bf94a021"
+    },
+    {
+      "name": "std/event",
+      "url": "https://github.com/doof-lang/event",
+      "ref": "446b8a6",
+      "version": "0.1.0",
+      "commit": "446b8a6f7665fd23f3cf723842cc1100379401ad"
+    },
+    {
+      "name": "std/fs",
+      "url": "https://github.com/doof-lang/fs",
+      "ref": "v0.1-11-gd817acf",
+      "version": "0.1.0",
+      "commit": "d817acf5d4ee69a0da8047fb4c245b9dd4ddf809"
+    },
+    {
+      "name": "std/game",
+      "url": "https://github.com/doof-lang/game",
+      "ref": "c23d2ae",
+      "version": "0.1.0",
+      "commit": "c23d2ae4a7e449d8416d4b19cd26acc8da069262"
+    },
+    {
+      "name": "std/gzip",
+      "url": "https://github.com/doof-lang/gzip",
+      "ref": "6777432",
+      "version": "0.1.0",
+      "commit": "677743259ec8cd6de2f8117f087e71fe6164fa33"
+    },
+    {
+      "name": "std/http",
+      "url": "https://github.com/doof-lang/http",
+      "ref": "v0.1-12-ga77be69",
+      "version": "0.1.0",
+      "commit": "a77be697e8692f1161caa1dcfec057fab7b61143"
+    },
+    {
+      "name": "std/http-router",
+      "url": "https://github.com/doof-lang/http-router",
+      "ref": "a63f408",
+      "version": "0.1.0",
+      "commit": "a63f4083f6e86269531006b14a26bd1a34e74963"
+    },
+    {
+      "name": "std/http-server",
+      "url": "https://github.com/doof-lang/http-server",
+      "ref": "7b85a59",
+      "version": "0.1.0",
+      "commit": "7b85a590321d41f2db91f88d3a348fd45e10b050"
+    },
+    {
+      "name": "std/image",
+      "url": "https://github.com/doof-lang/image",
+      "ref": "5d2c63a",
+      "version": "0.1.0",
+      "commit": "5d2c63a38febe2c09693ac1259bbd2c43fbb7aa0"
+    },
+    {
+      "name": "std/js",
+      "url": "https://github.com/doof-lang/js",
+      "ref": "2545992",
+      "version": "0.1.0",
+      "commit": "254599288192edac61e49450707220e170bb033c"
+    },
+    {
+      "name": "std/json",
+      "url": "https://github.com/doof-lang/json",
+      "ref": "a27b747",
+      "version": "0.1.0",
+      "commit": "a27b747c2b3ac3aac554c2865a4643ef836e30d3"
+    },
+    {
+      "name": "std/log",
+      "url": "https://github.com/doof-lang/log",
+      "ref": "2dd547c",
+      "version": "0.1.0",
+      "commit": "2dd547c2141d4d2023bb83f72756f1bd85f9bd12"
+    },
+    {
+      "name": "std/math",
+      "url": "https://github.com/doof-lang/math",
+      "ref": "88b82a1",
+      "version": "0.1.0",
+      "commit": "88b82a19aabeb8005de940b09854f1fe32521d59"
+    },
+    {
+      "name": "std/multiplayer",
+      "url": "https://github.com/doof-lang/multiplayer",
+      "ref": "bc8f6f2",
+      "version": "0.1.0",
+      "commit": "bc8f6f27b9590685fb3e361219bbea24b9aa520c"
+    },
+    {
+      "name": "std/os",
+      "url": "https://github.com/doof-lang/os",
+      "ref": "d1b5611",
+      "version": "0.1.0",
+      "commit": "d1b5611ae097908f7aa8354ecbbcbf58cb51d162"
+    },
+    {
+      "name": "std/path",
+      "url": "https://github.com/doof-lang/path",
+      "ref": "v0.1-12-g6a468c9",
+      "version": "0.1.0",
+      "commit": "6a468c96d6af7f7f68f594d4223b64d041db8a39"
+    },
+    {
+      "name": "std/postgres",
+      "url": "https://github.com/doof-lang/postgres",
+      "ref": "e6ef41f",
+      "version": "0.1.0",
+      "commit": "e6ef41ff4e86601d1449d1d9b06a415fcd33ab2d"
+    },
+    {
+      "name": "std/random",
+      "url": "https://github.com/doof-lang/random",
+      "ref": "15902cd",
+      "version": "0.1.0",
+      "commit": "15902cdf277924030dc583e51f62ceeecd31439c"
+    },
+    {
+      "name": "std/regex",
+      "url": "https://github.com/doof-lang/regex",
+      "ref": "v0.1-7-g08fae78",
+      "version": "0.1.0",
+      "commit": "08fae780c7a26321244ea2efcb3ec58a555b5ffa"
+    },
+    {
+      "name": "std/sqlite",
+      "url": "https://github.com/doof-lang/sqlite",
+      "ref": "3fbf8d0",
+      "version": "0.1.0",
+      "commit": "3fbf8d02dff6be63aeb1d74edf8210d879c798bf"
+    },
+    {
+      "name": "std/stream",
+      "url": "https://github.com/doof-lang/stream",
+      "ref": "v0.1-5-g9b0b93d",
+      "version": "0.1.0",
+      "commit": "9b0b93d74c34b85a224303ab41c83f91d678782d"
+    },
+    {
+      "name": "std/time",
+      "url": "https://github.com/doof-lang/time",
+      "ref": "v0.1-8-g00f4b89",
+      "version": "0.1.0",
+      "commit": "00f4b89e11237d67fb935f540a43491cfe364fbc"
+    },
+    {
+      "name": "std/ts",
+      "url": "https://github.com/doof-lang/ts",
+      "ref": "5705330",
+      "version": "0.1.0",
+      "commit": "5705330dd0bb134995491f45dfed765ae5f61e2d"
+    },
+    {
+      "name": "std/url",
+      "url": "https://github.com/doof-lang/url",
+      "ref": "bf93ae6",
+      "version": "0.1.0",
+      "commit": "bf93ae65484d90aab0a8fb26d03d468898095fa4"
+    },
+    {
+      "name": "std/webshell",
+      "url": "https://github.com/doof-lang/webshell",
+      "ref": "cbaa304",
+      "version": "0.1.0",
+      "commit": "cbaa30402d6fd4c6a78e40a431050e6a4ed845bb"
+    },
+    {
+      "name": "std/zstd",
+      "url": "https://github.com/doof-lang/zstd",
+      "ref": "391d1e0",
+      "version": "0.1.0",
+      "commit": "391d1e08a1845f5ccaf8c810f03edd7a7c63e77d"
+    }
+  ]
+}

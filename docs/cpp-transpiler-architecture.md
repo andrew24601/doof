@@ -119,8 +119,8 @@ The split module emitter places the executable wrapper in the entry module. A
 values, writes a `panic: <message>` diagnostic to stderr, and aborts, matching
 the TypeScript bootstrap emitter's process boundary. The self-hosted driver uses
 `std/fs`, `std/path`, and `std/os` for file access, path discovery, environment
-lookup, and child processes while it loads an explicit source-file graph, including
-bare modules supplied with `--module <specifier> <path>`, invokes the
+lookup, and child processes while it loads the import-driven source graph and
+resolves bare modules through exact `doof.json` dependencies, invokes the
 self-hosted compiler, and writes every module's header/source pair plus an
 adjacent `doof_runtime.hpp` to the output directory. The root package declares
 `doof_runtime.h` as an executable resource, so build and package place the

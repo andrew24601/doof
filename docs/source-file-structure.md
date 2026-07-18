@@ -60,14 +60,18 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/checker-actor-lifecycle.do` — conservative straight-line same-binding use-after-retire validation
 - `selfhost/checker.test.do` — checker tests for inference, mutability diagnostics, and return-path validation
 - `selfhost/compiler.do` — self-hosted graph checking, coverage-enabled compilation options, and split module emission orchestration
-- `selfhost/cli.do` — command and option parsing for the self-hosted CLI (`build`, `package`, `emit`, `check`, `test`, coverage output, project-directory entrypoints, and explicit `--module` mappings)
+- `selfhost/cli.do` — command and option parsing for the manifest-driven self-hosted CLI (`build`, `package`, `emit`, `check`, `test`, coverage output, and project-directory entrypoints)
 - `selfhost/test-runner.do` — static test discovery, signature validation, id filtering, portable display paths, per-module harness generation, and coverage aggregation/report rendering
 - `selfhost/test-runner.test.do` — focused self-hosted runner tests for discovery, validation, filtering, aliases, harness imports, and coverage reports
 - `selfhost/run-command.do` — deterministic native and app launch invocation planning for the self-hosted CLI
 - `selfhost/ios-device.do` — physical-device discovery, provisioning-profile and signing-identity resolution, app signing, and device launch support
 - `selfhost/project.do` — self-hosted `doof.json` project discovery and build entry/build-directory defaults used by the driver's demand-driven loader
 - `selfhost/module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings used by the self-hosted driver
-- `selfhost/package-manifest.do` — normalized package identity, root/app resources, external vendor declarations, macOS/iOS/WASM target and release settings, and target/platform `build.native` manifest parsing
+- `selfhost/package-manifest.do` — exact package coordinates, root resolutions/policy, root/app resources, external vendor declarations, target settings, and `build.native` parsing
+- `selfhost/std-catalog.do` — immutable embedded std catalog parsing, lookup, and canonical source identity
+- `selfhost/package-acquisition.do` — exact-commit Git package caching and acquired-manifest validation
+- `selfhost/dependency-policy.do` — root conflict resolution and transitive source/native allowlist enforcement
+- `selfhost/provenance.do` — deterministic graph-shaped package, external, catalog, mutable-input, and native provenance
 - `selfhost/external-dependency.do` — `std/http` archive download, checksum/ref-pinned archive and Git vendor acquisition, sentinels, and target-specific setup command execution
 - `selfhost/macos-app.do` — deterministic macOS app metadata, Info.plist rendering, archive naming, and codesign argument planning
 - `selfhost/macos-app-driver.do` — macOS filesystem/tool boundary for bundle assembly, embedded Mach-O rewriting, signing, and zip archives
@@ -79,6 +83,7 @@ For emitter-specific architecture and lowering rules, see [cpp-transpiler-archit
 - `selfhost/compiler.test.do` — focused in-memory self-hosted compiler pipeline and emission tests
 - `selfhost/module-acquisition.test.do` — acquisition precedence, package ownership, and arbitrary-root tests
 - `selfhost/package-manifest.test.do` — focused native manifest parsing, platform merge, and validation tests
+- `selfhost/std-catalog.test.do`, `selfhost/package-acquisition.test.do`, `selfhost/dependency-policy.test.do`, `selfhost/provenance.test.do` — exact catalog/cache, conflict, policy, and provenance coverage
 - `selfhost/external-dependency.test.do` — archive/Git acquisition, pin validation, command interpolation, and sentinel reuse tests
 - `selfhost/macos-app.test.do` — focused macOS plist, archive-name, and signing-plan tests
 - `selfhost/ios-app.test.do` — focused iOS plist/UIKit-shell, target-triple, archive-name, and signing-plan tests

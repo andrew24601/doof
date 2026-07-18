@@ -128,6 +128,10 @@ The self-hosted emitter is kept in focused Doof modules under `selfhost/`:
 - `compiler.do` — self-hosted graph checking and emission orchestration
 - `module-acquisition.do` — logical module-prefix to arbitrary package-folder acquisition mappings
 - `package-manifest.do` — normalized package identity, executable resources, and host-platform `build.native` manifest parsing
+- `std-catalog.do` — immutable compiler-owned standard-package catalog parsing and lookup
+- `package-acquisition.do` — exact-commit remote package cache materialization and validation
+- `dependency-policy.do` — root conflict selection and transitive source/native policy enforcement
+- `provenance.do` — deterministic reached dependency graph and native-input provenance rendering
 - `macos-app.do` — macOS bundle metadata, Info.plist rendering, archive naming, and codesign argument planning
 - `macos-app-driver.do` — macOS bundle materialization, embedded Mach-O rewriting, signing, and zip execution
 - `ios-app.do` — iOS app metadata, plist/UIKit-shell rendering, target triples, and signing/archive planning

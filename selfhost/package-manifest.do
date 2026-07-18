@@ -61,6 +61,39 @@ export class ExternalDependency {
   commands: ExternalDependencyCommand[] = []
 }
 
+/** One exact local or Git-backed Doof package dependency. */
+export class PackageDependency {
+  name: string
+  path: string = ""
+  url: string = ""
+  ref: string = ""
+  commit: string = ""
+}
+
+/** Root-owned exact source selection for a conflicting package or vendor. */
+export class DependencyResolution {
+  name: string
+  kind: string = "git"
+  url: string
+  ref: string = ""
+  commit: string = ""
+  sha256: string = ""
+}
+
+/** Optional root-owned allowlists for transitive source and native inputs. */
+export class DependencyPolicy {
+  hasPackageSourceAllowlist: bool = false
+  allowedPackageSources: string[] = []
+  hasExternalSourceAllowlist: bool = false
+  allowedExternalSources: string[] = []
+  hasLinkLibraryAllowlist: bool = false
+  allowedLinkLibraries: string[] = []
+  hasFrameworkAllowlist: bool = false
+  allowedFrameworks: string[] = []
+  hasPkgConfigAllowlist: bool = false
+  allowedPkgConfigPackages: string[] = []
+}
+
 /** Package identity and native inputs parsed from a single doof.json. */
 export class PackageManifest {
   name: string
@@ -68,7 +101,11 @@ export class PackageManifest {
   manifestPath: string
   rootDirectory: string
   resources: PackageResource[] = []
+  dependencies: PackageDependency[] = []
   externalDependencies: ExternalDependency[] = []
+  packageResolutions: DependencyResolution[] = []
+  externalResolutions: DependencyResolution[] = []
+  policy: DependencyPolicy = DependencyPolicy {}
   nativeBuild: NativeBuildPlan
   target: string = ""
   macosApp: MacOSAppConfig | null = null
@@ -101,7 +138,11 @@ export function parsePackageManifest(
   }
 
   try resources := parseManifestResources(root, manifestPath, rootDirectory)
+  try dependencies := parsePackageDependencies(root, manifestPath, rootDirectory)
   try externalDependencies := parseExternalDependencies(root, manifestPath, rootDirectory)
+  try packageResolutions := parseResolutions(root, manifestPath, "packages")
+  try externalResolutions := parseResolutions(root, manifestPath, "externalDependencies")
+  try policy := parseDependencyPolicy(root, manifestPath)
   try manifestTarget := parseManifestTarget(root, manifestPath)
   target := if targetOverride == "" then manifestTarget else targetOverride
   try nativeBuild := parseManifestNativeBuild(root, manifestPath, rootDirectory, platform, target)
@@ -110,9 +151,132 @@ export function parsePackageManifest(
   try packageConfig := parseMacOSPackage(root, manifestPath, rootDirectory)
   try iosPackageConfig := parseIOSPackage(root, manifestPath, rootDirectory)
   return Success(PackageManifest {
-    name, version, manifestPath, rootDirectory, resources, externalDependencies, nativeBuild, target, macosApp, iosApp,
+    name, version, manifestPath, rootDirectory, resources, dependencies, externalDependencies,
+    packageResolutions, externalResolutions, policy, nativeBuild, target, macosApp, iosApp,
     packageConfig, iosPackageConfig,
   })
+}
+
+function parsePackageDependencies(
+  root: JsonObject,
+  manifestPath: string,
+  rootDirectory: string,
+): Result<PackageDependency[], string> {
+  if !manifestJsonHas(root, "dependencies") { return Success([]) }
+  try values := manifestObject(manifestJsonField(root, "dependencies"), manifestPath, "dependencies")
+  let result: PackageDependency[] = []
+  for name, value of values {
+    fieldPath := "dependencies." + name
+    if name == "" { return Failure("Invalid doof.json at " + manifestPath + ": dependency names must not be empty") }
+    try object := manifestObject(value, manifestPath, fieldPath)
+    if manifestJsonHas(object, "path") {
+      if manifestJsonHas(object, "url") || manifestJsonHas(object, "ref") || manifestJsonHas(object, "commit") {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + " must declare either path or url/ref/commit")
+      }
+      try path := requiredManifestString(object, "path", manifestPath, fieldPath)
+      result.push(PackageDependency { name, path: manifestJoinPath(rootDirectory, path) })
+      continue
+    }
+    try url := requiredManifestString(object, "url", manifestPath, fieldPath)
+    try ref := requiredManifestString(object, "ref", manifestPath, fieldPath)
+    try commit := requiredManifestString(object, "commit", manifestPath, fieldPath)
+    if !isHexString(commit, 40) {
+      return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".commit must be a 40-character hex string")
+    }
+    result.push(PackageDependency { name, url, ref, commit: commit.toLowerCase() })
+  }
+  return Success(result)
+}
+
+function parseResolutions(
+  root: JsonObject,
+  manifestPath: string,
+  section: string,
+): Result<DependencyResolution[], string> {
+  if !manifestJsonHas(root, "resolutions") { return Success([]) }
+  try resolutions := manifestObject(manifestJsonField(root, "resolutions"), manifestPath, "resolutions")
+  if !manifestJsonHas(resolutions, section) { return Success([]) }
+  fieldRoot := "resolutions." + section
+  try values := manifestObject(manifestJsonField(resolutions, section), manifestPath, fieldRoot)
+  let result: DependencyResolution[] = []
+  for name, value of values {
+    fieldPath := fieldRoot + "." + name
+    try object := manifestObject(value, manifestPath, fieldPath)
+    let kind = "git"
+    if manifestJsonHas(object, "kind") {
+      try parsedKind := manifestString(manifestJsonField(object, "kind"), manifestPath, fieldPath + ".kind")
+      kind = parsedKind
+    }
+    if section == "packages" && kind != "git" {
+      return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".kind must be \"git\"")
+    }
+    try url := requiredManifestString(object, "url", manifestPath, fieldPath)
+    if kind == "git" {
+      try ref := requiredManifestString(object, "ref", manifestPath, fieldPath)
+      try commit := requiredManifestString(object, "commit", manifestPath, fieldPath)
+      if !isHexString(commit, 40) {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".commit must be a 40-character hex string")
+      }
+      result.push(DependencyResolution { name, kind, url, ref, commit: commit.toLowerCase() })
+      continue
+    }
+    if kind == "archive" {
+      try sha256 := requiredManifestString(object, "sha256", manifestPath, fieldPath)
+      if !isHexString(sha256, 64) {
+        return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".sha256 must be a 64-character hex string")
+      }
+      result.push(DependencyResolution { name, kind, url, sha256: sha256.toLowerCase() })
+      continue
+    }
+    return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + ".kind must be either \"archive\" or \"git\"")
+  }
+  return Success(result)
+}
+
+function parseDependencyPolicy(root: JsonObject, manifestPath: string): Result<DependencyPolicy, string> {
+  result := DependencyPolicy {}
+  if !manifestJsonHas(root, "policy") { return Success(result) }
+  try policy := manifestObject(manifestJsonField(root, "policy"), manifestPath, "policy")
+  if manifestJsonHas(policy, "allowedPackageSources") {
+    result.hasPackageSourceAllowlist = true
+    try appendPolicyStrings(result.allowedPackageSources, policy, "allowedPackageSources", manifestPath, "policy")
+  }
+  if manifestJsonHas(policy, "allowedExternalSources") {
+    result.hasExternalSourceAllowlist = true
+    try appendPolicyStrings(result.allowedExternalSources, policy, "allowedExternalSources", manifestPath, "policy")
+  }
+  if manifestJsonHas(policy, "native") {
+    try native := manifestObject(manifestJsonField(policy, "native"), manifestPath, "policy.native")
+    if manifestJsonHas(native, "allowedLinkLibraries") {
+      result.hasLinkLibraryAllowlist = true
+      try appendPolicyStrings(result.allowedLinkLibraries, native, "allowedLinkLibraries", manifestPath, "policy.native")
+    }
+    if manifestJsonHas(native, "allowedFrameworks") {
+      result.hasFrameworkAllowlist = true
+      try appendPolicyStrings(result.allowedFrameworks, native, "allowedFrameworks", manifestPath, "policy.native")
+    }
+    if manifestJsonHas(native, "allowedPkgConfigPackages") {
+      result.hasPkgConfigAllowlist = true
+      try appendPolicyStrings(result.allowedPkgConfigPackages, native, "allowedPkgConfigPackages", manifestPath, "policy.native")
+    }
+  }
+  return Success(result)
+}
+
+function appendPolicyStrings(
+  target: string[],
+  object: JsonObject,
+  name: string,
+  manifestPath: string,
+  fieldPath: string,
+): Result<void, string> {
+  try values := manifestArray(manifestJsonField(object, name), manifestPath, fieldPath + "." + name)
+  for index of 0..<values.length {
+    try value := manifestString(values[index], manifestPath, fieldPath + "." + name + "[" + string(index) + "]")
+    if value == "" { return Failure("Invalid doof.json at " + manifestPath + ": " + fieldPath + "." + name + " entries must not be empty") }
+    appendUnique(target, value)
+  }
+  return Success()
 }
 
 function parseExternalDependencies(

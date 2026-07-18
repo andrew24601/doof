@@ -1,290 +1,255 @@
 # Reference and Self-Hosted Compiler Gap Analysis
 
-Status date: 2026-07-17
+Status date: 2026-07-18
 
 ## Purpose
 
-This document compares the TypeScript reference implementation in `src/` with
-the self-hosted implementation in `selfhost/`. It identifies the work still
-required before the self-hosted compiler can replace the TypeScript compiler
-for normal development, package builds, tests, and releases.
+This document compares the observable capability of the TypeScript reference
+implementation in `src/` with the self-hosted implementation in `selfhost/`.
+It tracks only the work that still matters before the self-hosted compiler can
+replace the TypeScript compiler for normal development, package builds, tests,
+and releases.
 
-The comparison is about observable capability, not internal similarity. The
-self-hosted compiler does not need to reproduce the TypeScript compiler's AST
-shape or C++ representation when a different design has the same language and
-tooling behaviour.
+Equivalent behaviour is the target. The self-host does not need the same AST,
+semantic types, C++ representation, or internal module boundaries as the
+reference compiler.
 
 ## Executive summary
 
-The self-hosted compiler has crossed the bootstrap threshold: B5/B6 fixed-point
-bootstrap, native compilation, test execution, coverage, and macOS/iOS package
-flows are implemented. It is nevertheless not yet a drop-in replacement for
-the TypeScript reference implementation.
+The self-hosted compiler is a working compiler and toolchain, not a bootstrap
+prototype. It passes the B5/B6 fixed point, builds and runs native programs,
+tests Doof packages with coverage, acquires manifest-declared external vendor
+trees, and supports executable, macOS, iOS, and WebAssembly targets. Recent
+work also closed the previously recorded gaps for weak references, range case
+patterns, catch expressions, yield blocks, destructuring, direct reflection,
+`Reflectable`, and `run`.
 
-The largest remaining gaps are:
+It is not yet a drop-in replacement. The remaining replacement blockers are:
 
-1. **Package graph and build handoff:** declared local/remote dependencies,
-   external dependency acquisition, Git/cache acquisition, pkg-config
-   resolution, provenance, and `doof-build.json` are reference-only.
-2. **Language surface:** `weak` references, generic constraints, range patterns,
-   and recorded mock functions/classes are not implemented as full self-hosted
-   vertical slices.
-3. **Reflection and JSON:** the self-host supports a useful automatic JSON
-   subset, but not interface/alias dispatch, tuples and the complete reference
-   serializability surface. Declaration descriptions and direct class/struct
-   `.metadata`, schema generation, and `.invoke` are implemented; interface
-   reflection plus `JsonSerializable` and `Reflectable` remain absent.
-4. **CLI and target parity:** the self-host has no `run` command, target
-   override, WebAssembly target, observer mode, class-lifecycle instrumentation,
-   TypeScript-style external native flags, Windows/MSVC path, or incremental
-   Reckon graph.
-5. **Parity assurance:** bootstrap fixed-point comparison proves
-   reproducibility of the supported slice, not equivalence with the reference
-   implementation. There is no maintained differential corpus covering parse
-   results, diagnostics, emitted behaviour, manifests, and CLI outcomes.
+1. **Doof package acquisition:** manifest-declared local and remote Doof
+   dependencies, transitive version selection, cache acquisition, and remote
+   stdlib fallback remain reference-only.
+2. **External build contracts:** the self-host does not emit the reference
+   `doof-build.json` or `provenance.json`, and it cannot resolve
+   `pkgConfigPackages`.
+3. **Language compatibility:** arbitrary generic constraints are not preserved
+   or enforced; only the compiler-known `JsonSerializable` and `Reflectable`
+   constraints have self-host semantics. Same-site inference for omitted
+   `Map`/`Set` type arguments is also missing.
+4. **Parity assurance:** the release fixed point proves reproducibility of the
+   self-hosted slice, not equivalence with the reference compiler. There is no
+   maintained differential corpus for diagnostics, generated projects,
+   manifests, or runtime outcomes.
 
-Recommendation: keep the TypeScript compiler as the release oracle until the
-replacement gates near the end of this document pass. Close package acquisition
-and semantic-source gaps before investing in convenience-only CLI parity.
+The most efficient path is to make parity measurable, then complete Doof
+package acquisition and external build handoff. JSON/reflection breadth,
+recorded mocks, CLI convenience options, and incremental builds follow behind
+those replacement gates.
 
 ## Scope and method
 
-This audit used the following repository evidence:
+This audit uses the repository state at the status date, including:
 
-- language and tooling contracts in `spec/` and `docs/cli.md`
-- implementation ownership in `docs/source-file-structure.md`,
-  `docs/type-checker-concepts.md`, and the C++ transpiler documents
-- current bootstrap claims and release gates in
-  `docs/selfhost-bootstrap-progress.md` and `scripts/release-gate.mjs`
-- AST, semantic type, parser, checker, emitter, package, CLI, and test-runner
-  source in both implementations
+- language contracts in `spec/` and tooling contracts in `docs/cli.md`,
+  `docs/packages.md`, and `docs/testing.md`
+- the TypeScript and Doof AST, analyzer, checker, emitter, package, CLI,
+  build, test-runner, and platform-driver implementations
 - focused tests in `src/*.test.ts` and `selfhost/*.test.do`
+- `docs/selfhost-bootstrap-progress.md`,
+  `docs/selfhost-module-acquisition-plan.md`, and
+  `scripts/release-gate.mjs`
 
-This is a static capability audit. It does not claim that every shared feature
-has identical edge-case behaviour. That claim requires the differential gates
-recommended below.
+This is a static capability audit. A feature is counted as closed when the
+self-host has a tested vertical slice through parsing, analysis/checking,
+emission or tooling, and the relevant observable result. Static inspection
+cannot establish identical edge-case behaviour; the differential gates below
+are intended to do that.
 
-## What is already at parity or sufficiently covered
+## Capability baseline
 
-The following areas are not current replacement blockers:
+The following areas are implemented well enough that they are not current
+replacement gaps:
 
-- two-stage self-bootstrap and byte-for-byte B5/B6 generated-text stability
-- lexing, parsing, module analysis, decorated-AST validation, and split C++
-  emission for the compiler's own source slice
-- classes, structs, interfaces, enums, nominal construction, imports,
-  re-exports, namespaces, and native class/function imports used by the current
-  compiler and maintained stdlib acceptance graph
-- whole-program generic specialization for the supported constraint-free
-  generic surface
+- B5/B6 two-stage bootstrap and byte-for-byte generated-text stability
+- demand-loaded module graphs, relative imports, re-exports, namespaces,
+  explicit `--module` mappings, and `DOOF_STDLIB_ROOT` acquisition
+- classes, structs, interfaces, enums, aliases, native imports, generics for
+  the supported constraint surface, and whole-program monomorphization
 - `Result`, declaration-`else`, `try`, checked `as`, nullable unions, tuples,
-  destructuring, case expressions, loops, lambdas, and mutable closure captures
-  used by the bootstrap graph
-- actor construction/calls, async calls, promises, retirement, isolation
-  inference, actor-boundary validation, and conservative use-after-retire checks
-- demand-loaded local source graphs, explicit `--module` mappings, and
-  `DOOF_STDLIB_ROOT` acquisition
-- explicit native compile/link plans with bounded parallel object compilation
-- test discovery, filtering/listing, per-test processes, `mock import`, and line
-  coverage reports
-- executable, macOS app, and iOS app build/package flows covered by the release
-  fixtures, except for the limitations listed below
+  arrays, maps, explicitly typed sets, destructuring, loops, lambdas, and
+  escaping mutable captures used by the maintained source graph
+- weak references across parser, checker, generic substitution, header
+  planning, and `std::weak_ptr` lowering
+- finite, half-open, lower-open, and upper-open range case patterns in case
+  statements and expressions
+- catch expressions and value-producing `<-` blocks, including nested error
+  collection and mutable reassignment
+- actors, promises, synchronous and asynchronous actor calls, retirement,
+  isolation inference, boundary validation, and use-after-retire checks
+- automatic JSON for the supported non-generic nominal subset, including
+  primitives, `JsonValue`, enums, nested classes/structs, arrays, nullable
+  members, defaults, and lenient primitive conversion
+- direct non-generic class/struct `.metadata`, JSON Schema, method reflection,
+  name-based `.invoke`, and generic access through `T: Reflectable`
+- checksum/ref-pinned external archive and Git dependency acquisition for root
+  and reached packages, including setup commands and target-specific sentinels
+- `emit`, `check`, `build`, `run`, `package`, and `test`
+- native executable, macOS app, iOS simulator/device, and WebAssembly library
+  planning and generation covered by the maintained fixtures
+- recursive test discovery, filtering/listing, process isolation,
+  `mock import`, and line coverage reports
 
-Some reference AST nodes are deliberately represented differently in the
-self-host and are not gaps by themselves. For example, tuple annotations are
-resolved from the intrinsic `Tuple<...>` named type, namespace/static accesses
-share `MemberExpression`, non-null assertion is represented as postfix unary
-`!`, and contextual map/object literals share one syntax node.
+Different representations are not gaps by themselves. Examples include tuple
+annotations resolved through intrinsic `Tuple<...>`, namespace/static access
+sharing member-expression machinery, postfix `!` represented as a unary node,
+and map/object literals sharing a syntax node under contextual typing.
 
-## Gap matrix
+## Current gap matrix
 
 Priority meanings:
 
 - **P0:** blocks credible replacement of the reference compiler
-- **P1:** required for broad language/tooling compatibility
-- **P2:** important operational or developer-experience parity
+- **P1:** required for broad language, package, or target compatibility
+- **P2:** operational or developer-experience parity
 
-| Area | Confirmed gap | Evidence | Priority | Recommended acceptance check |
-| --- | --- | --- | --- | --- |
-| Package dependencies | The self-host manifest model has no declared local/remote dependency graph, version selection, transitive acquisition, or remote cache provider. | `src/package-manifest.ts` models `dependencies`, remote selections, cache state, and package provenance; `selfhost/package-manifest.do` models the root/reached package identity and native plan only. M5 in `docs/selfhost-module-acquisition-plan.md` is pending. | P0 | The self-host builds a root package with a local dependency, two compatible transitive remote dependencies, and a cache hit without `--module` or `DOOF_STDLIB_ROOT`; conflicting selections produce a deterministic diagnostic. |
-| External dependencies | Archive/Git acquisition, integrity/ref pinning, setup commands, per-target sentinels, and target interpolation are implemented; external-dependency provenance is not yet emitted. | `selfhost/external-dependency.do` materializes vendors for root and reached packages, while self-host `provenance.json` remains part of the build-handoff gap. | P1 | Compare reference/self-host materialization and provenance for the same archive and Git fixtures. |
-| Build handoff and provenance | Self-host `emit` writes generated/native files but not the reference `doof-build.json` schema or `provenance.json`. | `src/cli-core.ts` owns schema-versioned handoff/provenance; no corresponding self-host type or writer exists. | P0 | The same package emitted by both compilers produces normalized equivalent handoff and provenance documents, ignoring explicitly documented ordering/representation differences. |
-| pkg-config | Package metadata is preserved, but self-host build exits with an unsupported error when `pkgConfigPackages` is non-empty. | `selfhost/driver.do`; deferred item in `docs/selfhost-module-acquisition-plan.md`. | P1 | Build a native fixture whose include/link flags come only from pkg-config; cover missing executable and missing package diagnostics. |
-| Generic constraints | The self-host parser consumes a type-parameter constraint after `:` but stores only parameter names, so constraint semantics are discarded. `JsonSerializable` and `Reflectable` do not exist in the self-host semantic type model. | `parseTypeParameterNames()` in `selfhost/parser-declarations.do`; reference constraint handling in `src/checker-decl.ts`, `src/checker-expr.ts`, and `src/checker-member.ts`. | P0 | Preserve constraints in the AST and semantic model; accept valid constrained calls, reject invalid type arguments, and validate decorated concrete instantiations before emission. |
-| Weak references | `weak T` is tokenized but not parsed, checked, or emitted by the self-host. | `TokenType.Weak` exists in `selfhost/lexer.do`, but `selfhost/parser-types.do` has no weak branch and `selfhost/semantic.do` has no weak resolved type. | P0 | Port weak-reference checker and native lifecycle tests, including nullable weak fields, `?.`, `!.`, destruction, and invalid weak targets. |
-| Range patterns | Finite range values work in the self-host, but open-ended and range `case` patterns have no dedicated representation/lowering. | Reference `RangePattern`; self-host `CasePattern` contains only type, wildcard, and value patterns. | P1 | Differential tests for `a..b`, `a..<b`, `a..`, `..<b`, exhaustiveness interaction, and invalid non-numeric bounds. |
-| Recorded mocks | `mock import` works, but `mock function`, `mock class`, and typed `.calls` storage/checking/emission are absent. | Explicit limitation in `docs/testing.md`; no mock callable/class fields in the self-host AST. | P1 | Run the reference mock-function/class examples unchanged under the self-host runner, including bodyless panic and per-instance call logs. |
-| Test timeouts | `DOOF_TEST_TIMEOUT_MS` is reference-runner-only. | Explicit limitation in `docs/testing.md`; self-host process wrapper has no timed execution option. | P2 | A hanging test is terminated, reported as a timeout, and does not prevent remaining isolated tests from running. |
-| Metadata/schema/invoke | Direct non-generic class/struct `.metadata`, JSON Schema, per-method and name-based invocation are implemented. Interface-qualified reflection and generic `Reflectable` remain missing. | `selfhost/emitter-metadata.do` and focused parser/checker/emitter tests cover the direct nominal surface; the self-host constraint model still has no `Reflectable`. | P1 | Add native calls through struct and interface surfaces, preserve failure-returning behavior, then enable generic access through the `Reflectable` constraint model. |
-| JSON completeness | The self-host supports primitives, `JsonValue`, enums, nested non-generic classes/structs, arrays, nullable members, defaults, and lenient primitive conversion. It lacks the complete reference surface, notably tuple conversion and interface/union/type-alias deserialization dispatch; generic JSON constraints depend on the missing constraint model. | Eligibility/lowering in `selfhost/json-semantics.do` and `selfhost/emitter-json.do` versus dispatcher/tuple paths in `src/emitter-json.ts`. | P1 | A shared JSON corpus covers strict/lenient conversion, tuples, nested collections, nullable values, aliases, interfaces with discriminators, recursive values, error paths, and `JsonSerializable` generic calls. |
-| CLI command/options | Self-host supports `build`, `package`, `emit`, `check`, and `test`, but not `run`; it also lacks `--target`, native include/library/object/define/flag overrides, `--std`, verbose/version, metrics instrumentation, and observer mode. | `docs/cli.md` versus `selfhost/cli.do`. | P2, except `run` is P1 | Use one table-driven CLI option contract for both implementations and differential tests for parsing, precedence over manifests, output paths, and exit codes. |
-| WebAssembly | No self-host `wasm` target, Emscripten planning, `doof_wasm.cpp`, or JSON C ABI export wrappers exist. | Reference target in `src/build-targets.ts`, `src/cli-core.ts`, and `src/emitter-module.ts`; self-host target parsing accepts app targets only. | P1 if wasm remains supported | Build the maintained wasm fixture and compare exported names plus JSON call behaviour from a minimal host. |
-| Incremental builds | Self-host recompiles planned objects; task boundaries exist but have no fingerprints or discovered header dependencies. | Future seam documented in `selfhost/native-build.do`; reference uses a Reckon state graph. | P2 | A no-change rebuild executes no compile/link commands; source, header, flag, compiler, runtime, and native-input changes invalidate only the required tasks. |
-| Platform/toolchain coverage | Self-host planning is GCC-compatible and uses `.o`; it has no MSVC discovery/environment path. iOS explicitly rejects embedded-library bundling. | `selfhost/native-build.do`, `selfhost/driver.do`, and `selfhost/ios-app-driver.do`; reference toolchain/embedded-library support in `src/cli-core.ts` and packaging modules. | P1 for claimed supported platforms | Run equivalent Windows native and iOS embedded-library fixtures, or narrow the documented support contract until implemented. |
-| Runtime/support ownership | The reference composes the checked-in runtime and optional observer assets; the self-host copies a packaged runtime resource. Required support is not described by one shared, versioned contract. | `src/emitter-runtime.ts`/`src/runtime-assets.ts` versus `selfhost/driver.do`/`selfhost/emitter-project.do`. | P1 | Introduce a versioned support-artifact plan and parity-test hashes/content for every feature combination without package-name conditionals. |
-| Diagnostic parity | Both compilers produce structured diagnostics, but there is no systematic comparison of diagnostic category, location, message, and recovery count. | Differential diagnostic checks are still a next step in `docs/selfhost-bootstrap-progress.md`. | P0 | A checked-in invalid-program corpus compares normalized diagnostics and asserts that neither compiler emits after unresolved/unknown semantic state. |
-| Differential coverage | Self-host unit/component and release fixtures cover the supported slice, while the much broader reference test corpus is not replayed against both compilers. | Separate `src/*.test.ts` and `selfhost/*.test.do` families; B5/B6 compares self-host output only. | P0 | Add a manifest-driven parity corpus executed by both pipelines, with explicit expected-equal, expected-different, and intentionally-unsupported classifications. |
+| Area | Current gap and evidence | Priority | Acceptance check |
+| --- | --- | --- | --- |
+| Doof package dependencies | `selfhost/package-manifest.do` models root/reached identities, native inputs, and external vendor dependencies, but not the reference manifest's declared local/remote Doof dependency graph. M5 in `docs/selfhost-module-acquisition-plan.md` remains pending. | P0 | Build a root package with a local dependency and compatible transitive remote dependencies without `--module` or `DOOF_STDLIB_ROOT`; verify cache hit/miss behaviour and deterministic conflict diagnostics. |
+| Remote stdlib/package acquisition | The acquisition boundary accepts arbitrary logical-prefix mappings, but the driver has no Git/cache provider or normal remote stdlib fallback. `DOOF_STDLIB_ROOT` is still required for implicit `std/*` discovery. | P0 | The same package builds from a clean cache, a warm cache, and an explicit local stdlib override, with identical selected package identities. |
+| Build handoff and provenance | Self-host `emit` materializes generated and native inputs but does not write the schema-versioned `doof-build.json` or `provenance.json` produced by `src/cli-core.ts`. External vendor acquisition therefore also lacks emitted provenance. | P0 | Normalize and compare both documents for local, remote, external-native, resource, macOS, iOS, and wasm fixtures. External build consumers must accept either compiler's output unchanged. |
+| pkg-config | `PackageManifest` preserves `pkgConfigPackages`, but `selfhost/driver.do` explicitly rejects a non-empty list instead of resolving compile/link flags. | P1 | Build a fixture whose flags come only from pkg-config; cover a missing `pkg-config` executable and a missing package with actionable diagnostics. |
+| Generic constraints | The self-host retains one string name per constraint and implements the intrinsic `JsonSerializable` and `Reflectable` cases. It does not preserve a general constraint type annotation or enforce ordinary named/union constraints such as `T: int | long`, which are supported by the reference checker. | P0 | Preserve constraint annotations through AST decoration and substitution; accept valid explicit and inferred arguments, reject invalid ones, and validate every concrete instantiation before emission. Include the two intrinsic constraints in the same differential corpus. |
+| Collection type inference | Omitted `Map`, `ReadonlyMap`, `Set`, and `ReadonlySet` type arguments are not inferred from same-site non-empty homogeneous literals in the self-host. | P1 | Port the specification examples and negative cases for empty, heterogeneous, non-literal, and type-only positions. |
+| JSON breadth | The self-host automatic JSON eligibility/lowering lacks tuples, interface discriminator dispatch, and general non-null union dispatch. Map support is limited to serialization of `Map<string, JsonValue>`. `JsonSerializable` generic access exists, but it inherits this narrower concrete eligibility surface. | P1 | Run a shared JSON corpus for tuples, nested collections, interfaces, aliases resolving to dispatchable types, recursive values, nullable values, strict/lenient conversion, defaults, and path-preserving failures. |
+| Interface reflection | Direct nominal metadata and `T: Reflectable` are implemented. The reference can resolve `.metadata` through a closed-world interface to its implementing class metadata; the self-host interface member path has no corresponding metadata branch. | P1 | Access metadata and invoke methods through interfaces with one and multiple implementors; compare the resulting metadata union, validation failures, and dispatch behaviour. |
+| Recorded mocks | `mock import` works, but `mock function`, `mock class`, bodyless mock panic behaviour, and typed per-call `.calls` storage are absent from the self-host AST/checker/emitter. | P1 | Run the examples in `docs/testing.md` unchanged, including exported mocks, per-instance call logs, argument field typing, and rejected generic/static forms. |
+| Test and run timeouts | The self-host process boundary has no equivalent of `DOOF_TEST_TIMEOUT_MS`; it also does not implement the reference `DOOF_RUN_TIMEOUT_MS` termination behaviour. | P2 | Terminate hanging tests/programs, report a stable timeout diagnostic, preserve the requested exit behaviour, and continue with remaining isolated tests. |
+| CLI option parity | Core commands, target override, signing options, coverage, and program-argument forwarding exist. Missing reference options include C++ standard and native input overrides, metrics lifecycle instrumentation, observer mode, verbose output, and version reporting. | P2 | Drive both parsers from a shared option table and compare option precedence, manifest merging, output paths, diagnostics, and exit codes. |
+| Incremental native builds | Self-host compilation has explicit object tasks and bounded parallelism but no fingerprints, persisted task graph, or discovered header dependencies. A no-change build recompiles. | P2 | A no-change build runs no compile/link commands; source, header, flags, compiler, runtime, native inputs, and target changes invalidate only affected tasks. |
+| Windows/MSVC | The self-host native planner is GCC-compatible and object naming assumes `.o`; it has no Visual Studio discovery/environment setup equivalent to the reference CLI. | P1 for Windows support | Run the same native/package fixtures under MSVC, or explicitly exclude Windows from the initial replacement support contract. |
+| iOS embedded libraries | `selfhost/ios-app-driver.do` explicitly rejects embedded-library bundling, while the reference packaging path supports declared dylibs/frameworks. | P1 for iOS package parity | Package and run a device fixture with an embedded framework and dylib, including Mach-O rewriting, signing order, verification, and IPA contents. |
+| Runtime/support contract | The self-host now reports manifest-owned support files through an explicit project plan and consumes a packaged canonical runtime. The two compilers still do not share a versioned contract that proves the same runtime/support artifacts are selected for each feature/target combination. | P1 | Introduce a versioned support-artifact plan and compare normalized paths plus content hashes across compilers for native, observer, stdlib-native, app, and wasm fixtures. |
+| Diagnostic parity | Both implementations collect structured diagnostics, but there is no systematic comparison of category, severity, span, message, recovery count, or the point at which emission is suppressed. | P0 | A checked-in invalid-program corpus compares normalized diagnostics and asserts that neither compiler emits after unresolved types, decorations, constraints, or dispatch targets. |
+| Differential coverage | TypeScript tests, self-host tests, and B5/B6 bootstrap gates exercise different corpora. Fixed-point equality does not compare the self-host against the reference compiler. | P0 | Add a manifest-driven corpus with `equal`, `intentional-difference`, and `unsupported-selfhost` classifications at parse, check, emit, manifest, native runtime, and CLI boundaries. Publish counts in the release gate. |
 
-## Recently closed gaps
+## Gaps closed since the previous audit
 
-Declaration descriptions are retained for classes/structs, functions and
-methods, parameters, per-name fields, interfaces and their members, enums and
-variants, type aliases, and readonly declarations. The self-host emitter
-renders declaration and `@param` comments and feeds the retained descriptions
-into on-demand metadata and JSON Schema generation. Direct non-generic
-class/struct metadata includes public instance-method reflection, schema
-literals, per-method invocation, name-based invocation, JSON parameter
-validation/defaults, Result success serialization, JsonValue failure
-passthrough, and generic 500 redaction for other failures. Interface-qualified
-reflection and generic `Reflectable` remain tracked above.
+The previous version of this document was written before several self-hosted
+vertical slices landed. These are no longer backlog items:
 
-Catch expressions and `<-` yield blocks are now complete self-hosted vertical
-slices. The self-host parser preserves dedicated expression and reassignment
-nodes; the checker infers yield values, enforces every-path production and
-mutable local reassignment, and collects nested catch error channels into
-nullable unions. The emitter lowers both forms to typed IIFEs and redirects
-statement-level `try` failures to the innermost catch block. Parser, checker,
-emitter, decoration, capture, lifecycle, and monomorphization tests cover the
-new paths.
+- `weak T` parsing, checking, substitution, validation, header planning, and
+  C++ lowering
+- all specified range-pattern shapes in case statements and expressions
+- catch expressions and value-producing `<-` declaration/reassignment blocks
+- positional, array, and named destructuring declarations/assignments,
+  including `try` success payloads
+- declaration descriptions and direct class/struct metadata, schema, method
+  reflection, and invocation
+- preservation and use of the compiler-known `Reflectable` constraint
+- WebAssembly target planning, C ABI wrapper generation, native support
+  materialization, and the maintained Node-hosted acceptance sample
+- external archive/Git vendor acquisition with checksum/ref validation,
+  interpolation, setup commands, and cache sentinels
+- `run` for native programs and Apple app targets, including program arguments,
+  iOS device selection, provisioning resolution, installation, and launch
 
-Explicitly typed `Set<T>` and `ReadonlySet<T>` are now implemented as a
-self-hosted vertical slice: dedicated semantic representation, primitive/enum element
-validation, invariant mutable/readonly assignability, actor-boundary traversal,
-generic substitution and monomorphization, ordered-set C++ lowering, and the
-`has`/`add`/`delete`/`values`/`buildReadonly`/`cloneMutable` surface. The release
-runtime fixture covers mutation, deduplication, freezing, copying, iteration,
-and size. The B6 compiler also checks the production regex `types.do` and
-`runtime.do` graph that exposes `ReadonlySet<RegexFlag>`.
-
-Omitted collection type arguments remain a shared collection-inference gap:
-unlike the reference, the self-host still requires explicit type arguments for
-both `Map`/`ReadonlyMap` and `Set`/`ReadonlySet`.
-
-## Important documentation drift
-
-Current code is ahead of parts of `docs/selfhost-bootstrap-progress.md`:
-
-- self-host `fromJsonValue()` now accepts the lenient argument
-- nested classes, enums, arrays, and nullable arrays/classes are present in the
-  JSON eligibility and emitter code
-- the checker has already been split into focused statement, expression, call,
-  literal, resolution, symbol, generic, interface, validation, actor-boundary,
-  isolation, and lifecycle modules
-
-The progress document still describes the older primitive-only JSON slice and
-lists checker splitting as future work. Update it from this gap ledger rather
-than continuing to maintain independent free-form next-step lists.
+The constraint row remains because the completed `Reflectable` and
+`JsonSerializable` cases do not implement the specification's general
+constraint type system. Likewise, direct nominal reflection does not close the
+interface-qualified reflection row.
 
 ## Recommended delivery plan
 
 ### R0 — Make parity measurable
 
-Do this before broad feature implementation.
+1. Add a small manifest-driven parity corpus with `equal`,
+   `intentional-difference`, and `unsupported-selfhost` classifications.
+2. Compare normalized results at six boundaries: parse/spans, diagnostics,
+   checked semantic summaries, emitted project files, build/provenance
+   manifests, and native stdout/stderr/exit status.
+3. Seed it with the overlapping bootstrap and release-fixture slice so it is
+   green immediately, then add a failing fixture before closing each row.
+4. Publish classified totals from the release gate. Raw TypeScript and Doof
+   test counts are not comparable coverage measures.
 
-1. Add `test/parity/manifest.json` (or equivalent) with small source/package
-   fixtures and one of three expectations: `equal`, `intentional-difference`,
-   or `unsupported-selfhost`.
-2. Compare normalized results at five boundaries: parse success/spans,
-   diagnostics, checked semantic summary, generated-project manifest, and
-   native stdout/stderr/exit status.
-3. Start with the overlapping bootstrap slice so the harness is green on day
-   one, then convert every gap row above into a failing fixture before its
-   implementation.
-4. Publish parity counts in `npm run test:release`; do not use raw TypeScript
-   versus Doof test counts as a coverage metric because their test granularity
-   differs.
+Exit criterion: every maintained fixture has an explicit classification, and
+new reference language or CLI behaviour cannot land without one.
 
-Exit criterion: every maintained fixture has an explicit classification and
-new reference language/CLI features cannot land without a parity classification.
+### R1 — Complete package resolution and build handoff
 
-### R1 — Close semantic source-compatibility blockers
+1. Load manifest-declared local Doof dependencies.
+2. Add deterministic Git/cache acquisition and transitive version selection,
+   including remote stdlib fallback.
+3. Emit `provenance.json` for Doof and external vendor dependencies.
+4. Emit the versioned `doof-build.json` contract from the self-host project
+   plan.
+5. Resolve pkg-config inputs into that same explicit native plan.
 
-Implement vertical slices rather than parser-only acceptance:
+Keep acquisition outside the resolver: providers should continue returning
+logical-prefix-to-disk-root mappings through `module-acquisition.do`.
 
-1. preserve and validate generic constraints
-2. add `weak` references
-3. add catch expressions, yield-block bindings, and range patterns
+Exit criterion: representative local, remote, external-native, resource, and
+stdlib packages build without self-host-only mappings or environment variables,
+and external build tools consume the emitted handoff unchanged.
 
-Each slice must include AST, parser, analyzer where relevant, checker,
-emit-readiness validation, emitter/runtime, spec confirmation, negative
-diagnostics, and native execution. Do not silently accept syntax while dropping
-semantics; the current discarded generic constraints are the pattern to remove.
+### R2 — Close remaining source-compatibility gaps
 
-Exit criterion: the language rows above have no `unsupported-selfhost` parity
-fixtures other than an explicitly approved language deprecation.
+1. Replace string-only constraints with decorated constraint annotations and
+   general assignability validation.
+2. Add omitted collection type-argument inference.
+3. Complete tuple, interface, collection, and union JSON behaviour.
+4. Add interface-qualified metadata dispatch.
+5. Implement recorded mock functions/classes and timed process execution.
 
-### R2 — Complete package and native-build portability
+Each language slice must include parser, analyzer where relevant, checker,
+emit-readiness validation, emitter/runtime, negative diagnostics, and native
+execution. Syntax acceptance without preserved semantics is not completion.
 
-1. implement local dependency graph loading first
-2. add Git/cache resolution with deterministic version/commit selection
-3. add external archive/Git dependency acquisition and provenance
-4. resolve pkg-config into the explicit native plan
-5. emit the versioned `doof-build.json` and `provenance.json` contracts
-6. add Windows/MSVC or formally remove it from the self-host replacement scope
+Exit criterion: the corresponding specification and documentation examples run
+unchanged under both compilers, with no unapproved unsupported parity fixture.
 
-Keep acquisition outside the resolver: providers should return logical-prefix
-to disk-root mappings, preserving the boundary already established by
-`selfhost/module-acquisition.do`.
+### R3 — Close platform and operational gaps
 
-Exit criterion: representative local, remote, external-native, stdlib, and
-platform packages build without self-host-only flags or environment variables.
+1. Decide and enforce the initial Windows support contract; implement MSVC if
+   Windows remains in scope.
+2. Add iOS embedded-library packaging.
+3. Share and version the runtime/support-artifact plan.
+4. Add incremental fingerprints and discovered header dependencies.
+5. Add remaining native CLI overrides, metrics instrumentation, observer mode,
+   verbosity, version, and timeout behaviour.
 
-### R3 — Complete JSON, reflection, and testing semantics
+Exit criterion: clean and incremental builds pass on every claimed host/target,
+and the documented CLI matrix has differential parser and end-to-end coverage.
 
-1. retain descriptions across all declarations
-2. finish JSON tuples, nested collections, aliases, interface/union dispatch,
-   recursive values, and path-preserving failures
-3. implement `JsonSerializable` and `Reflectable` on the R1 constraint model
-4. port schema, `.metadata`, and `.invoke`
-5. add recorded mock functions/classes and timed test execution
+### R4 — Replacement and retirement gate
 
-Exit criterion: the reference metadata, schema, JSON, and mock examples compile
-and run unchanged with equivalent observable results.
+Switch the default compiler only when:
 
-### R4 — Close user-facing CLI and target gaps
-
-Recommended order:
-
-1. `run` with program arguments
-2. missing native option overrides and target precedence
-3. WebAssembly, if it remains a supported product target
-4. incremental fingerprints/header dependencies
-5. metrics lifecycle instrumentation and observer assets
-6. remaining iOS embedded-library and target-specific gaps
-
-Exit criterion: the documented CLI command/option table is shared or generated
-from one contract, and every supported command has differential parsing and
-end-to-end fixtures.
-
-### R5 — Replacement and retirement gate
-
-Switch the default compiler only when all of the following are true:
-
-- B5/B6 fixed point and all existing native release fixtures remain green
-- no P0 gap remains
-- every P1 gap is complete or explicitly removed from the public contract
+- B5/B6 and every maintained native/platform release fixture remain green
+- no P0 row remains
+- every P1 row is complete or explicitly removed from the supported contract
 - the parity corpus contains no unexplained difference
-- the self-host builds and tests the production stdlib/package set without
-  `--module` or mandatory `DOOF_STDLIB_ROOT`
-- build handoff/provenance consumers accept self-host output
-- clean and incremental builds pass on every claimed host platform
-- a release-candidate cycle uses the self-host compiler by default with the
-  TypeScript compiler retained only as a comparison oracle
+- production stdlib/packages build without mandatory `--module` mappings or
+  `DOOF_STDLIB_ROOT`
+- external build consumers accept self-host `doof-build.json` and provenance
+- clean builds pass on every claimed platform, with incremental behaviour
+  either complete or explicitly deferred as non-blocking
+- one release-candidate cycle uses the self-host by default while the
+  TypeScript compiler remains a comparison oracle
 
-After one successful release cycle, freeze the TypeScript implementation to
-critical parity fixes, then remove it in a separate change. Avoid maintaining
-two independently evolving language definitions.
+After a successful release cycle, freeze the TypeScript implementation to
+critical parity fixes and remove it in a separate change. Do not continue two
+independently evolving language definitions.
 
-## Ongoing maintenance rules
+## Maintenance rules
 
-- Treat `spec/` and the documented CLI/manifest contracts as the compatibility
-  target; treat TypeScript implementation details as evidence, not a design
-  mandate.
-- Add every newly discovered gap to the matrix with an owner, priority, and
-  executable acceptance check.
-- Update `docs/selfhost-bootstrap-progress.md` by linking to this ledger and
-  reporting milestone status, not by duplicating the detailed backlog.
-- Require generated-C++ compilation/runtime tests for representation changes.
+- Treat `spec/` plus documented CLI/package contracts as authoritative;
+  TypeScript implementation details are evidence, not a design mandate.
+- Add newly discovered gaps with a priority and executable acceptance check.
+- Keep detailed backlog in this ledger; the bootstrap progress document should
+  summarize milestones and link here rather than duplicate free-form lists.
+- Require generated-C++ compile/runtime coverage for representation changes.
 - Keep the hard self-host emit-readiness boundary: unresolved types,
   decorations, constraints, or dispatch targets must stop emission.
-- Do not count a feature as complete when only syntax is accepted or when the
-  emitter recovers with a guessed C++ value.
+- Do not count syntax-only support or emitter recovery with a guessed value as
+  feature completion.

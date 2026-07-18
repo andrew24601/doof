@@ -4,17 +4,24 @@
 // compiler itself still receives ordinary SourceFile values, so this surface
 // exercises the same resolver, analyzer, checker, and emitter used by the
 // in-memory tests. The resolver asks this driver for source text only after an
-// import is encountered. --module remains an explicit mapping for external
-// modules, while local and std/* paths are resolved from their roots.
+// import is encountered. Bare modules come from doof.json dependencies, while
+// local and std/* paths are resolved from their acquired roots.
 
 import { compileWithLoader } from "./compiler"
-import { CliRequest, ModuleSource, cliUsage, parseCli } from "./cli"
+import { CliRequest, cliUsage, parseCli } from "./cli"
 import { ExternalDependencyTarget, acquirePackageExternalDependencies } from "./external-dependency"
+import {
+  ReachedPackageInput, ResolvedExternalInput, hasMutableStdPackageInputs, resolveExternalInputs,
+  selectedPackageSource, validateDependencyPolicy,
+} from "./dependency-policy"
 import { NativePackageInput, ProjectEmission, planProjectEmission } from "./emitter-project"
 import { ModuleNamespaceMapping } from "./emitter-names"
 import { ModuleAcquisition, acquiredManifestPath, acquiredModuleDiskPath, acquiredPackageForModule } from "./module-acquisition"
 import { NativeCompileTask, batchNativeCompileTasks, planNativeCompile } from "./native-build"
-import { PackageManifest, PackageResource, parsePackageManifest } from "./package-manifest"
+import {
+  ExternalDependency, NativeBuildPlan, PackageDependency, PackageManifest, PackageResource, parsePackageManifest,
+} from "./package-manifest"
+import { ExactPackageSource, acquireExactGitPackage, defaultPackageCacheRoot } from "./package-acquisition"
 import { macOSPackageArchiveName } from "./macos-app"
 import { assembleMacOSApp, signAndArchiveMacOSApp } from "./macos-app-driver"
 import { iosPackageArchiveName, iosTargetTriple } from "./ios-app"
@@ -22,12 +29,14 @@ import { assembleIOSApp, configureIOSNativeBuild, signAndArchiveIOSApp } from ".
 import { resolveIOSDeviceIdentifier, resolveIOSDeviceSigningOptions, signIOSDeviceApp } from "./ios-device"
 import { Parser } from "./parser"
 import { environmentValue, fileName, joinPath, parentPath, readProjectSpec } from "./project"
+import { renderBuildProvenance } from "./provenance"
 import { SourceLoader } from "./resolver"
 import {
   planIOSDeviceInstall, planIOSDeviceLaunch, planIOSSimulatorInstall, planIOSSimulatorLaunch,
   planMacOSAppRun, planNativeProgramRun,
 } from "./run-command"
 import { Diagnostic, SemanticLocation, SemanticSpan, SourceFile } from "./semantic"
+import { StdCatalog, canonicalDependencyUrl, parseStdCatalog, stdCatalogPackage } from "./std-catalog"
 import {
   CoverageModuleMetadata, CoverageReport, DiscoveredTest, buildCoverageReport, discoverModuleTests,
   coverageFileRelativePath, filterDiscoveredTests, formatParseFailure, generateTestHarness,
@@ -133,12 +142,6 @@ function driverLogicalPath(path: string): string {
   return "/" + withExtension
 }
 
-function driverExternalLogicalPath(specifier: string): string {
-  withExtension := driverWithExtension(specifier)
-  if withExtension.startsWith("/") { return withExtension }
-  return "/" + withExtension
-}
-
 function driverSelfhostSuffix(path: string): string {
   marker := "/selfhost/"
   let index = 0
@@ -156,11 +159,6 @@ function driverOutputPath(directory: string, name: string): string {
   return directory + "/" + name
 }
 
-class DriverSourceMapping {
-  logicalPath: string
-  diskPath: string
-}
-
 class DriverSourceRoot {
   logicalPrefix: string
   diskRoot: string
@@ -169,49 +167,61 @@ class DriverSourceRoot {
 class DriverReachedPackage {
   acquisition: ModuleAcquisition
   manifest: PackageManifest
+  introducedBy: string
+  sourceKind: string
+  sourceUrl: string = ""
+  sourceRef: string = ""
+  sourceCommit: string = ""
+  requestedUrl: string = ""
+  requestedRef: string = ""
+  requestedCommit: string = ""
+  mutable: bool = false
+}
+
+class DriverAcquiredSource {
+  acquisition: ModuleAcquisition
+  introducedBy: string
+  sourceKind: string
+  sourceUrl: string = ""
+  sourceRef: string = ""
+  sourceCommit: string = ""
+  requestedUrl: string = ""
+  requestedRef: string = ""
+  requestedCommit: string = ""
+  mutable: bool = false
 }
 
 class DriverSourceState {
-  localMappings: DriverSourceMapping[]
   localRoots: DriverSourceRoot[]
-  moduleSources: ModuleSource[]
   acquisitions: ModuleAcquisition[]
+  acquiredSources: DriverAcquiredSource[]
   reachedPackages: DriverReachedPackage[]
   namespaceMappings: ModuleNamespaceMapping[]
   nativePlatform: string
   externalTarget: ExternalDependencyTarget
+  rootManifest: PackageManifest
+  stdCatalog: StdCatalog
+  packageCacheRoot: string
 }
 
 let configuredDriverSourceState: DriverSourceState = DriverSourceState {
-  localMappings: [],
   localRoots: [],
-  moduleSources: [],
   acquisitions: [],
+  acquiredSources: [],
   reachedPackages: [],
   namespaceMappings: [],
   nativePlatform: "",
   externalTarget: ExternalDependencyTarget { nativeTarget: "" },
-}
-
-function driverSourceMapping(logicalPath: string, diskPath: string): DriverSourceMapping {
-  return DriverSourceMapping { logicalPath, diskPath: try! absolute(diskPath) }
+  rootManifest: PackageManifest { name: "", manifestPath: "", rootDirectory: "", nativeBuild: NativeBuildPlan {} },
+  stdCatalog: StdCatalog { schemaVersion: 1, compilerVersion: "", digest: "", packages: [] },
+  packageCacheRoot: "",
 }
 
 function driverSourceDiskPath(
   logicalPath: string,
-  localMappings: DriverSourceMapping[],
   localRoots: DriverSourceRoot[],
-  moduleSources: ModuleSource[],
   acquisitions: ModuleAcquisition[],
 ): string {
-  for mapping of localMappings {
-    if mapping.logicalPath == logicalPath { return mapping.diskPath }
-  }
-  for mapping of moduleSources {
-    if driverExternalLogicalPath(mapping.specifier) == logicalPath {
-      return try! absolute(driverWithExtension(mapping.sourcePath))
-    }
-  }
   for root of localRoots {
     if logicalPath == root.logicalPrefix { return root.diskRoot }
     prefix := root.logicalPrefix + "/"
@@ -226,12 +236,10 @@ function driverSourceDiskPath(
 
 function loadDriverSource(
   logicalPath: string,
-  localMappings: DriverSourceMapping[],
   localRoots: DriverSourceRoot[],
-  moduleSources: ModuleSource[],
   acquisitions: ModuleAcquisition[],
 ): Result<SourceFile | null, Diagnostic> {
-  diskPath := driverSourceDiskPath(logicalPath, localMappings, localRoots, moduleSources, acquisitions)
+  diskPath := driverSourceDiskPath(logicalPath, localRoots, acquisitions)
   if !exists(diskPath) { return Success(null) }
   source := readText(diskPath) else {
     return Failure(driverDiagnostic(logicalPath, "Could not read source file ${diskPath}"))
@@ -240,11 +248,14 @@ function loadDriverSource(
 }
 
 function configuredDriverSource(logicalPath: string): Result<SourceFile | null, Diagnostic> {
+  if logicalPath.startsWith("/std/") {
+    _ := ensureStdPackageAcquisition(logicalPath) else error {
+      return Failure(driverDiagnostic(logicalPath, error))
+    }
+  }
   try source := loadDriverSource(
     logicalPath,
-    configuredDriverSourceState.localMappings,
     configuredDriverSourceState.localRoots,
-    configuredDriverSourceState.moduleSources,
     configuredDriverSourceState.acquisitions,
   )
   if source != null {
@@ -255,10 +266,6 @@ function configuredDriverSource(logicalPath: string): Result<SourceFile | null, 
 }
 
 function acquiredPackageForLoadedSource(logicalPath: string, state: DriverSourceState): ModuleAcquisition | null {
-  for mapping of state.localMappings { if mapping.logicalPath == logicalPath { return null } }
-  for mapping of state.moduleSources {
-    if driverExternalLogicalPath(mapping.specifier) == logicalPath { return null }
-  }
   for root of state.localRoots {
     if logicalPath == root.logicalPrefix || logicalPath.startsWith(root.logicalPrefix + "/") { return null }
   }
@@ -282,15 +289,67 @@ function registerReachedPackage(acquisition: ModuleAcquisition): Result<void, Di
   manifest := parsePackageManifest(manifestSource, manifestPath, acquisition.diskRoot, configuredDriverSourceState.nativePlatform) else error {
     return Failure(driverDiagnostic(manifestPath, error))
   }
-  _ := acquirePackageExternalDependencies(manifest, configuredDriverSourceState.externalTarget) else error {
-    return Failure(driverDiagnostic(manifestPath, error))
+  if manifest.packageResolutions.length > 0 || manifest.externalResolutions.length > 0 {
+    return Failure(driverDiagnostic(manifestPath, "resolutions are only allowed in the root doof.json"))
   }
-  configuredDriverSourceState.reachedPackages.push(DriverReachedPackage { acquisition, manifest })
+  source := acquiredSourceFor(acquisition)
+  configuredDriverSourceState.reachedPackages.push(DriverReachedPackage {
+    acquisition, manifest,
+    introducedBy: if source == null then "" else source!.introducedBy,
+    sourceKind: if source == null then "local" else source!.sourceKind,
+    sourceUrl: if source == null then "" else source!.sourceUrl,
+    sourceRef: if source == null then "" else source!.sourceRef,
+    sourceCommit: if source == null then "" else source!.sourceCommit,
+    requestedUrl: if source == null then "" else source!.requestedUrl,
+    requestedRef: if source == null then "" else source!.requestedRef,
+    requestedCommit: if source == null then "" else source!.requestedCommit,
+    mutable: if source == null then true else source!.mutable,
+  })
   configuredDriverSourceState.namespaceMappings.push(ModuleNamespaceMapping {
     logicalPrefix: acquisition.logicalPrefix,
     packageName: manifest.name,
     outputRoot: driverPackageOutputRoot(acquisition.logicalPrefix),
   })
+  return Success()
+}
+
+function acquiredSourceFor(acquisition: ModuleAcquisition): DriverAcquiredSource | null {
+  for source of configuredDriverSourceState.acquiredSources {
+    if source.acquisition.logicalPrefix == acquisition.logicalPrefix && source.acquisition.diskRoot == acquisition.diskRoot {
+      return source
+    }
+  }
+  return null
+}
+
+function ensureStdPackageAcquisition(logicalPath: string): Result<void, string> {
+  if acquiredModuleDiskPath(logicalPath, configuredDriverSourceState.acquisitions) != null { return Success() }
+  remainder := logicalPath.substring(5, logicalPath.length)
+  slash := remainder.indexOf("/")
+  shortName := if slash < 0 then remainder else remainder.substring(0, slash)
+  packageName := "std/" + shortName
+  package := stdCatalogPackage(configuredDriverSourceState.stdCatalog, packageName)
+  if package == null { return Failure("Unknown standard package " + packageName) }
+  acquired := acquireExactGitPackage(ExactPackageSource {
+    name: package!.name, expectedManifestName: package!.name,
+    url: package!.url, ref: package!.ref, commit: package!.commit,
+  }, configuredDriverSourceState.packageCacheRoot) else error { return Failure(error) }
+  acquisition := ModuleAcquisition { logicalPrefix: "/" + packageName, diskRoot: acquired.rootDirectory }
+  configuredDriverSourceState.acquisitions.push(acquisition)
+  configuredDriverSourceState.acquiredSources.push(DriverAcquiredSource {
+    acquisition, introducedBy: "",
+    sourceKind: "git", sourceUrl: package!.url, sourceRef: package!.ref, sourceCommit: package!.commit,
+  })
+  return Success()
+}
+
+/** Makes an implicitly required standard package part of the reached graph. */
+function ensureStdPackageReached(packageName: string): Result<void, string> {
+  logicalPath := "/" + packageName + "/index.do"
+  try ensureStdPackageAcquisition(logicalPath)
+  acquisition := acquiredPackageForModule(logicalPath, configuredDriverSourceState.acquisitions)
+  if acquisition == null { return Failure("Could not resolve required standard package " + packageName) }
+  _ := registerReachedPackage(acquisition!) else error { return Failure(error.message) }
   return Success()
 }
 
@@ -318,40 +377,182 @@ function driverSelfhostDiskRoot(path: string): string {
 
 function sourceLoaderForRequest(
   entryPath: string,
-  extraPaths: string[],
-  moduleSources: ModuleSource[],
   stdlibRoot: string,
   namespaceMappings: ModuleNamespaceMapping[],
+  rootManifest: PackageManifest,
   nativePlatform: string = "",
   externalTarget: ExternalDependencyTarget | null = null,
-): SourceLoader {
-  let localMappings: DriverSourceMapping[] = [driverSourceMapping(driverLogicalPath(entryPath), entryPath)]
+): Result<SourceLoader, string> {
   let localRoots: DriverSourceRoot[] = []
   selfhostRoot := driverSelfhostDiskRoot(entryPath)
   if selfhostRoot != "" {
     localRoots.push(DriverSourceRoot { logicalPrefix: "/selfhost", diskRoot: selfhostRoot })
   }
-  for path of extraPaths {
-    absolutePath := try! absolute(driverWithExtension(path))
-    localMappings.push(driverSourceMapping(driverLogicalPath(absolutePath), absolutePath))
-  }
   let acquisitions: ModuleAcquisition[] = []
+  let acquiredSources: DriverAcquiredSource[] = []
   if stdlibRoot != "" {
-    acquisitions.push(ModuleAcquisition { logicalPrefix: "/std", diskRoot: try! absolute(stdlibRoot) })
+    acquisition := ModuleAcquisition { logicalPrefix: "/std", diskRoot: try! absolute(stdlibRoot) }
+    acquisitions.push(acquisition)
+    acquiredSources.push(DriverAcquiredSource {
+      acquisition, introducedBy: driverLogicalPrefix(rootManifest.rootDirectory), sourceKind: "local", mutable: true,
+    })
   }
+  catalogSource := readTextResource("std-catalog.json") else { return Failure("Could not read embedded std-catalog.json") }
+  try catalog := parseStdCatalog(catalogSource)
+  try packageCacheRoot := defaultPackageCacheRoot()
+  platformName := if nativePlatform == "" then hostPlatform() else nativePlatform
+  try configureDeclaredDependencies(
+    rootManifest, "", rootManifest, packageCacheRoot,
+    platformName, acquisitions, acquiredSources,
+  )
   configuredDriverSourceState = DriverSourceState {
-    localMappings,
     localRoots,
-    moduleSources,
     acquisitions,
+    acquiredSources,
     reachedPackages: [],
     namespaceMappings,
     nativePlatform: if nativePlatform == "" then hostPlatform() else nativePlatform,
     externalTarget: if externalTarget == null
       then ExternalDependencyTarget { nativeTarget: if nativePlatform == "" then hostPlatform() else nativePlatform }
       else externalTarget!,
+    rootManifest,
+    stdCatalog: catalog,
+    packageCacheRoot,
   }
-  return configuredDriverSource
+  return Success(configuredDriverSource)
+}
+
+function configureDeclaredDependencies(
+  manifest: PackageManifest,
+  ownerPrefix: string,
+  rootManifest: PackageManifest,
+  packageCacheRoot: string,
+  nativePlatform: string,
+  acquisitions: ModuleAcquisition[],
+  acquiredSources: DriverAcquiredSource[],
+): Result<void, string> {
+  for requested of manifest.dependencies {
+    if requested.name.startsWith("std/") { continue }
+    selected := selectedPackageSource(requested, rootManifest.packageResolutions)
+    logicalPrefix := "/" + requested.name
+    let diskRoot = ""
+    let sourceKind = "local"
+    let sourceUrl = ""
+    let sourceRef = ""
+    let sourceCommit = ""
+    let mutable = false
+    if selected.path != "" {
+      diskRoot = try! absolute(selected.path)
+      mutable = true
+    } else {
+      acquired := acquireExactGitPackage(ExactPackageSource {
+        name: selected.name, url: selected.url, ref: selected.ref, commit: selected.commit,
+      }, packageCacheRoot) else error { return Failure(error) }
+      diskRoot = acquired.rootDirectory
+      sourceKind = "git"
+      sourceUrl = canonicalDependencyUrl(selected.url)
+      sourceRef = selected.ref
+      sourceCommit = selected.commit
+    }
+    for existing of acquiredSources {
+      if sourceUrl != "" && existing.sourceUrl != "" && canonicalDependencyUrl(existing.sourceUrl) == sourceUrl &&
+        existing.sourceCommit != sourceCommit {
+        return Failure("Conflicting package revisions for " + sourceUrl + "; add a root resolutions.packages entry")
+      }
+      if existing.acquisition.logicalPrefix == logicalPrefix {
+        if existing.acquisition.diskRoot != diskRoot {
+          return Failure("Package import prefix " + logicalPrefix + " resolves to multiple packages")
+        }
+        diskRoot = ""
+      }
+    }
+    if diskRoot == "" { continue }
+    acquisition := ModuleAcquisition { logicalPrefix, diskRoot }
+    acquisitions.push(acquisition)
+    acquiredSources.push(DriverAcquiredSource {
+      acquisition, introducedBy: ownerPrefix, sourceKind, sourceUrl, sourceRef, sourceCommit,
+      requestedUrl: if requested.url == "" then "" else canonicalDependencyUrl(requested.url),
+      requestedRef: requested.ref, requestedCommit: requested.commit, mutable,
+    })
+    dependencyManifestPath := acquiredManifestPath(acquisition)
+    dependencySource := readText(dependencyManifestPath) else {
+      return Failure("Could not read dependency manifest " + dependencyManifestPath)
+    }
+    try dependencyManifest := parsePackageManifest(dependencySource, dependencyManifestPath, diskRoot, nativePlatform)
+    if dependencyManifest.name == "" { return Failure("Dependency package must declare a name: " + dependencyManifestPath) }
+    if dependencyManifest.packageResolutions.length > 0 || dependencyManifest.externalResolutions.length > 0 {
+      return Failure("resolutions are only allowed in the root doof.json: " + dependencyManifestPath)
+    }
+    try configureDeclaredDependencies(
+      dependencyManifest, logicalPrefix, rootManifest, packageCacheRoot,
+      nativePlatform, acquisitions, acquiredSources,
+    )
+  }
+  return Success()
+}
+
+function reachedPackageInputs(rootManifest: PackageManifest): ReachedPackageInput[] {
+  let result: ReachedPackageInput[] = [ReachedPackageInput {
+    logicalPrefix: driverLogicalPrefix(rootManifest.rootDirectory), introducedBy: "", manifest: rootManifest,
+    sourceKind: "root",
+  }]
+  for reached of configuredDriverSourceState.reachedPackages {
+    result.push(ReachedPackageInput {
+      logicalPrefix: reached.acquisition.logicalPrefix,
+      introducedBy: reached.introducedBy,
+      manifest: reached.manifest,
+      sourceKind: reached.sourceKind,
+      sourceUrl: reached.sourceUrl,
+      sourceRef: reached.sourceRef,
+      sourceCommit: reached.sourceCommit,
+      requestedUrl: reached.requestedUrl,
+      requestedRef: reached.requestedRef,
+      requestedCommit: reached.requestedCommit,
+      mutable: reached.mutable,
+    })
+  }
+  return result
+}
+
+function resolvedDependencyInputs(rootManifest: PackageManifest): Result<ResolvedExternalInput[], string> {
+  packages := reachedPackageInputs(rootManifest)
+  try externals := resolveExternalInputs(packages, rootManifest)
+  try validateDependencyPolicy(packages, externals, rootManifest)
+  return Success(externals)
+}
+
+function acquireResolvedExternalInputs(
+  inputs: ResolvedExternalInput[],
+  target: ExternalDependencyTarget,
+): Result<void, string> {
+  for input of inputs {
+    dependency := selectedExternalDependency(input)
+    manifest := PackageManifest {
+      name: input.owner.manifest.name,
+      manifestPath: input.owner.manifest.manifestPath,
+      rootDirectory: input.owner.manifest.rootDirectory,
+      externalDependencies: [dependency],
+      nativeBuild: NativeBuildPlan {},
+    }
+    try acquirePackageExternalDependencies(manifest, target)
+  }
+  return Success()
+}
+
+function selectedExternalDependency(input: ResolvedExternalInput): ExternalDependency {
+  requested := input.dependency
+  return ExternalDependency {
+    name: requested.name,
+    kind: input.selectedKind,
+    url: input.selectedUrl,
+    destination: requested.destination,
+    sha256: input.selectedSha256,
+    stripComponents: requested.stripComponents,
+    copyFiles: requested.copyFiles,
+    ref: input.selectedRef,
+    commit: input.selectedCommit,
+    commands: requested.commands,
+  }
 }
 
 function externalTargetForRequest(
@@ -642,9 +843,7 @@ function mergeCoverageGroup(
     groupModule := groupModules[groupIndex]
     diskPath := driverSourceDiskPath(
       groupModule.modulePath,
-      configuredDriverSourceState.localMappings,
       configuredDriverSourceState.localRoots,
-      configuredDriverSourceState.moduleSources,
       configuredDriverSourceState.acquisitions,
     )
     let targetIndex = -1
@@ -766,7 +965,12 @@ function testRequest(request: CliRequest): int {
       packageName: project.name,
       outputRoot: "",
     }]
-    loader := sourceLoaderForRequest(harnessPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings)
+    loader := sourceLoaderForRequest(
+      harnessPath, stdlibRoot, namespaceMappings, project.manifest,
+    ) else error {
+      println("error: " + error)
+      return 1
+    }
     result := compileWithLoader([], driverLogicalPath(harnessPath), loader, namespaceMappings, "executable", request.coverage)
     if result.diagnostics.length > 0 {
       printDiagnostics(result.diagnostics)
@@ -777,15 +981,13 @@ function testRequest(request: CliRequest): int {
       continue
     }
     if result.emission == null { panic("self-hosted test compiler produced no emission") }
-    rootManifest := PackageManifest {
-      name: project.name,
-      manifestPath: project.manifestPath,
-      rootDirectory: project.rootDirectory,
-      nativeBuild: project.nativeBuild,
-      externalDependencies: project.externalDependencies,
-    }
+    rootManifest := project.manifest
     testExternalTarget := ExternalDependencyTarget { nativeTarget: hostPlatform() }
-    _ := acquirePackageExternalDependencies(rootManifest, testExternalTarget) else error {
+    externalInputs := resolvedDependencyInputs(rootManifest) else error {
+      println("error: " + error)
+      return 1
+    }
+    _ := acquireResolvedExternalInputs(externalInputs, testExternalTarget) else error {
       println("error: " + error)
       return 1
     }
@@ -858,18 +1060,7 @@ function emitRequest(request: CliRequest): int {
     println("error: " + error)
     return 1
   }
-  rootManifest := PackageManifest {
-    name: project.name,
-    manifestPath: project.manifestPath,
-    rootDirectory: project.rootDirectory,
-    nativeBuild: project.nativeBuild,
-    externalDependencies: project.externalDependencies,
-    target: project.target,
-  }
-  _ := acquirePackageExternalDependencies(rootManifest, externalTarget) else error {
-    println("error: " + error)
-    return 1
-  }
+  rootManifest := project.manifest
   entryPath := joinPath(project.rootDirectory, project.entry)
   entry := driverLogicalPath(entryPath)
   stdlibRoot := environmentValue("DOOF_STDLIB_ROOT")
@@ -879,16 +1070,36 @@ function emitRequest(request: CliRequest): int {
     outputRoot: "",
   }]
   loader := sourceLoaderForRequest(
-    entryPath, request.sourcePaths, request.moduleSources, stdlibRoot, namespaceMappings, nativePlatform, externalTarget,
-  )
+    entryPath, stdlibRoot, namespaceMappings, rootManifest, nativePlatform, externalTarget,
+  ) else error {
+    println("error: " + error)
+    return 1
+  }
+  if project.target == "wasm" {
+    _ := ensureStdPackageReached("std/json") else error {
+      println("error: " + error)
+      return 1
+    }
+  }
   entryMode := if project.target == "wasm" then "wasm" else if project.iosApp == null then "executable" else "ios-app"
   result := compileWithLoader([], entry, loader, namespaceMappings, entryMode)
   if result.diagnostics.length > 0 {
     printDiagnostics(result.diagnostics)
     return 1
   }
+  if request.command == "package" && hasMutableStdPackageInputs(reachedPackageInputs(rootManifest)) {
+    println("warning: packaging with standard packages overridden by DOOF_STDLIB_ROOT; provenance.json will record them as mutable inputs")
+  }
+  externalInputs := resolvedDependencyInputs(rootManifest) else error {
+    println("error: " + error)
+    return 1
+  }
   if request.command == "check" { return 0 }
   if result.emission == null { panic("self-hosted compiler produced no emission") }
+  _ := acquireResolvedExternalInputs(externalInputs, externalTarget) else error {
+    println("error: " + error)
+    return 1
+  }
 
   buildDirectory := if request.outputDirectory == ""
     then joinPath(project.rootDirectory, project.buildDirectory)
@@ -902,6 +1113,12 @@ function emitRequest(request: CliRequest): int {
   )
   materializeProject(outputDirectory, emission)
   materializeRuntimeHeader(outputDirectory)
+  try! writeText(
+    driverOutputPath(outputDirectory, "provenance.json"),
+    renderBuildProvenance(
+      reachedPackageInputs(rootManifest), externalInputs, emission.nativeBuild, configuredDriverSourceState.stdCatalog,
+    ),
+  )
   if project.iosApp != null {
     _ := configureIOSNativeBuild(outputDirectory, project.iosApp!, iosDestination, emission.nativeBuild) else error {
       println("error: " + error)

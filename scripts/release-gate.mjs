@@ -11,7 +11,11 @@ const executableSuffix = process.platform === "win32" ? ".exe" : "";
 const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const runRoot = path.join(repositoryRoot, "build", "release-gate", runId);
 const stdlibRoot = path.resolve(process.env.DOOF_STDLIB_ROOT || path.join(repositoryRoot, "..", "doof-stdlib"));
-const environment = { ...process.env, DOOF_STDLIB_ROOT: stdlibRoot };
+const environment = {
+  ...process.env,
+  DOOF_STDLIB_ROOT: stdlibRoot,
+  DOOF_PACKAGE_CACHE: path.join(runRoot, "package-cache"),
+};
 
 function displayCommand(command, args) {
   return [command, ...args].map((value) => JSON.stringify(value)).join(" ");
@@ -115,6 +119,7 @@ try {
   console.log(`Release gate workspace: ${runRoot}`);
 
   stage("Build TypeScript compiler", () => run(npmCommand, ["run", "build"]));
+  stage("Generate exact std catalog", () => run(npmCommand, ["run", "generate:std-catalog"]));
 
   stage("Self-host unit coverage", () => run(nodeCommand, [
     "dist/bin.js", "test", "selfhost", "--coverage",
@@ -143,6 +148,7 @@ try {
   const nativeFixture = copyFixture("native-interop");
   const stdlibFixture = copyFixture("stdlib");
   const testFixture = copyFixture("test-runner");
+  const localDependencyFixture = copyFixture("local-dependency");
 
   stage("B6 command and portable E2E verification", () => {
     run(b6Compiler, ["check", runtimeFixture]);
@@ -155,6 +161,13 @@ try {
     const stdlibOutput = path.join(runRoot, "verify", "stdlib");
     run(b6Compiler, ["build", stdlibFixture, "-o", stdlibOutput]);
     run(builtProgramPath(stdlibOutput, "selfhost-release-stdlib"), [], { cwd: runRoot });
+
+    const stdlibPackageState = path.join(runRoot, "verify", "stdlib-package");
+    run(b6Compiler, ["package", stdlibFixture, "-o", stdlibPackageState]);
+    const stdlibProvenance = JSON.parse(fs.readFileSync(path.join(stdlibPackageState, "release", "provenance.json"), "utf8"));
+    if (!stdlibProvenance.packages.some((entry) => entry.mutable === true && entry.name.startsWith("std/"))) {
+      throw new Error("stdlib package provenance did not record mutable overridden standard packages");
+    }
 
     run(b6Compiler, ["test", testFixture, "--list"]);
     const selfhostCoverageReport = path.join(runRoot, "coverage", "selfhost-native.json");
@@ -169,6 +182,14 @@ try {
     requirePath(packagedBinary, "packaged runtime fixture");
     requirePath(path.join(runtimeFixture, "dist", "release-resource.txt"), "packaged executable resource");
     run(packagedBinary, [], { cwd: runRoot });
+
+    const localPackageState = path.join(runRoot, "verify", "local-dependency-package");
+    run(b6Compiler, ["package", localDependencyFixture, "-o", localPackageState]);
+    const localProvenance = JSON.parse(fs.readFileSync(path.join(localPackageState, "release", "provenance.json"), "utf8"));
+    if (!localProvenance.packages.some((entry) => entry.name === "local-lib" && entry.mutable === true)) {
+      throw new Error("local dependency package provenance did not record the mutable package");
+    }
+    run(builtProgramPath(path.join(localDependencyFixture, "dist"), "selfhost-release-local-dependency"), [], { cwd: runRoot });
   });
 
   if (process.platform === "darwin") {

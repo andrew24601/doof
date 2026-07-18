@@ -20,6 +20,45 @@ export function testParsesExternalArchiveAndGitDependencies(): void {
   Assert.equal(manifest.externalDependencies[1].commit, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 }
 
+export function testParsesExactPackageDependencies(): void {
+  manifest := try! parsePackageManifest(
+    "{\"dependencies\":{\"local\":{\"path\":\"../local\"},\"remote\":{\"url\":\"https://example.com/remote.git\",\"ref\":\"v1.2.3\",\"commit\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}}",
+    "/app/doof.json", "/app", "linux",
+  )
+
+  Assert.equal(manifest.dependencies.length, 2)
+  Assert.equal(manifest.dependencies[0].path, "/local")
+  Assert.equal(manifest.dependencies[1].ref, "v1.2.3")
+  Assert.equal(manifest.dependencies[1].commit, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+}
+
+export function testRejectsFloatingPackageDependencies(): void {
+  result := parsePackageManifest(
+    "{\"dependencies\":{\"remote\":{\"url\":\"https://example.com/remote.git\",\"version\":\"1.2\"}}}",
+    "/app/doof.json", "/app", "linux",
+  )
+  _ := result else error {
+    Assert.stringContains(error, "dependencies.remote.ref is required")
+    return
+  }
+  panic("expected floating package dependency failure")
+}
+
+export function testParsesRootResolutionsAndPolicy(): void {
+  manifest := try! parsePackageManifest(
+    "{\"resolutions\":{\"packages\":{\"remote\":{\"url\":\"https://example.com/remote.git\",\"ref\":\"v2\",\"commit\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}},\"externalDependencies\":{\"quickjs\":{\"kind\":\"archive\",\"url\":\"https://example.com/quickjs.tar.xz\",\"sha256\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"}}},\"policy\":{\"allowedPackageSources\":[\"https://example.com/remote.git\"],\"allowedExternalSources\":[\"https://example.com/quickjs.tar.xz\"],\"native\":{\"allowedLinkLibraries\":[\"z\"],\"allowedFrameworks\":[\"Foundation\"],\"allowedPkgConfigPackages\":[\"libcurl\"]}}}",
+    "/app/doof.json", "/app", "macos",
+  )
+
+  Assert.equal(manifest.packageResolutions[0].commit, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  Assert.equal(manifest.externalResolutions[0].sha256, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+  Assert.equal(manifest.policy.hasPackageSourceAllowlist, true)
+  Assert.equal(manifest.policy.allowedExternalSources[0], "https://example.com/quickjs.tar.xz")
+  Assert.equal(manifest.policy.allowedLinkLibraries[0], "z")
+  Assert.equal(manifest.policy.allowedFrameworks[0], "Foundation")
+  Assert.equal(manifest.policy.allowedPkgConfigPackages[0], "libcurl")
+}
+
 export function testRejectsInvalidExternalDependencyConfiguration(): void {
   missingChecksum := parsePackageManifest(
     "{\"externalDependencies\":{\"bad\":{\"kind\":\"archive\",\"url\":\"https://example.com/a.tar.gz\",\"destination\":\"vendor/a\"}}}",
