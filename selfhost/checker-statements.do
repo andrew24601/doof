@@ -4,7 +4,7 @@ import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
   JsonValueResolvedType, MapResolvedType, NullType, PrimitiveType, PromiseType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType, ResolvedTypeConstraint,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -22,7 +22,7 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, TypeParameterConstraint,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
@@ -56,7 +56,7 @@ export function checkStatement(state: CheckerState, statement: Statement, scope:
     enum_: EnumDeclaration -> { checkEnum(state, enum_, scope); return true }
     alias: TypeAliasDeclaration -> {
       aliasScope := Scope { parent: scope }
-      for typeParam of alias.typeParams { aliasScope.typeParams.push(typeParam) }
+      populateTypeParameters(state, aliasScope, alias.typeParams, alias.typeParamConstraints)
       resolvedAlias := resolveType(state, alias.type_, state.info!, aliasScope)
       alias.resolvedType = optionalResolvedType(resolvedAlias)
       return true
@@ -288,15 +288,12 @@ export function checkValueDeclaration(state: CheckerState, declaration: Statemen
 
 export function checkFunction(state: CheckerState, fn: FunctionDeclaration, outer: Scope, owner: ClassType | null): ResolvedType {
   scope := Scope { parent: outer, typeParams: [], thisType: if owner == null then unknownType() else owner!, functionName: fn.name }
-  for index of 0..<fn.typeParams.length {
-    scope.typeParams.push(fn.typeParams[index])
-    scope.typeParamConstraintNames.push(if index < fn.typeParamConstraints.length then fn.typeParamConstraints[index] else "")
-  }
+  populateTypeParameters(state, scope, fn.typeParams, fn.typeParamConstraints)
   if owner != null {
     declaration := declarationFor(state.result, owner!.symbol)
     if declaration != null {
       case declaration! {
-        classDeclaration: ClassDeclaration -> { for typeParam of classDeclaration.typeParams { scope.typeParams.push(typeParam) } }
+        classDeclaration: ClassDeclaration -> { populateTypeParameters(state, scope, classDeclaration.typeParams, classDeclaration.typeParamConstraints) }
         _ -> { }
       }
     }
@@ -356,10 +353,7 @@ export function checkClass(state: CheckerState, class_: ClassDeclaration, scope:
   symbol := symbolFor(state.info!, class_.name)
   if symbol == null { return }
   classScope := Scope { parent: scope, typeParams: [] }
-  for index of 0..<class_.typeParams.length {
-    classScope.typeParams.push(class_.typeParams[index])
-    classScope.typeParamConstraintNames.push(if index < class_.typeParamConstraints.length then class_.typeParamConstraints[index] else "")
-  }
+  populateTypeParameters(state, classScope, class_.typeParams, class_.typeParamConstraints)
   let ownerTypeArgs: ResolvedType[] = []
   for typeParam of class_.typeParams { ownerTypeArgs.push(typeParameter(typeParam)) }
   owner := classType(class_.name, symbol!, ownerTypeArgs)
@@ -442,13 +436,38 @@ function containsWeakType(type_: ResolvedType): bool {
 
 export function checkInterface(state: CheckerState, interface_: InterfaceDeclaration, scope: Scope): void {
   interfaceScope := Scope { parent: scope, typeParams: [] }
-  for typeParam of interface_.typeParams { interfaceScope.typeParams.push(typeParam) }
+  populateTypeParameters(state, interfaceScope, interface_.typeParams, interface_.typeParamConstraints)
   for field of interface_.fields {
     let fieldType = resolveType(state, field.type_, state.info!, interfaceScope)
     if field.readonly_ { fieldType = applyDeepReadonly(fieldType) }
     field.resolvedType = optionalResolvedType(fieldType)
   }
   for method of interface_.methods { checkFunction(state, method, interfaceScope, null) }
+}
+
+// Constraint annotations live in the declaration scope so ordinary constraints
+// participate in body checking while the two constraint-only intrinsics retain
+// their dedicated member semantics.
+function populateTypeParameters(state: CheckerState, scope: Scope, names: string[], constraints: TypeParameterConstraint[]): void {
+  for name of names {
+    scope.typeParams.push(name)
+    scope.typeParamConstraintNames.push("")
+    scope.typeParamConstraints.push(ResolvedTypeConstraint {})
+  }
+  for index of 0..<names.length {
+    if index >= constraints.length || constraints[index].type_ == null { continue }
+    annotation := constraints[index].type_!
+    case annotation {
+      named: NamedType -> {
+        if named.typeArgs.length == 0 && (named.name == "JsonSerializable" || named.name == "Reflectable") {
+          scope.typeParamConstraintNames[index] = named.name
+          continue
+        }
+      }
+      _ -> { }
+    }
+    scope.typeParamConstraints[index].type_ = resolveType(state, annotation, state.info!, scope)
+  }
 }
 
 export function checkEnum(state: CheckerState, enum_: EnumDeclaration, scope: Scope): void {

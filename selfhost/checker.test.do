@@ -403,6 +403,45 @@ export function testRejectsNonClassReflectableTypeArgument(): void {
   Assert.equal(result.diagnostics[0].message.contains("does not satisfy constraint \"Reflectable\""), true)
 }
 
+export function testEnforcesOrdinaryGenericFunctionConstraints(): void {
+  valid := checked("function keep<T: int | long>(value: T): T => value\nfirst := keep<int>(1)\nsecond := keep(2L)")
+  Assert.equal(valid.diagnostics.length, 0)
+
+  explicitInvalid := checked("function keep<T: int | long>(value: T): T => value\nvalue := keep<string>(\"no\")")
+  Assert.equal(explicitInvalid.diagnostics.length, 1)
+  Assert.equal(explicitInvalid.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+
+  inferredInvalid := checked("function keep<T: int | long>(value: T): T => value\nvalue := keep(\"no\")")
+  Assert.equal(inferredInvalid.diagnostics.length, 1)
+  Assert.equal(inferredInvalid.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+}
+
+export function testEnforcesOrdinaryGenericNominalAndAliasConstraints(): void {
+  valid := checked("class Box<T: int | long> { value: T }\ntype NumberBox<T: int | long> = Box<T>\nbox: NumberBox<long> := Box<long> { value: 1L }\ninferred := Box(1)")
+  Assert.equal(valid.diagnostics.length, 0)
+
+  invalidClass := checked("class Box<T: int | long> { value: T }\nbox := Box<string> { value: \"no\" }")
+  Assert.equal(invalidClass.diagnostics.length > 0, true)
+  Assert.equal(invalidClass.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+
+  inferredInvalidClass := checked("class Box<T: int | long> { value: T }\nbox := Box(\"no\")")
+  Assert.equal(inferredInvalidClass.diagnostics.length > 0, true)
+  Assert.equal(inferredInvalidClass.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+
+  invalidAlias := checked("type Numeric<T: int | long> = T\nvalue: Numeric<string> := \"no\"")
+  Assert.equal(invalidAlias.diagnostics.length > 0, true)
+  Assert.equal(invalidAlias.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+}
+
+export function testEnforcesImportedOrdinaryGenericConstraints(): void {
+  result := checkedSources([
+    SourceFile { path: "/main.do", source: "import { keep } from \"./numbers\"\nvalue := keep(\"no\")" },
+    SourceFile { path: "/numbers.do", source: "export function keep<T: int | long>(value: T): T => value" },
+  ], "/main.do")
+  Assert.equal(result.diagnostics.length, 1)
+  Assert.equal(result.diagnostics[0].message.contains("does not satisfy constraint \"int | long\""), true)
+}
+
 export function testRejectsMetadataForNonSerializableMethods(): void {
   result := checked("class Bad { function run(callback: (value: int): void): string => \"no\" }\nmetadata := Bad.metadata")
   Assert.equal(result.diagnostics.length > 0, true)

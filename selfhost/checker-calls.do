@@ -38,7 +38,7 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 import { CheckerState } from "./checker-state"
 import { checkBlock } from "./checker-statements"
 import { checkExpression } from "./checker-expressions"
-import { resolveType, memberType } from "./checker-resolution"
+import { resolveType, memberType, validateTypeArgumentConstraints } from "./checker-resolution"
 import { finish, typeError } from "./checker-common"
 import { decorateAnnotationWithResolved, optionalResolvedType, functionParameterIndex, containsString, hasObjectProperty, methodSignature, declare, lookup, isBuiltinPrintlnCall, symbolFor, declarationFor } from "./checker-symbols"
 import { inferTypeArgument, functionDeclarationForCallee, constructorForClass, insideConstructorFactory } from "./checker-generics"
@@ -90,7 +90,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
           let resolvedTypeArgs: ResolvedType[] = []
           for argument of expression.typeArgs { resolvedTypeArgs.push(resolveType(state, argument, state.info!, scope)) }
           expression.resolvedGenericTypeArgs = resolvedTypeArgs
-          applyTypeArgumentConstraints(state, expression.resolvedFunction, resolvedTypeArgs, expression.span)
+          applyTypeArgumentConstraints(state, expression.resolvedFunction, resolvedTypeArgs, expression.span, scope)
           substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, resolvedTypeArgs)
           case substituted {
             function_: FunctionType -> { effectiveFunction = function_ }
@@ -121,7 +121,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
         }
         if complete {
           expression.resolvedGenericTypeArgs = inferred
-          applyTypeArgumentConstraints(state, expression.resolvedFunction, inferred, expression.span)
+          applyTypeArgumentConstraints(state, expression.resolvedFunction, inferred, expression.span, scope)
           substituted := substituteTypeParams(resolvedFunction, resolvedFunction.typeParams, inferred)
           case substituted {
             function_: FunctionType -> { effectiveFunction = function_ }
@@ -175,27 +175,40 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
       return finish(state, expression, effectiveFunction.returnType)
     }
     class_: ClassType -> {
-      if !insideConstructorFactory(scope, class_) { expression.resolvedConstructor = constructorForClass(class_, state.result) }
+      let effectiveClass = class_
+      declaration := declarationFor(state.result, class_.symbol)
+      if declaration != null && class_.typeArgs.length == 0 {
+        case declaration! {
+          classDeclaration: ClassDeclaration -> {
+            inferred := inferClassTypeArguments(state, expression, scope, class_, classDeclaration)
+            if inferred.length == classDeclaration.typeParams.length && inferred.length > 0 {
+              effectiveClass = classType(class_.name, class_.symbol, inferred)
+              expression.resolvedGenericTypeArgs = inferred
+              validateTypeArgumentConstraints(state, classDeclaration.typeParams, classDeclaration.typeParamConstraints, inferred, expression.span, classModuleFor(state.result, class_.symbol), scope)
+            }
+          }
+          _ -> { }
+        }
+      }
+      if !insideConstructorFactory(scope, effectiveClass) { expression.resolvedConstructor = constructorForClass(effectiveClass, state.result) }
       constructorMethod := expression.resolvedConstructor
       if constructorMethod != null {
         let constructorType = constructorMethod!.resolvedType ?? methodSignature(constructorMethod!, classModuleFor(state.result, class_.symbol), state.result)
-        declaration := declarationFor(state.result, class_.symbol)
         if declaration != null {
           case declaration! {
-            classDeclaration: ClassDeclaration -> { constructorType = substituteTypeParams(constructorType, classDeclaration.typeParams, class_.typeArgs) }
+            classDeclaration: ClassDeclaration -> { constructorType = substituteTypeParams(constructorType, classDeclaration.typeParams, effectiveClass.typeArgs) }
             _ -> { }
           }
         }
         case constructorType {
           function_: FunctionType -> {
-            validatePositionalConstructorArguments(state, expression, function_.params, scope, class_)
+            validatePositionalConstructorArguments(state, expression, function_.params, scope, effectiveClass)
             return finish(state, expression, function_.returnType)
           }
           _ -> { }
         }
       }
       let constructorParams: FunctionParamType[] = []
-      declaration := declarationFor(state.result, class_.symbol)
       if declaration != null {
         case declaration! {
           classDeclaration: ClassDeclaration -> {
@@ -205,7 +218,7 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
               for name of field.names {
                 constructorParams.push(FunctionParamType {
                   name,
-                  type_: memberType(state, class_, name, field.span),
+                  type_: memberType(state, effectiveClass, name, field.span),
                   hasDefault: field.defaultValue != null,
                 })
               }
@@ -214,8 +227,8 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
           _ -> { }
         }
       }
-      validatePositionalConstructorArguments(state, expression, constructorParams, scope, class_)
-      return finish(state, expression, class_)
+      validatePositionalConstructorArguments(state, expression, constructorParams, scope, effectiveClass)
+      return finish(state, expression, effectiveClass)
     }
     _: UnknownType -> {
       for argument of expression.args { checkExpression(state, argument.value, scope, null) }
@@ -226,19 +239,42 @@ export function checkCall(state: CheckerState, expression: CallExpression, scope
   return finish(state, expression, unknownType())
 }
 
-function applyTypeArgumentConstraints(state: CheckerState, declaration: FunctionDeclaration | null, arguments: ResolvedType[], span: SourceSpan): void {
-  if declaration == null { return }
-  for index of 0..<declaration!.typeParams.length {
-    if index >= declaration!.typeParamConstraints.length || index >= arguments.length { continue }
-    constraint := declaration!.typeParamConstraints[index]
-    if constraint == "Reflectable" {
-      case arguments[index] {
-        class_: ClassType -> { memberType(state, class_, "metadata", span) }
-        _ -> { typeError(state, "Type \"" + typeName(arguments[index]) + "\" does not satisfy constraint \"Reflectable\" for type parameter \"" + declaration!.typeParams[index] + "\"", span) }
+function inferClassTypeArguments(state: CheckerState, expression: CallExpression, scope: Scope, class_: ClassType, declaration: ClassDeclaration): ResolvedType[] {
+  let patterns: FunctionParamType[] = []
+  constructor := constructorForClass(class_, state.result)
+  if constructor != null {
+    signature := constructor!.resolvedType ?? methodSignature(constructor!, classModuleFor(state.result, class_.symbol), state.result)
+    case signature {
+      function_: FunctionType -> { patterns = function_.params }
+      _ -> { }
+    }
+  } else {
+    for field of declaration.fields {
+      if field.static_ { continue }
+      for name of field.names {
+        patterns.push(FunctionParamType { name, type_: memberType(state, class_, name, field.span), hasDefault: field.defaultValue != null })
       }
     }
-    if constraint == "JsonSerializable" { memberType(state, arguments[index], "fromJsonValue", span) }
   }
+  let inferred: ResolvedType[] = []
+  for typeParam of declaration.typeParams {
+    let candidate: ResolvedType | null = null
+    for index of 0..<expression.args.length {
+      parameterIndex := if expression.args[index].name == null then index else functionParameterIndex(patterns, expression.args[index].name!)
+      if parameterIndex < 0 || parameterIndex >= patterns.length { continue }
+      actual := checkExpression(state, expression.args[index].value, scope, optionalResolvedType(patterns[parameterIndex].type_))
+      next := inferTypeArgument(patterns[parameterIndex].type_, actual, typeParam)
+      if next != null { candidate = next }
+    }
+    if candidate == null { return [] }
+    inferred.push(candidate!)
+  }
+  return inferred
+}
+
+function applyTypeArgumentConstraints(state: CheckerState, declaration: FunctionDeclaration | null, arguments: ResolvedType[], span: SourceSpan, scope: Scope): void {
+  if declaration == null { return }
+  validateTypeArgumentConstraints(state, declaration!.typeParams, declaration!.typeParamConstraints, arguments, span, state.info!, scope)
 }
 
 // Positional class calls share function-call assignability rules, but report
@@ -377,6 +413,9 @@ export function checkConstruct(state: CheckerState, expression: ConstructExpress
   }
   let resolvedTypeArgs: ResolvedType[] = []
   for argument of expression.typeArgs { resolvedTypeArgs.push(resolveType(state, argument, state.info!, scope)) }
+  if expression.resolvedClass != null {
+    validateTypeArgumentConstraints(state, expression.resolvedClass!.typeParams, expression.resolvedClass!.typeParamConstraints, resolvedTypeArgs, expression.span, classModuleFor(state.result, symbol!), scope)
+  }
   constructed := classType(expression.type_, symbol!, resolvedTypeArgs)
   expression.resolvedConstructedType = optionalResolvedType(constructed)
   constructorMethod := constructorForClass(constructed, state.result)

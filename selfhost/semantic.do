@@ -177,6 +177,7 @@ export class TypeParameterType {
   kind: string = "type-parameter"
   name: string
   constraintName: string = ""
+  constraint: ResolvedType | null = null
 }
 
 /** Compiler-known reflection value returned by `Type.metadata`. */
@@ -216,6 +217,7 @@ export class Scope {
   bindings: Binding[] = []
   typeParams: string[] = []
   typeParamConstraintNames: string[] = []
+  typeParamConstraints: ResolvedTypeConstraint[] = []
   returnType: ResolvedType | null = null
   thisType: ResolvedType | null = null
   functionName: string = ""
@@ -223,6 +225,10 @@ export class Scope {
   yieldType: ResolvedType | null = null
   capturesTryErrors: bool = false
   catchErrorTypes: ResolvedType[] = []
+}
+
+export class ResolvedTypeConstraint {
+  type_: ResolvedType | null = null
 }
 
 export class CheckResult {

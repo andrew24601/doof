@@ -784,7 +784,33 @@ export function testPreservesGenericFunctionConstraints(): void {
   case program.statements[0] {
     fn: FunctionDeclaration -> {
       Assert.equal(fn.typeParamConstraints.length, 1)
-      Assert.equal(fn.typeParamConstraints[0], "Reflectable")
+      case fn.typeParamConstraints[0].type_! {
+        constraint: NamedType -> { Assert.equal(constraint.name, "Reflectable") }
+        _ -> { panic("expected named constraint") }
+      }
+    }
+    _ -> { panic("expected generic function") }
+  }
+}
+
+export function testPreservesUnionGenericConstraints(): void {
+  program := parse("function widen<T: int | long>(value: T): T => value")
+  case program.statements[0] {
+    fn: FunctionDeclaration -> {
+      case fn.typeParamConstraints[0].type_! {
+        constraint: UnionType -> {
+          Assert.equal(constraint.types.length, 2)
+          case constraint.types[0] {
+            first: NamedType -> { Assert.equal(first.name, "int") }
+            _ -> { panic("expected first named constraint member") }
+          }
+          case constraint.types[1] {
+            second: NamedType -> { Assert.equal(second.name, "long") }
+            _ -> { panic("expected second named constraint member") }
+          }
+        }
+        _ -> { panic("expected union constraint") }
+      }
     }
     _ -> { panic("expected generic function") }
   }

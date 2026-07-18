@@ -41,7 +41,7 @@ import { checkCall, checkLambda, checkConstruct, callableField } from "./checker
 import { checkArray, checkObject } from "./checker-literals"
 import { resolveType, memberType, indexType } from "./checker-resolution"
 import { finish, typeError, requireBool } from "./checker-common"
-import { builtinSourceLocationType, casePatternName, optionalResolvedType, isNamespaceImport, isBuiltinNamespace, builtinNamespaceMemberType, namespaceMemberType, resolveAnnotation, declare, lookup, currentThisType, isBuiltinCallable, builtinCallable, hasTypeParam, typeParamConstraintName, symbolFor, declarationFor } from "./checker-symbols"
+import { builtinSourceLocationType, casePatternName, optionalResolvedType, isNamespaceImport, isBuiltinNamespace, builtinNamespaceMemberType, namespaceMemberType, resolveAnnotation, declare, lookup, currentThisType, isBuiltinCallable, builtinCallable, hasTypeParam, typeParamConstraintName, typeParamConstraint, symbolFor, declarationFor } from "./checker-symbols"
 import { constructorForClass, staticMemberOwner } from "./checker-generics"
 import { checkerSemanticSpan } from "./checker-validation"
 
@@ -341,7 +341,7 @@ export function checkIdentifier(state: CheckerState, identifier: Identifier, sco
   let binding: Binding | null = lookup(scope, identifier.name)
   if binding == null && hasTypeParam(scope, identifier.name) {
     binding = Binding {
-      name: identifier.name, kind: "type-parameter", type_: typeParameter(identifier.name, typeParamConstraintName(scope, identifier.name)), mutable: false,
+      name: identifier.name, kind: "type-parameter", type_: typeParameter(identifier.name, typeParamConstraintName(scope, identifier.name), typeParamConstraint(scope, identifier.name)), mutable: false,
       span: checkerSemanticSpan(identifier.span), module: state.info!.path,
     }
   }

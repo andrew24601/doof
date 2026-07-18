@@ -183,8 +183,8 @@ export function substituteTypeParams(type_: ResolvedType, names: string[], argum
   return type_
 }
 
-export function typeParameter(name: string, constraintName: string = ""): ResolvedType {
-  return TypeParameterType { name, constraintName }
+export function typeParameter(name: string, constraintName: string = "", constraint: ResolvedType | null = null): ResolvedType {
+  return TypeParameterType { name, constraintName, constraint }
 }
 
 export function classType(name: string, symbol: Symbol, typeArgs: ResolvedType[] = []): ClassType {
@@ -387,11 +387,12 @@ export function sameType(left: ResolvedType, right: ResolvedType): bool {
 
 export function isAssignable(value: ResolvedType, target: ResolvedType): bool {
   case value {
-    _: TypeParameterType -> {
+    parameter: TypeParameterType -> {
       case target {
         _: TypeParameterType -> { return sameType(value, target) }
         _ -> { }
       }
+      if parameter.constraint != null { return isAssignable(parameter.constraint!, target) }
     }
     _: UnknownType -> { return true }
     valueUnion: UnionResolvedType -> {

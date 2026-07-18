@@ -395,6 +395,19 @@ export function typeParamConstraintName(scope: Scope, name: string): string {
   return ""
 }
 
+export function typeParamConstraint(scope: Scope, name: string): ResolvedType | null {
+  let current: Scope | null = scope
+  while current != null {
+    for index of 0..<current!.typeParams.length {
+      if current!.typeParams[index] == name && index < current!.typeParamConstraints.length {
+        return current!.typeParamConstraints[index].type_
+      }
+    }
+    current = current!.parent
+  }
+  return null
+}
+
 export function lookup(scope: Scope, name: string): Binding | null {
   let current: Scope | null = scope
   while current != null {

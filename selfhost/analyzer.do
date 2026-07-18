@@ -17,7 +17,7 @@ import {
   NamedImport, NamedType, NamespaceImport, ReadonlyDeclaration, ReturnStatement,
   YieldStatement, WhileStatement, WithStatement, BreakStatement, ContinueStatement,
   ExpressionStatement, DestructuringStatement, ImportDeclaration, TypeAliasDeclaration, UnionType,
-  CaseStatement, MockImportDirective, WeakType, YieldBlockAssignmentStatement,
+  CaseStatement, MockImportDirective, WeakType, YieldBlockAssignmentStatement, TypeParameterConstraint,
 } from "./ast"
 import type { ImportDeclaration, Program, SourceSpan, Statement, TryStatement, TypeAnnotation } from "./ast"
 
@@ -275,15 +275,17 @@ export class ModuleAnalyzer {
     case statement {
       fn: FunctionDeclaration -> { visitFunctionTypes(fn, info) }
       class_: ClassDeclaration -> {
+        visitTypeParameterConstraints(class_.typeParamConstraints, info, class_.typeParams)
         for annotation of class_.implements_ { visitType(annotation, info, class_.typeParams) }
         for field of class_.fields { if field.type_ != null { visitType(field.type_!, info, class_.typeParams) } }
         for method of class_.methods { visitFunctionTypes(method, info, class_.typeParams) }
       }
       interface_: InterfaceDeclaration -> {
+        visitTypeParameterConstraints(interface_.typeParamConstraints, info, interface_.typeParams)
         for field of interface_.fields { visitType(field.type_, info, interface_.typeParams) }
         for method of interface_.methods { visitFunctionTypes(method, info, interface_.typeParams) }
       }
-      alias: TypeAliasDeclaration -> { visitType(alias.type_, info, alias.typeParams) }
+      alias: TypeAliasDeclaration -> { visitTypeParameterConstraints(alias.typeParamConstraints, info, alias.typeParams); visitType(alias.type_, info, alias.typeParams) }
       const_: ConstDeclaration -> { if const_.type_ != null { visitType(const_.type_!, info, []) } }
       readonly_: ReadonlyDeclaration -> { if readonly_.type_ != null { visitType(readonly_.type_!, info, []) } }
       binding: ImmutableBinding -> { if binding.type_ != null { visitType(binding.type_!, info, []) } }
@@ -296,8 +298,13 @@ export class ModuleAnalyzer {
     let typeParams: string[] = []
     for parameter of ownerTypeParams { typeParams.push(parameter) }
     for parameter of fn.typeParams { typeParams.push(parameter) }
+    visitTypeParameterConstraints(fn.typeParamConstraints, info, typeParams)
     for parameter of fn.params { if parameter.type_ != null { visitType(parameter.type_!, info, typeParams) } }
     if fn.returnType != null { visitType(fn.returnType!, info, typeParams) }
+  }
+
+  private function visitTypeParameterConstraints(constraints: TypeParameterConstraint[], info: ModuleInfo, typeParams: string[]): void {
+    for constraint of constraints { if constraint.type_ != null { visitType(constraint.type_!, info, typeParams) } }
   }
 
   private function visitType(annotation: TypeAnnotation, info: ModuleInfo, typeParams: string[] = []): void {
@@ -473,6 +480,7 @@ function findExport(info: ModuleInfo, name: string): Symbol | null {
 }
 
 function isBuiltin(name: string): bool {
+  if name == "JsonSerializable" || name == "Reflectable" { return true }
   for builtin of BUILTIN_TYPES { if builtin == name { return true } }
   return false
 }

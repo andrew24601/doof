@@ -404,7 +404,7 @@ export class FunctionDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
-  typeParamConstraints: string[] = []
+  typeParamConstraints: TypeParameterConstraint[] = []
   params: Parameter[]
   returnType: TypeAnnotation | null
   body: Expression | Block
@@ -419,6 +419,10 @@ export class FunctionDeclaration {
   nativeCppName: string = ""
   resolvedType: ResolvedType | null = null
   span: SourceSpan
+}
+
+export class TypeParameterConstraint {
+  type_: TypeAnnotation | null = null
 }
 
 export class ReturnStatement {
@@ -606,7 +610,7 @@ export class ClassDeclaration {
   description: string = ""
   struct_: bool = false
   typeParams: string[]
-  typeParamConstraints: string[] = []
+  typeParamConstraints: TypeParameterConstraint[] = []
   implements_: NamedType[]
   fields: ClassField[]
   methods: FunctionDeclaration[]
@@ -640,7 +644,7 @@ export class InterfaceDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
-  typeParamConstraints: string[] = []
+  typeParamConstraints: TypeParameterConstraint[] = []
   fields: InterfaceField[]
   methods: FunctionDeclaration[]
   exported: bool
@@ -680,7 +684,7 @@ export class TypeAliasDeclaration {
   name: string
   description: string = ""
   typeParams: string[]
-  typeParamConstraints: string[] = []
+  typeParamConstraints: TypeParameterConstraint[] = []
   type_: TypeAnnotation
   exported: bool
   resolvedType: ResolvedType | null = null

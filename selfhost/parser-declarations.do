@@ -8,13 +8,13 @@ import {
   Identifier, ConstDeclaration, ReadonlyDeclaration, LetDeclaration,
   FunctionDeclaration, ImportDeclaration, NamespaceImport, NamedImport,
   TypeAliasDeclaration, ClassDeclaration, InterfaceDeclaration, EnumDeclaration,
-  ExportList, MockImportDirective, MockImportMapping, YieldBlockExpression,
+  ExportList, MockImportDirective, MockImportMapping, YieldBlockExpression, TypeParameterConstraint,
 } from "./ast"
 import type { Statement, Expression, TypeAnnotation, ImportSpecifier } from "./ast"
 
 class ParsedTypeParameters {
   names: string[]
-  constraints: string[]
+  constraints: TypeParameterConstraint[]
 }
 
 export function parseExport(parser: Parser): Statement {
@@ -149,14 +149,14 @@ function parseMethod(parser: Parser, static_: bool, private_: bool): FunctionDec
   return makeFunctionBlock(parser, name, description, typeParams, parsedTypeParams.constraints, params, returnType, body, false, static_, false, private_, start)
 }
 
-function makeFunctionExpression(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+function makeFunctionExpression(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: TypeParameterConstraint[], params: Parameter[], returnType: TypeAnnotation | null, body: Expression, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
   return FunctionDeclaration {
     kind: "function-declaration", name, description, typeParams, typeParamConstraints, params, returnType, body: body,
     exported, static_, isolated_, private_, bodyless: false, span: parser.span(start),
   }
 }
 
-function makeFunctionBlock(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: string[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
+function makeFunctionBlock(parser: Parser, name: string, description: string, typeParams: string[], typeParamConstraints: TypeParameterConstraint[], params: Parameter[], returnType: TypeAnnotation | null, body: Block, exported: bool, static_: bool, isolated_: bool, private_: bool, start: AstLocation): FunctionDeclaration {
   return FunctionDeclaration {
     kind: "function-declaration", name, description, typeParams, typeParamConstraints, params, returnType, body: body,
     exported, static_, isolated_, private_, bodyless: false, span: parser.span(start),
@@ -172,18 +172,15 @@ function parseExpressionBody(parser: Parser): Expression {
 
 function parseTypeParameters(parser: Parser): ParsedTypeParameters {
   names: string[] := []
-  constraints: string[] := []
+  constraints: TypeParameterConstraint[] := []
   if !parser.match(TokenType.Less) { return ParsedTypeParameters { names, constraints } }
   while !parser.check(TokenType.Greater) && !parser.atEnd() {
     names.push(parser.text(parser.expect(TokenType.Identifier)))
-    let constraintName = ""
+    let constraint: TypeAnnotation | null = null
     if parser.match(TokenType.Colon) {
-      case parser.parseTypeAnnotation() {
-        constraint: NamedType -> { if constraint.typeArgs.length == 0 { constraintName = constraint.name } }
-        _ -> { }
-      }
+      constraint = parser.parseTypeAnnotation()
     }
-    constraints.push(constraintName)
+    constraints.push(TypeParameterConstraint { type_: constraint })
     if !parser.match(TokenType.Comma) { break }
   }
   parser.expect(TokenType.Greater)

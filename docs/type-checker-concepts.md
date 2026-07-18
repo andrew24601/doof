@@ -100,7 +100,16 @@ Validation anchors:
 - `selfhost/checker.test.do`
 - `spec/02-type-system.md`
 
-## Generic JSON and Metadata Constraints
+## Generic Constraints
+
+Ordinary constraints retain their complete type annotation. At each explicit
+or inferred concrete instantiation, the checker resolves the annotation in the
+declaration's type-parameter scope, substitutes all concrete arguments, and
+requires the argument to be assignable to the resulting constraint. This same
+rule applies to generic functions, classes, interfaces, and type aliases.
+Type-parameter values also carry their resolved ordinary constraint so a
+generic declaration can use a constrained value where that constraint is
+expected.
 
 `JsonSerializable` is a constraint-only intrinsic used to allow static JSON
 intrinsics on type parameters. `T.fromJsonValue(...)` is accepted only while the
@@ -120,10 +129,15 @@ Primary modules:
 - `src/checker-member.ts`
 - `src/checker-decl.ts`
 - `src/checker-types.ts`
+- `selfhost/parser-declarations.do`
+- `selfhost/checker-resolution.do`
+- `selfhost/checker-calls.do`
+- `selfhost/checker-types.do`
 
 Keep aligned:
 
 - constraint resolution must preserve `JsonSerializable` and `Reflectable` as markers rather than resolving them as normal named types
+- ordinary constraint annotations must be analyzer-decorated, checker-resolved, substituted with every concrete argument, and covered by the pre-emission validation gate
 - member lookup on `typevar` must match generic-call validation so unconstrained `T.fromJsonValue` / `T.metadata` are rejected and constrained instantiations mark concrete classes for generated helpers
 - diagnostics and serializability checks should reuse the same field-level JSON helpers used by concrete class `.fromJsonValue()`
 - classes with a dedicated static `constructor(...): Self` or
@@ -136,6 +150,8 @@ Validation anchors:
 - `src/checker-generics.test.ts`
 - `src/emitter-generics.test.ts`
 - `src/emitter-e2e-advanced.test.ts`
+- `selfhost/parser.test.do`
+- `selfhost/checker.test.do`
 - `spec/12-json-serialization.md`
 - `spec/13-descriptions.md`
 

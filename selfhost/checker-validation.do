@@ -22,7 +22,7 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, YieldBlockExpression, YieldBlockAssignmentStatement, CatchExpression, CaseArm, CaseExpression, CasePattern, CaseStatement, RangePattern, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType, TypeParameterConstraint,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
@@ -58,6 +58,7 @@ export function validateStatement(statement: Statement, module: string, diagnost
     fn: FunctionDeclaration -> { validateFunction(fn, module, diagnostics) }
     class_: ClassDeclaration -> {
       if class_.resolvedSymbol == null { addValidationError(module, class_.span, "Class '" + class_.name + "' has no resolved symbol", diagnostics) }
+      validateTypeParameterConstraints(class_.typeParamConstraints, module, diagnostics)
       for implementation of class_.implements_ { validateTypeAnnotation(implementation, module, diagnostics) }
       for field of class_.fields {
         if field.type_ != null { validateTypeAnnotation(field.type_!, module, diagnostics) }
@@ -68,6 +69,7 @@ export function validateStatement(statement: Statement, module: string, diagnost
     }
     interface_: InterfaceDeclaration -> {
       if interface_.resolvedSymbol == null { addValidationError(module, interface_.span, "Interface '" + interface_.name + "' has no resolved symbol", diagnostics) }
+      validateTypeParameterConstraints(interface_.typeParamConstraints, module, diagnostics)
       for field of interface_.fields {
         validateTypeAnnotation(field.type_, module, diagnostics)
         validateResolved(field.resolvedType, field.span, module, "interface field " + interface_.name, diagnostics)
@@ -76,6 +78,7 @@ export function validateStatement(statement: Statement, module: string, diagnost
     }
     enum_: EnumDeclaration -> { for variant of enum_.variants { if variant.value != null { validateExpression(variant.value!, module, diagnostics) } } }
     alias: TypeAliasDeclaration -> {
+      validateTypeParameterConstraints(alias.typeParamConstraints, module, diagnostics)
       validateTypeAnnotation(alias.type_, module, diagnostics)
       validateResolved(alias.resolvedType, alias.span, module, "type alias " + alias.name, diagnostics)
     }
@@ -138,6 +141,7 @@ export function validateValue(statement: Statement, resolvedType: ResolvedType |
 
 export function validateFunction(fn: FunctionDeclaration, module: string, diagnostics: Diagnostic[]): void {
   validateResolved(fn.resolvedType, fn.span, module, "function " + fn.name, diagnostics)
+  validateTypeParameterConstraints(fn.typeParamConstraints, module, diagnostics)
   if fn.returnType != null { validateTypeAnnotation(fn.returnType!, module, diagnostics) }
   for parameter of fn.params {
     if parameter.type_ != null { validateTypeAnnotation(parameter.type_!, module, diagnostics) }
@@ -147,6 +151,19 @@ export function validateFunction(fn: FunctionDeclaration, module: string, diagno
   case fn.body {
     block: Block -> { validateBlock(block, module, diagnostics) }
     expression: Expression -> { validateExpression(expression, module, diagnostics) }
+  }
+}
+
+function validateTypeParameterConstraints(constraints: TypeParameterConstraint[], module: string, diagnostics: Diagnostic[]): void {
+  for constraint of constraints {
+    if constraint.type_ == null { continue }
+    case constraint.type_! {
+      named: NamedType -> {
+        if named.typeArgs.length == 0 && (named.name == "JsonSerializable" || named.name == "Reflectable") { continue }
+      }
+      _ -> { }
+    }
+    validateTypeAnnotation(constraint.type_!, module, diagnostics)
   }
 }
 
@@ -318,6 +335,7 @@ export function validateResolved(resolvedType: ResolvedType | null, span: Source
       for parameter of function_.params { validateResolved(parameter.type_, span, module, owner + " parameter", diagnostics) }
       validateResolved(function_.returnType, span, module, owner + " return", diagnostics)
     }
+    parameter: TypeParameterType -> { if parameter.constraint != null { validateResolved(parameter.constraint, span, module, owner + " constraint", diagnostics) } }
     _ -> { }
   }
 }

@@ -31,11 +31,9 @@ It is not yet a drop-in replacement. The remaining replacement blockers are:
    stdlib fallback remain reference-only.
 2. **External build contracts:** the self-host does not emit the reference
    `doof-build.json` or `provenance.json`.
-3. **Language compatibility:** arbitrary generic constraints are not preserved
-   or enforced; only the compiler-known `JsonSerializable` and `Reflectable`
-   constraints have self-host semantics. Same-site inference for omitted
-   `Map`/`Set` type arguments now covers value bindings, but parameter and field
-   defaults are still missing.
+3. **Language compatibility:** same-site inference for omitted `Map`/`Set` type
+   arguments now covers value bindings, but parameter and field defaults are
+   still missing.
 4. **Parity assurance:** the release fixed point proves reproducibility of the
    self-hosted slice, not equivalence with the reference compiler. There is no
    maintained differential corpus for diagnostics, generated projects,
@@ -73,8 +71,8 @@ replacement gaps:
 - B5/B6 two-stage bootstrap and byte-for-byte generated-text stability
 - demand-loaded module graphs, relative imports, re-exports, namespaces,
   explicit `--module` mappings, and `DOOF_STDLIB_ROOT` acquisition
-- classes, structs, interfaces, enums, aliases, native imports, generics for
-  the supported constraint surface, and whole-program monomorphization
+- classes, structs, interfaces, enums, aliases, native imports, general generic
+  constraints, and whole-program monomorphization
 - `Result`, declaration-`else`, `try`, checked `as`, nullable unions, tuples,
   arrays, maps, explicitly typed sets, destructuring, loops, lambdas, and
   escaping mutable captures used by the maintained source graph
@@ -117,7 +115,6 @@ Priority meanings:
 | Doof package dependencies | `selfhost/package-manifest.do` models root/reached identities, native inputs, and external vendor dependencies, but not the reference manifest's declared local/remote Doof dependency graph. M5 in `docs/selfhost-module-acquisition-plan.md` remains pending. | P0 | Build a root package with a local dependency and compatible transitive remote dependencies without `--module` or `DOOF_STDLIB_ROOT`; verify cache hit/miss behaviour and deterministic conflict diagnostics. |
 | Remote stdlib/package acquisition | The acquisition boundary accepts arbitrary logical-prefix mappings, but the driver has no Git/cache provider or normal remote stdlib fallback. `DOOF_STDLIB_ROOT` is still required for implicit `std/*` discovery. | P0 | The same package builds from a clean cache, a warm cache, and an explicit local stdlib override, with identical selected package identities. |
 | Build handoff and provenance | Self-host `emit` materializes generated and native inputs but does not write the schema-versioned `doof-build.json` or `provenance.json` produced by `src/cli-core.ts`. External vendor acquisition therefore also lacks emitted provenance. | P0 | Normalize and compare both documents for local, remote, external-native, resource, macOS, iOS, and wasm fixtures. External build consumers must accept either compiler's output unchanged. |
-| Generic constraints | The self-host retains one string name per constraint and implements the intrinsic `JsonSerializable` and `Reflectable` cases. It does not preserve a general constraint type annotation or enforce ordinary named/union constraints such as `T: int | long`, which are supported by the reference checker. | P0 | Preserve constraint annotations through AST decoration and substitution; accept valid explicit and inferred arguments, reject invalid ones, and validate every concrete instantiation before emission. Include the two intrinsic constraints in the same differential corpus. |
 | Collection type inference | Omitted `Map`, `ReadonlyMap`, `Set`, and `ReadonlySet` type arguments are not inferred from same-site non-empty homogeneous literals in the self-host. | P1 | Port the specification examples and negative cases for empty, heterogeneous, non-literal, and type-only positions. |
 | JSON breadth | The self-host automatic JSON eligibility/lowering lacks tuples, interface discriminator dispatch, and general non-null union dispatch. Map support is limited to serialization of `Map<string, JsonValue>`. `JsonSerializable` generic access exists, but it inherits this narrower concrete eligibility surface. | P1 | Run a shared JSON corpus for tuples, nested collections, interfaces, aliases resolving to dispatchable types, recursive values, nullable values, strict/lenient conversion, defaults, and path-preserving failures. |
 | Interface reflection | Direct nominal metadata and `T: Reflectable` are implemented. The reference can resolve `.metadata` through a closed-world interface to its implementing class metadata; the self-host interface member path has no corresponding metadata branch. | P1 | Access metadata and invoke methods through interfaces with one and multiple implementors; compare the resulting metadata union, validation failures, and dispatch behaviour. |
@@ -145,6 +142,9 @@ vertical slices landed. These are no longer backlog items:
 - declaration descriptions and direct class/struct metadata, schema, method
   reflection, and invocation
 - preservation and use of the compiler-known `Reflectable` constraint
+- full generic constraint annotations, including ordinary named and union
+  constraints, with enforcement for explicit and inferred function/class
+  arguments and concrete interface/type-alias instantiations
 - WebAssembly target planning, C ABI wrapper generation, native support
   materialization, and the maintained Node-hosted acceptance sample
 - external archive/Git vendor acquisition with checksum/ref validation,
@@ -155,10 +155,8 @@ vertical slices landed. These are no longer backlog items:
 - `run` for native programs and Apple app targets, including program arguments,
   iOS device selection, provisioning resolution, installation, and launch
 
-The constraint row remains because the completed `Reflectable` and
-`JsonSerializable` cases do not implement the specification's general
-constraint type system. Likewise, direct nominal reflection does not close the
-interface-qualified reflection row.
+Direct nominal reflection does not close the interface-qualified reflection
+row.
 
 ## Recommended delivery plan
 
@@ -196,12 +194,10 @@ and external build tools consume the emitted handoff unchanged.
 
 ### R2 — Close remaining source-compatibility gaps
 
-1. Replace string-only constraints with decorated constraint annotations and
-   general assignability validation.
-2. Add omitted collection type-argument inference.
-3. Complete tuple, interface, collection, and union JSON behaviour.
-4. Add interface-qualified metadata dispatch.
-5. Implement recorded mock functions/classes and timed process execution.
+1. Add omitted collection type-argument inference.
+2. Complete tuple, interface, collection, and union JSON behaviour.
+3. Add interface-qualified metadata dispatch.
+4. Implement recorded mock functions/classes and timed process execution.
 
 Each language slice must include parser, analyzer where relevant, checker,
 emit-readiness validation, emitter/runtime, negative diagnostics, and native

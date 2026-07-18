@@ -4,7 +4,7 @@ import {
   ActorType, ArrayResolvedType, Binding, CheckResult, ClassMetadataResolvedType, ClassType, EnumType, InterfaceType,
   Diagnostic, FunctionParamType, FunctionType,
   JsonValueResolvedType, MapResolvedType, MethodReflectionResolvedType, NullType, PrimitiveType, PromiseType, RangeResolvedType, ResolvedType, ResultResolvedType, Scope, SemanticLocation, SemanticSpan, SetResolvedType, Symbol,
-  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType,
+  StreamResolvedType, TupleResolvedType, UnionResolvedType, UnknownType, TypeParameterType, VoidType, WeakResolvedType, ResolvedTypeConstraint,
 } from "./semantic"
 import { AnalysisResult, ModuleInfo } from "./analyzer"
 import {
@@ -22,7 +22,7 @@ import {
   UnaryExpression, UnionType, WhileStatement, WithBinding, WithStatement, BreakStatement,
   YieldStatement, CaseArm, CaseExpression, CasePattern, CaseStatement, TypePattern, ValuePattern, WildcardPattern,
   TryStatement,
-  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType,
+  AsyncExpression, RetireExpression, ActorCreationExpression, Parameter, WeakType, TypeParameterConstraint,
 } from "./ast"
 import {
   actorType, applyDeepReadonly, arrayType, classMetadataType, classType, enumType, functionType, interfaceType, isAssignable, isNumeric, joinTypes,
@@ -37,7 +37,7 @@ import { collectRetiredActorBindings, reportRetiredActorUses } from "./checker-a
 
 import { CheckerState } from "./checker-state"
 import { typeError } from "./checker-common"
-import { builtinSourceLocationType, optionalResolvedType, methodSignature, hasTypeParam, typeParamConstraintName, symbolFor, declarationFor } from "./checker-symbols"
+import { builtinSourceLocationType, optionalResolvedType, methodSignature, hasTypeParam, typeParamConstraintName, typeParamConstraint, symbolFor, declarationFor } from "./checker-symbols"
 import { registerConcreteInterfaceImplementations, concreteTypes, classModuleFor } from "./checker-interfaces"
 
 export function resolveType(state: CheckerState, annotation: TypeAnnotation, module: ModuleInfo, scope: Scope): ResolvedType {
@@ -49,7 +49,7 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       if named.name == "JsonObject" { return decorateType(state, annotation, jsonObjectType()) }
       if named.name == "SourceLocation" { return decorateType(state, annotation, builtinSourceLocationType()) }
       if named.name == "Range" { return decorateType(state, annotation, rangeType()) }
-      if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name, typeParamConstraintName(scope, named.name))) }
+      if hasTypeParam(scope, named.name) { return decorateType(state, annotation, typeParameter(named.name, typeParamConstraintName(scope, named.name), typeParamConstraint(scope, named.name))) }
       if named.name == "Tuple" {
         let elements: ResolvedType[] = []
         for argument of named.typeArgs { elements.push(resolveType(state, argument, module, scope)) }
@@ -115,6 +115,7 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
             let resolvedAlias = resolveType(state, alias.type_, classModuleFor(state.result, symbol!), aliasScope)
             let typeArgs: ResolvedType[] = []
             for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+            validateTypeArgumentConstraints(state, alias.typeParams, alias.typeParamConstraints, typeArgs, named.span, classModuleFor(state.result, symbol!), scope)
             resolvedAlias = substituteTypeParams(resolvedAlias, alias.typeParams, typeArgs)
             return decorateType(state, annotation, resolvedAlias)
           }
@@ -124,6 +125,15 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       if symbol!.kind == "interface" {
         let typeArgs: ResolvedType[] = []
         for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+        declaration := declarationFor(state.result, symbol!)
+        if declaration != null {
+          case declaration! {
+            interfaceDeclaration: InterfaceDeclaration -> {
+              validateTypeArgumentConstraints(state, interfaceDeclaration.typeParams, interfaceDeclaration.typeParamConstraints, typeArgs, named.span, classModuleFor(state.result, symbol!), scope)
+            }
+            _ -> { }
+          }
+        }
         concreteInterface := interfaceType(named.name, symbol!, typeArgs)
         if concreteTypes(typeArgs) { registerConcreteInterfaceImplementations(state.result, concreteInterface) }
         return decorateType(state, annotation, concreteInterface)
@@ -131,6 +141,15 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
       if symbol!.kind == "enum" { return decorateType(state, annotation, enumType(named.name, symbol!)) }
       let typeArgs: ResolvedType[] = []
       for argument of named.typeArgs { typeArgs.push(resolveType(state, argument, module, scope)) }
+      declaration := declarationFor(state.result, symbol!)
+      if declaration != null {
+        case declaration! {
+          classDeclaration: ClassDeclaration -> {
+            validateTypeArgumentConstraints(state, classDeclaration.typeParams, classDeclaration.typeParamConstraints, typeArgs, named.span, classModuleFor(state.result, symbol!), scope)
+          }
+          _ -> { }
+        }
+      }
       return decorateType(state, annotation, classType(named.name, symbol!, typeArgs))
     }
     array: ArrayType -> { return decorateType(state, annotation, arrayType(resolveType(state, array.elementType, module, scope), array.readonly_)) }
@@ -147,6 +166,51 @@ export function resolveType(state: CheckerState, annotation: TypeAnnotation, mod
     weak_: WeakType -> { return decorateType(state, annotation, weakType(resolveType(state, weak_.type_, module, scope))) }
   }
   return decorateType(state, annotation, unknownType())
+}
+
+/** Validates concrete arguments against substituted declaration constraints. */
+export function validateTypeArgumentConstraints(state: CheckerState, names: string[], constraints: TypeParameterConstraint[], arguments: ResolvedType[], span: SourceSpan, module: ModuleInfo, outer: Scope): void {
+  if names.length != arguments.length { return }
+  constraintScope := Scope { parent: outer }
+  for name of names {
+    constraintScope.typeParams.push(name)
+    constraintScope.typeParamConstraintNames.push("")
+    constraintScope.typeParamConstraints.push(ResolvedTypeConstraint {})
+  }
+  for index of 0..<names.length {
+    if index >= constraints.length || constraints[index].type_ == null { continue }
+    case arguments[index] {
+      parameter: TypeParameterType -> { if parameter.constraint == null && parameter.constraintName == "" { continue } }
+      _ -> { }
+    }
+    annotation := constraints[index].type_!
+    case annotation {
+      named: NamedType -> {
+        if named.typeArgs.length == 0 && named.name == "Reflectable" {
+          case arguments[index] {
+            _: ClassType -> { memberType(state, arguments[index], "metadata", span) }
+            _ -> { reportConstraintViolation(state, names[index], arguments[index], "Reflectable", span) }
+          }
+          continue
+        }
+        if named.typeArgs.length == 0 && named.name == "JsonSerializable" {
+          result := memberType(state, arguments[index], "fromJsonValue", span)
+          if result.kind == "unknown" { reportConstraintViolation(state, names[index], arguments[index], "JsonSerializable", span) }
+          continue
+        }
+      }
+      _ -> { }
+    }
+    resolvedConstraint := resolveType(state, annotation, module, constraintScope)
+    substitutedConstraint := substituteTypeParams(resolvedConstraint, names, arguments)
+    if !isAssignable(arguments[index], substitutedConstraint) {
+      reportConstraintViolation(state, names[index], arguments[index], typeName(substitutedConstraint), span)
+    }
+  }
+}
+
+function reportConstraintViolation(state: CheckerState, typeParam: string, argument: ResolvedType, constraint: string, span: SourceSpan): void {
+  typeError(state, "Type \"" + typeName(argument) + "\" does not satisfy constraint \"" + constraint + "\" for type parameter \"" + typeParam + "\"", span)
 }
 
 export function decorateType(state: CheckerState, annotation: TypeAnnotation, resolvedType: ResolvedType): ResolvedType {
