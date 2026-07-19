@@ -3,12 +3,26 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveIOSAdHocSigning, signAndArchiveIOSApp, type IOSPackageHost } from "./ios-package.js";
+import {
+  resolveIOSAdHocSigning, resolveIOSAppEntitlements, signAndArchiveIOSApp, type IOSPackageHost,
+} from "./ios-package.js";
 
 const tempDirs: string[] = [];
 afterEach(() => tempDirs.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true })));
 
 describe("iOS Ad Hoc package signing", () => {
+  it("expands profile wildcard allowlists into exact app entitlement claims", () => {
+    expect(resolveIOSAppEntitlements({
+      "application-identifier": "TEAMID.dev.doof.*",
+      "com.apple.developer.team-identifier": "TEAMID",
+      "keychain-access-groups": ["TEAMID.*", "com.apple.token"],
+    }, "dev.doof.demo")).toEqual({
+      "application-identifier": "TEAMID.dev.doof.demo",
+      "com.apple.developer.team-identifier": "TEAMID",
+      "keychain-access-groups": ["TEAMID.dev.doof.demo", "com.apple.token"],
+    });
+  });
+
   it("accepts an unexpired device profile with distribution signing", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "doof-ios-package-test-"));
     tempDirs.push(root);

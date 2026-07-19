@@ -86,6 +86,31 @@ export function testEmitsDotShorthandEnumMapKeys(): void {
   Assert.stringContains(result.header, "{Suit::Hearts, std::make_shared<Pile>()}")
 }
 
+export function testEmitsIntegerMapKeys(): void {
+  result := emit("function ints(): Map<int, string> => { 1: \"one\", 2: \"two\" }\nfunction longs(): Map<long, string> => { 1L: \"one\", 2L: \"two\" }")
+  Assert.stringContains(result.source, "{1, std::string(\"one\")}")
+  Assert.stringContains(result.source, "{2LL, std::string(\"two\")}")
+}
+
+export function testEmitsArrayCloneMutableAndEnumFromValue(): void {
+  result := emit("enum Suit { Spades = 0, Hearts = 1 }\nfunction clone(values: int[]): int[] => values.cloneMutable()\nfunction suit(index: int): Suit => Suit.fromValue(index) ?? .Spades")
+  Assert.stringContains(result.source, "doof::array_cloneMutable(values")
+  Assert.stringContains(result.source, "Suit_fromValue(index)")
+  Assert.stringContains(result.header, "Suit_fromValue(int32_t value)")
+}
+
+export function testEmitsCStyleForInitializerWithoutExtraSemicolon(): void {
+  result := emit("function sum(limit: int): int { let total = 0\nfor let i = 0; i < limit; i += 1 { total += i }\nreturn total }")
+  Assert.stringContains(result.source, "for (auto i = 0; i < limit; (i += 1))")
+  Assert.equal(result.source.contains("for (auto i = 0;;"), false)
+}
+
+export function testDoesNotCaptureModuleReadonlyValuesInLambdas(): void {
+  result := emit("readonly CLICK_THRESHOLD: double = 5.0\nfunction invoke(handler: (): double): double => handler()\nfunction read(): double => invoke((): double => CLICK_THRESHOLD)")
+  Assert.stringContains(result.source, "[]() -> double { return CLICK_THRESHOLD; }")
+  Assert.equal(result.source.contains("[CLICK_THRESHOLD]"), false)
+}
+
 export function testEmitsRangeValuesSignaturesAndMembers(): void {
   result := emit("function first(values: Range): int { for value of values { return value }\nreturn values.lowerBound + values.upperBound }\nfunction main(): int => first(1..<4)")
   Assert.equal(result.header.contains("int32_t first(doof::Range values)"), true)
@@ -365,6 +390,14 @@ export function testEmitsMapSizeAsContainerCall(): void {
   Assert.equal(result.source.contains("doof::map_buildReadonly(values"), true)
 }
 
+export function testWrapsMapSetArgumentsForJsonValueMaps(): void {
+  result := emit("function fill(receipt: Map<string, JsonValue>, version: int, name: string): void { receipt.set(\"schemaVersion\", version)\nreceipt.set(\"name\", name) }\nfunction widen(value: int): long => long(value)")
+  Assert.stringContains(result.source, "doof::map_set(receipt, std::string(\"schemaVersion\"), doof::json_value(version)")
+  Assert.stringContains(result.source, "doof::map_set(receipt, std::string(\"name\"), doof::json_value(name)")
+  Assert.stringContains(result.source, "static_cast<int64_t>(value)")
+  Assert.equal(result.source.contains("static_cast<int64_t>(doof::json_value(value))"), false)
+}
+
 export function testInvokesCallbackValuedMemberThroughCallMethod(): void {
   result := emit("class Route { handler: (value: int): int\nget(value: int): int => value }\nfunction invoke(route: Route): int => route.handler(1) + route.get(1)")
   Assert.equal(result.source.contains("route->handler.call(1)"), true)
@@ -503,7 +536,14 @@ export function testEmitsStrictPrimitiveJsonDeserialization(): void {
   Assert.equal(result.source.contains("_field_count = 10;"), true)
   Assert.equal(result.source.contains("_field_notes = std::nullopt;"), true)
   Assert.equal(result.source.contains("doof::json_is_null(_iterator_notes->second)"), true)
-  Assert.equal(result.source.contains("std::make_shared<Config>(_field_name, _field_enabled, _field_count, _field_notes)"), true)
+  Assert.equal(result.source.contains("std::make_shared<Config>(_field_name, _field_enabled, _field_count.value(), _field_notes.value())"), true)
+}
+
+export function testDeserializesDefaultedStructFieldsWithoutDefaultConstruction(): void {
+  result := emit("struct Depth { mode: int }\nclass Pass { depth: Depth = Depth { mode: 0 } }\nfunction parse(value: JsonValue): Result<Pass, string> => Pass.fromJsonValue(value)")
+  Assert.stringContains(result.source, "std::optional<Depth> _field_depth;")
+  Assert.stringContains(result.source, "std::make_shared<Pass>(_field_depth.value())")
+  Assert.equal(result.source.contains("Depth _field_depth;"), false)
 }
 
 export function testEmitsStructJsonDeserializationByValue(): void {

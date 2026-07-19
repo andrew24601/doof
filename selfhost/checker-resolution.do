@@ -276,6 +276,7 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       }
       if property == "slice" { return functionType([FunctionParamType { name: "start", type_: primitive("int"), hasDefault: false }, FunctionParamType { name: "end", type_: primitive("int"), hasDefault: false }], arrayType(array.elementType, array.readonly_)) }
       if property == "buildReadonly" { return functionType([], arrayType(array.elementType, true)) }
+      if property == "cloneMutable" { return functionType([], arrayType(array.elementType)) }
       return unknownType()
     }
     map: MapResolvedType -> {
@@ -286,6 +287,7 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
       if property == "keys" { return functionType([], arrayType(map.keyType)) }
       if property == "values" { return functionType([], arrayType(map.valueType)) }
       if property == "buildReadonly" { return functionType([], mapType(map.keyType, map.valueType, true)) }
+      if property == "cloneMutable" { return functionType([], mapType(map.keyType, map.valueType)) }
       return unknownType()
     }
     set: SetResolvedType -> {
@@ -377,6 +379,18 @@ export function memberType(state: CheckerState, object: ResolvedType, property: 
     enum_: EnumType -> {
       if property == "name" { return primitive("string") }
       if property == "value" { return primitive("int") }
+      if property == "fromName" {
+        return functionType(
+          [FunctionParamType { name: "value", type_: primitive("string"), hasDefault: false }],
+          unionType([enum_, nullType()]),
+        )
+      }
+      if property == "fromValue" {
+        return functionType(
+          [FunctionParamType { name: "value", type_: primitive("int"), hasDefault: false }],
+          unionType([enum_, nullType()]),
+        )
+      }
       declaration := declarationFor(state.result, enum_.symbol)
       if declaration != null {
         case declaration! {

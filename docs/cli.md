@@ -173,8 +173,8 @@ For `emit`, `build`, `run`, `package`, and `check`, the path is optional when th
 | `--target <kind>` | Override the manifest build target for this invocation. Supported values: `macos-app`, `ios-app`, `wasm` |
 | `--ios-destination <kind>` | iOS destination for `ios-app`. Supported values: `simulator`, `device`. Default: `simulator` |
 | `--ios-device <id>` | Connected iOS device identifier or name for `ios-app` runs when `--ios-destination device` is used |
-| `--ios-sign-identity <name>` | Code signing identity for `ios-app` device builds |
-| `--ios-provisioning-profile <path>` | Provisioning profile for `ios-app` device builds |
+| `--ios-sign-identity <name>` | Override the Apple signing identity for `ios-app` device/package builds |
+| `--ios-provisioning-profile <path>` | Provisioning profile for `ios-app` device/package builds |
 | `--macos-signing <kind>` | macOS package signing mode: `developer-id` or `ad-hoc` |
 | `--macos-sign-identity <name>` | Developer ID Application identity for macOS packaging |
 | `--macos-sandbox` | Enable App Sandbox for a packaged macOS app |
@@ -244,7 +244,7 @@ npx doof package samples/solitaire
 
 Plain programs are copied to `dist/` using the executable name. macOS apps produce `<Executable>-<version>-macos.zip`; iOS apps produce `<Executable>-<version>-ios.ipa` with the standard `Payload/<Executable>.app` layout.
 
-macOS packaging defaults to a uniquely discoverable Developer ID Application identity, hardened runtime, timestamping, and signature verification. Pass `--macos-signing ad-hoc` for local ad-hoc signing. iOS packaging always targets physical devices and requires an unexpired Ad Hoc distribution profile; simulator apps remain a `build`/`run` concern. Signing overrides resolve in CLI, environment, manifest, then automatic-discovery order. Supported environment variables are `DOOF_MACOS_SIGN_IDENTITY`, `DOOF_IOS_SIGN_IDENTITY`, and `DOOF_IOS_PROVISIONING_PROFILE`.
+macOS packaging defaults to a uniquely discoverable Developer ID Application identity, hardened runtime, timestamping, and signature verification. Pass `--macos-signing ad-hoc` for local ad-hoc signing. iOS packaging always targets physical devices and requires an unexpired Ad Hoc distribution profile; simulator apps remain a `build`/`run` concern. Given a profile, Doof selects the sole installed Apple Distribution identity whose certificate fingerprint appears in that profile. Zero matches fail with an actionable diagnostic, while multiple matches require `--ios-sign-identity`. Signing overrides resolve in CLI, environment, manifest, then automatic-discovery order. Supported environment variables are `DOOF_MACOS_SIGN_IDENTITY`, `DOOF_IOS_SIGN_IDENTITY`, and `DOOF_IOS_PROVISIONING_PROFILE`.
 
 Build a macOS app bundle from manifest metadata:
 

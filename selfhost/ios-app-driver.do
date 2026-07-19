@@ -1,14 +1,19 @@
 // Native iOS bundle, SDK, signing, and IPA boundary for the self-hosted driver.
 
 import {
-  IOSAppConfig, IOSPackageConfig, iosCodesignArguments, iosTargetTriple,
+  IOSAppConfig, IOSPackageConfig, iosCodesignArguments, iosExactApplicationIdentifier, iosTargetTriple,
   renderIOSIconSetContents, renderIOSInfoPlist, renderIOSMainSource,
 } from "./ios-app"
+import {
+  parseCodesignIdentities, parseProvisioningProfile, resolveIOSAdHocSigningIdentity,
+  validateIOSAdHocSigning,
+} from "./ios-device"
 import { NativeBuildPlan } from "./package-manifest"
 import { BlobReader } from "std/blob"
 import { exists, isDirectory, mkdir, readBlob, readDir, remove, writeBlob, writeText } from "std/fs"
 import { ExecOptions, platform, run } from "std/os"
 import { basename, dirname, join } from "std/path"
+import { Instant } from "std/time"
 
 readonly MAX_IOS_COMMAND_OUTPUT_BYTES = 262144L
 
@@ -239,13 +244,6 @@ export function assembleIOSApp(
   return Success(appPath)
 }
 
-function profileMatchesBundleId(applicationIdentifier: string, bundleId: string): bool {
-  separator := applicationIdentifier.indexOf(".")
-  provisioned := if separator < 0 then applicationIdentifier else applicationIdentifier.substring(separator + 1, applicationIdentifier.length)
-  return provisioned == bundleId || provisioned == "*" ||
-    (provisioned.endsWith(".*") && bundleId.startsWith(provisioned.substring(0, provisioned.length - 1)))
-}
-
 function collectNestedCode(path: string, results: string[]): void {
   if !exists(path) { return }
   if isDirectory(path) {
@@ -265,7 +263,6 @@ export function signAndArchiveIOSApp(
   buildDirectory: string,
 ): Result<void, string> {
   if hostPlatform() != "macos" { return Failure("iOS Ad Hoc packaging is only supported on macOS") }
-  if config.identity == "" { return Failure("No iOS signing identity configured; pass --ios-sign-identity or set DOOF_IOS_SIGN_IDENTITY") }
   if config.provisioningProfilePath == "" {
     return Failure("No iOS provisioning profile configured; pass --ios-provisioning-profile")
   }
@@ -276,29 +273,64 @@ export function signAndArchiveIOSApp(
   ensureDirectory(workDirectory)
   decodedProfilePath := outputPath(workDirectory, "profile.plist")
   entitlementsPath := outputPath(workDirectory, "entitlements.plist")
-  try decoded := commandText("security", ["cms", "-D", "-i", config.provisioningProfilePath], "decoding the iOS provisioning profile")
-  try! writeText(decodedProfilePath, decoded)
-  try applicationIdentifier := commandText(
-    "plutil", ["-extract", "Entitlements.application-identifier", "raw", "-o", "-", decodedProfilePath],
-    "reading the iOS provisioning profile application identifier",
+  try profile := parseProvisioningProfile(config.provisioningProfilePath, workDirectory)
+  try identitiesOutput := commandText(
+    "security", ["find-identity", "-v", "-p", "codesigning"], "listing code-signing identities",
   )
-  if !profileMatchesBundleId(applicationIdentifier, bundleId) {
-    removeTree(workDirectory)
-    return Failure("Provisioning profile application-identifier does not match bundle id \"" + bundleId + "\"")
-  }
+  identities := parseCodesignIdentities(identitiesOutput)
+  try identity := resolveIOSAdHocSigningIdentity(profile, identities, config.identity)
+  try validateIOSAdHocSigning(profile, identities, identity, bundleId, Instant.now().toEpochMillis())
+  try exactApplicationIdentifier := iosExactApplicationIdentifier(profile.applicationIdentifier, bundleId)
   try runRequiredCommand(
     "plutil", ["-extract", "Entitlements", "xml1", "-o", entitlementsPath, decodedProfilePath],
     "extracting iOS signing entitlements",
   )
+  try runRequiredCommand(
+    "/usr/libexec/PlistBuddy", ["-c", "Set :application-identifier " + exactApplicationIdentifier, entitlementsPath],
+    "expanding the iOS application identifier entitlement",
+  )
+  keychainGroupCountResult := commandText(
+    "plutil", ["-extract", "keychain-access-groups", "raw", "-o", "-", entitlementsPath],
+    "reading keychain access groups",
+  )
+  let keychainGroupCount = 0
+  case keychainGroupCountResult {
+    success: Success -> {
+      case int.parse(success.value) {
+        parsedCount: Success -> { keychainGroupCount = parsedCount.value }
+        _: Failure -> { }
+      }
+    }
+    _: Failure -> { }
+  }
+  for index of 0..<keychainGroupCount {
+    group := commandText(
+      "plutil", ["-extract", "keychain-access-groups." + string(index), "raw", "-o", "-", entitlementsPath],
+      "reading keychain access group",
+    ) else { continue }
+    if group.contains("*") {
+      try runRequiredCommand(
+        "/usr/libexec/PlistBuddy", ["-c", "Set :keychain-access-groups:" + string(index) + " " + exactApplicationIdentifier, entitlementsPath],
+        "expanding a keychain access group entitlement",
+      )
+    }
+  }
   copyPath(config.provisioningProfilePath, outputPath(appPath, "embedded.mobileprovision"))
   let nested: string[] = []
   collectNestedCode(outputPath(appPath, "Frameworks"), nested)
   collectNestedCode(outputPath(appPath, "PlugIns"), nested)
   for path of nested {
-    try runRequiredCommand("codesign", iosCodesignArguments(path, config.identity), "signing nested iOS code")
+    try runRequiredCommand("codesign", iosCodesignArguments(path, identity), "signing nested iOS code")
   }
-  try runRequiredCommand("codesign", iosCodesignArguments(appPath, config.identity, entitlementsPath), "signing the iOS app")
+  try runRequiredCommand("codesign", iosCodesignArguments(appPath, identity, entitlementsPath), "signing the iOS app")
   try runRequiredCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath], "verifying the iOS app signature")
+  try signedEntitlements := commandText(
+    "codesign", ["--display", "--entitlements", "-", "--xml", appPath], "inspecting signed iOS entitlements",
+  )
+  if signedEntitlements.contains("invalid entitlements blob") || !signedEntitlements.contains(exactApplicationIdentifier) {
+    removeTree(workDirectory)
+    return Failure("Signed iOS entitlements do not contain the exact application identifier \"" + exactApplicationIdentifier + "\"")
+  }
 
   payloadDirectory := outputPath(workDirectory, "Payload")
   ensureDirectory(payloadDirectory)

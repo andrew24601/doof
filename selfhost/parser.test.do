@@ -681,6 +681,27 @@ export function testParsesDotShorthandEnumMapKeys(): void {
   }
 }
 
+export function testParsesIntegerMapKeys(): void {
+  case first("labels: Map<int, string> := { 1: \"one\", 2L: \"two\" }") {
+    binding: ImmutableBinding -> {
+      case binding.value {
+        object: ObjectLiteral -> {
+          case object.properties[0].key! {
+            key: IntLiteral -> { Assert.equal(key.value, 1) }
+            _ -> { panic("expected integer map key") }
+          }
+          case object.properties[1].key! {
+            key: LongLiteral -> { Assert.equal(key.value, 2L) }
+            _ -> { panic("expected long map key") }
+          }
+        }
+        _ -> { panic("expected integer-keyed map literal") }
+      }
+    }
+    _ -> { panic("expected immutable binding") }
+  }
+}
+
 export function testParsesTypedLambdaParametersAndReturnTypes(): void {
   program := parse("loader := (path: string): SourceFile | null => null")
   case program.statements[0] {

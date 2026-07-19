@@ -1,7 +1,7 @@
 // Call, native-constructor, and class-construction lowering.
 
 import { CallArgument, CallExpression, ClassDeclaration, ConstructExpression, Expression, FunctionDeclaration, Identifier, MemberExpression, ObjectProperty, SourceSpan, ThisExpression } from "./ast"
-import { ActorType, ArrayResolvedType, ClassType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, SetResolvedType, StreamResolvedType, Symbol } from "./semantic"
+import { ActorType, ArrayResolvedType, ClassType, EnumType, FunctionType, InterfaceType, MapResolvedType, ResultResolvedType, ResolvedType, SetResolvedType, StreamResolvedType, Symbol } from "./semantic"
 import { EmitContext, SourceLocationSpanOverride } from "./emitter-context"
 import { substituteTypeParams } from "./checker-types"
 import { cppIdentifier, emitExpression } from "./emitter-expr"
@@ -165,6 +165,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
           _: StreamResolvedType -> { return emitInterfaceCall(member, expression, context) }
           _: ArrayResolvedType -> {
             if member.property == "buildReadonly" { return "doof::array_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
+            if member.property == "cloneMutable" { return "doof::array_cloneMutable(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "contains" { return "doof::array_contains(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "indexOf" { return "doof::array_indexOf(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "some" { return "doof::array_some(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
@@ -172,12 +173,14 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             if member.property == "filter" { return "doof::array_filter(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "map" { return "doof::array_map(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
           }
-          _: MapResolvedType -> {
+          map: MapResolvedType -> {
             if member.property == "has" { return "(" + emitExpression(member.object, context) + "->find(" + emitExpression(expression.args[0].value, context) + ") != " + emitExpression(member.object, context) + "->end())" }
-            if member.property == "set" { return "doof::map_set(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", " + emitExpression(expression.args[1].value, context) + ", \"\", 0)" }
+            if member.property == "set" { return "doof::map_set(" + emitExpression(member.object, context) + ", " + emitExpectedExpression(expression.args[0].value, context, map.keyType) + ", " + emitExpectedExpression(expression.args[1].value, context, map.valueType) + ", \"\", 0)" }
             if member.property == "get" && expression.args.length > 0 { return "doof::map_get(" + emitExpression(member.object, context) + ", " + emitExpression(expression.args[0].value, context) + ", \"\", 0)" }
             if member.property == "keys" { return "doof::map_keys(" + emitExpression(member.object, context) + ", \"\", 0)" }
+            if member.property == "values" { return "doof::map_values(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "buildReadonly" { return "doof::map_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
+            if member.property == "cloneMutable" { return "doof::map_cloneMutable(" + emitExpression(member.object, context) + ", \"\", 0)" }
           }
           _: SetResolvedType -> {
             if member.property == "has" { return "(" + emitExpression(member.object, context) + "->count(" + emitExpression(expression.args[0].value, context) + ") > 0)" }
@@ -186,6 +189,12 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
             if member.property == "values" { return "doof::set_values(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "buildReadonly" { return "doof::set_buildReadonly(" + emitExpression(member.object, context) + ", \"\", 0)" }
             if member.property == "cloneMutable" { return "doof::set_cloneMutable(" + emitExpression(member.object, context) + ", \"\", 0)" }
+          }
+          enum_: EnumType -> {
+            if member.property == "fromName" || member.property == "fromValue" {
+              args := if expression.args.length == 0 then "" else emitExpression(expression.args[0].value, context)
+              return emitContextType(enum_, context) + "_" + member.property + "(" + args + ")"
+            }
           }
           _ -> { }
         }
@@ -372,7 +381,7 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
       if functionType != null && i < functionType!.params.length { expected = optionalExpectedType(functionType!.params[i].type_) }
       if expected == null && functionDeclaration != null && i < functionDeclaration!.params.length { expected = functionDeclaration!.params[i].resolvedType }
       case expression.callee {
-        identifier: Identifier -> { if identifier.name == "println" { expected = null } }
+        identifier: Identifier -> { if identifier.name == "println" || isBuiltinConversionName(identifier.name) { expected = null } }
         _ -> { }
       }
       let argument = emitExpectedExpression(expression.args[i].value, context, expected)
@@ -393,6 +402,10 @@ export function emitCall(expression: CallExpression, context: EmitContext, expec
 
 function isNumericTypeNamespace(name: string): bool {
   return name == "byte" || name == "int" || name == "long" || name == "float" || name == "double"
+}
+
+function isBuiltinConversionName(name: string): bool {
+  return name == "string" || name == "byte" || name == "int" || name == "long" || name == "float" || name == "double" || name == "char" || name == "bool"
 }
 
 function isClassCallee(callee: Expression): bool {

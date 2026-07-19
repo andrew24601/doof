@@ -429,7 +429,8 @@ export function checkBinary(state: CheckerState, expression: BinaryExpression, s
       case expression.right {
         _: DotShorthand -> {
           left = checkExpression(state, expression.left, scope, null)
-          right = checkExpression(state, expression.right, scope, optionalResolvedType(left))
+          shorthandExpected := if expression.operator == "??" then nonNullType(state, left) else left
+          right = checkExpression(state, expression.right, scope, optionalResolvedType(shorthandExpected))
         }
         _ -> {
           left = checkExpression(state, expression.left, scope, null)

@@ -70,7 +70,7 @@ export function signAndArchiveIOSApp(
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "doof-ios-package-"));
   try {
     const entitlementsPath = path.join(tempDir, "entitlements.plist");
-    fs.writeFileSync(entitlementsPath, plist.build(signing.entitlements), "utf8");
+    fs.writeFileSync(entitlementsPath, plist.build(resolveIOSAppEntitlements(signing.entitlements, bundleId)), "utf8");
     fs.copyFileSync(signing.provisioningProfilePath, path.join(appPath, "embedded.mobileprovision"));
     for (const nestedPath of collectNestedCodePaths(appPath)) {
       host.execFile("codesign", ["--force", "--sign", signing.identity, "--timestamp=none", nestedPath]);
@@ -91,6 +91,30 @@ export function signAndArchiveIOSApp(
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+/** Expands profile allowlist wildcards into exact entitlement claims for an app signature. */
+export function resolveIOSAppEntitlements(
+  profileEntitlements: Record<string, unknown>,
+  bundleId: string,
+): Record<string, unknown> {
+  const applicationIdentifier = typeof profileEntitlements["application-identifier"] === "string"
+    ? profileEntitlements["application-identifier"] as string : "";
+  if (!matchesBundleId(applicationIdentifier, bundleId)) {
+    throw new Error(`Provisioning profile application-identifier does not match bundle id ${JSON.stringify(bundleId)}`);
+  }
+  const separator = applicationIdentifier.indexOf(".");
+  if (separator < 0) throw new Error("Provisioning profile application-identifier is malformed");
+  const exactApplicationIdentifier = `${applicationIdentifier.slice(0, separator)}.${bundleId}`;
+  const keychainAccessGroups = Array.isArray(profileEntitlements["keychain-access-groups"])
+    ? (profileEntitlements["keychain-access-groups"] as unknown[]).map((group) =>
+      typeof group === "string" && group.includes("*") ? exactApplicationIdentifier : group)
+    : profileEntitlements["keychain-access-groups"];
+  return {
+    ...profileEntitlements,
+    "application-identifier": exactApplicationIdentifier,
+    ...(keychainAccessGroups === undefined ? {} : { "keychain-access-groups": keychainAccessGroups }),
+  };
 }
 
 function collectNestedCodePaths(appPath: string): string[] {

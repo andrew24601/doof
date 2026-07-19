@@ -474,7 +474,10 @@ function emitForOf(statement: ForOfStatement, level: int, context: EmitContext):
 function emitFor(statement: ForStatement, level: int, context: EmitContext): string {
   ind := indent(level)
   let init = ""
-  if statement.init != null { init = emitStatement(statement.init!, 0, context).trim() }
+  if statement.init != null {
+    init = emitStatement(statement.init!, 0, context).trim()
+    if init.endsWith(";") { init = init.substring(0, init.length - 1) }
+  }
   let condition = "true"
   if statement.condition != null { condition = emitCondition(statement.condition!, context) }
   let update = ""

@@ -282,7 +282,11 @@ export function checkValueDeclaration(state: CheckerState, declaration: Statemen
     let_: LetDeclaration -> { let_.resolvedType = optionalResolvedType(declaredType) }
     _ -> { }
   }
-  if name != "_" { declare(scope, Binding { name, kind, type_: declaredType, mutable, span: checkerSemanticSpan(span), module: state.info!.path }) }
+  if name != "_" {
+    let declarationSymbol: Symbol | null = null
+    if scope.parent == null { declarationSymbol = symbolFor(state.info!, name) }
+    declare(scope, Binding { name, kind, type_: declaredType, mutable, span: checkerSemanticSpan(span), module: state.info!.path, symbol: declarationSymbol })
+  }
   return true
 }
 

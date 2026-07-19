@@ -380,6 +380,12 @@ function emitEnumDeclaration(declaration: EnumDeclaration, context: EmitContext)
     result = result + "  if (value == \"" + variant.name + "\") return " + declaration.name + "::" + variant.name + ";\n"
   }
   result = result + "  return std::nullopt;\n}\n"
+  result = result + "inline std::optional<" + declaration.name + "> " + declaration.name + "_fromValue(int32_t value) {\n"
+  result = result + "  switch (static_cast<" + declaration.name + ">(value)) {\n"
+  for variant of declaration.variants {
+    result = result + "    case " + declaration.name + "::" + variant.name + ": return " + declaration.name + "::" + variant.name + ";\n"
+  }
+  result = result + "    default: return std::nullopt;\n  }\n}\n"
   return result + "inline std::ostream& operator<<(std::ostream& output, " + declaration.name + " value) { return output << " + declaration.name + "_name(value); }\n"
 }
 

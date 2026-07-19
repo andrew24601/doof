@@ -5,7 +5,7 @@
 // by statement and declaration emission.
 
 import { ActorCreationExpression, ArrayLiteral, AsExpression, AssignmentExpression, AsyncExpression, BinaryExpression, BoolLiteral, CallExpression, CallerExpression, CaseExpression, CatchExpression, CharLiteral, ConstructExpression, DoubleLiteral, DotShorthand, Expression, FloatLiteral, Identifier, IfExpression, IndexExpression, IntLiteral, LambdaExpression, LongLiteral, MemberExpression, NullLiteral, ObjectLiteral, RetireExpression, StringLiteral, ThisExpression, TupleLiteral, UnaryExpression, YieldBlockExpression } from "./ast"
-import { ClassType, ResolvedType } from "./semantic"
+import { ClassType, JsonValueResolvedType, NullType, PrimitiveType, ResolvedType } from "./semantic"
 import { EmitContext } from "./emitter-context"
 import { emitAs, emitAssignment, emitBinary, emitIdentifier, emitIndex, emitMember, emitUnary, cppIdentifier as emitCppIdentifier } from "./emitter-expr-ops"
 import { emitCall, emitConstruct } from "./emitter-expr-calls"
@@ -70,6 +70,7 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     _ -> { panic("Unsupported expression in initial C++ emitter: " + expression.kind) }
   }
   sourceType := decoratedExpressionType(expression)
+  value = emitJsonValuePromotion(expression, value, sourceType, expected)
   if needsNullableVariantPromotion(sourceType, expected) {
     return emitNullableVariantPromotion(value, sourceType, expected, context.modulePath)
   }
@@ -77,6 +78,31 @@ export function emitExpression(expression: Expression, context: EmitContext, exp
     return "doof::variant_promote<" + emitType(expected!, context.modulePath) + ">(" + value + ")"
   }
   return value
+}
+
+// Literal collection emitters already construct JsonValue directly. Other
+// expressions need an explicit runtime wrapper when contextual typing widens a
+// primitive or an exact JSON carrier into JsonValue.
+function emitJsonValuePromotion(expression: Expression, value: string, source: ResolvedType | null, expected: ResolvedType | null): string {
+  if source == null || expected == null { return value }
+  case expected! {
+    _: JsonValueResolvedType -> { }
+    _ -> { return value }
+  }
+  case source! {
+    _: JsonValueResolvedType -> { return value }
+    _: NullType -> { return value }
+    primitive: PrimitiveType -> {
+      if primitive.name == "byte" || primitive.name == "char" { return "doof::json_value(static_cast<int32_t>(" + value + "))" }
+    }
+    _ -> { }
+  }
+  case expression {
+    _: ArrayLiteral -> { return value }
+    _: ObjectLiteral -> { return value }
+    _ -> { }
+  }
+  return "doof::json_value(" + value + ")"
 }
 
 export function cppIdentifier(name: string): string { return emitCppIdentifier(name) }

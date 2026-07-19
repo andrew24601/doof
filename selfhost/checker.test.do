@@ -105,6 +105,15 @@ export function testArrayPopReturnsResult(): void {
   Assert.equal(ignored.diagnostics[0].message.contains("Result value must be handled"), true)
 }
 
+export function testDecoratesArrayCloneMutableAndEnumLookupHelpers(): void {
+  source := "enum Suit { Spades = 0, Hearts = 1 }\nclass Pile { cardIndices: int[] = [] }\nfunction clonePile(pile: Pile): Pile { return Pile { cardIndices: pile.cardIndices.cloneMutable() } }\nfunction foundationSuit(index: int): Suit { return Suit.fromValue(index) ?? .Spades }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  Assert.equal(createChecker(analysis).check("/main.do").diagnostics.length, 0)
+  diagnostics := validateCheckedTypes(analysis)
+  for diagnostic of diagnostics { println(diagnostic.message) }
+  Assert.equal(diagnostics.length, 0)
+}
+
 export function testDecoratesReadonlyMapConstructionAndSizeMember(): void {
   source := "class RouteMatch { params: readonly Map<string, string> }\nfunction equal<T>(actual: T, expected: T): void {}\nfunction match(params: Map<string, string>): RouteMatch { return RouteMatch { params: params.buildReadonly() } }\nfunction verify(matched: RouteMatch | null): void { equal(matched!.params.size, 0) }"
   analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
@@ -992,6 +1001,20 @@ export function testInfersOmittedCollectionTypeArgumentsFromLiterals(): void {
 export function testChecksDotShorthandEnumMapKeysInFieldDefaults(): void {
   result := checked("enum Suit { Spades, Hearts }\nclass Pile {}\nclass State { foundations: Map<Suit, Pile> = { .Spades: Pile {}, .Hearts: Pile {} } }")
   Assert.equal(result.diagnostics.length, 0)
+}
+
+export function testChecksAndInfersIntegerMapKeys(): void {
+  annotated := checked("ints: Map<int, string> := { 1: \"one\", 2: \"two\" }\nlongs: Map<long, string> := { 1L: \"one\", 2L: \"two\" }")
+  Assert.equal(annotated.diagnostics.length, 0)
+
+  source := "inferred: Map := { 1: \"one\", 2: \"two\" }"
+  analysis := createAnalyzer([SourceFile { path: "/main.do", source }]).analyze("/main.do")
+  semantic := createChecker(analysis).check("/main.do")
+  Assert.equal(semantic.diagnostics.length, 0)
+  case analysis.modules[0].program.statements[0] {
+    binding: ImmutableBinding -> { Assert.equal(typeName(binding.resolvedType ?? unknownType()), "Map<int, string>") }
+    _ -> { panic("expected an immutable binding") }
+  }
 }
 
 export function testRejectsInvalidOmittedCollectionInferenceSites(): void {

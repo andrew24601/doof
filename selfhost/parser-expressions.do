@@ -500,6 +500,10 @@ function parseObjectLiteral(parser: Parser): Expression {
         key = parser.parseExpression()
         parser.expect(TokenType.Colon, "Expected ':' after map key")
         value = parser.parseExpression()
+      } else if isBareMapKeyToken(parser.peek(0).kind) && parser.peek(1).kind == TokenType.Colon {
+        key = parser.parseExpression()
+        parser.expect(TokenType.Colon, "Expected ':' after map key")
+        value = parser.parseExpression()
       } else {
         name = parser.text(parser.expect(TokenType.Identifier))
         if parser.match(TokenType.Colon) { value = parser.parseExpression() }
@@ -510,6 +514,11 @@ function parseObjectLiteral(parser: Parser): Expression {
   }
   parser.expect(TokenType.RightBrace)
   return ObjectLiteral { kind: "object-literal", properties, spread, span: parser.span(start) }
+}
+
+function isBareMapKeyToken(kind: TokenType): bool {
+  return kind == TokenType.IntLiteral
+      || kind == TokenType.LongLiteral
 }
 
 function parseConstruction(parser: Parser, start: AstLocation, name: string, typeArgs: TypeAnnotation[]): Expression {

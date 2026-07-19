@@ -50,7 +50,7 @@ import { ExecOptions, architecture, run, platform } from "std/os"
 import { absolute } from "std/path"
 
 readonly MAX_PRINTED_DIAGNOSTICS = 8
-readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 10
+readonly MAX_NATIVE_COMPILER_OUTPUT_LINES = 40
 readonly MAX_NATIVE_COMPILER_OUTPUT_BYTES = 262144L
 readonly MAX_COVERAGE_OUTPUT_BYTES = 16777216L
 

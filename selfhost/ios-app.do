@@ -43,6 +43,28 @@ export function iosPackageArchiveName(executableName: string, version: string): 
   return executableName + "-" + safeVersion + "-ios.ipa"
 }
 
+/** Resolves a profile App ID allowlist entry to the exact entitlement claimed by an app signature. */
+export function iosExactApplicationIdentifier(
+  profileApplicationIdentifier: string,
+  bundleId: string,
+): Result<string, string> {
+  separator := profileApplicationIdentifier.indexOf(".")
+  if separator < 0 {
+    return Failure("Provisioning profile application-identifier is malformed")
+  }
+  prefix := profileApplicationIdentifier.substring(0, separator)
+  provisionedBundleId := profileApplicationIdentifier.substring(separator + 1, profileApplicationIdentifier.length)
+  matches := provisionedBundleId == bundleId || provisionedBundleId == "*" ||
+    (provisionedBundleId.endsWith(".*") && bundleId.startsWith(provisionedBundleId.substring(0, provisionedBundleId.length - 1)))
+  if !matches {
+    return Failure(
+      "Provisioning profile application-identifier \"" + profileApplicationIdentifier +
+      "\" does not match bundle id \"" + bundleId + "\"",
+    )
+  }
+  return Success(prefix + "." + bundleId)
+}
+
 export function iosTargetTriple(minimumDeploymentTarget: string, destination: string, architecture: string): Result<string, string> {
   if destination == "device" { return Success("arm64-apple-ios" + minimumDeploymentTarget) }
   if destination != "simulator" { return Failure("Unknown iOS destination: " + destination) }

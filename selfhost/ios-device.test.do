@@ -1,7 +1,9 @@
 import { Assert } from "std/assert"
 import {
-  IOSProvisioningProfile, parseCodesignIdentities, parseConnectedIOSDevices,
+  IOSCodesignIdentity, IOSProvisioningProfile, parseCodesignIdentities, parseConnectedIOSDevices,
+  resolveIOSAdHocSigningIdentity,
   selectIOSDeviceIdentifier, selectProvisioningProfile, selectSigningIdentity,
+  validateIOSAdHocSigning,
 } from "./ios-device"
 
 export function testParsesConnectedPhysicalIOSDevices(): void {
@@ -81,4 +83,130 @@ export function testParsesAndMatchesCodesignIdentityFingerprint(): void {
     expirationEpochMs: 200L,
   }
   Assert.equal(try! selectSigningIdentity(profile, identities), identities[0].name)
+}
+
+export function testValidatesAdHocPackageProfileAndIdentityTogether(): void {
+  profile := IOSProvisioningProfile {
+    profilePath: "/profile.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.*",
+    certFingerprints: ["11966AB9C099F8FABEFAC54C08D5BE2BD8C903AF"],
+    expirationEpochMs: 200L,
+    provisionedDeviceCount: 1,
+  }
+  identities := [IOSCodesignIdentity {
+    fingerprint: "11966AB9C099F8FABEFAC54C08D5BE2BD8C903AF",
+    name: "Apple Distribution: Jane Doe (TEAMID)",
+  }]
+  result := validateIOSAdHocSigning(
+    profile, identities, "Apple Distribution: Jane Doe (TEAMID)", "dev.doof.demo", 100L,
+  )
+  Assert.equal(result.isFailure(), false)
+}
+
+export function testAutoResolvesSingleDistributionIdentityFromProfileCertificates(): void {
+  profile := IOSProvisioningProfile {
+    profilePath: "/profile.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    expirationEpochMs: 200L,
+    provisionedDeviceCount: 1,
+  }
+  identities := [
+    IOSCodesignIdentity {
+      fingerprint: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      name: "Apple Distribution: Other Team (OTHERTEAM)",
+    },
+    IOSCodesignIdentity {
+      fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      name: "Apple Distribution: Jane Doe (TEAMID)",
+    },
+  ]
+  Assert.equal(
+    try! resolveIOSAdHocSigningIdentity(profile, identities, ""),
+    "Apple Distribution: Jane Doe (TEAMID)",
+  )
+}
+
+export function testRequiresOverrideWhenProfileHasMultipleInstalledDistributionIdentities(): void {
+  profile := IOSProvisioningProfile {
+    profilePath: "/profile.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: [
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    ],
+    expirationEpochMs: 200L,
+    provisionedDeviceCount: 1,
+  }
+  identities := [
+    IOSCodesignIdentity {
+      fingerprint: profile.certFingerprints[0],
+      name: "Apple Distribution: First (TEAMID)",
+    },
+    IOSCodesignIdentity {
+      fingerprint: profile.certFingerprints[1],
+      name: "Apple Distribution: Second (TEAMID)",
+    },
+  ]
+  result := resolveIOSAdHocSigningIdentity(profile, identities, "")
+  Assert.equal(result.isFailure(), true)
+  case result { failure: Failure<string> -> Assert.stringContains(failure.error, "Multiple Apple Distribution identities") }
+}
+
+export function testRejectsPackageIdentityOutsideProvisioningProfile(): void {
+  profile := IOSProvisioningProfile {
+    profilePath: "/profile.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    expirationEpochMs: 200L,
+    provisionedDeviceCount: 1,
+  }
+  identities := [IOSCodesignIdentity {
+    fingerprint: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    name: "Apple Distribution: Wrong Team (OTHERTEAM)",
+  }]
+  result := validateIOSAdHocSigning(
+    profile, identities, "Apple Distribution: Wrong Team (OTHERTEAM)", "dev.doof.demo", 100L,
+  )
+  Assert.equal(result.isFailure(), true)
+  case result { failure: Failure<string> -> Assert.stringContains(failure.error, "not included in provisioning profile") }
+}
+
+export function testRejectsExpiredAndNonAdHocPackageProfiles(): void {
+  identities := [IOSCodesignIdentity {
+    fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    name: "Apple Distribution: Jane Doe (TEAMID)",
+  }]
+  expired := IOSProvisioningProfile {
+    profilePath: "/expired.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: [identities[0].fingerprint],
+    expirationEpochMs: 100L,
+    provisionedDeviceCount: 1,
+  }
+  expiredResult := validateIOSAdHocSigning(expired, identities, identities[0].name, "dev.doof.demo", 100L)
+  Assert.equal(expiredResult.isFailure(), true)
+  case expiredResult { failure: Failure<string> -> Assert.stringContains(failure.error, "expired") }
+
+  development := IOSProvisioningProfile {
+    profilePath: "/development.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: [identities[0].fingerprint],
+    expirationEpochMs: 200L,
+    provisionedDeviceCount: 1,
+    getTaskAllow: true,
+  }
+  developmentResult := validateIOSAdHocSigning(development, identities, identities[0].name, "dev.doof.demo", 100L)
+  Assert.equal(developmentResult.isFailure(), true)
+  case developmentResult { failure: Failure<string> -> Assert.stringContains(failure.error, "Development") }
+
+  store := IOSProvisioningProfile {
+    profilePath: "/store.mobileprovision",
+    applicationIdentifier: "TEAMID.dev.doof.demo",
+    certFingerprints: [identities[0].fingerprint],
+    expirationEpochMs: 200L,
+  }
+  storeResult := validateIOSAdHocSigning(store, identities, identities[0].name, "dev.doof.demo", 100L)
+  Assert.equal(storeResult.isFailure(), true)
+  case storeResult { failure: Failure<string> -> Assert.stringContains(failure.error, "registered devices") }
 }

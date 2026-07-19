@@ -87,8 +87,11 @@ export function checkOmittedCollectionLiteral(state: CheckerState, annotation: T
               typeError(state, "Cannot infer " + named.name + " type arguments from an empty map literal; provide a full " + named.name + "<K, V> annotation", object.span)
               return finish(state, expression, mapType(unknownType(), unknownType(), named.name == "ReadonlyMap"))
             }
+            let keyType = unknownType()
             let valueType = unknownType()
             for property of object.properties {
+              propertyKeyType := if property.key == null then primitive("string") else checkExpression(state, property.key!, scope, null)
+              keyType = joinTypes(keyType, propertyKeyType)
               let propertyType = unknownType()
               if property.value != null { propertyType = checkExpression(state, property.value!, scope, null) }
               else {
@@ -99,12 +102,19 @@ export function checkOmittedCollectionLiteral(state: CheckerState, annotation: T
               property.resolvedType = optionalResolvedType(propertyType)
               valueType = joinTypes(valueType, propertyType)
             }
+            case keyType {
+              _: UnknownType -> { typeError(state, "Cannot infer " + named.name + " key type from this map literal; provide a full " + named.name + "<K, V> annotation", object.span) }
+              _: UnionResolvedType -> { typeError(state, "Cannot infer " + named.name + " key type from heterogeneous map keys; provide a full " + named.name + "<K, V> annotation", object.span) }
+              _ -> {
+                if !isSupportedHashCollectionType(keyType) { typeError(state, "Map key type \"" + typeName(keyType) + "\" is not supported; map keys must be byte, string, int, long, char, bool, or enum", object.span) }
+              }
+            }
             case valueType {
               _: UnknownType -> { typeError(state, "Cannot infer " + named.name + " type arguments from this map literal; provide a full " + named.name + "<K, V> annotation", object.span) }
               _: UnionResolvedType -> { typeError(state, "Cannot infer " + named.name + " value type from heterogeneous map values; provide a full " + named.name + "<K, V> annotation", object.span) }
               _ -> { }
             }
-            return finish(state, expression, mapType(primitive("string"), valueType, named.name == "ReadonlyMap"))
+            return finish(state, expression, mapType(keyType, valueType, named.name == "ReadonlyMap"))
           }
           _ -> {
             checkExpression(state, expression, scope, null)

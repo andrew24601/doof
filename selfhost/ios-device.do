@@ -30,6 +30,9 @@ export class IOSProvisioningProfile {
   applicationIdentifier: string
   certFingerprints: string[] = []
   expirationEpochMs: long
+  provisionedDeviceCount: int = 0
+  provisionsAllDevices: bool = false
+  getTaskAllow: bool = false
 }
 
 export class IOSDeviceSigningOptions {
@@ -213,6 +216,83 @@ export function selectSigningIdentity(
   return Failure("Could not auto-detect a signing identity for profile \"" + profile.profilePath + "\". Pass --ios-sign-identity.")
 }
 
+/** Resolves the sole installed distribution identity whose certificate is authorized by an Ad Hoc profile. */
+export function resolveIOSAdHocSigningIdentity(
+  profile: IOSProvisioningProfile,
+  identities: IOSCodesignIdentity[],
+  configuredIdentity: string,
+): Result<string, string> {
+  if configuredIdentity != "" { return Success(configuredIdentity) }
+  let matching: IOSCodesignIdentity[] = []
+  for identity of identities {
+    distribution := identity.name.startsWith("Apple Distribution:") || identity.name.startsWith("iPhone Distribution:")
+    if distribution && profile.certFingerprints.contains(identity.fingerprint) { matching.push(identity) }
+  }
+  if matching.length == 0 {
+    return Failure(
+      "No installed Apple Distribution identity is included in provisioning profile \"" +
+      profile.profilePath + "\"",
+    )
+  }
+  if matching.length > 1 {
+    let names = ""
+    for index of 0..<matching.length {
+      if index > 0 { names += ", " }
+      names += matching[index].name
+    }
+    return Failure(
+      "Multiple Apple Distribution identities are included in provisioning profile \"" +
+      profile.profilePath + "\" (" + names + "). Pass --ios-sign-identity.",
+    )
+  }
+  return Success(matching[0].name)
+}
+
+/** Rejects package signing inputs that cannot form an installable Ad Hoc app. */
+export function validateIOSAdHocSigning(
+  profile: IOSProvisioningProfile,
+  identities: IOSCodesignIdentity[],
+  identityName: string,
+  bundleId: string,
+  nowEpochMs: long,
+): Result<void, string> {
+  if !profileMatchesBundleId(profile.applicationIdentifier, bundleId) {
+    return Failure(
+      "Provisioning profile application-identifier \"" + profile.applicationIdentifier +
+      "\" does not match bundle id \"" + bundleId + "\"",
+    )
+  }
+  if profile.expirationEpochMs <= nowEpochMs {
+    return Failure("Provisioning profile is expired: " + profile.profilePath)
+  }
+  if profile.provisionsAllDevices {
+    return Failure("Enterprise provisioning profiles cannot be used for Ad Hoc packaging")
+  }
+  if profile.getTaskAllow {
+    return Failure("Development provisioning profiles cannot be used for Ad Hoc packaging")
+  }
+  if profile.provisionedDeviceCount == 0 {
+    return Failure("Ad Hoc provisioning profile contains no registered devices: " + profile.profilePath)
+  }
+  if !identityName.startsWith("Apple Distribution:") && !identityName.startsWith("iPhone Distribution:") {
+    return Failure("iOS Ad Hoc packaging requires an Apple Distribution signing identity, got \"" + identityName + "\"")
+  }
+  let selected: IOSCodesignIdentity | null = null
+  for identity of identities {
+    if identity.name == identityName { selected = identity; break }
+  }
+  if selected == null {
+    return Failure("Configured iOS signing identity is not currently valid: \"" + identityName + "\"")
+  }
+  if !profile.certFingerprints.contains(selected!.fingerprint) {
+    return Failure(
+      "Configured iOS signing identity \"" + identityName +
+      "\" is not included in provisioning profile \"" + profile.profilePath + "\"",
+    )
+  }
+  return Success()
+}
+
 function hostPlatform(): string {
   value := platform()
   return if value == "darwin" then "macos" else value
@@ -291,7 +371,7 @@ function certificateFingerprint(certificateData: string): Result<string, string>
   return Success(fingerprint)
 }
 
-function parseProvisioningProfile(profilePath: string, workDirectory: string): Result<IOSProvisioningProfile, string> {
+export function parseProvisioningProfile(profilePath: string, workDirectory: string): Result<IOSProvisioningProfile, string> {
   ensureDirectory(workDirectory)
   decodedPath := devicePath(workDirectory, "profile.plist")
   try decodeProvisioningProfile(profilePath, decodedPath)
@@ -317,6 +397,35 @@ function parseProvisioningProfile(profilePath: string, workDirectory: string): R
       success: Success -> { expirationEpochMs = success.value.toEpochMillis() }
       _: Failure -> { }
     }
+  }
+  let provisionedDeviceCount = 0
+  case deviceCommandText(
+    "plutil", ["-extract", "ProvisionedDevices", "raw", "-o", "-", decodedPath],
+    "reading provisioning profile device count",
+  ) {
+    success: Success -> {
+      case int.parse(success.value) {
+        parsedCount: Success -> { provisionedDeviceCount = parsedCount.value }
+        _: Failure -> { }
+      }
+    }
+    _: Failure -> { }
+  }
+  let provisionsAllDevices = false
+  case deviceCommandText(
+    "plutil", ["-extract", "ProvisionsAllDevices", "raw", "-o", "-", decodedPath],
+    "reading enterprise provisioning flag",
+  ) {
+    success: Success -> { provisionsAllDevices = success.value == "true" }
+    _: Failure -> { }
+  }
+  let getTaskAllow = false
+  case deviceCommandText(
+    "plutil", ["-extract", "Entitlements.get-task-allow", "raw", "-o", "-", decodedPath],
+    "reading development provisioning flag",
+  ) {
+    success: Success -> { getTaskAllow = success.value == "true" }
+    _: Failure -> { }
   }
   let certFingerprints: string[] = []
   let certificateCount = 0
@@ -346,6 +455,9 @@ function parseProvisioningProfile(profilePath: string, workDirectory: string): R
     applicationIdentifier,
     certFingerprints,
     expirationEpochMs,
+    provisionedDeviceCount,
+    provisionsAllDevices,
+    getTaskAllow,
   })
 }
 

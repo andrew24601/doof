@@ -1,6 +1,6 @@
 import { Assert } from "std/assert"
 import {
-  IOSAppConfig, iosCodesignArguments, iosPackageArchiveName, iosTargetTriple,
+  IOSAppConfig, iosCodesignArguments, iosExactApplicationIdentifier, iosPackageArchiveName, iosTargetTriple,
   renderIOSInfoPlist, renderIOSMainSource,
 } from "./ios-app"
 
@@ -34,4 +34,21 @@ export function testPlansIOSTargetsArchiveAndSigning(): void {
   arguments := iosCodesignArguments("/tmp/Demo.app", "Apple Distribution: Example", "/tmp/entitlements.plist")
   Assert.equal(arguments.contains("--generate-entitlement-der"), true)
   Assert.equal(arguments[arguments.length - 1], "/tmp/Demo.app")
+}
+
+export function testExpandsWildcardProfileApplicationIdentifierForSigning(): void {
+  Assert.equal(
+    try! iosExactApplicationIdentifier("TEAMID.dev.doof.*", "dev.doof.demo"),
+    "TEAMID.dev.doof.demo",
+  )
+  Assert.equal(
+    try! iosExactApplicationIdentifier("TEAMID.dev.doof.demo", "dev.doof.demo"),
+    "TEAMID.dev.doof.demo",
+  )
+}
+
+export function testRejectsMismatchedProfileApplicationIdentifierForSigning(): void {
+  result := iosExactApplicationIdentifier("TEAMID.dev.other.*", "dev.doof.demo")
+  Assert.equal(result.isFailure(), true)
+  case result { failure: Failure<string> -> Assert.stringContains(failure.error, "does not match bundle id") }
 }

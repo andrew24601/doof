@@ -90,6 +90,7 @@ function emitFromJsonValue(owner: ClassDeclaration, context: EmitContext): strin
     for name of field.names {
       if arguments != "" { arguments = arguments + ", " }
       arguments = arguments + "_field_" + cppIdentifier(name)
+      if field.defaultValue != null { arguments = arguments + ".value()" }
     }
   }
   let constructed = owner.name + "{" + arguments + "}"
@@ -124,7 +125,7 @@ function emitJsonFieldRead(field: ClassField, name: string, context: EmitContext
   typeText := emitContextType(type_, context)
   let result = ""
   if field.defaultValue != null {
-    result = result + "    " + typeText + " " + value + ";\n"
+    result = result + "    std::optional<" + typeText + "> " + value + ";\n"
     result = result + "    if (auto " + iterator + " = _object->find(\"" + name + "\"); " + iterator + " != _object->end()) {\n"
     result = result + emitJsonValidation(iterator + "->second", type_, name, failureType, 2)
     result = result + "        " + value + " = " + emitJsonRead(iterator + "->second", type_, context) + ";\n"
